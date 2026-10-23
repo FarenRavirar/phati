@@ -32,12 +32,16 @@ def _configuracao_banco(usuario, senha):
     }
 
 
-# `default` é o papel dono (migrações e preparo de dados); `app` é o papel da aplicação: não é dono
-# das tabelas e não tem BYPASSRLS, então a RLS da Fase 4 vale para ele (plan.md §Camada de banco).
+_banco_app = _configuracao_banco('PHATI_BANCO_APP_USUARIO', 'PHATI_BANCO_APP_SENHA')
+
+# `app` é o papel da aplicação: não é dono das tabelas e não tem BYPASSRLS, então a RLS da Fase 4 vale
+# para ele (plan.md §Camada de banco). O papel dono só entra no processo que recebe a senha dele
+# (migração e testes); no processo web o `default` é o próprio `app`, e `.using()` omitido nunca roda como dono.
 DATABASES = {
-    'default': _configuracao_banco('PHATI_BANCO_DONO_USUARIO', 'PHATI_BANCO_DONO_SENHA'),
-    'app': {
-        **_configuracao_banco('PHATI_BANCO_APP_USUARIO', 'PHATI_BANCO_APP_SENHA'),
-        'TEST': {'MIRROR': 'default'},
-    },
+    'default': (
+        _configuracao_banco('PHATI_BANCO_DONO_USUARIO', 'PHATI_BANCO_DONO_SENHA')
+        if 'PHATI_BANCO_DONO_SENHA' in os.environ
+        else _banco_app
+    ),
+    'app': {**_banco_app, 'TEST': {'MIRROR': 'default'}},
 }

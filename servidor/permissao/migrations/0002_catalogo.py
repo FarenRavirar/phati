@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import migrations
 
 # Cópia congelada do catálogo (plan.md §Catálogo de ações): migração não importa código que evolui.
@@ -36,10 +37,14 @@ ACOES = [
 def carregar(apps, schema_editor):
     Permissao = apps.get_model('permissao', 'Permissao')
     Permissao.objects.bulk_create(Permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES)
+    # O catálogo só cresce por migração: o papel da aplicação lê, não escreve (achado do CodeRabbit, PR #1).
+    app = schema_editor.quote_name(settings.DATABASES['app']['USER'])
+    schema_editor.execute(f'REVOKE INSERT, UPDATE, DELETE ON permissao FROM {app}')
 
 
 def descarregar(apps, schema_editor):
-    apps.get_model('permissao', 'Permissao').objects.all().delete()
+    # Só as ações desta migração; código acrescentado por migração posterior sai na reversão dela.
+    apps.get_model('permissao', 'Permissao').objects.filter(codigo__in=[c for c, _, _ in ACOES]).delete()
 
 
 class Migration(migrations.Migration):

@@ -31,7 +31,7 @@ INGLES = {
 }
 
 
-def _tokens(nome):
+def _palavras(nome):
     return [t.lower() for t in re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+', nome)]
 
 
@@ -51,14 +51,20 @@ def _definidos(arvore):
 
 def achados_em(codigo):
     """Devolve os identificadores em inglês do código dado."""
-    nomes = {n for n in _definidos(ast.parse(codigo)) if n not in PERMITIDOS and not n.startswith('__')}
-    return sorted(n for n in nomes if set(_tokens(n)) & INGLES)
+    nomes = {n for n in _definidos(ast.parse(codigo)) if n not in PERMITIDOS and not (n.startswith('__') and n.endswith('__'))}
+    return sorted(n for n in nomes if {p.rstrip('s') for p in _palavras(n)} & INGLES)
 
 
 def test_detecta_identificador_em_ingles():
     assert achados_em('def get_user(): pass') == ['get_user']
     assert achados_em('class UserGroup:\n    nome_do_grupo = 1') == ['UserGroup']
     assert achados_em('def buscar_fazendas_autorizadas(pessoa): pass') == []
+
+
+def test_dunder_do_python_passa_mas_dois_underscores_de_nome_ingles_nao():
+    assert achados_em('class Empresa:\n    def __init__(self): pass') == []
+    assert achados_em('def __get_user(): pass') == ['__get_user']
+    assert achados_em('_tokens = 1') == ['_tokens']
 
 
 def test_identificadores_do_servidor_em_portugues():

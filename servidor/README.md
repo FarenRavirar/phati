@@ -2,6 +2,11 @@
 
 Django 6.1 sobre PostgreSQL 17. Python 3.12 ou mais. Versões fixadas em `requirements.lock.txt`.
 
+## Primeiro uso do clone
+
+Ativar os hooks de pré-commit (vazamento e par arquivo–teste), uma vez por clone: `git config core.hooksPath .githooks`.
+O git não versiona essa configuração, então o hook só vale depois deste comando.
+
 ## Banco local
 
 Subir o PostgreSQL 17 (binário portátil, porta 5433). No Windows, `pg_ctl start` pelo Git Bash trava o terminal;
@@ -11,9 +16,10 @@ usar PowerShell (`E001` em `.specify/memory/errors.md`):
 
 Depois, uma vez como superusuário, criar papéis e banco e migrar:
 
-    PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
+    PHATI_BANCO_DONO_USUARIO=dono PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_USUARIO=app PHATI_BANCO_APP_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
 
-`dono` roda as migrações e é dono das tabelas; `app` é o papel da aplicação: não é dono e não tem `BYPASSRLS`.
+O papel dono roda as migrações e é dono das tabelas; o papel app é o da aplicação: não é dono e não tem `BYPASSRLS`.
+O processo web recebe só a credencial do `app`; a do dono fica em `migracao` e nos testes (sem `PHATI_BANCO_DONO_SENHA`, o `default` do Django é o próprio `app`).
 Os nomes das variáveis de ambiente estão em `.env.exemplo`. Sem `PHATI_CHAVE_SECRETA` o servidor não sobe.
 
     python manage.py migrate

@@ -17,6 +17,13 @@ def test_chave_secreta_ausente_falha_alto(monkeypatch):
         runpy.run_path(str(CAMINHO))
 
 
+def test_processo_web_sem_senha_do_dono_usa_o_papel_app_como_padrao(monkeypatch):
+    monkeypatch.delenv('PHATI_BANCO_DONO_SENHA')
+    bancos = runpy.run_path(str(CAMINHO))['DATABASES']
+    assert bancos['default']['USER'] == bancos['app']['USER']
+    assert bancos['default']['PASSWORD'] == bancos['app']['PASSWORD']
+
+
 def test_dois_papeis_distintos():
     assert settings.DATABASES['default']['USER'] != settings.DATABASES['app']['USER']
 

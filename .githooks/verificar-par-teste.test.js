@@ -5,8 +5,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { verificar, parEsperado } = require('./verificar-par-teste.js');
 
-const nada = () => false;
-
 test('Python de app exige o par em testes/', () => {
   assert.equal(parEsperado('servidor/permissao/pode.py'), 'servidor/permissao/testes/test_pode.py');
   assert.equal(
@@ -39,18 +37,21 @@ test('JS/TS exige o .test irmão; o próprio teste e .d.ts não', () => {
 });
 
 test('sem par existente nem no commit, bloqueia', () => {
-  const achados = verificar({ caminhos: ['servidor/permissao/pode.py'], existe: nada });
+  const achados = verificar({ caminhos: ['servidor/permissao/pode.py'], rastreados: ['servidor/permissao/pode.py'] });
   assert.deepEqual(achados, [{ arquivo: 'servidor/permissao/pode.py', par: 'servidor/permissao/testes/test_pode.py' }]);
 });
 
-test('par no mesmo commit ou já no repositório passa', () => {
-  const noCommit = verificar({
-    caminhos: ['servidor/permissao/pode.py', 'servidor/permissao/testes/test_pode.py'],
-    existe: nada,
-  });
-  assert.deepEqual(noCommit, []);
-  const noRepo = verificar({ caminhos: ['servidor/permissao/pode.py'], existe: () => true });
-  assert.deepEqual(noRepo, []);
+test('par no índice (no mesmo commit ou já no repositório) passa', () => {
+  const rastreados = ['servidor/permissao/pode.py', 'servidor/permissao/testes/test_pode.py'];
+  assert.deepEqual(verificar({ caminhos: rastreados, rastreados }), []);
+  assert.deepEqual(verificar({ caminhos: ['servidor/permissao/pode.py'], rastreados }), []);
+});
+
+test('apagar só o teste de um módulo rastreado bloqueia; apagar os dois passa', () => {
+  const teste = 'servidor/permissao/testes/test_pode.py';
+  const so = verificar({ caminhos: [], removidos: [teste], rastreados: ['servidor/permissao/pode.py'] });
+  assert.deepEqual(so, [{ arquivo: 'servidor/permissao/pode.py', par: teste }]);
+  assert.deepEqual(verificar({ caminhos: [], removidos: [teste, 'servidor/permissao/pode.py'], rastreados: [] }), []);
 });
 
 test('de ponta a ponta: par só no disco (fora do stage) bloqueia; par no stage passa', () => {
@@ -80,6 +81,11 @@ test('de ponta a ponta: par só no disco (fora do stage) bloqueia; par no stage 
     assert.equal(hook(), 1, 'par untracked no disco não conta');
     git('add', 'servidor/x/testes/test_y.py');
     assert.equal(hook(), 0, 'par no stage conta');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'base', '--no-verify');
+    git('rm', '-q', 'servidor/x/testes/test_y.py');
+    assert.equal(hook(), 1, 'apagar só o teste bloqueia');
+    git('rm', '-q', 'servidor/x/y.py');
+    assert.equal(hook(), 0, 'apagar módulo e teste passa');
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }

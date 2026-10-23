@@ -1,11 +1,10 @@
 # Dev e testes: sobe o mesmo par da produção (app + banco). Variáveis vêm do ambiente ou de um .env
 # fora do repositório (nomes em .env.exemplo); sem elas o compose recusa subir.
+# O serviço `app` recebe só as credenciais do papel `app`; as do papel `dono` ficam só em `migracao`.
 x-ambiente-app: &ambiente_app
   PHATI_CHAVE_SECRETA: ${PHATI_CHAVE_SECRETA:?}
   PHATI_BANCO_HOST: banco
   PHATI_BANCO_PORTA: "5432"
-  PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
-  PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
   PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
   PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
 
@@ -14,7 +13,9 @@ services:
     image: postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe # PostgreSQL 17.11
     environment:
       POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
+      PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
       PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
+      PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
       PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
     volumes:
       - dados_banco:/var/lib/postgresql/data
@@ -28,7 +29,10 @@ services:
   migracao:
     build: .
     command: python manage.py migrate
-    environment: *ambiente_app
+    environment:
+      <<: *ambiente_app
+      PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
+      PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
     depends_on:
       banco: {condition: service_healthy}
 
