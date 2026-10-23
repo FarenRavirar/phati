@@ -52,6 +52,12 @@ def _definidos(arvore):
             yield no.attr
         elif isinstance(no, ast.alias) and no.asname:
             yield no.asname
+        elif isinstance(no, ast.ExceptHandler) and no.name:
+            yield no.name
+        elif isinstance(no, (ast.MatchAs, ast.MatchStar)) and no.name:
+            yield no.name
+        elif isinstance(no, ast.MatchMapping) and no.rest:
+            yield no.rest
 
 
 def achados_em(codigo):
@@ -72,6 +78,14 @@ def test_palavra_inglesa_que_termina_em_s_e_palavra_portuguesa_ambigua():
     # 'data' (dia) e 'total' são palavras do português: não podem ser barradas.
     assert achados_em('data = 1') == []
     assert achados_em('valor_total = 2') == []
+
+
+def test_nomes_de_except_e_de_match_tambem_contam():
+    assert achados_em('try: pass\nexcept Exception as error: pass') == ['error']
+    assert achados_em('try: pass\nexcept Exception as erro: pass') == []
+    assert achados_em('match x:\n case [result, *values]: pass') == ['result', 'values']
+    assert achados_em('match x:\n case {"a": 1, **results}: pass') == ['results']
+    assert achados_em('match x:\n case {"a": 1, **resto}: pass') == []
 
 
 def test_dunder_do_python_passa_mas_dois_underscores_de_nome_ingles_nao():

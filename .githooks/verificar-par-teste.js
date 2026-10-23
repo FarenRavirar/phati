@@ -68,9 +68,9 @@ function principal() {
   const raiz = git(['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
   const caminhos = listar(raiz, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']);
   const removidos = listar(raiz, ['diff', '--cached', '--name-only', '--diff-filter=D', '--no-renames', '-z']);
-  // `git add -N` põe o arquivo no índice vazio, mas ele não entra no commit: aparece como "A" no diff
-  // do disco contra o índice (achado do CodeRabbit, PR #1).
-  const soIntencao = new Set(listar(raiz, ['diff', '--name-only', '--diff-filter=A', '-z']));
+  // `git add -N` põe o arquivo no índice vazio, mas ele não entra no commit. `--ita-invisible-in-index` o mostra
+  // como "A" no diff do disco contra o índice em qualquer versão do git (achado do CodeRabbit, PR #1).
+  const soIntencao = new Set(listar(raiz, ['diff', '--ita-invisible-in-index', '--name-only', '--diff-filter=A', '-z']));
   const rastreados = listar(raiz, ['ls-files', '-z']).filter((c) => !soIntencao.has(c));
   const achados = verificar({ caminhos, removidos, rastreados });
   if (achados.length === 0) return 0;

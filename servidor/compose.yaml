@@ -26,7 +26,8 @@ services:
       - ./banco/papeis.sql:/papeis.sql:ro
       - ./banco/inicializar-papeis.sh:/docker-entrypoint-initdb.d/inicializar-papeis.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d $$PHATI_BANCO_NOME"]
+      # -h 127.0.0.1: na criação do volume a imagem sobe um servidor temporário só em socket; sem -h ele pareceria pronto.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $$PHATI_BANCO_NOME"]
       interval: 5s
       retries: 10
 

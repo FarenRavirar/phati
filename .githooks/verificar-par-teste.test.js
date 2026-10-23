@@ -125,17 +125,17 @@ test('o pre-commit propaga a falha de cada verificador (vazamento e par)', () =>
       fs.mkdirSync(path.join(repositorio, '.githooks'), { recursive: true });
       fs.copyFileSync(path.join(__dirname, arquivo), path.join(repositorio, '.githooks', arquivo));
     }
-    const preCommit = () => executar('sh', '.githooks/pre-commit');
+    const executarPreCommit = () => executar('sh', '.githooks/pre-commit');
     escrever('servidor/x/y.py');
     escrever('servidor/x/testes/test_y.py');
     git('add', 'servidor/x/y.py', 'servidor/x/testes/test_y.py');
-    assert.equal(preCommit(), 0, 'sem problema, passa');
+    assert.equal(executarPreCommit(), 0, 'sem problema, passa');
     git('rm', '-q', '--cached', 'servidor/x/testes/test_y.py');
-    assert.notEqual(preCommit(), 0, 'o primeiro verificador passa e o segundo (par) falha');
+    assert.notEqual(executarPreCommit(), 0, 'o primeiro verificador passa e o segundo (par) falha');
     git('add', 'servidor/x/testes/test_y.py');
     escrever('.env', 'x=1\n');
     git('add', '-f', '.env');
-    assert.notEqual(preCommit(), 0, 'o primeiro verificador (vazamento) falha');
+    assert.notEqual(executarPreCommit(), 0, 'o primeiro verificador (vazamento) falha');
   } finally {
     limpar();
   }

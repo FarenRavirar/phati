@@ -60,3 +60,9 @@ def test_compose_repassa_toda_variavel_que_o_settings_le():
     lidas = set(re.findall(r'PHATI_[A-Z_]+', CAMINHO.read_text(encoding='utf-8')))
     listadas = set(re.findall(r'PHATI_[A-Z_]+', (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')))
     assert lidas - listadas == set()
+
+
+def test_healthcheck_do_banco_espera_o_servidor_tcp():
+    # Achado do CodeRabbit (PR #1): sem `-h`, o pg_isready aceita o servidor temporário do initdb (só socket).
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'pg_isready -h 127.0.0.1' in compose
