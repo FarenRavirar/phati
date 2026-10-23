@@ -1,3 +1,4 @@
 #!/bin/sh
 # Hook de pré-commit do phati. Ativar uma vez por clone: git config core.hooksPath .githooks
-exec node "$(git rev-parse --show-toplevel)/.githooks/verificar-vazamento.js"
+raiz="$(git rev-parse --show-toplevel)"
+node "$raiz/.githooks/verificar-vazamento.js" && node "$raiz/.githooks/verificar-par-teste.js"

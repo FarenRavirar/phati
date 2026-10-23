@@ -1,0 +1,33 @@
+[project]
+name = "phati-servidor"
+version = "0.1.0"
+requires-python = ">=3.12"
+# Versões fixadas em requirements.lock.txt.
+dependencies = [
+    "Django==6.1.2",
+    "django-ninja==1.7.1",
+    "psycopg[binary]==3.3.6",
+    "argon2-cffi==25.1.0",
+    "cryptography==50.0.2",
+    "gunicorn==26.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-django==4.14.0",
+    "pytest-cov==7.1.0",
+    "diff-cover==10.6.0",
+    "pyright==1.1.414",
+    "django-stubs==6.1.2",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "projeto.settings"
+pythonpath = ["."]
+# testpaths explícito: o pytest coleta teste de qualquer pasta (armadilha medida na prova de conceito).
+testpaths = ["comum", "identidade", "territorio", "permissao", "projeto"]
+
+[tool.pyright]
+include = ["comum", "identidade", "territorio", "permissao", "projeto"]
+exclude = ["**/migrations"]
