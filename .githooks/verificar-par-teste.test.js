@@ -3,6 +3,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { verificar, parEsperado } = require('./verificar-par-teste.js');
 
 test('Python de app exige o par em testes/', () => {
@@ -58,39 +62,86 @@ test('apagar só o teste de um módulo rastreado bloqueia; apagar os dois passa'
   assert.deepEqual(verificar({ caminhos: [], removidos: [teste, 'servidor/permissao/pode.py'], rastreados: [] }), []);
 });
 
-test('de ponta a ponta: par só no disco (fora do stage) bloqueia; par no stage passa', () => {
-  const { execFileSync } = require('node:child_process');
-  const fs = require('node:fs');
-  const os = require('node:os');
-  const path = require('node:path');
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'par-teste-'));
-  const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
-  const escrever = (caminho) => {
-    fs.mkdirSync(path.dirname(path.join(repo, caminho)), { recursive: true });
-    fs.writeFileSync(path.join(repo, caminho), '# x\n');
+// Repositório temporário com os hooks copiados; devolve utilitários para os testes de ponta a ponta.
+function criarRepositorio() {
+  const repositorio = fs.mkdtempSync(path.join(os.tmpdir(), 'par-teste-'));
+  const git = (...argumentos) => execFileSync('git', argumentos, { cwd: repositorio, stdio: 'pipe' });
+  const escrever = (caminho, conteudo = '# x\n') => {
+    fs.mkdirSync(path.dirname(path.join(repositorio, caminho)), { recursive: true });
+    fs.writeFileSync(path.join(repositorio, caminho), conteudo);
   };
-  const hook = () => {
+  const executar = (...comando) => {
     try {
-      execFileSync('node', [path.join(__dirname, 'verificar-par-teste.js')], { cwd: repo, stdio: 'pipe' });
+      execFileSync(comando[0], comando.slice(1), { cwd: repositorio, stdio: 'pipe' });
       return 0;
     } catch (erro) {
       return erro.status;
     }
   };
+  const executarHook = () => executar('node', path.join(__dirname, 'verificar-par-teste.js'));
+  const limpar = () => fs.rmSync(repositorio, { recursive: true, force: true });
+  return { repositorio, git, escrever, executar, executarHook, limpar };
+}
+
+test('de ponta a ponta: par só no disco (fora do stage) bloqueia; par no stage passa', () => {
+  const { git, escrever, executarHook, limpar } = criarRepositorio();
   try {
     git('init', '-q');
     escrever('servidor/x/y.py');
     escrever('servidor/x/testes/test_y.py');
     git('add', 'servidor/x/y.py');
-    assert.equal(hook(), 1, 'par untracked no disco não conta');
+    assert.equal(executarHook(), 1, 'par untracked no disco não conta');
     git('add', 'servidor/x/testes/test_y.py');
-    assert.equal(hook(), 0, 'par no stage conta');
+    assert.equal(executarHook(), 0, 'par no stage conta');
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'base', '--no-verify');
     git('rm', '-q', 'servidor/x/testes/test_y.py');
-    assert.equal(hook(), 1, 'apagar só o teste bloqueia');
+    assert.equal(executarHook(), 1, 'apagar só o teste bloqueia');
     git('rm', '-q', 'servidor/x/y.py');
-    assert.equal(hook(), 0, 'apagar módulo e teste passa');
+    assert.equal(executarHook(), 0, 'apagar módulo e teste passa');
   } finally {
-    fs.rmSync(repo, { recursive: true, force: true });
+    limpar();
   }
+});
+
+test('de ponta a ponta: par adicionado só com git add -N não conta', () => {
+  const { git, escrever, executarHook, limpar } = criarRepositorio();
+  try {
+    git('init', '-q');
+    escrever('servidor/x/y.py');
+    escrever('servidor/x/testes/test_y.py');
+    git('add', 'servidor/x/y.py');
+    git('add', '-N', 'servidor/x/testes/test_y.py');
+    assert.equal(executarHook(), 1, 'intent-to-add não entra no commit');
+  } finally {
+    limpar();
+  }
+});
+
+test('o pre-commit propaga a falha de cada verificador (vazamento e par)', () => {
+  const { git, escrever, executar, limpar, repositorio } = criarRepositorio();
+  try {
+    git('init', '-q');
+    for (const arquivo of ['pre-commit', 'verificar-vazamento.js', 'verificar-par-teste.js']) {
+      fs.mkdirSync(path.join(repositorio, '.githooks'), { recursive: true });
+      fs.copyFileSync(path.join(__dirname, arquivo), path.join(repositorio, '.githooks', arquivo));
+    }
+    const preCommit = () => executar('sh', '.githooks/pre-commit');
+    escrever('servidor/x/y.py');
+    escrever('servidor/x/testes/test_y.py');
+    git('add', 'servidor/x/y.py', 'servidor/x/testes/test_y.py');
+    assert.equal(preCommit(), 0, 'sem problema, passa');
+    git('rm', '-q', '--cached', 'servidor/x/testes/test_y.py');
+    assert.notEqual(preCommit(), 0, 'o primeiro verificador passa e o segundo (par) falha');
+    git('add', 'servidor/x/testes/test_y.py');
+    escrever('.env', 'x=1\n');
+    git('add', '-f', '.env');
+    assert.notEqual(preCommit(), 0, 'o primeiro verificador (vazamento) falha');
+  } finally {
+    limpar();
+  }
+});
+
+test('pre-commit está versionado como executável (o git ignora hook sem o bit +x)', () => {
+  const saida = execFileSync('git', ['ls-files', '-s', '.githooks/pre-commit'], { encoding: 'utf8' });
+  assert.match(saida, /^100755 /);
 });

@@ -33,7 +33,7 @@ class Fazenda(models.Model):
     class Meta:
         db_table = 'fazenda'
         constraints = [
-            # Alvo da chave estrangeira composta de sub_area (migração 0002): fazenda e empresa andam juntas.
+            # Alvo da chave estrangeira composta de sub_area (migração 0001): fazenda e empresa andam juntas.
             models.UniqueConstraint(fields=['id', 'empresa'], name='fazenda_id_empresa_unico'),
         ]
 
@@ -43,7 +43,7 @@ class SubArea(models.Model):
 
     `caminho` guarda os ids dos ancestrais ('/' na raiz, '/1/5/' no neto do nó 1 via nó 5).
     Coerência de empresa/fazenda (chave composta) e de nível/pai/caminho (gatilho) é garantida
-    no banco (migração 0002), não só por esta classe.
+    no banco (migração 0001), não só por esta classe.
     """
 
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT)

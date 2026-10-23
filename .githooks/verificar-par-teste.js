@@ -56,19 +56,22 @@ function verificar({ caminhos, removidos = [], rastreados }) {
   return achados;
 }
 
-function git(args, opcoes = {}) {
-  return execFileSync('git', args, { maxBuffer: 256 * 1024 * 1024, ...opcoes });
+function git(argumentos, opcoes = {}) {
+  return execFileSync('git', argumentos, { maxBuffer: 256 * 1024 * 1024, ...opcoes });
 }
 
-function listar(raiz, args) {
-  return git(args, { cwd: raiz, encoding: 'utf8' }).split('\0').filter(Boolean);
+function listar(raiz, argumentos) {
+  return git(argumentos, { cwd: raiz, encoding: 'utf8' }).split('\0').filter(Boolean);
 }
 
 function principal() {
   const raiz = git(['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
   const caminhos = listar(raiz, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']);
   const removidos = listar(raiz, ['diff', '--cached', '--name-only', '--diff-filter=D', '--no-renames', '-z']);
-  const rastreados = listar(raiz, ['ls-files', '-z']);
+  // `git add -N` põe o arquivo no índice vazio, mas ele não entra no commit: aparece como "A" no diff
+  // do disco contra o índice (achado do CodeRabbit, PR #1).
+  const soIntencao = new Set(listar(raiz, ['diff', '--name-only', '--diff-filter=A', '-z']));
+  const rastreados = listar(raiz, ['ls-files', '-z']).filter((c) => !soIntencao.has(c));
   const achados = verificar({ caminhos, removidos, rastreados });
   if (achados.length === 0) return 0;
   process.stderr.write('COMMIT BLOQUEADO: arquivo de código sem teste irmão (AGENTS.md §Testes).\n');

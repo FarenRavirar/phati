@@ -1,3 +1,4 @@
+import re
 import runpy
 from pathlib import Path
 
@@ -5,7 +6,7 @@ import pytest
 from django.conf import settings
 from django.db import ProgrammingError, connections
 
-CAMINHO = Path(settings.BASE_DIR) / 'projeto' / 'settings.py'
+CAMINHO = Path(settings.DIRETORIO_BASE) / 'projeto' / 'settings.py'
 
 # `app` lê o que o dono migrou e já foi confirmado no banco de teste; sem dado novo, sem `transaction=True`.
 usa_app = pytest.mark.django_db(databases=['default', 'app'])
@@ -52,3 +53,10 @@ def test_papel_app_le_tabela_do_dono_mas_nao_cria_tabela():
     assert _um('app', 'SELECT count(*) FROM permissao') == (27,)
     with pytest.raises(ProgrammingError, match='permission denied'), connections['app'].cursor() as consulta:
         consulta.execute('CREATE TABLE intrusa (id int)')
+
+
+def test_compose_repassa_toda_variavel_que_o_settings_le():
+    # Achado do Codex (PR #1): variável do shell só chega ao contêiner se o compose a listar.
+    lidas = set(re.findall(r'PHATI_[A-Z_]+', CAMINHO.read_text(encoding='utf-8')))
+    listadas = set(re.findall(r'PHATI_[A-Z_]+', (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')))
+    assert lidas - listadas == set()

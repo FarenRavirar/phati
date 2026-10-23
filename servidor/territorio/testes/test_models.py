@@ -1,5 +1,5 @@
 import pytest
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 
 from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 
@@ -102,3 +102,23 @@ def test_fazenda_com_sub_area_nao_troca_de_empresa(fazenda):
     outra_empresa = Empresa.objects.create(nome='Empresa sintética B')
     with pytest.raises(IntegrityError), transaction.atomic():
         Fazenda.objects.filter(pk=fazenda.pk).update(empresa=outra_empresa)
+
+
+def test_gatilho_ignora_tabela_temporaria_com_o_mesmo_nome(fazenda, empresa):
+    """Achado do Codex (PR #1): `sub_area` sem schema no gatilho lia `pg_temp.sub_area`, tabela que qualquer
+    sessão com TEMPORARY (PUBLIC, por padrão) cria. Assim um pai de outra fazenda passava na validação."""
+    outra = Fazenda.objects.create(empresa=empresa, nome='Fazenda sintética 2')
+    pai_real = _sub_area(outra, 1)
+    with connection.cursor() as consulta:
+        consulta.execute('CREATE TEMP TABLE sub_area (LIKE public.sub_area INCLUDING ALL) ON COMMIT DROP')
+        consulta.execute(
+            'INSERT INTO pg_temp.sub_area (id, empresa_id, fazenda_id, pai_id, nivel, nome, caminho) '
+            "VALUES (%s, %s, %s, NULL, 1, 'falso', '/')",
+            [pai_real.pk, empresa.pk, fazenda.pk],
+        )
+        with pytest.raises(IntegrityError), transaction.atomic():
+            consulta.execute(
+                'INSERT INTO public.sub_area (empresa_id, fazenda_id, pai_id, nivel, nome, caminho) '
+                "VALUES (%s, %s, %s, 2, 'filho', '/')",
+                [empresa.pk, fazenda.pk, pai_real.pk],
+            )

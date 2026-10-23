@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+DIRETORIO_BASE = Path(__file__).resolve().parent.parent
 
 # Configuração só por variável de ambiente (nomes em .env.exemplo); nenhum segredo no repositório.
 SECRET_KEY = os.environ['PHATI_CHAVE_SECRETA']
@@ -14,6 +14,8 @@ INSTALLED_APPS = [
     'territorio',
     'permissao',
 ]
+
+ROOT_URLCONF = 'projeto.urls'
 
 LANGUAGE_CODE = 'pt-br'
 TIME_ZONE = 'America/Sao_Paulo'
