@@ -21,12 +21,16 @@ test('isentos da lista fixa não exigem par', () => {
     'servidor/manage.py',
     'servidor/projeto/wsgi.py',
     'servidor/projeto/asgi.py',
-    'servidor/conftest.py',
     'servidor/permissao/testes/test_pode.py',
     'README.md',
   ]) {
     assert.equal(parEsperado(c), null, c);
   }
+});
+
+test('conftest.py exige par, na raiz de servidor/ e dentro de app', () => {
+  assert.equal(parEsperado('servidor/conftest.py'), 'servidor/projeto/testes/test_conftest.py');
+  assert.equal(parEsperado('servidor/permissao/conftest.py'), 'servidor/permissao/testes/test_conftest.py');
 });
 
 test('JS/TS exige o .test irmão; o próprio teste e .d.ts não', () => {

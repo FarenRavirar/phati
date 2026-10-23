@@ -12,11 +12,11 @@ O git não versiona essa configuração, então o hook só vale depois deste com
 Subir o PostgreSQL 17 (binário portátil, porta 5433). No Windows, `pg_ctl start` pelo Git Bash trava o terminal;
 usar PowerShell (`E001` em `.specify/memory/errors.md`):
 
-    Start-Process -WindowStyle Hidden -FilePath <pgsql>in\pg_ctl.exe -ArgumentList @('-D','<dados>','-l','<log>','-o','"-p 5433"','start')
+    Start-Process -WindowStyle Hidden -FilePath <pgsql>\bin\pg_ctl.exe -ArgumentList @('-D','<dados>','-l','<log>','-o','"-p 5433"','start')
 
 Depois, uma vez como superusuário, criar papéis e banco e migrar:
 
-    PHATI_BANCO_DONO_USUARIO=dono PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_USUARIO=app PHATI_BANCO_APP_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
+    PHATI_BANCO_NOME=phati PHATI_BANCO_DONO_USUARIO=dono PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_USUARIO=app PHATI_BANCO_APP_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
 
 O papel dono roda as migrações e é dono das tabelas; o papel app é o da aplicação: não é dono e não tem `BYPASSRLS`.
 O processo web recebe só a credencial do `app`; a do dono fica em `migracao` e nos testes (sem `PHATI_BANCO_DONO_SENHA`, o `default` do Django é o próprio `app`).

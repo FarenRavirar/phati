@@ -6,8 +6,9 @@
 // - Python em `servidor/`: `servidor/<app>/<modulo>.py` ↔ `servidor/<app>/testes/test_<modulo>.py`
 //   (módulo aninhado usa o nome do arquivo: o par fica em `servidor/<app>/testes/`);
 // - JS/TS: `<nome>.test.<ext>` ao lado.
-// Isentos: lista fixa do AGENTS.md (`__init__.py`, `migrations/`, `manage.py`, `apps.py`,
-// `wsgi.py`, `asgi.py`), mais `conftest.py` e os próprios testes (infraestrutura de teste).
+// Isentos: só a lista fixa do AGENTS.md (`__init__.py`, `migrations/`, `manage.py`, `apps.py`,
+// `wsgi.py`, `asgi.py`) e os próprios testes. `conftest.py` exige par (achado do Codex no PR #1).
+// Arquivo na raiz de `servidor/` tem o par em `servidor/projeto/testes/`.
 // O inverso também vale: apagar ou renomear um teste que ainda é o par de um módulo rastreado bloqueia
 // (achado do Codex no PR #1: a exclusão isolada passava).
 // O par existir não prova o teste: cobertura e mutação manual continuam valendo.
@@ -15,7 +16,7 @@
 
 const { execFileSync } = require('node:child_process');
 
-const ISENTOS_PY = new Set(['__init__.py', 'manage.py', 'apps.py', 'wsgi.py', 'asgi.py', 'conftest.py']);
+const ISENTOS_PY = new Set(['__init__.py', 'manage.py', 'apps.py', 'wsgi.py', 'asgi.py']);
 const EXTENSOES_JS = /\.(js|jsx|ts|tsx|mjs|cjs)$/;
 
 // Devolve o caminho do par esperado, ou null quando o arquivo não exige par.
@@ -26,6 +27,10 @@ function parEsperado(caminho) {
   if (/^servidor\/[^/]+\/.+\.py$/.test(c)) {
     if (ISENTOS_PY.has(nome) || partes.includes('migrations') || partes.includes('testes')) return null;
     return `servidor/${partes[1]}/testes/test_${nome}`;
+  }
+  // Arquivo na raiz de `servidor/` (ex.: conftest.py) não tem app: o par fica no pacote do projeto.
+  if (/^servidor\/[^/]+\.py$/.test(c)) {
+    return ISENTOS_PY.has(nome) ? null : `servidor/projeto/testes/test_${nome}`;
   }
   if (EXTENSOES_JS.test(nome) && !/\.test\.[^.]+$/.test(nome) && !nome.endsWith('.d.ts')) {
     return c.replace(EXTENSOES_JS, (ext) => `.test${ext}`);
