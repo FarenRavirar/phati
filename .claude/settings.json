@@ -1,0 +1,67 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh maruko ls:*)",
+      "Bash(ssh maruko df:*)",
+      "Bash(ssh maruko free:*)",
+      "Bash(ssh maruko uptime:*)",
+      "Bash(ssh maruko whoami:*)",
+      "Bash(ssh maruko stat:*)",
+      "Bash(ssh maruko wc:*)",
+      "Bash(ssh maruko docker ps:*)",
+      "Bash(ssh maruko docker logs:*)",
+      "Bash(ssh maruko docker inspect:*)",
+      "Bash(ssh maruko docker stats:*)",
+      "Bash(ssh maruko docker images:*)",
+      "Bash(ssh maruko systemctl status:*)"
+    ],
+    "deny": [
+      "Bash(*shutdown*)",
+      "Bash(*reboot*)",
+      "Bash(*poweroff*)",
+      "Bash(*commit --amend*)",
+      "Bash(*push --force*)",
+      "Bash(*push -f *)",
+      "Bash(*ssh maruko*rm -rf*)",
+      "Bash(*ssh maruko*.env*)",
+      "Bash(*ssh maruko*.key*)",
+      "Bash(*ssh maruko*.pem*)",
+      "Bash(*ssh maruko*id_rsa*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(~/.ssh/**)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git worktree:*)",
+      "Bash(git merge:*)",
+      "Bash(git reset:*)",
+      "Bash(git rebase:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(*docker restart*)",
+      "Bash(*docker stop*)",
+      "Bash(*docker rm*)",
+      "Bash(*docker compose up*)",
+      "Bash(*docker compose down*)",
+      "Bash(ssh maruko:*)",
+      "Bash(scp *)",
+      "Bash(rsync *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/caveman-resposta-final.js\"" } ] },
+      { "hooks": [ { "type": "command", "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/sync-p.ps1\"" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Read", "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-read-gate.js\"" } ] },
+      { "matcher": "Bash", "hooks": [
+        { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-enforce.js\"" },
+        { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\"" }
+      ] }
+    ]
+  }
+}

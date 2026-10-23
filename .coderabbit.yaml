@@ -1,0 +1,42 @@
+# Configuração do CodeRabbit — phati.
+# Schema: https://coderabbit.ai/integrations/schema.v2.json
+language: pt-BR
+
+reviews:
+  # Só código é revisado. Documentação,
+  # specs, governança e config do agente ficam de fora: não são código, e boa
+  # parte nem sobe para o repositório público (ver .gitignore).
+  path_filters:
+    - "!**/*.md"
+    - "!docs/**"
+    - "!specs/**"
+    - "!sessoes/**"
+    - "!.specify/**"
+    - "!.claude/**"
+    - "!.agents/**"
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/*.lock"
+    - "!**/pnpm-lock.yaml"
+
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        Idioma: identificadores de código (variável, função, classe, arquivo, tabela,
+        coluna, rota) devem estar em português. Apontar identificador em inglês novo,
+        exceto palavra reservada da linguagem e nome de API ou biblioteca externa.
+        Todo código novo ou alterado precisa de teste automatizado; apontar a falta.
+        Apontar segredo, chave, token, IP de infraestrutura ou dado real de cliente
+        versionado: o repositório é público.
+    - path: "**/*teste*"
+      instructions: |
+        Teste que não pode falhar não conta. Apontar `skip`, `xfail`, teste comentado,
+        mock que reproduz o código testado e ausência de caso negativo.
+
+  auto_review:
+    enabled: true
+    # `false`: cada push revisa o diff inteiro da PR, não só o delta.
+    auto_incremental_review: false
+    # `0` desativa a pausa automática depois de N commits revisados.
+    auto_pause_after_reviewed_commits: 0

@@ -1,0 +1,87 @@
+# Repositório PÚBLICO: tudo que sai daqui é público e permanente no histórico.
+# Este arquivo é a 1ª barreira; o hook .githooks/verificar-vazamento.js é a 2ª.
+
+# --- Documentos do cliente e do escopo ---
+DEFINI*.md
+definicao*.md
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
+# --- Documentação interna: fica só local (sensível, não é código) ---
+docs/
+sessoes/
+specs/
+.specify/
+
+# --- Segredos e credenciais ---
+.env
+.env.*
+!.env.example
+!.env.exemplo
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.ppk
+id_rsa
+id_rsa.*
+id_dsa
+id_ecdsa
+id_ed25519
+.ssh/
+segredos/
+*.local
+*.local.*
+.githooks/termos-sensiveis.local
+
+# --- Dados geoespaciais e de cliente ---
+dados/
+insumos/
+clientes/
+privado/
+*.tif
+*.tiff
+*.shp
+*.shx
+*.dbf
+*.prj
+*.gpkg
+*.kml
+*.kmz
+*.gdb/
+*.mbtiles
+*.pmtiles
+*.las
+*.laz
+*.ecw
+*.jp2
+
+# --- Dumps e bancos locais ---
+*.dump
+*.bak
+*.sqlite
+*.sqlite3
+*.db
+*.sql.gz
+
+# --- Estado local do agente e das ferramentas ---
+.claude/settings.local.json
+.playwright-mcp/
+.code-review-graph/
+
+# --- Artefatos de build e temporários ---
+node_modules/
+.tmp/
+tmp/
+.turbo/
+.pnpm-store/
+dist/
+build/
+coverage/
