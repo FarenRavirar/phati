@@ -5,7 +5,7 @@ import logging
 import pytest
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import IntegrityError, connection
 
 from identidade.models import Pessoa
 
@@ -49,8 +49,8 @@ def test_cpf_invalido_nao_cria_pessoa():
 
 def test_cpf_nao_aparece_em_log(caplog):
     caplog.set_level(logging.DEBUG)
+    _criar()
     with pytest.raises(ValidationError):
-        _criar()
         _criar()
     assert CPF_LIMPO not in caplog.text
     assert CPF not in caplog.text
@@ -58,7 +58,8 @@ def test_cpf_nao_aparece_em_log(caplog):
 
 def test_coluna_da_senha_e_em_portugues():
     colunas = [c.name for c in connection.introspection.get_table_description(connection.cursor(), 'pessoa')]
-    assert 'senha' in colunas and 'password' not in colunas
+    assert 'senha' in colunas
+    assert 'password' not in colunas
 
 
 @pytest.mark.parametrize('tabela', ['pessoa', 'pedido_redefinicao', 'acesso_aplicativo', 'django_session'])
@@ -70,3 +71,14 @@ def test_papel_app_opera_as_tabelas_da_identidade(tabela):
             [settings.DATABASES['app']['USER'], tabela],
         )
         assert consulta.fetchone() == (True,)
+
+
+def test_erro_de_outra_restricao_nao_vira_cpf_duplicado(monkeypatch):
+    # Achado do Sourcery (PR #9): só a unicidade do CPF vira `cpf_duplicado`. A FK de `empresa_origem` é
+    # postergada até o commit, então o erro de outra restrição é simulado na gravação.
+    def falha(*_, **__):
+        raise IntegrityError('outra restrição')
+
+    monkeypatch.setattr(Pessoa, 'save', falha)
+    with pytest.raises(IntegrityError):
+        Pessoa.objects.criar(nome='Ana', email='ana@exemplo.test', cpf='529.982.247-25')

@@ -58,14 +58,18 @@ DATABASES = {
 
 # Pessoa é o usuário do sistema (R1); a senha usa só Argon2id (R3; parâmetros e fonte em identidade/senha.py).
 AUTH_USER_MODEL = 'identidade.Pessoa'
-PASSWORD_HASHERS = ['identidade.senha.HasherArgon2']
+PASSWORD_HASHERS = ['identidade.senha.GeradorHashArgon2']
 URL_BASE = os.environ.get('PHATI_URL_BASE', 'http://localhost:8000')  # link de redefinição nunca usa o cabeçalho Host (R5)
 
 # Raiz da chave do CPF (plan.md §Autenticação): 32 bytes em base64 urlsafe; as subchaves de busca e de cifra saem
 # dela por HKDF (identidade/cpf.py). Gerar: python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
-CHAVE_CPF = base64.urlsafe_b64decode(os.environ['PHATI_CHAVE_CPF'])
-if len(CHAVE_CPF) < 32:
-    raise ImproperlyConfigured('PHATI_CHAVE_CPF precisa decodificar para pelo menos 32 bytes.')
+try:
+    CHAVE_CPF = base64.urlsafe_b64decode(os.environ['PHATI_CHAVE_CPF'].encode('ascii'))
+    # Decodificação tolerante descarta caractere inválido sem avisar; a recodificação confere a forma canônica.
+    if len(CHAVE_CPF) != 32 or base64.urlsafe_b64encode(CHAVE_CPF).decode() != os.environ['PHATI_CHAVE_CPF']:
+        raise ValueError
+except (KeyError, ValueError) as erro:
+    raise ImproperlyConfigured('PHATI_CHAVE_CPF ausente ou fora do formato base64 urlsafe de 32 bytes.') from erro
 
 # Sessão de navegador (R15): ociosidade e duração absoluta; o cookie é emitido pela API (Fase 5).
 SESSION_COOKIE_HTTPONLY = True
@@ -90,6 +94,7 @@ MAILERS = {
             'username': os.environ.get('PHATI_EMAIL_USUARIO', ''),
             'password': os.environ.get('PHATI_EMAIL_SENHA', ''),
             'use_tls': True,
+            'timeout': 10,  # sem prazo, SMTP mudo prenderia o worker (achado do Qodo, PR #9)
         },
     },
 }

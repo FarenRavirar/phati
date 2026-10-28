@@ -9,6 +9,8 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user
 from django.contrib.sessions.backends.db import SessionStore
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.test import RequestFactory
 from django.utils import timezone
 
@@ -76,7 +78,8 @@ def test_acesso_do_aplicativo_rotaciona_e_o_anterior_deixa_de_valer(pessoa):
     renovado = sessao.renovar_acesso(primeiro)
     assert renovado is not None
     dono, segundo = renovado
-    assert dono == pessoa and segundo != primeiro
+    assert dono == pessoa
+    assert segundo != primeiro
     assert sessao.renovar_acesso(primeiro) is None
     assert sessao.renovar_acesso(segundo) is not None
 
@@ -102,6 +105,23 @@ def test_acesso_vence_em_30_dias_e_a_renovacao_nao_passa_do_teto(pessoa, monkeyp
     assert AcessoAplicativo.objects.get(revogado_em__isnull=True).expira_em == t0 + timedelta(days=30)
     _agora_em(monkeypatch, t0 + timedelta(days=30, seconds=1))
     assert sessao.renovar_acesso(renovado[1]) is None
+
+
+def test_emissao_trava_a_pessoa_para_a_troca_de_senha_nao_deixar_acesso_vivo(pessoa):
+    # Achado do Qodo (PR #9): acesso criado durante a troca de senha escapava da revogação.
+    with CaptureQueriesContext(connection) as consultas:
+        sessao.emitir_acesso(pessoa, 'celular')
+    assert any('FOR UPDATE' in c['sql'] and '"pessoa"' in c['sql'] for c in consultas)
+
+
+def test_renovacao_trava_a_pessoa_antes_do_acesso(pessoa):
+    # Achado do Greptile (PR #9): mesma ordem de travas da troca de senha (pessoa, depois acessos).
+    segredo = sessao.emitir_acesso(pessoa, 'celular')
+    with CaptureQueriesContext(connection) as consultas:
+        sessao.renovar_acesso(segredo)
+    travas = [c['sql'] for c in consultas if 'FOR UPDATE' in c['sql']]
+    assert '"pessoa"' in travas[0]
+    assert '"acesso_aplicativo"' in travas[1]
 
 
 def test_acesso_revogado_nao_renova(pessoa):

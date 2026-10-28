@@ -16,6 +16,8 @@ from identidade.models import PedidoRedefinicao, Pessoa
 
 VALIDADE = timedelta(minutes=10)
 TENTATIVAS_POR_PEDIDO = 5
+# Achado do Qodo (PR #9): sem intervalo, quem digita o CPF alheio enche a caixa e derruba o link já recebido.
+INTERVALO_ENTRE_PEDIDOS = timedelta(minutes=1)
 
 
 def pode_iniciar_redefinicao(solicitante, alvo):
@@ -39,6 +41,14 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
     agora = timezone.now()
     segredo = secrets.token_urlsafe(16)
     with transaction.atomic():
+        # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O envio fica
+        # dentro da transação: se o SMTP falhar, o link anterior continua valendo (achados do Qodo, PR #9).
+        Pessoa.objects.select_for_update().get(pk=alvo.pk)
+        # A criação do pedido é `expira_em - VALIDADE`; pedido recente, mesmo já usado, segura o novo.
+        if PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__gt=agora + VALIDADE - INTERVALO_ENTRE_PEDIDOS).exists():
+            return None
+        # Retenção (achado do Qodo, PR #9): pedido vencido não serve a mais nada; sai na próxima solicitação da pessoa.
+        PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__lte=agora).delete()
         PedidoRedefinicao.objects.filter(pessoa=alvo, usado_em__isnull=True).update(usado_em=agora)
         PedidoRedefinicao.objects.create(
             pessoa=alvo,
@@ -46,7 +56,7 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
             solicitado_por=solicitante or alvo,
             expira_em=agora + VALIDADE,
         )
-    email.enviar_link_de_redefinicao(alvo, segredo)
+        email.enviar_link_de_redefinicao(alvo, segredo)
     return None
 
 

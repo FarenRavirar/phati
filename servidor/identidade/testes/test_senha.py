@@ -2,16 +2,19 @@
 
 import logging
 import re
+import threading
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from django.contrib.auth.hashers import identify_hasher
 from django.core.exceptions import ValidationError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from identidade import senha
-from identidade.models import Pessoa
+from identidade.models import AcessoAplicativo, Pessoa
 from identidade.sessao import emitir_acesso, renovar_acesso
 from identidade.testes.conftest import CPF_LIMPO, SENHA
 
@@ -64,13 +67,14 @@ def test_validador_nao_faz_chamada_de_rede():
 def test_hash_e_argon2id_com_os_parametros_do_owasp(pessoa):
     assert pessoa.password.startswith('argon2$argon2id$')
     assert 'm=19456,t=2,p=1' in pessoa.password
-    assert isinstance(identify_hasher(pessoa.password), senha.HasherArgon2)
+    assert isinstance(identify_hasher(pessoa.password), senha.GeradorHashArgon2)
 
 
 def test_senha_temporaria_tem_16_simbolos_do_alfabeto_de_32(pessoa):
     assert len(set(senha.ALFABETO_TEMPORARIA)) == 32
     temporaria = senha.emitir_senha_temporaria(pessoa)
-    assert len(temporaria) == 16 and set(temporaria) <= set(senha.ALFABETO_TEMPORARIA)
+    assert len(temporaria) == 16
+    assert set(temporaria) <= set(senha.ALFABETO_TEMPORARIA)
 
 
 def test_senha_temporaria_vale_72h_exige_troca_e_so_o_hash_fica(pessoa, mailoutbox, caplog):
@@ -83,7 +87,9 @@ def test_senha_temporaria_vale_72h_exige_troca_e_so_o_hash_fica(pessoa, mailoutb
     assert pessoa.check_password(temporaria)
     assert Pessoa.objects.filter(password__contains=temporaria).count() == 0
     assert temporaria not in caplog.text
-    assert len(mailoutbox) == 1 and temporaria in mailoutbox[0].body and mailoutbox[0].to == [pessoa.email]
+    assert len(mailoutbox) == 1
+    assert temporaria in mailoutbox[0].body
+    assert mailoutbox[0].to == [pessoa.email]
 
 
 def test_trocar_senha_exige_a_atual_valida_a_nova_e_avisa(pessoa, mailoutbox):
@@ -96,7 +102,8 @@ def test_trocar_senha_exige_a_atual_valida_a_nova_e_avisa(pessoa, mailoutbox):
     assert mailoutbox == []
     senha.trocar_senha(pessoa, SENHA, 'outra-senha-bem-longa')
     pessoa.refresh_from_db()
-    assert pessoa.check_password('outra-senha-bem-longa') and not pessoa.deve_trocar_senha
+    assert pessoa.check_password('outra-senha-bem-longa')
+    assert not pessoa.deve_trocar_senha
     assert len(mailoutbox) == 1
 
 
@@ -104,3 +111,86 @@ def test_trocar_senha_revoga_os_acessos_do_aplicativo(pessoa):
     segredo = emitir_acesso(pessoa, 'celular')
     senha.trocar_senha(pessoa, SENHA, 'outra-senha-bem-longa')
     assert renovar_acesso(segredo) is None
+
+
+def test_falha_do_smtp_desfaz_a_senha_temporaria_e_mantem_a_anterior(pessoa, monkeypatch):
+    # Achado do Qodo (PR #9): senha trocada sem e-mail e sem retorno deixava a pessoa sem acesso.
+    def falha(*_):
+        raise OSError('smtp fora')
+
+    monkeypatch.setattr(senha.email, 'enviar_senha_temporaria', falha)
+    with pytest.raises(OSError):
+        senha.emitir_senha_temporaria(pessoa)
+    pessoa.refresh_from_db()
+    assert pessoa.check_password(SENHA)
+    assert not pessoa.deve_trocar_senha
+
+
+def test_troca_e_emissao_travam_a_pessoa(pessoa):
+    # Achado do Qodo (PR #9): conferir a senha atual e gravar a nova sem trava deixava duas trocas passarem.
+    with CaptureQueriesContext(connection) as consultas:
+        senha.trocar_senha(pessoa, SENHA, 'outra-senha-bem-longa')
+        senha.emitir_senha_temporaria(pessoa)
+    travas = [c for c in consultas if 'FOR UPDATE' in c['sql'] and '"pessoa"' in c['sql']]
+    assert len(travas) >= 3
+
+
+def test_definir_senha_nao_sobrescreve_campos_alheios(pessoa):
+    # A gravação é por `update_fields`: o que outra transação mudou na pessoa (nome) sobrevive.
+    Pessoa.objects.filter(pk=pessoa.pk).update(nome='Maria Nova')
+    pessoa.nome = 'Maria da Silva'
+    senha.definir_senha(pessoa, 'outra-senha-bem-longa')
+    assert Pessoa.objects.get(pk=pessoa.pk).nome == 'Maria Nova'
+
+
+@pytest.mark.django_db(transaction=True)
+def test_duas_trocas_com_a_mesma_senha_atual_so_uma_vale(pessoa):
+    # Achado do Qodo (PR #9): sem a trava, as duas passavam e a última gravação apagava a primeira.
+    resultados = []
+    largada = threading.Barrier(2)
+
+    def trocar(nova):
+        largada.wait()
+        try:
+            senha.trocar_senha(Pessoa.objects.get(pk=pessoa.pk), SENHA, nova)
+            resultados.append('ok')
+        except ValidationError as erro:
+            resultados.append(erro.code)
+        finally:
+            connection.close()
+
+    fios = [threading.Thread(target=trocar, args=(nova,)) for nova in ('primeira-senha-bem-longa', 'segunda-senha-bem-longa')]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join()
+    assert sorted(resultados) == ['ok', 'senha_atual_incorreta']
+
+
+@pytest.mark.django_db(transaction=True)
+def test_troca_de_senha_e_renovacao_de_acesso_nao_deixam_acesso_vivo(pessoa):
+    # Achados do Greptile, Qodo e Sourcery (PR #9): a renovação concorrente não pode criar acesso por fora da revogação.
+    segredo = emitir_acesso(pessoa, 'celular')
+    novos = []
+    largada = threading.Barrier(2)
+
+    def renovar():
+        largada.wait()
+        try:
+            novos.append(renovar_acesso(segredo))
+        finally:
+            connection.close()
+
+    def trocar():
+        largada.wait()
+        try:
+            senha.trocar_senha(Pessoa.objects.get(pk=pessoa.pk), SENHA, 'outra-senha-bem-longa')
+        finally:
+            connection.close()
+
+    fios = [threading.Thread(target=f) for f in (renovar, trocar)]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join()
+    assert AcessoAplicativo.objects.filter(pessoa=pessoa, revogado_em__isnull=True).count() == 0

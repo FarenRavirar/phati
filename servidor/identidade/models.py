@@ -23,6 +23,8 @@ class GerentePessoa(models.Manager):
             with transaction.atomic(using=self.db):
                 pessoa.save(using=self.db, force_insert=True)
         except IntegrityError:
+            if not self.filter(cpf_busca=pessoa.cpf_busca).exists():
+                raise  # outra restrição (por exemplo, empresa de origem inexistente): erro verdadeiro
             raise ValidationError('CPF já cadastrado.', code='cpf_duplicado') from None
         return pessoa
 
@@ -58,7 +60,8 @@ class PedidoRedefinicao(models.Model):
 
     pessoa = models.ForeignKey(Pessoa, on_delete=models.CASCADE)
     hash_segredo = models.CharField(max_length=64, unique=True)
-    solicitado_por = models.ForeignKey(Pessoa, on_delete=models.PROTECT, related_name='+')
+    # SET_NULL: PROTECT impediria apagar quem pediu a própria redefinição (o pedido também cai em cascata por `pessoa`).
+    solicitado_por = models.ForeignKey(Pessoa, null=True, on_delete=models.SET_NULL, related_name='+')
     expira_em = models.DateTimeField()
     usado_em = models.DateTimeField(null=True, blank=True)
     tentativas = models.PositiveSmallIntegerField(default=0)

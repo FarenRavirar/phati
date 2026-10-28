@@ -1,12 +1,13 @@
 """Login por CPF e senha com bloqueio por conta (R2, R4; plan.md §Autenticação).
 
 CPF inexistente, CPF inválido, senha errada, conta bloqueada e senha temporária vencida ou já usada devolvem o mesmo
-`None`, e todos pagam uma verificação Argon2, para o chamador não distinguir os casos nem pelo tempo.
+`None`, e todos pagam uma verificação Argon2, o que deixa o tempo parecido. Não idêntico: senha errada ainda grava o
+contador (um UPDATE de alguns ms) e o CPF inexistente não; resíduo registrado no PR #9, sem equalização.
 O contador é da conta, nunca do IP. Tentativa feita durante o bloqueio não conta nem o prolonga.
 """
 
+import secrets
 from datetime import timedelta
-from functools import cache
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
@@ -18,9 +19,8 @@ from identidade import cpf
 from identidade.models import Pessoa
 
 
-@cache
-def _hash_falso():
-    return make_password('senha-que-ninguem-tem')
+# Calculado na carga do módulo: o primeiro login com CPF inexistente não paga o custo a mais (achado do Qodo, PR #9).
+_HASH_FALSO = make_password(secrets.token_urlsafe(16))
 
 
 def _bloqueio_em_segundos(falhas):
@@ -37,10 +37,15 @@ def autenticar(cpf_texto, senha):
     with transaction.atomic():
         pessoa = Pessoa.objects.select_for_update().filter(cpf_busca=busca).first() if busca else None
         if pessoa is None:
-            check_password(senha, _hash_falso())
+            check_password(senha, _HASH_FALSO)
             return None
         agora = timezone.now()
-        correta = pessoa.check_password(senha)
+        # Conta sem senha utilizável (recém-criada) pagaria menos que as outras: o Django nem chama o Argon2.
+        if pessoa.has_usable_password():
+            correta = pessoa.check_password(senha)
+        else:
+            check_password(senha, _HASH_FALSO)
+            correta = False
         if pessoa.bloqueada_ate is not None and pessoa.bloqueada_ate > agora:
             return None
         if not correta:

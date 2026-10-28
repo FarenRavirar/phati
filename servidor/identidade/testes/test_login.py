@@ -25,7 +25,7 @@ def test_senha_certa_autentica_com_ou_sem_pontuacao(pessoa):
     assert login.autenticar(CPF_LIMPO, SENHA) == pessoa
 
 
-@pytest.mark.parametrize('cpf', ['999.999.999-99', '111.111.111-11', 'lixo', ''])
+@pytest.mark.parametrize('cpf', ['999.999.999-99', '111.111.111-11', 'lixo', '', None])
 def test_cpf_inexistente_ou_invalido_nega(pessoa, cpf):
     assert login.autenticar(cpf, SENHA) is None
 
@@ -49,7 +49,8 @@ def test_tempo_de_cpf_inexistente_e_de_senha_errada_se_parece(pessoa):
             pessoa.save()
         return statistics.median(medidas)
 
-    inexistente, errada = mediana('999.999.999-99'), mediana(CPF)
+    # CPF válido e sem conta (não o inválido de dígitos repetidos): é ele que precisa pagar o hash falso.
+    inexistente, errada = mediana('529.982.247-25'), mediana(CPF)
     assert min(inexistente, errada) / max(inexistente, errada) > 0.5
 
 
@@ -69,11 +70,13 @@ def test_cinco_falhas_bloqueiam_ate_a_senha_certa_e_so_libera_depois(pessoa, mon
     assert login.autenticar(CPF, SENHA) is None
     assert login.autenticar(CPF, ERRADA) is None  # durante o bloqueio não conta nem prolonga
     pessoa.refresh_from_db()
-    assert pessoa.falhas_consecutivas == 5 and pessoa.bloqueada_ate == t0 + timedelta(seconds=30)
+    assert pessoa.falhas_consecutivas == 5
+    assert pessoa.bloqueada_ate == t0 + timedelta(seconds=30)
     _agora_em(monkeypatch, t0 + timedelta(seconds=31))
     assert login.autenticar(CPF, SENHA) == pessoa
     pessoa.refresh_from_db()
-    assert pessoa.falhas_consecutivas == 0 and pessoa.bloqueada_ate is None
+    assert pessoa.falhas_consecutivas == 0
+    assert pessoa.bloqueada_ate is None
 
 
 def test_falha_apos_o_bloqueio_dobra_a_duracao(pessoa, monkeypatch):
@@ -99,7 +102,9 @@ def test_bloqueio_e_da_conta_e_nao_afeta_outra_pessoa(pessoa):
 def test_senha_temporaria_funciona_uma_vez(pessoa):
     temporaria = senha.emitir_senha_temporaria(pessoa)
     entrou = login.autenticar(CPF, temporaria)
-    assert entrou == pessoa and entrou is not None and entrou.deve_trocar_senha
+    assert entrou == pessoa
+    assert entrou is not None
+    assert entrou.deve_trocar_senha
     assert login.autenticar(CPF, temporaria) is None
 
 
@@ -124,4 +129,22 @@ def test_depois_da_troca_a_senha_nova_entra_sem_exigir_troca(pessoa):
     entrou = login.autenticar(CPF, temporaria)
     senha.definir_senha(entrou, 'outra-senha-bem-longa')
     de_novo = login.autenticar(CPF, 'outra-senha-bem-longa')
-    assert de_novo == pessoa and de_novo is not None and not de_novo.deve_trocar_senha
+    assert de_novo == pessoa
+    assert de_novo is not None
+    assert not de_novo.deve_trocar_senha
+
+
+def test_conta_sem_senha_utilizavel_paga_o_mesmo_hash_que_as_outras(db):
+    # Achado do Sourcery (PR #9): `check_password` de senha inutilizável não chama o Argon2 e denunciaria a conta nova.
+    Pessoa.objects.criar(nome='Ana Souza', email='ana@exemplo.test', cpf='529.982.247-25')
+
+    def mediana(cpf):
+        medidas = []
+        for _ in range(9):
+            inicio = time.perf_counter()
+            login.autenticar(cpf, ERRADA)
+            medidas.append(time.perf_counter() - inicio)
+        return statistics.median(medidas)
+
+    sem_senha, inexistente = mediana('529.982.247-25'), mediana('390.533.447-05')
+    assert min(sem_senha, inexistente) / max(sem_senha, inexistente) > 0.5

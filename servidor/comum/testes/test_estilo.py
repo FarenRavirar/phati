@@ -31,7 +31,7 @@ INGLES = {
     'query', 'request', 'response', 'handle', 'build', 'make', 'load', 'save', 'read', 'write', 'send',
     'start', 'stop', 'run', 'level', 'parent', 'child', 'owner', 'access', 'allowed', 'created', 'updated',
     'enabled', 'valid', 'invalid', 'default', 'validate', 'normalize', 'helper', 'utils', 'manager',
-    'service', 'handler', 'context', 'connection', 'cursor', 'table', 'row', 'rows', 'schema',
+    'service', 'handler', 'hasher', 'context', 'connection', 'cursor', 'table', 'row', 'rows', 'schema',
 }
 
 
@@ -73,6 +73,7 @@ def achados_em(codigo):
 def test_detecta_identificador_em_ingles():
     assert achados_em('def get_user(): pass') == ['get_user']
     assert achados_em('class UserGroup:\n    nome_do_grupo = 1') == ['UserGroup']
+    assert achados_em('class HasherArgon2: pass') == ['HasherArgon2']
     assert achados_em('def buscar_fazendas_autorizadas(pessoa): pass') == []
 
 

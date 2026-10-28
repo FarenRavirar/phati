@@ -15,7 +15,7 @@ from django.contrib.auth import login
 from django.db import transaction
 from django.utils import timezone
 
-from identidade.models import AcessoAplicativo
+from identidade.models import AcessoAplicativo, Pessoa
 
 
 def hash_do_segredo(segredo):
@@ -64,24 +64,33 @@ def _emitir(pessoa, dispositivo, agora, entrada_em):
 
 def emitir_acesso(pessoa, dispositivo):
     agora = timezone.now()
-    return _emitir(pessoa, dispositivo, agora, agora)
+    with transaction.atomic():
+        # Trava a pessoa: emitir acesso e trocar a senha se serializam, e a troca revoga o que acabou de nascer.
+        Pessoa.objects.select_for_update().get(pk=pessoa.pk)
+        return _emitir(pessoa, dispositivo, agora, agora)
 
 
 def renovar_acesso(segredo):
     """Troca o segredo por um novo e invalida o antigo. Devolve `(pessoa, segredo_novo)` ou `None`."""
     agora = timezone.now()
+    hash_segredo = hash_do_segredo(segredo)
     with transaction.atomic():
+        # Ordem de travas igual à de senha.definir_senha (pessoa, depois acessos): sem deadlock, e a troca de
+        # senha que revoga os acessos não deixa a renovação criar um novo por fora (achado do Greptile, PR #9).
+        pessoa_id = AcessoAplicativo.objects.filter(hash_segredo=hash_segredo).values_list('pessoa_id', flat=True).first()
+        if pessoa_id is None:
+            return None
+        pessoa = Pessoa.objects.select_for_update().get(pk=pessoa_id)
         acesso = (
             AcessoAplicativo.objects.select_for_update()
-            .select_related('pessoa')
-            .filter(hash_segredo=hash_do_segredo(segredo), revogado_em__isnull=True, expira_em__gt=agora)
+            .filter(hash_segredo=hash_segredo, revogado_em__isnull=True, expira_em__gt=agora)
             .first()
         )
         if acesso is None:
             return None
         acesso.revogado_em = agora
         acesso.save(update_fields=['revogado_em'])
-        return acesso.pessoa, _emitir(acesso.pessoa, acesso.dispositivo, agora, acesso.entrada_em)
+        return pessoa, _emitir(pessoa, acesso.dispositivo, agora, acesso.entrada_em)
 
 
 def revogar_acessos(pessoa):
