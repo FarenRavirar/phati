@@ -35,7 +35,7 @@ Hierarquia do domínio: Empresa → Fazenda/Imóvel → Tema/Estudo → Camada/V
 - A VM `maruko` nunca é desligada, reiniciada ou suspensa pelo agente.
 - **Estado do código não se escreve em doc** (commitado, mergeado, SHA, branch, PR) — `git`/`gh` medem.
 - Validação repo-wide só no fim, um comando por vez.
-- `rtk` no lugar do comando cru, sempre.
+- `rtk` no lugar do comando cru, sempre. Filtro cortou o que faltava: `rtk recall <hash>` (`--grep`, `--from`, `--full`); sem filtro: `rtk bypass <cmd>` (antigo `rtk proxy`).
 
 ---
 
@@ -192,7 +192,7 @@ Ao encontrar erro: parar de repetir tentativas, consultar `.specify/memory/error
 
 Ordem de uso:
 1. LSP — `workspaceSymbol`/`goToDefinition`, `findReferences`, `hover`; checar diagnostics depois de editar.
-2. `codebase-memory-mcp` — mapa estrutural e dependências.
+2. `codebase-memory-mcp` — mapa estrutural e dependências; `check_index_coverage` antes de concluir por ele, `detect_changes` (`scope: "tests"`) para impacto de um diff.
 3. `rtk rg`, `rtk read`, `rtk git`, validação CLI.
 
 `rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal.

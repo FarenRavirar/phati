@@ -78,7 +78,7 @@ function criarRepositorio() {
       return erro.status;
     }
   };
-  const executarHook = () => executar('node', path.join(__dirname, 'verificar-par-teste.js'));
+  const executarHook = (...argumentos) => executar('node', path.join(__dirname, 'verificar-par-teste.js'), ...argumentos);
   const limpar = () => fs.rmSync(repositorio, { recursive: true, force: true });
   return { repositorio, git, escrever, executar, executarHook, limpar };
 }
@@ -98,6 +98,29 @@ test('de ponta a ponta: par só no disco (fora do stage) bloqueia; par no stage 
     assert.equal(executarHook(), 1, 'apagar só o teste bloqueia');
     git('rm', '-q', 'servidor/x/y.py');
     assert.equal(executarHook(), 0, 'apagar módulo e teste passa');
+  } finally {
+    limpar();
+  }
+});
+
+test('de ponta a ponta: com <base> confere o intervalo commitado, sem olhar o stage (uso do CI)', () => {
+  const { git, escrever, executarHook, limpar } = criarRepositorio();
+  const commitar = (mensagem) =>
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', mensagem, '--no-verify');
+  try {
+    git('init', '-q', '-b', 'dev');
+    escrever('LEIAME.md');
+    git('add', '.');
+    commitar('base');
+    git('switch', '-q', '-c', 'feat/x');
+    escrever('servidor/x/y.py');
+    git('add', '.');
+    commitar('sem par');
+    assert.equal(executarHook('dev'), 1, 'módulo sem par no intervalo bloqueia, com o stage vazio');
+    escrever('servidor/x/testes/test_y.py');
+    git('add', '.');
+    commitar('par');
+    assert.equal(executarHook('dev'), 0, 'par no intervalo passa');
   } finally {
     limpar();
   }

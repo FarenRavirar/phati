@@ -16,6 +16,7 @@ const CASES = [
   { cmd: `sed -n '1,50p' arquivo.ts`, deny: true, rule: 'leitura-parcial-crua' },
   { cmd: `sed -n '300,345p' .github/workflows/exemplo.yml`, deny: true, rule: 'leitura-parcial-crua' },
   { cmd: `sed -n "1,20p" src/app.ts`, deny: true, rule: 'leitura-parcial-crua' },
+  { cmd: `head -c 500 src/app.ts`, deny: true, rule: 'leitura-parcial-crua' },
   { cmd: `awk 'NR<50' x.ts`, deny: true, rule: 'leitura-parcial-crua' },
 
   // Filtro de pipe NÃO é leitura de arquivo — bloquear aqui quebraria o jeito

@@ -1,0 +1,96 @@
+name: ci
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-24.04
+    services:
+      banco:
+        image: postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
+        env:
+          POSTGRES_PASSWORD: ${{ github.run_id }}-superusuario
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+    env:
+      PHATI_CHAVE_SECRETA: chave-de-teste-ci
+      PHATI_BANCO_NOME: phati
+      PHATI_BANCO_HOST: 127.0.0.1
+      PHATI_BANCO_DONO_USUARIO: dono
+      PHATI_BANCO_APP_USUARIO: app
+    defaults:
+      run:
+        working-directory: servidor
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.lock.txt
+      # Senhas efêmeras do banco descartável do job; nada disso é segredo do projeto.
+      - name: Papéis e banco
+        run: |
+          PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)
+          PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)
+          export PHATI_BANCO_DONO_SENHA PHATI_BANCO_APP_SENHA
+          echo "PHATI_BANCO_DONO_SENHA=$PHATI_BANCO_DONO_SENHA" >> "$GITHUB_ENV"
+          echo "PHATI_BANCO_APP_SENHA=$PHATI_BANCO_APP_SENHA" >> "$GITHUB_ENV"
+          PGPASSWORD="${{ github.run_id }}-superusuario" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f banco/papeis.sql
+      - run: python manage.py check
+      - run: python -m pytest -q
+      - run: pyright
+      - name: Hooks do git
+        working-directory: .
+        run: node --test .githooks/*.test.js
+      - name: Par arquivo–teste
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: node .githooks/verificar-par-teste.js "$BASE"
+
+  docker:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: servidor
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Variáveis efêmeras
+        run: |
+          {
+            echo "PHATI_CHAVE_SECRETA=$(openssl rand -hex 32)"
+            echo "PHATI_BANCO_SUPER_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_DONO_USUARIO=dono"
+            echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_APP_USUARIO=app"
+            echo "PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)"
+          } >> "$GITHUB_ENV"
+      - run: docker compose up -d --build
+      - name: Banco e app saudáveis, migração saiu 0, app responde 404
+        run: |
+          for _ in $(seq 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q banco)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migracao)")" = 0
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = 404
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

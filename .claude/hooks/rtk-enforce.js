@@ -4,7 +4,8 @@
 //
 // Por que existe: o hook oficial do rtk reescreve a maior parte dos comandos
 // (cat/grep/git/tsc/vitest/npx...), mas tem lacunas reais — medidas com
-// `rtk hook check` em 2026-07-27, rtk 0.44.0:
+// `rtk hook check` em 2026-07-27, rtk 0.44.0 (remedido em 2026-10-28, rtk 1.1.0:
+// mesmas lacunas: pnpm test/build/verify:api/--filter, sed -n e head -c):
 //
 //   pnpm verify:api          -> No rewrite       <-- lacuna
 //   pnpm test                -> No rewrite       <-- lacuna
@@ -49,7 +50,7 @@ const RULES = [
     // leitura, e continua livre — foi assim que a saída de `.env` da VM foi
     // filtrada para não imprimir segredo.
     name: 'leitura-parcial-crua',
-    test: /(^|[;&|]\s*)(sed\s+-n\s+["']?\d+\s*,\s*\d+p|awk\s+["']NR\s*[<>=])/,
+    test: /(^|[;&|]\s*)(sed\s+-n\s+["']?\d+\s*,\s*\d+p|awk\s+["']NR\s*[<>=]|head\s+-c\s*\d+\s+[^|;&]*[./\\])/,
     // Já vindo de um pipe não é leitura de arquivo. `rtk` na frente também passa.
     allow: /(\|\s*(sed|awk)\b)|(^|[;&|]\s*)rtk\s+/,
     fix: (cmd) => {

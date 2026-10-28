@@ -13,6 +13,7 @@
 // (achado do Codex no PR #1: a exclusão isolada passava).
 // O par existir não prova o teste: cobertura e mutação manual continuam valendo.
 // Falha ao ler o git bloqueia o commit (falha fechada).
+// Com um argumento (`<base>`), confere `<base>...HEAD` em vez do stage: é o uso do CI, que não tem stage.
 
 const { execFileSync } = require('node:child_process');
 
@@ -66,8 +67,9 @@ function listar(raiz, argumentos) {
 
 function principal() {
   const raiz = git(['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  const caminhos = listar(raiz, ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z']);
-  const removidos = listar(raiz, ['diff', '--cached', '--name-only', '--diff-filter=D', '--no-renames', '-z']);
+  const alvo = process.argv[2] ? [`${process.argv[2]}...HEAD`] : ['--cached'];
+  const caminhos = listar(raiz, ['diff', ...alvo, '--name-only', '--diff-filter=ACMR', '-z']);
+  const removidos = listar(raiz, ['diff', ...alvo, '--name-only', '--diff-filter=D', '--no-renames', '-z']);
   // `git add -N` põe o arquivo no índice vazio, mas ele não entra no commit. `--ita-invisible-in-index` o mostra
   // como "A" no diff do disco contra o índice em qualquer versão do git (achado do CodeRabbit, PR #1).
   const soIntencao = new Set(listar(raiz, ['diff', '--ita-invisible-in-index', '--name-only', '--diff-filter=A', '-z']));
