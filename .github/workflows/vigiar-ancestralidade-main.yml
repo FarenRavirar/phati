@@ -1,4 +1,4 @@
-name: guard-main-ancestor
+name: vigiar-ancestralidade-main
 
 # Alarme compensatório enquanto a proteção de branch não exige este check.
 # Todo avanço em main precisa continuar contido em dev: main é ancestral de dev (AGENTS.md §Git).
@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  guard:
-    name: Guard main subset dev
+  verificar_ancestralidade:
+    name: Verificar main contida em dev
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -22,9 +22,4 @@ jobs:
           fetch-depth: 0
 
       - name: Validar que main é ancestral de dev
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --prune origin \
-            +refs/heads/main:refs/remotes/origin/main \
-            +refs/heads/dev:refs/remotes/origin/dev
-          bash scripts/validar-invariante-branches.sh origin/main origin/dev
+        run: bash scripts/validar-invariante-ramos.sh origin

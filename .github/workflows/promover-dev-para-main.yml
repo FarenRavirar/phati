@@ -1,0 +1,35 @@
+name: promover-dev-para-main
+
+# Promoção canônica dev -> main preservando a invariante main ⊆ dev (AGENTS.md §Git).
+# Não cria commit de merge nem de squash: main avança por fast-forward até dev.
+# Promover não é publicar: este workflow só move o ponteiro Git, não builda nem faz deploy.
+# A lógica (confirmação, invariante, push) fica em scripts/promover-dev-para-main.sh, com teste.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmacao:
+        description: "Digite PROMOTE_DEV_TO_MAIN para promover dev -> main"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  avancar_main:
+    name: Avançar main por fast-forward até dev
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Exceção consciente ao artipacked (zizmor): o script empurra main, o que exige
+          # o GITHUB_TOKEN persistido no git-config. NÃO trocar para false: quebraria a promoção
+          # dev -> main em silêncio.
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Promover main por fast-forward
+        env:
+          CONFIRMACAO: ${{ inputs.confirmacao }}
+        run: bash scripts/promover-dev-para-main.sh "$CONFIRMACAO"
