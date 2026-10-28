@@ -19,7 +19,7 @@ PR permanente e automática para revisar o que será promovido de `dev` para `ma
 
 Não use "Squash and merge", "Create a merge commit" nem "Rebase and merge": os três criam em `main` commits que não existem em `dev` (o rebase reescreve o committer e gera SHAs novos) e quebram o guard.
 
-Promoção aprovada: só o workflow `promover-dev-para-main.yml`, com a confirmação `PROMOTE_DEV_TO_MAIN`.
+Promoção aprovada: só o workflow `promover-dev-para-main.yml`, com a confirmação `PROMOTE_DEV_TO_MAIN` e o SHA de `dev` que foi revisado (`sha_aprovado`); se `dev` avançou depois, a promoção para.
 
 Depois da promoção, `main` deve apontar para o mesmo commit de `dev` ou para um commit contido em `dev`.
 Promover não é publicar: o deploy é uma etapa à parte.
@@ -33,12 +33,12 @@ if [[ -n "$numero" ]]; then
   if gh pr edit "$numero" --title "$titulo" --body "$corpo"; then
     echo "pr_promocao=$numero"
   else
-    echo "::error::Não foi possível editar a PR permanente #$numero. Confira se o GitHub Actions pode criar e aprovar PRs (Settings -> Actions -> General)."
+    echo "::error::Não foi possível editar a PR permanente #$numero. Confira se o GitHub Actions pode criar e aprovar PRs (Settings -> Actions -> General)." >&2
     exit 1
   fi
 elif gh pr create --base main --head dev --title "$titulo" --body "$corpo"; then
   echo "pr_promocao=criada"
 else
-  echo "::error::Não foi possível criar a PR permanente dev -> main. Confira se o GitHub Actions pode criar e aprovar PRs (Settings -> Actions -> General)."
+  echo "::error::Não foi possível criar a PR permanente dev -> main. Confira se o GitHub Actions pode criar e aprovar PRs (Settings -> Actions -> General)." >&2
   exit 1
 fi

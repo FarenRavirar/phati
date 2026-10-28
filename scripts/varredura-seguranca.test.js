@@ -11,7 +11,7 @@ const ler = (...partes) => fs.readFileSync(path.join(RAIZ, ...partes), 'utf8').r
 
 test('todo `uses:` dos workflows é fixado por SHA de 40 caracteres', () => {
   const pasta = path.join(RAIZ, '.github', 'workflows');
-  const nomes = fs.readdirSync(pasta).filter((n) => n.endsWith('.yml'));
+  const nomes = fs.readdirSync(pasta).filter((n) => /\.ya?ml$/.test(n));
   assert.ok(nomes.length > 0);
   for (const nome of nomes) {
     const usos = ler('.github', 'workflows', nome).match(/^\s*(?:- )?uses: .+$/gm) ?? [];

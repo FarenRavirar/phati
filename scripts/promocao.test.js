@@ -41,10 +41,14 @@ function criarCenario() {
     commitar(outro, 'so-main');
     git(outro, 'push', '-q', 'origin', 'main');
   };
+  const avancarDev = () => {
+    commitar(trabalho, 'mais-dev');
+    git(trabalho, 'push', '-q', 'origin', 'dev');
+  };
   const shaRemoto = (ramo) => git(remoto, 'rev-parse', ramo);
   const executar = (...argumentos) => spawnSync('bash', argumentos, { cwd: trabalho, encoding: 'utf8' });
   const limpar = () => fs.rmSync(raiz, { recursive: true, force: true });
-  return { divergirMain, shaRemoto, executar, limpar };
+  return { divergirMain, avancarDev, shaRemoto, executar, limpar };
 }
 
 test('invariante: main ancestral de dev passa; main com commit fora de dev bloqueia', () => {
@@ -62,13 +66,16 @@ test('invariante: main ancestral de dev passa; main com commit fora de dev bloqu
   }
 });
 
-test('promoção: confirmação inválida não muda main', () => {
+test('promoção: confirmação inválida ou SHA ausente não mudam main', () => {
   const { shaRemoto, executar, limpar } = criarCenario();
   try {
     const antes = shaRemoto('main');
-    const resultado = executar(CAMINHO_PROMOVER, 'errada');
-    assert.equal(resultado.status, 1);
-    assert.match(resultado.stderr, /PROMOTE_DEV_TO_MAIN/);
+    const errada = executar(CAMINHO_PROMOVER, 'errada', shaRemoto('dev'));
+    assert.equal(errada.status, 1);
+    assert.match(errada.stderr, /PROMOTE_DEV_TO_MAIN/);
+    const semSha = executar(CAMINHO_PROMOVER, CONFIRMACAO);
+    assert.equal(semSha.status, 1);
+    assert.match(semSha.stderr, /SHA de dev aprovado/);
     assert.equal(shaRemoto('main'), antes, 'main intacta');
   } finally {
     limpar();
@@ -80,7 +87,7 @@ test('promoção: histórico divergente não muda main', () => {
   try {
     divergirMain();
     const antes = shaRemoto('main');
-    const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO);
+    const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO, shaRemoto('dev'));
     assert.equal(resultado.status, 1);
     assert.match(resultado.stderr, /não é ancestral/);
     assert.equal(shaRemoto('main'), antes, 'main intacta');
@@ -89,14 +96,47 @@ test('promoção: histórico divergente não muda main', () => {
   }
 });
 
-test('promoção: válida leva main ao mesmo SHA de dev', () => {
+test('promoção: dev avançou depois da aprovação, não muda main', () => {
+  const { avancarDev, shaRemoto, executar, limpar } = criarCenario();
+  try {
+    const aprovado = shaRemoto('dev');
+    avancarDev();
+    const antes = shaRemoto('main');
+    const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO, aprovado);
+    assert.equal(resultado.status, 1);
+    assert.match(resultado.stderr, /dev avançou/);
+    assert.equal(shaRemoto('main'), antes, 'main intacta');
+  } finally {
+    limpar();
+  }
+});
+
+test('promoção: SHA inexistente não muda main', () => {
+  const { shaRemoto, executar, limpar } = criarCenario();
+  try {
+    const antes = shaRemoto('main');
+    const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO, '0123456789abcdef0123456789abcdef01234567');
+    assert.equal(resultado.status, 1);
+    assert.match(resultado.stderr, /não existe/);
+    assert.equal(shaRemoto('main'), antes, 'main intacta');
+  } finally {
+    limpar();
+  }
+});
+
+test('promoção: válida leva main ao SHA aprovado e repete a invariante depois do push', () => {
   const { shaRemoto, executar, limpar } = criarCenario();
   try {
     const shaDoDev = shaRemoto('dev');
     assert.notEqual(shaRemoto('main'), shaDoDev, 'main começa atrás de dev');
-    const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO);
+    const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO, shaDoDev);
     assert.equal(resultado.status, 0, resultado.stderr);
     assert.equal(shaRemoto('main'), shaDoDev, 'fast-forward preserva o SHA de dev');
+    assert.equal(
+      (resultado.stdout.match(/invariante_ramos_ok=true/g) ?? []).length,
+      2,
+      'invariante conferida antes e depois do push',
+    );
   } finally {
     limpar();
   }
@@ -114,8 +154,11 @@ test('workflow do guard: dispara em push em main e chama o script de invariante'
 test('workflow de promoção: dispatch com confirmacao, só chama o script e nunca dá push direto', () => {
   const texto = ler('promover-dev-para-main.yml');
   assert.match(texto, /workflow_dispatch:\n {4}inputs:\n {6}confirmacao:/);
-  assert.match(texto, /bash scripts\/promover-dev-para-main\.sh "\$CONFIRMACAO"/);
+  assert.match(texto, /sha_aprovado:/);
+  assert.match(texto, /bash scripts\/promover-dev-para-main\.sh "\$CONFIRMACAO" "\$SHA_APROVADO"/);
   assert.match(texto, /contents: write/);
+  assert.match(texto, /actions: write/);
+  assert.match(texto, /gh workflow run codeql\.yml --ref main/);
   assert.doesNotMatch(texto, /git push/);
 });
 
@@ -188,7 +231,7 @@ test('PR permanente: falha ao editar ou criar derruba o job com ::error::', () =
     try {
       const resultado = executar();
       assert.equal(resultado.status, 1, 'erro não pode ficar verde');
-      assert.match(resultado.stdout, /::error::/);
+      assert.match(resultado.stderr, /::error::/);
     } finally {
       limpar();
     }

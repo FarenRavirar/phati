@@ -3,7 +3,7 @@ name: promover-dev-para-main
 # Promoção canônica dev -> main preservando a invariante main ⊆ dev (AGENTS.md §Git).
 # Não cria commit de merge nem de squash: main avança por fast-forward até dev.
 # Promover não é publicar: este workflow só move o ponteiro Git, não builda nem faz deploy.
-# A lógica (confirmação, invariante, push) fica em scripts/promover-dev-para-main.sh, com teste.
+# A lógica (confirmação, SHA aprovado, invariante, push) fica em scripts/promover-dev-para-main.sh, com teste.
 on:
   workflow_dispatch:
     inputs:
@@ -11,9 +11,14 @@ on:
         description: "Digite PROMOTE_DEV_TO_MAIN para promover dev -> main"
         required: true
         type: string
+      sha_aprovado:
+        description: "SHA de dev revisado; se dev avançou depois, a promoção para"
+        required: true
+        type: string
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   avancar_main:
@@ -32,4 +37,11 @@ jobs:
       - name: Promover main por fast-forward
         env:
           CONFIRMACAO: ${{ inputs.confirmacao }}
-        run: bash scripts/promover-dev-para-main.sh "$CONFIRMACAO"
+          SHA_APROVADO: ${{ inputs.sha_aprovado }}
+        run: bash scripts/promover-dev-para-main.sh "$CONFIRMACAO" "$SHA_APROVADO"
+
+      # O push com o GITHUB_TOKEN não dispara o CodeQL de push em main; dispara-se aqui.
+      - name: Disparar o CodeQL na main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run codeql.yml --ref main
