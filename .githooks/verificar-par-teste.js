@@ -72,8 +72,11 @@ function principal() {
   const removidos = listar(raiz, ['diff', ...alvo, '--name-only', '--diff-filter=D', '--no-renames', '-z']);
   // `git add -N` põe o arquivo no índice vazio, mas ele não entra no commit. `--ita-invisible-in-index` o mostra
   // como "A" no diff do disco contra o índice em qualquer versão do git (achado do CodeRabbit, PR #1).
+  // Com `<base>`, o que vale é a árvore de HEAD: o stage do CI não conta (achado do CodeRabbit, PR #2).
   const soIntencao = new Set(listar(raiz, ['diff', '--ita-invisible-in-index', '--name-only', '--diff-filter=A', '-z']));
-  const rastreados = listar(raiz, ['ls-files', '-z']).filter((c) => !soIntencao.has(c));
+  const rastreados = process.argv[2]
+    ? listar(raiz, ['ls-tree', '-r', '-z', '--name-only', 'HEAD'])
+    : listar(raiz, ['ls-files', '-z']).filter((c) => !soIntencao.has(c));
   const achados = verificar({ caminhos, removidos, rastreados });
   if (achados.length === 0) return 0;
   process.stderr.write('COMMIT BLOQUEADO: arquivo de código sem teste irmão (AGENTS.md §Testes).\n');

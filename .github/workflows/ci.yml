@@ -19,7 +19,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ github.run_id }}-superusuario
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres" --health-interval 5s --health-retries 10
     env:
       PHATI_CHAVE_SECRETA: chave-de-teste-ci
       PHATI_BANCO_NOME: phati

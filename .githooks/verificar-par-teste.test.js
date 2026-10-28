@@ -119,6 +119,7 @@ test('de ponta a ponta: com <base> confere o intervalo commitado, sem olhar o st
     assert.equal(executarHook('dev'), 1, 'módulo sem par no intervalo bloqueia, com o stage vazio');
     escrever('servidor/x/testes/test_y.py');
     git('add', '.');
+    assert.equal(executarHook('dev'), 1, 'par só no stage não conta: vale a árvore de HEAD');
     commitar('par');
     assert.equal(executarHook('dev'), 0, 'par no intervalo passa');
   } finally {
