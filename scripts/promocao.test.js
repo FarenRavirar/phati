@@ -66,7 +66,7 @@ test('invariante: main ancestral de dev passa; main com commit fora de dev bloqu
   }
 });
 
-test('promoção: confirmação inválida ou SHA ausente não mudam main', () => {
+test('promoção: confirmação inválida, SHA ausente, ramo ou SHA curto não mudam main', () => {
   const { shaRemoto, executar, limpar } = criarCenario();
   try {
     const antes = shaRemoto('main');
@@ -75,7 +75,13 @@ test('promoção: confirmação inválida ou SHA ausente não mudam main', () =>
     assert.match(errada.stderr, /PROMOTE_DEV_TO_MAIN/);
     const semSha = executar(CAMINHO_PROMOVER, CONFIRMACAO);
     assert.equal(semSha.status, 1);
-    assert.match(semSha.stderr, /SHA de dev aprovado/);
+    assert.match(semSha.stderr, /SHA completo/);
+    // Nome de ramo e SHA curto não valem: origin/dev seria resolvido depois do fetch e sempre coincidiria com dev.
+    for (const invalido of ['origin/dev', 'dev', shaRemoto('dev').slice(0, 7)]) {
+      const resultado = executar(CAMINHO_PROMOVER, CONFIRMACAO, invalido);
+      assert.equal(resultado.status, 1, `${invalido} deve ser recusado`);
+      assert.match(resultado.stderr, /SHA completo/);
+    }
     assert.equal(shaRemoto('main'), antes, 'main intacta');
   } finally {
     limpar();

@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       sha_aprovado:
-        description: "SHA de dev revisado; se dev avançou depois, a promoção para"
+        description: "SHA completo (40 caracteres) de dev revisado; se dev avançou depois, a promoção para"
         required: true
         type: string
 

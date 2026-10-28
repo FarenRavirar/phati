@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Promoção dev -> main por fast-forward (AGENTS.md §Git). Só move o ponteiro Git, sem build nem deploy.
 # Uso: promover-dev-para-main.sh <confirmacao> <sha_aprovado> [remoto]
-# O SHA aprovado é o commit de dev que o mantenedor revisou: se dev avançou depois, a promoção para.
+# O SHA aprovado é o commit de dev que o mantenedor revisou (SHA completo): se dev avançou depois, a promoção para.
 set -euo pipefail
 
 confirmacao="${1:-}"
@@ -13,8 +13,9 @@ if [[ "$confirmacao" != "PROMOTE_DEV_TO_MAIN" ]]; then
   exit 1
 fi
 
-if [[ -z "$sha_aprovado" ]]; then
-  echo "ERRO: informe o SHA de dev aprovado para a promoção" >&2
+# SHA completo, nunca nome de ramo: `origin/dev` seria resolvido depois do fetch e sempre bateria com dev.
+if [[ ! "$sha_aprovado" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ERRO: informe o SHA completo (40 caracteres) de dev aprovado para a promoção" >&2
   exit 1
 fi
 
