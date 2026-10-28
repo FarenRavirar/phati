@@ -26,14 +26,19 @@ Promover não é publicar: o deploy é uma etapa à parte.
 EOF
 )
 
-if [ -n "$numero" ]; then
+# Falha ao criar ou editar a PR derruba o job: warning com exit 0 mascararia o erro (AGENTS.md §Escopo).
+# Causa conhecida: "Allow GitHub Actions to create and approve pull requests" desligado em
+# Settings -> Actions -> General (`gh api repos/<dono>/<repo>/actions/permissions/workflow`).
+if [[ -n "$numero" ]]; then
   if gh pr edit "$numero" --title "$titulo" --body "$corpo"; then
     echo "pr_promocao=$numero"
   else
-    echo "::warning::O GitHub Actions não pode editar PRs neste repositório. PR permanente existente: #$numero."
+    echo "::error::Não foi possível editar a PR permanente #$numero. Confira se o GitHub Actions pode criar e aprovar PRs (Settings -> Actions -> General)."
+    exit 1
   fi
 elif gh pr create --base main --head dev --title "$titulo" --body "$corpo"; then
   echo "pr_promocao=criada"
 else
-  echo "::warning::O GitHub Actions não pode criar a PR permanente neste repositório. Crie ou atualize a PR dev -> main manualmente."
+  echo "::error::Não foi possível criar a PR permanente dev -> main. Confira se o GitHub Actions pode criar e aprovar PRs (Settings -> Actions -> General)."
+  exit 1
 fi

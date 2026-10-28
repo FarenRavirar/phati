@@ -6,7 +6,7 @@ set -euo pipefail
 confirmacao="${1:-}"
 remoto="${2:-origin}"
 
-if [ "$confirmacao" != "PROMOTE_DEV_TO_MAIN" ]; then
+if [[ "$confirmacao" != "PROMOTE_DEV_TO_MAIN" ]]; then
   echo "ERRO: a confirmação precisa ser PROMOTE_DEV_TO_MAIN" >&2
   exit 1
 fi

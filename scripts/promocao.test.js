@@ -20,11 +20,12 @@ function criarCenario() {
   const remoto = path.join(raiz, 'remoto.git');
   const trabalho = path.join(raiz, 'trabalho');
   const outro = path.join(raiz, 'outro');
-  const git = (cwd, ...argumentos) => execFileSync('git', argumentos, { cwd, stdio: 'pipe', encoding: 'utf8' }).trim();
-  const commitar = (cwd, arquivo) => {
-    fs.writeFileSync(path.join(cwd, arquivo), `${arquivo}\n`);
-    git(cwd, 'add', arquivo);
-    git(cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', arquivo);
+  const git = (diretorio, ...argumentos) =>
+    execFileSync('git', argumentos, { cwd: diretorio, stdio: 'pipe', encoding: 'utf8' }).trim();
+  const commitar = (diretorio, arquivo) => {
+    fs.writeFileSync(path.join(diretorio, arquivo), `${arquivo}\n`);
+    git(diretorio, 'add', arquivo);
+    git(diretorio, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', arquivo);
   };
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remoto]);
   execFileSync('git', ['clone', '-q', remoto, trabalho], { stdio: 'pipe' });
@@ -181,13 +182,13 @@ test('PR permanente: com PR aberta, edita o número encontrado e não cria outra
   }
 });
 
-test('PR permanente: falha ao editar ou criar vira aviso e não derruba o job', () => {
+test('PR permanente: falha ao editar ou criar derruba o job com ::error::', () => {
   for (const falha of [{ lista: '7', statusEditar: 1 }, { lista: '', statusCriar: 1 }]) {
     const { executar, limpar } = criarGhFalso(falha);
     try {
       const resultado = executar();
-      assert.equal(resultado.status, 0, resultado.stderr);
-      assert.match(resultado.stdout, /::warning::/);
+      assert.equal(resultado.status, 1, 'erro não pode ficar verde');
+      assert.match(resultado.stdout, /::error::/);
     } finally {
       limpar();
     }

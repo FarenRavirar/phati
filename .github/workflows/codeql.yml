@@ -1,0 +1,51 @@
+name: codeql
+
+# CodeQL (SAST nativo do GitHub), grátis em repositório público. Resultados em Security -> Code scanning.
+# Sem segredo e sem serviço externo. Mesmo desenho do projeto artificio, com as linguagens do phati:
+# python (servidor/), javascript-typescript (hooks do git e scripts) e actions (os próprios workflows).
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+  push:
+    branches:
+      - main
+      - dev
+  schedule:
+    - cron: "27 4 * * 1" # semanal, segunda 04:27 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analisar:
+    name: Analisar (${{ matrix.linguagem }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        linguagem:
+          - python
+          - javascript-typescript
+          - actions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Inicializar o CodeQL
+        # Terceiro fixado por SHA; a troca de versão vem pelo Dependabot (SHA e comentário juntos).
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          languages: ${{ matrix.linguagem }}
+          build-mode: none
+
+      - name: Executar a análise do CodeQL
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          category: "/language:${{ matrix.linguagem }}"

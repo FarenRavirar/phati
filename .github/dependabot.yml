@@ -1,0 +1,59 @@
+# Mantém atualizadas as dependências do phati e as versões fixadas por SHA ou digest (cadeia de suprimentos,
+# AGENTS.md §Segurança com IA, prática 6). O Dependabot só abre PR para revisão; nunca mergeia.
+# Mesmo desenho do projeto artificio. Python: o PR muda o pyproject.toml; o requirements.lock.txt precisa
+# acompanhar na revisão (débito: lock com hashes, `specs/backlog.md`).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - github-actions
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        update-types:
+          - major
+          - minor
+          - patch
+
+  - package-ecosystem: pip
+    directory: "/servidor"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - python
+    open-pull-requests-limit: 5
+    groups:
+      python-menores:
+        update-types:
+          - minor
+          - patch
+
+  # Imagens fixadas por digest no Dockerfile e no compose.yaml.
+  - package-ecosystem: docker
+    directory: "/servidor"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - docker
+
+  - package-ecosystem: docker-compose
+    directory: "/servidor"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - dependencies
+      - docker
