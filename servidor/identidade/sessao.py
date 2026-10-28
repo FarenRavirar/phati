@@ -1,0 +1,88 @@
+"""Sessão de navegador e acesso do aplicativo (R15; plan.md §Autenticação).
+
+Navegador: sessão do Django com ociosidade de 30 min e duração absoluta de 12 h. O hash de autenticação da sessão
+deriva do hash da senha; trocar a senha invalida toda sessão aberta sem tocar na tabela de sessões.
+Aplicativo: segredo opaco rotativo, só o SHA-256 no banco; 30 dias deslizantes com teto de 30 dias desde a entrada
+(NIST SP 800-63B-4, AAL1).
+"""
+
+import hashlib
+import secrets
+from datetime import timedelta
+
+from django.conf import settings
+from django.contrib.auth import login
+from django.db import transaction
+from django.utils import timezone
+
+from identidade.models import AcessoAplicativo
+
+
+def hash_do_segredo(segredo):
+    return hashlib.sha256(segredo.encode()).hexdigest()
+
+
+def iniciar_sessao(requisicao, pessoa):
+    login(requisicao, pessoa, backend='django.contrib.auth.backends.ModelBackend')
+    agora = timezone.now().timestamp()
+    requisicao.session['entrada_em'] = agora
+    requisicao.session['ultima_atividade'] = agora
+
+
+def sessao_vigente(requisicao):
+    """Confere ociosidade e duração absoluta; vencida, esvazia a sessão. Vigente, renova a atividade."""
+    agora = timezone.now().timestamp()
+    sessao = requisicao.session
+    entrada, atividade = sessao.get('entrada_em'), sessao.get('ultima_atividade')
+    if (
+        entrada is None
+        or atividade is None
+        or agora - entrada >= settings.SESSION_COOKIE_AGE
+        or agora - atividade >= settings.SESSAO_OCIOSIDADE_SEGUNDOS
+    ):
+        sessao.flush()
+        return False
+    sessao['ultima_atividade'] = agora
+    return True
+
+
+def _expira_em(agora, entrada_em):
+    return min(agora + timedelta(days=settings.ACESSO_APLICATIVO_DIAS), entrada_em + timedelta(days=settings.ACESSO_APLICATIVO_DIAS))
+
+
+def _emitir(pessoa, dispositivo, agora, entrada_em):
+    segredo = secrets.token_urlsafe(32)
+    AcessoAplicativo.objects.create(
+        pessoa=pessoa,
+        hash_segredo=hash_do_segredo(segredo),
+        dispositivo=dispositivo,
+        entrada_em=entrada_em,
+        expira_em=_expira_em(agora, entrada_em),
+    )
+    return segredo
+
+
+def emitir_acesso(pessoa, dispositivo):
+    agora = timezone.now()
+    return _emitir(pessoa, dispositivo, agora, agora)
+
+
+def renovar_acesso(segredo):
+    """Troca o segredo por um novo e invalida o antigo. Devolve `(pessoa, segredo_novo)` ou `None`."""
+    agora = timezone.now()
+    with transaction.atomic():
+        acesso = (
+            AcessoAplicativo.objects.select_for_update()
+            .select_related('pessoa')
+            .filter(hash_segredo=hash_do_segredo(segredo), revogado_em__isnull=True, expira_em__gt=agora)
+            .first()
+        )
+        if acesso is None:
+            return None
+        acesso.revogado_em = agora
+        acesso.save(update_fields=['revogado_em'])
+        return acesso.pessoa, _emitir(acesso.pessoa, acesso.dispositivo, agora, acesso.entrada_em)
+
+
+def revogar_acessos(pessoa):
+    AcessoAplicativo.objects.filter(pessoa=pessoa, revogado_em__isnull=True).update(revogado_em=timezone.now())
