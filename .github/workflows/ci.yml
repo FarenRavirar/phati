@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.lock.txt
+      - run: "pip install --only-binary=:all: -r requirements.lock.txt"
       # Senhas efêmeras do banco descartável do job; nada disso é segredo do projeto.
       - name: Papéis e banco
         run: |
@@ -52,7 +52,7 @@ jobs:
       - run: pyright
       - name: Hooks do git
         working-directory: .
-        run: node --test .githooks/*.test.js
+        run: node --test .githooks/*.test.js scripts/*.test.js
       - name: Par arquivo–teste
         if: github.event_name == 'pull_request'
         working-directory: .

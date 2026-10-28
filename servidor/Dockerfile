@@ -4,7 +4,7 @@ FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e
 WORKDIR /construcao
 COPY requirements.lock.txt .
 # shortcut: o lockfile traz também as dependências de desenvolvimento; separar quando o tamanho da imagem importar.
-RUN python -m venv /venv && /venv/bin/pip install --no-cache-dir -r requirements.lock.txt
+RUN python -m venv /venv && /venv/bin/pip install --no-cache-dir --only-binary=:all: -r requirements.lock.txt
 
 FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
 ENV PATH=/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
