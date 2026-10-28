@@ -10,7 +10,8 @@ const { execFileSync, spawnSync } = require('node:child_process');
 
 const CAMINHO_VALIDAR = path.join(__dirname, 'validar-invariante-ramos.sh');
 const CAMINHO_PROMOVER = path.join(__dirname, 'promover-dev-para-main.sh');
-const WORKFLOWS = path.join(__dirname, '..', '.github', 'workflows');
+const CAMINHO_ATUALIZAR_PR = path.join(__dirname, 'atualizar-pr-promocao.sh');
+const PASTA_DOS_FLUXOS = path.join(__dirname, '..', '.github', 'workflows');
 const CONFIRMACAO = 'PROMOTE_DEV_TO_MAIN';
 
 // Remoto bare com main e dev (dev à frente), uma cópia de trabalho e uma segunda cópia para divergir main.
@@ -101,7 +102,7 @@ test('promoção: válida leva main ao mesmo SHA de dev', () => {
 });
 
 // Contrato dos workflows: o que o YAML precisa dizer para os scripts testados acima valerem.
-const ler = (nome) => fs.readFileSync(path.join(WORKFLOWS, nome), 'utf8').replace(/\r\n/g, '\n');
+const ler = (nome) => fs.readFileSync(path.join(PASTA_DOS_FLUXOS, nome), 'utf8').replace(/\r\n/g, '\n');
 
 test('workflow do guard: dispara em push em main e chama o script de invariante', () => {
   const texto = ler('vigiar-ancestralidade-main.yml');
@@ -117,9 +118,78 @@ test('workflow de promoção: dispatch com confirmacao, só chama o script e nun
   assert.doesNotMatch(texto, /git push/);
 });
 
-test('PR permanente: dispara em push em dev, filtra o dono da cabeça e não oferece rebase', () => {
+test('PR permanente: o workflow dispara em push em dev e só chama o script', () => {
   const texto = ler('pr-permanente-promocao.yml');
   assert.match(texto, /on:\n {2}push:\n {4}branches:\n {6}- dev\n/);
-  assert.ok(texto.includes('headRepositoryOwner.login == \\"$DONO\\"'), 'filtra o dono da PR de cabeça dev');
-  assert.doesNotMatch(texto, /Alternativa manual/);
+  assert.match(texto, /bash scripts\/atualizar-pr-promocao\.sh/);
+  assert.match(texto, /DONO: \$\{\{ github\.repository_owner \}\}/);
+});
+
+// `gh` falso: grava cada chamada em um arquivo e responde com o que o teste define.
+function criarGhFalso({ lista = '', statusEditar = 0, statusCriar = 0 }) {
+  const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-falso-'));
+  const registro = path.join(raiz, 'chamadas.log');
+  fs.writeFileSync(
+    path.join(raiz, 'gh'),
+    `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${registro.replace(/\\/g, '/')}"
+case "$1 $2" in
+  "pr list") printf '%s' "${lista}" ;;
+  "pr edit") exit ${statusEditar} ;;
+  "pr create") exit ${statusCriar} ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+  const executar = () =>
+    spawnSync('bash', [CAMINHO_ATUALIZAR_PR], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${raiz}${path.delimiter}${process.env.PATH}`, DONO: 'dono-do-repo' },
+    });
+  const chamadas = () => fs.readFileSync(registro, 'utf8').split('\n').filter(Boolean);
+  const limpar = () => fs.rmSync(raiz, { recursive: true, force: true });
+  return { executar, chamadas, limpar };
+}
+
+test('PR permanente: sem PR aberta, cria com base main e cabeça dev', () => {
+  const { executar, chamadas, limpar } = criarGhFalso({ lista: '' });
+  try {
+    const resultado = executar();
+    assert.equal(resultado.status, 0, resultado.stderr);
+    assert.match(resultado.stdout, /pr_promocao=criada/);
+    const listar = chamadas()[0];
+    assert.match(listar, /pr list --base main --head dev --state open/);
+    assert.ok(listar.includes('headRepositoryOwner.login == "dono-do-repo"'), 'filtra o dono da PR');
+    const criar = chamadas().find((c) => c.startsWith('pr create'));
+    assert.match(criar, /--base main --head dev/);
+    assert.ok(!chamadas().some((c) => c.startsWith('pr edit')), 'não edita quando não há PR');
+  } finally {
+    limpar();
+  }
+});
+
+test('PR permanente: com PR aberta, edita o número encontrado e não cria outra', () => {
+  const { executar, chamadas, limpar } = criarGhFalso({ lista: '7\n' });
+  try {
+    const resultado = executar();
+    assert.equal(resultado.status, 0, resultado.stderr);
+    assert.match(resultado.stdout, /pr_promocao=7/);
+    assert.match(chamadas().find((c) => c.startsWith('pr edit')), /^pr edit 7 --title/);
+    assert.ok(!chamadas().some((c) => c.startsWith('pr create')), 'não cria quando já existe');
+  } finally {
+    limpar();
+  }
+});
+
+test('PR permanente: falha ao editar ou criar vira aviso e não derruba o job', () => {
+  for (const falha of [{ lista: '7', statusEditar: 1 }, { lista: '', statusCriar: 1 }]) {
+    const { executar, limpar } = criarGhFalso(falha);
+    try {
+      const resultado = executar();
+      assert.equal(resultado.status, 0, resultado.stderr);
+      assert.match(resultado.stdout, /::warning::/);
+    } finally {
+      limpar();
+    }
+  }
 });
