@@ -1,0 +1,47 @@
+name: promover-dev-para-main
+
+# Promoção canônica dev -> main preservando a invariante main ⊆ dev (AGENTS.md §Git).
+# Não cria commit de merge nem de squash: main avança por fast-forward até dev.
+# Promover não é publicar: este workflow só move o ponteiro Git, não builda nem faz deploy.
+# A lógica (confirmação, SHA aprovado, invariante, push) fica em scripts/promover-dev-para-main.sh, com teste.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmacao:
+        description: "Digite PROMOTE_DEV_TO_MAIN para promover dev -> main"
+        required: true
+        type: string
+      sha_aprovado:
+        description: "SHA completo (40 caracteres) de dev revisado; se dev avançou depois, a promoção para"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  avancar_main:
+    name: Avançar main por fast-forward até dev
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Exceção consciente ao artipacked (zizmor): o script empurra main, o que exige
+          # o GITHUB_TOKEN persistido no git-config. NÃO trocar para false: quebraria a promoção
+          # dev -> main em silêncio.
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Promover main por fast-forward
+        env:
+          CONFIRMACAO: ${{ inputs.confirmacao }}
+          SHA_APROVADO: ${{ inputs.sha_aprovado }}
+        run: bash scripts/promover-dev-para-main.sh "$CONFIRMACAO" "$SHA_APROVADO"
+
+      # O push com o GITHUB_TOKEN não dispara o CodeQL de push em main; dispara-se aqui.
+      - name: Disparar o CodeQL na main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run codeql.yml --ref main

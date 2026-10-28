@@ -1,0 +1,25 @@
+name: vigiar-ancestralidade-main
+
+# Alarme compensatório enquanto a proteção de branch não exige este check.
+# Todo avanço em main precisa continuar contido em dev: main é ancestral de dev (AGENTS.md §Git).
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verificar_ancestralidade:
+    name: Verificar main contida em dev
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validar que main é ancestral de dev
+        run: bash scripts/validar-invariante-ramos.sh origin

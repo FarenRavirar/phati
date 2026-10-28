@@ -1,0 +1,32 @@
+name: pr-permanente-promocao
+
+# PR permanente: todo push em dev cria ou atualiza a PR de revisão da promoção.
+# ATENÇÃO: não usar squash, merge commit nem "Rebase and merge" nesta PR: os três criam SHAs novos
+# em main e quebram main ⊆ dev (o rebase reescreve o committer; doc "About pull request merges").
+# Promoção segura = só o workflow promover-dev-para-main.yml.
+# A lógica fica em scripts/atualizar-pr-promocao.sh, com teste.
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pr_promocao:
+    name: PR de promoção dev -> main
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Criar ou atualizar a PR permanente
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DONO: ${{ github.repository_owner }}
+        run: bash scripts/atualizar-pr-promocao.sh
