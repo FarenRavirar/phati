@@ -11,6 +11,7 @@ import pytest
 from django.conf import settings
 from django.contrib.auth import get_user
 from django.contrib.sessions.backends.db import SessionStore
+from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
@@ -290,3 +291,59 @@ def test_dois_pedidos_simultaneos_deixam_um_link_de_pe(pessoa, mailoutbox):
     _em_paralelo(pedir, pedir)
     assert PedidoRedefinicao.objects.filter(usado_em__isnull=True).count() == 1
     assert len(mailoutbox) == 1
+
+
+def _troca_normal(pessoa):
+    senha.trocar_senha(Pessoa.objects.get(pk=pessoa.pk), SENHA, 'senha-vinda-da-troca-normal')
+
+
+def _senha_temporaria(pessoa):
+    senha.emitir_senha_temporaria(Pessoa.objects.get(pk=pessoa.pk))
+
+
+def _novo_pedido(pessoa):
+    redefinicao.pedir_redefinicao(CPF)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('concorrente', [_troca_normal, _senha_temporaria, _novo_pedido])
+def test_confirmacao_simultanea_a_outra_operacao_da_pessoa_nao_da_deadlock(pessoa, concorrente):
+    # Achados do Greptile e do Codex (PR #9): a confirmação travava pedido e depois pessoa; as outras operações,
+    # o inverso.
+    for rodada in range(8):
+        Pessoa.objects.filter(pk=pessoa.pk).update(password=make_password(SENHA))
+        segredo = f'segredo-da-rodada-{rodada}'
+        PedidoRedefinicao.objects.create(
+            pessoa=pessoa,
+            hash_segredo=sessao.hash_do_segredo(segredo),
+            solicitado_por=pessoa,
+            expira_em=timezone.now() + timedelta(minutes=10),
+        )
+        resultados = []
+        largada = threading.Barrier(2)
+
+        def correr(funcao):
+            largada.wait()
+            try:
+                funcao()
+                resultados.append('ok')
+            except ValidationError as erro:
+                resultados.append(erro.code)
+            except Exception as erro:
+                resultados.append(f'erro {type(erro).__name__}')
+            finally:
+                connection.close()
+
+        def confirmar():
+            redefinicao.confirmar_redefinicao(segredo, 'senha-vinda-da-confirmacao')
+
+        def outra():
+            concorrente(pessoa)
+
+        fios = [threading.Thread(target=correr, args=(f,)) for f in (confirmar, outra)]
+        for fio in fios:
+            fio.start()
+        for fio in fios:
+            fio.join()
+        assert [r for r in resultados if r.startswith('erro')] == []
+        assert len(resultados) == 2

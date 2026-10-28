@@ -58,11 +58,10 @@ def validar_senha(senha, pessoa=None, cpf_da_pessoa=None):
 @contextmanager
 def _pessoa_travada(pessoa):
     """Trava a linha da pessoa até o fim da transação (achados do Qodo, PR #9): trocas de senha, emissões de
-    temporária e emissão ou rotação de acesso do aplicativo passam a se serializar. Ao sair sem erro, sincroniza
-    a instância do chamador com o que foi gravado."""
+    temporária e emissão ou rotação de acesso do aplicativo passam a se serializar. Quem chama sincroniza a
+    própria instância com `refresh_from_db()` depois do bloco (sem código depois do `yield`, achado do Sonar)."""
     with transaction.atomic():
         yield Pessoa.objects.select_for_update().get(pk=pessoa.pk)
-    pessoa.refresh_from_db()
 
 
 def _encerrar_credenciais_antigas(pessoa):
@@ -90,6 +89,7 @@ def definir_senha(pessoa, senha):
         travada.bloqueada_ate = None
         travada.save(update_fields=_CAMPOS_DA_SENHA)
         _encerrar_credenciais_antigas(travada)
+    pessoa.refresh_from_db()
 
 
 def trocar_senha(pessoa, senha_atual, senha_nova):
@@ -98,6 +98,7 @@ def trocar_senha(pessoa, senha_atual, senha_nova):
         if not travada.check_password(senha_atual):
             raise ValidationError('Senha atual incorreta.', code='senha_atual_incorreta')
         definir_senha(travada, senha_nova)
+    pessoa.refresh_from_db()
     email.enviar_aviso_de_troca(pessoa)
 
 
@@ -117,4 +118,5 @@ def emitir_senha_temporaria(pessoa):
         travada.save(update_fields=_CAMPOS_DA_SENHA)
         _encerrar_credenciais_antigas(travada)
         email.enviar_senha_temporaria(travada, senha)
+    pessoa.refresh_from_db()
     return senha

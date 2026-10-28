@@ -22,17 +22,22 @@ def _subchave(rotulo):
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=rotulo).derive(settings.CHAVE_CPF)
 
 
+def _cpf_invalido():
+    return ValidationError('CPF inválido.', code='cpf_invalido')
+
+
 def normalizar_cpf(texto):
     """Devolve os 11 dígitos de um CPF válido (aceita ponto e traço); recusa o resto."""
     if not isinstance(texto, str):
-        raise ValidationError('CPF inválido.', code='cpf_invalido')
+        raise _cpf_invalido()
     cpf = re.sub(r'[.\-]', '', texto.strip())
-    if not re.fullmatch(r'[0-9]{11}', cpf) or len(set(cpf)) == 1:
-        raise ValidationError('CPF inválido.', code='cpf_invalido')
+    # re.ASCII: sem a flag, `\d` aceita dígitos Unicode e o mesmo CPF geraria HMACs diferentes (achado do Codex, PR #9).
+    if not re.fullmatch(r'\d{11}', cpf, re.ASCII) or len(set(cpf)) == 1:
+        raise _cpf_invalido()
     for tamanho in (9, 10):
         soma = sum(int(d) * peso for d, peso in zip(cpf[:tamanho], range(tamanho + 1, 1, -1), strict=True))
         if int(cpf[tamanho]) != (soma * 10 % 11) % 10:
-            raise ValidationError('CPF inválido.', code='cpf_invalido')
+            raise _cpf_invalido()
     return cpf
 
 

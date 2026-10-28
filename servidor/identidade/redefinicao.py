@@ -65,18 +65,20 @@ def confirmar_redefinicao(segredo, senha_nova):
     levanta o código da regra e gasta uma das 5 tentativas do pedido."""
     agora = timezone.now()
     erro = None
+    hash_segredo = sessao.hash_do_segredo(segredo)
     with transaction.atomic():
-        pedido = (
-            PedidoRedefinicao.objects.select_for_update()
-            .select_related('pessoa')
-            .filter(hash_segredo=sessao.hash_do_segredo(segredo))
-            .first()
-        )
+        # Trava a pessoa antes do pedido, a ordem de senha.definir_senha: o inverso daria deadlock entre uma
+        # confirmação e uma troca de senha simultâneas (achado do Greptile, PR #9).
+        pessoa_id = PedidoRedefinicao.objects.filter(hash_segredo=hash_segredo).values_list('pessoa_id', flat=True).first()
+        if pessoa_id is None:
+            raise ValidationError('Link inválido ou vencido.', code='link_invalido')
+        pessoa = Pessoa.objects.select_for_update().get(pk=pessoa_id)
+        pedido = PedidoRedefinicao.objects.select_for_update().filter(hash_segredo=hash_segredo).first()
         if pedido is None or pedido.usado_em is not None or pedido.expira_em <= agora or pedido.tentativas >= TENTATIVAS_POR_PEDIDO:
             raise ValidationError('Link inválido ou vencido.', code='link_invalido')
         pedido.tentativas += 1
         try:
-            senha.definir_senha(pedido.pessoa, senha_nova)
+            senha.definir_senha(pessoa, senha_nova)
         except ValidationError as recusa:
             erro = recusa
         else:
@@ -84,4 +86,4 @@ def confirmar_redefinicao(segredo, senha_nova):
         pedido.save(update_fields=['tentativas', 'usado_em'])
     if erro is not None:
         raise erro
-    email.enviar_aviso_de_troca(pedido.pessoa)
+    email.enviar_aviso_de_troca(pessoa)
