@@ -14,6 +14,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import DEFAULT_DB_ALIAS, connection, connections, transaction
 from django.utils import timezone
 
+from permissao.contexto import fixar_contexto, fixar_identidade, ler_contexto, limpar_identidade, restaurar_contexto
 from permissao.models import BASES_COM_CATEGORIA, Concessao, Permissao
 from territorio.models import Empresa, Fazenda, SubArea
 
@@ -97,12 +98,17 @@ class Memoria:
 def memoria_de(pessoa):
     memoria = getattr(pessoa, _ATRIBUTO_MEMORIA, None)
     if memoria is None:
-        with connection.cursor() as consulta:
+        with transaction.atomic(), connection.cursor() as consulta:
             # Função do banco (migração 0003): lê as concessões da própria pessoa sem depender das variáveis de RLS
             # que `com_permissao` ainda vai calcular a partir delas. O filtro de "ativa" repete `concessoes_ativas`;
-            # test_rls confere os dois nas bordas.
+            # test_rls confere os dois nas bordas. A identidade assinada (migração 0004) vale só nesta consulta: a
+            # transação do chamador pode seguir adiante, então a assinatura sai antes (achado do Sourcery, PR #15).
+            # Com erro, `atomic()` desfaz a transação (ou o ponto de salvamento) e a assinatura vai junto; limpar no
+            # `finally` rodaria SQL em transação abortada e esconderia o erro real (achado do Greptile, PR #15).
+            fixar_identidade(consulta, pessoa.pk)
             consulta.execute('SELECT * FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
             linhas = consulta.fetchall()
+            limpar_identidade(consulta)
         vinculos = tuple(
             Vinculo(
                 Concessao(id=cid, empresa_id=empresa, fazenda_id=fazenda, sub_area_id=sub_area, fim=fim),
@@ -196,20 +202,6 @@ def escopos_da_acao(pessoa, acao):
     )
 
 
-_LER_VARIAVEIS = (
-    "SELECT coalesce(current_setting('app.plataforma', true), ''),"
-    " coalesce(current_setting('app.empresas', true), ''),"
-    " coalesce(current_setting('app.empresas_de_fazendas', true), ''),"
-    " coalesce(current_setting('app.fazendas', true), '')"
-)
-# `is_local = true`: vale só até o fim da transação. `false` valeria para a sessão inteira e vazaria para a
-# transação seguinte da mesma conexão (test_set_config_local barra isso no código).
-_FIXAR_VARIAVEIS = (
-    "SELECT set_config('app.plataforma', %s, true), set_config('app.empresas', %s, true),"
-    " set_config('app.empresas_de_fazendas', %s, true), set_config('app.fazendas', %s, true)"
-)
-
-
 @contextmanager
 def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
     """Abre a transação com as variáveis de RLS da `pessoa` (R12): a união dos escopos das `acoes` (padrão `ver`).
@@ -222,7 +214,6 @@ def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
     def lista(*conjuntos):
         return ','.join(str(pk) for pk in sorted(set().union(*conjuntos)))
 
-    # Mesma ordem de `_FIXAR_VARIAVEIS`.
     novos = (
         '1' if any(escopo.plataforma for escopo in escopos) else '',
         lista(*(e.empresas for e in escopos)),
@@ -230,11 +221,10 @@ def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
         lista(*(e.fazendas | e.fazendas_das_sub_areas for e in escopos)),
     )
     with transaction.atomic(using=usando), connections[usando].cursor() as consulta:
-        consulta.execute(_LER_VARIAVEIS)
-        anteriores = consulta.fetchone()
-        consulta.execute(_FIXAR_VARIAVEIS, novos)
+        anteriores = ler_contexto(consulta)
+        fixar_contexto(consulta, *novos)
         yield
-        consulta.execute(_FIXAR_VARIAVEIS, anteriores)
+        restaurar_contexto(consulta, anteriores)
 
 
 def exige_permissao(acao, obter_alvo=None, obter_categoria=None, listagem=False):

@@ -3,7 +3,8 @@
 # Variáveis de transação que `permissao.pode.com_permissao` fixa com `set_config(..., true)`:
 #   app.plataforma ('1' ou vazio), app.empresas, app.empresas_de_fazendas (só leitura) e app.fazendas (listas de
 #   ids separados por vírgula).
-# Sem variável, `current_setting(..., true)` devolve NULL ou '' e nenhuma linha passa. O dono das tabelas
+# Sem variável, `current_setting(..., true)` devolve NULL ou '' e nenhuma linha passa. Variável sozinha o `app` mesmo
+# fixa: a migração 0004 passa a exigir a assinatura do contexto (permissao/contexto.py). O dono das tabelas
 # (papel das migrações) ignora a RLS porque não há FORCE; o papel `app` não é dono e não tem BYPASSRLS.
 
 from django.conf import settings

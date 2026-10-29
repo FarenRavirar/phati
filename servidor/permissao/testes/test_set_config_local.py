@@ -34,14 +34,16 @@ def _arquivos_do_servidor():
 
 def test_o_codigo_do_servidor_so_usa_variavel_local():
     arquivos = _arquivos_do_servidor()
-    assert any(arquivo.name == 'pode.py' for arquivo in arquivos)  # a varredura enxerga o código que importa
+    assert {'pode.py', 'contexto.py'} <= {arquivo.name for arquivo in arquivos}  # a varredura enxerga o código que importa
     achados = {str(a.relative_to(RAIZ)): achados_em(a.read_text(encoding='utf-8')) for a in arquivos}
     assert {arquivo: itens for arquivo, itens in achados.items() if itens} == {}
 
 
 def test_o_codigo_fixa_as_variaveis_de_forma_local():
-    texto = (RAIZ / 'permissao' / 'pode.py').read_text(encoding='utf-8')
-    assert texto.count("', %s, true)") == 4
+    # Os dois modelos de `set_config` (cinco variáveis de contexto e a assinatura da identidade) vivem em contexto.py.
+    texto = (RAIZ / 'permissao' / 'contexto.py').read_text(encoding='utf-8')
+    assert texto.count("', %s, true)") == 6
+    assert 'set_config' not in (RAIZ / 'permissao' / 'pode.py').read_text(encoding='utf-8')
 
 
 def test_definir_variavel_com_false_e_barrado():
