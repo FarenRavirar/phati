@@ -20,6 +20,12 @@ PERMITIDOS = {
     'USERNAME_FIELD', 'password', 'last_login', 'AUTH_USER_MODEL', 'PASSWORD_HASHERS', 'DEFAULT_FROM_EMAIL',
     'SESSION_COOKIE_HTTPONLY', 'SESSION_COOKIE_SECURE', 'SESSION_COOKIE_SAMESITE', 'SESSION_COOKIE_AGE',
     'session',  # request.session é atributo do Django
+    'user',  # request.user é atributo do Django; a API grava a pessoa autenticada nele (projeto/api.py)
+    # Nomes dos parâmetros de `authenticate` no django-ninja: o pyright barra o override com outro nome.
+    'key', 'token',
+    # Nomes impostos por biblioteca: `request` é a fixture do pytest que dá acesso ao teste em curso e o
+    # primeiro parâmetro de toda rota do django-ninja (signature/details.py compara `name == "request"`).
+    'request',
 }
 
 # Palavras inglesas comuns em nome de código. Cresce quando um nome em inglês escapar.

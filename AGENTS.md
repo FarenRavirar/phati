@@ -193,8 +193,12 @@ Ao encontrar erro: parar de repetir tentativas, consultar `.specify/memory/error
 
 Ordem de uso:
 1. LSP — `workspaceSymbol`/`goToDefinition`, `findReferences`, `hover`; checar diagnostics depois de editar.
-2. `codebase-memory-mcp` — mapa estrutural e dependências; `check_index_coverage` antes de concluir por ele, `detect_changes` (`scope: "tests"`) para impacto de um diff.
-3. `rtk rg`, `rtk read`, `rtk git`, validação CLI.
+2. `rtk rg`, `rtk read`, `rtk git`, validação CLI.
+
+Documentação e segurança:
+- **Context7 (MCP `context7`):** consultar antes de usar API de biblioteca ou framework (Django, DRF, PostGIS, MapLibre); a versão da doc deve casar com a do `requirements`. Substitui memória do modelo (§Evidência, regra 4).
+- **21st.dev Magic (MCP `magic`, chave `API_KEY_21ST` no ambiente do usuário):** só para interface web; saída é rascunho, passa por revisão e teste como todo código.
+- **Skills `agent-skills` (plugin):** apoio de processo; em choque com este arquivo, este vence.
 
 `rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal.
 

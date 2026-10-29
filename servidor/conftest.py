@@ -11,6 +11,17 @@ def _fechar_conexao_app():
     connections['app'].close()
 
 
+@pytest.fixture(autouse=True)
+def _email_na_hora(request, monkeypatch):
+    """O teste comum roda numa transação que nunca faz commit, então `on_commit` não dispararia e `mailoutbox`
+    ficaria vazia: aqui o envio sai na hora. Teste que exercita o commit pede `django_capture_on_commit_callbacks`
+    e fica com o `on_commit` verdadeiro."""
+    if 'django_capture_on_commit_callbacks' not in request.fixturenames:
+        from types import SimpleNamespace
+
+        monkeypatch.setattr('identidade.email.transaction', SimpleNamespace(on_commit=lambda funcao: funcao()))
+
+
 def _digito_verificador(digitos):
     soma = sum(digito * peso for digito, peso in zip(digitos, range(len(digitos) + 1, 1, -1)))
     return soma * 10 % 11 % 10

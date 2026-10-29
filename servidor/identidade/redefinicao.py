@@ -20,6 +20,10 @@ VALIDADE = timedelta(minutes=10)
 TENTATIVAS_POR_PEDIDO = 5
 # Achado do Qodo (PR #9): sem intervalo, quem digita o CPF alheio enche a caixa e derruba o link já recebido.
 INTERVALO_ENTRE_PEDIDOS = timedelta(minutes=1)
+# Pedidos que a própria pessoa (ou ninguém, pela rota pública) faz por hora: quem sabe o CPF de outra pessoa não consegue
+# derrubar o link dela a cada minuto nem encher a caixa (OWASP Forgot Password Cheat Sheet: limite por conta).
+TETO_POR_HORA = 5
+JANELA_DO_TETO = timedelta(hours=1)
 
 
 def pode_iniciar_redefinicao(solicitante, alvo):
@@ -49,16 +53,22 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
     agora = timezone.now()
     segredo = secrets.token_urlsafe(16)
     with transaction.atomic():
-        # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O envio fica
-        # dentro da transação: se o SMTP falhar, o link anterior continua valendo (achados do Qodo, PR #9).
+        # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O e-mail sai
+        # depois do commit (`email.py`): rollback não envia link de pedido que não existe, e falha do SMTP não
+        # chega à resposta, que seria um oráculo de CPF cadastrado.
         # `no_key`: `solicitado_por` aponta para outra pessoa e a FK pede KEY SHARE; FOR UPDATE daria deadlock com
         # duas redefinições cruzadas (mesma classe do achado do Codex no PR #11).
         Pessoa.objects.select_for_update(no_key=True).get(pk=alvo.pk)
         # A criação do pedido é `expira_em - VALIDADE`; pedido recente, mesmo já usado, segura o novo.
         if PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__gt=agora + VALIDADE - INTERVALO_ENTRE_PEDIDOS).exists():
             return None
-        # Retenção (achado do Qodo, PR #9): pedido vencido não serve a mais nada; sai na próxima solicitação da pessoa.
-        PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__lte=agora).delete()
+        # Teto por hora só para o pedido da própria pessoa; o do Administrador (autenticado) não entra na conta.
+        proprios = PedidoRedefinicao.objects.filter(pessoa=alvo, solicitado_por=alvo, expira_em__gt=agora + VALIDADE - JANELA_DO_TETO)
+        if (solicitante is None or solicitante.pk == alvo.pk) and proprios.count() >= TETO_POR_HORA:
+            return None
+        # Retenção (achado do Qodo, PR #9): o pedido fica até sair da janela do teto, que precisa dele para contar; sai
+        # na próxima solicitação da pessoa.
+        PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__lte=agora + VALIDADE - JANELA_DO_TETO).delete()
         PedidoRedefinicao.objects.filter(pessoa=alvo, usado_em__isnull=True).update(usado_em=agora)
         PedidoRedefinicao.objects.create(
             pessoa=alvo,

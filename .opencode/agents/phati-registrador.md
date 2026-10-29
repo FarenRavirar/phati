@@ -57,9 +57,6 @@ permission:
     "rtk git reset*": deny
     "rm *": deny
   task: deny
-  "codebase-memory*": allow
-  "codebase_memory*": allow
-  "mcp__codebase_memory__*": allow
 ---
 
 # Papel

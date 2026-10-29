@@ -124,7 +124,7 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
 
 def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, fim=None):
     """Cria a pessoa (origem na empresa do escopo), envia a senha temporária e concede o cargo, tudo na mesma
-    transação: SMTP que falha desfaz o convite. Devolve `(pessoa, senha_temporaria)`. CPF já cadastrado levanta
+    transação; o e-mail sai depois do commit e falha de SMTP só vai para o log, sem desfazer o convite. Devolve `(pessoa, senha_temporaria)`. CPF já cadastrado levanta
     `cpf_duplicado`: para quem já existe, `conceder()`."""
     categorias = tuple(categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
