@@ -70,7 +70,7 @@ def test_healthcheck_do_banco_espera_o_servidor_tcp():
     assert 'pg_isready -h 127.0.0.1' in compose
 
 
-def test_smtp_tem_prazo_para_nao_prender_o_worker():
+def test_smtp_tem_prazo_para_nao_prender_o_processo():
     # Achado do Qodo (PR #9): sem timeout, um SMTP mudo bloqueia o pedido de redefinição sem fim.
     # O pytest-django troca MAILERS por um backend em memória; por isso lê-se o arquivo, como nos testes acima.
     opcoes = runpy.run_path(str(CAMINHO))['MAILERS']['default']['OPTIONS']
@@ -102,3 +102,19 @@ def test_chave_do_cpf_com_caractere_estranho_derruba_o_servidor(monkeypatch):
     monkeypatch.setenv('PHATI_CHAVE_CPF', base64.urlsafe_b64encode(bytes(range(32))).decode() + '!')
     with pytest.raises(ImproperlyConfigured):
         runpy.run_path(str(CAMINHO))
+
+
+def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
+    # Achado do CodeRabbit (PR #9): nada provava que o ambiente configura o SMTP.
+    monkeypatch.setenv('PHATI_EMAIL_HOST', 'smtp.exemplo.test')
+    monkeypatch.setenv('PHATI_EMAIL_PORTA', '2525')
+    monkeypatch.setenv('PHATI_EMAIL_USUARIO', 'usuario-de-teste')
+    monkeypatch.setenv('PHATI_EMAIL_SENHA', 'valor-de-teste')
+    monkeypatch.setenv('PHATI_EMAIL_REMETENTE', 'remetente@exemplo.test')
+    configuracao = runpy.run_path(str(CAMINHO))
+    opcoes = configuracao['MAILERS']['default']['OPTIONS']
+    assert opcoes['host'] == 'smtp.exemplo.test'
+    assert opcoes['port'] == 2525
+    assert opcoes['username'] == 'usuario-de-teste'
+    assert opcoes['password'] == 'valor-de-teste'
+    assert configuracao['DEFAULT_FROM_EMAIL'] == 'remetente@exemplo.test'

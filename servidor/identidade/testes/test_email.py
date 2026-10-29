@@ -30,8 +30,8 @@ def test_nenhum_outro_modulo_envia_email():
     fora = [
         str(arquivo.relative_to(RAIZ))
         for arquivo in RAIZ.rglob('*.py')
-        if 'testes' not in arquivo.parts
-        and 'migrations' not in arquivo.parts
+        if 'testes' not in arquivo.relative_to(RAIZ).parts
+        and 'migrations' not in arquivo.relative_to(RAIZ).parts
         and arquivo.name not in ('email.py', 'settings.py')
         and envio.search(arquivo.read_text(encoding='utf-8'))
     ]

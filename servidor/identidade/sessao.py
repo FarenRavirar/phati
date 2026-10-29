@@ -94,4 +94,8 @@ def renovar_acesso(segredo):
 
 
 def revogar_acessos(pessoa):
-    AcessoAplicativo.objects.filter(pessoa=pessoa, revogado_em__isnull=True).update(revogado_em=timezone.now())
+    # Sozinha, a revogação também trava a pessoa antes dos acessos, a ordem de emitir e renovar (achado do
+    # CodeRabbit, PR #9); dentro de definir_senha a trava já existe e esta é reentrante.
+    with transaction.atomic():
+        Pessoa.objects.select_for_update().get(pk=pessoa.pk)
+        AcessoAplicativo.objects.filter(pessoa=pessoa, revogado_em__isnull=True).update(revogado_em=timezone.now())

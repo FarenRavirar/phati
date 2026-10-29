@@ -124,6 +124,16 @@ def test_renovacao_trava_a_pessoa_antes_do_acesso(pessoa):
     assert '"acesso_aplicativo"' in travas[1]
 
 
+def test_revogacao_trava_a_pessoa_antes_dos_acessos(pessoa):
+    # Achado do CodeRabbit (PR #9): a revogação avulsa seguia sem trava.
+    sessao.emitir_acesso(pessoa, 'celular')
+    with CaptureQueriesContext(connection) as consultas:
+        sessao.revogar_acessos(pessoa)
+    travas = [c['sql'] for c in consultas if 'FOR UPDATE' in c['sql']]
+    assert len(travas) == 1
+    assert '"pessoa"' in travas[0]
+
+
 def test_acesso_revogado_nao_renova(pessoa):
     segredo = sessao.emitir_acesso(pessoa, 'celular')
     sessao.revogar_acessos(pessoa)
