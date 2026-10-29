@@ -237,12 +237,17 @@ def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
         consulta.execute(_FIXAR_VARIAVEIS, anteriores)
 
 
-def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
+def exige_permissao(acao, obter_alvo=None, obter_categoria=None, listagem=False):
     """Decorador de rota: nega com `PermissionDenied` (403) antes de a rota rodar, dentro de `com_permissao`.
 
     `obter_alvo(requisicao, *args, **kwargs)` devolve o alvo da ação e `obter_categoria(...)`, a categoria do dado, se
     a rota trata dado categorizado: sem ela, Técnico e Usuário com categoria passariam por qualquer categoria
     (achado do Sourcery, PR #11). A rota decorada leva `acao_exigida`, que a varredura de rotas da Fase 5 confere.
+
+    `listagem=True` é para rota que devolve vários itens e não tem um alvo só: abre o bloco da ação (a RLS vale) e
+    não chama `pode()`, porque `pode()` sem alvo só passa a plataforma. A rota filtra por `escopos_da_acao` (ou por
+    serviço que o faz) e materializa a lista antes de sair do bloco; a varredura lê `listagem` e o teste negativo
+    de cada listagem prova que pessoa sem concessão recebe lista vazia.
     """
 
     def decorar(funcao):
@@ -253,11 +258,12 @@ def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
             with com_permissao(requisicao.user, acao):
                 alvo = obter_alvo(requisicao, *args, **kwargs) if obter_alvo else None
                 categoria = obter_categoria(requisicao, *args, **kwargs) if obter_categoria else None
-                if not pode(requisicao.user, acao, alvo, categoria):
+                if not listagem and not pode(requisicao.user, acao, alvo, categoria):
                     raise PermissionDenied
                 return funcao(requisicao, *args, **kwargs)
 
         setattr(interna, 'acao_exigida', acao)
+        setattr(interna, 'listagem', listagem)
         return interna
 
     return decorar

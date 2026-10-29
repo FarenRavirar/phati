@@ -21,7 +21,7 @@ def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cp
     """Cria a empresa, os quatro cargos-base e o primeiro Administrador de empresa, convidado por senha temporária,
     que fica como Administrador titular (R23).
 
-    Tudo numa transação, com o e-mail dentro: SMTP que falha não deixa empresa, cargo, pessoa nem concessão.
+    Tudo numa transação; o e-mail sai depois do commit e falha de SMTP só vai para o log: empresa e administrador ficam, e a senha temporária volta no retorno.
     CPF já cadastrado levanta `cpf_duplicado` (a pessoa já existe: shortcut, o convite de quem já tem conta
     espera uma decisão sobre o Administrador de empresa que não é novo no sistema). Devolve
     `(empresa, administrador, senha_temporaria)`.

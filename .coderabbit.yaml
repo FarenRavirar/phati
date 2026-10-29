@@ -34,9 +34,10 @@ reviews:
         Teste que não pode falhar não conta. Apontar `skip`, `xfail`, teste comentado,
         mock que reproduz o código testado e ausência de caso negativo.
 
+  # Revisão só sob comando manual (`@coderabbitai review` na PR); abrir PR ou dar push não dispara.
   auto_review:
-    enabled: true
-    # `false`: cada push revisa o diff inteiro da PR, não só o delta.
+    enabled: false
+    # `false`: cada revisão manual cobre o diff inteiro da PR, não só o delta.
     auto_incremental_review: false
     # `0` desativa a pausa automática depois de N commits revisados.
     auto_pause_after_reviewed_commits: 0

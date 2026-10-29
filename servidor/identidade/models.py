@@ -79,6 +79,8 @@ class AcessoAplicativo(models.Model):
     entrada_em = models.DateTimeField()
     expira_em = models.DateTimeField()
     revogado_em = models.DateTimeField(null=True, blank=True)
+    # Preenchido quando a renovação troca este segredo por outro; sem ele, `revogado_em` veio de sair ou de troca de senha.
+    substituido_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'acesso_aplicativo'

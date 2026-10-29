@@ -15,4 +15,4 @@ acrescenta o que é específico do Claude Code; nada do `AGENTS.md` se repete aq
 - **Permissões** (`.claude/settings.json`): `deny` no que não tem exceção (desligar
   máquina, `--amend`, `push --force`); `ask` no que exige autorização por ação
   (commit, merge, worktree, escrita na VM).
-- **Navegação:** LSP e `codebase-memory-mcp` antes de busca textual (`AGENTS.md` §Ferramentas).
+- **Navegação:** LSP antes de busca textual (`AGENTS.md` §Ferramentas).

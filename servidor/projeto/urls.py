@@ -1,2 +1,5 @@
-# Sem rotas na Fase 1: toda requisição responde 404. A API `/api/v1/` entra na Fase 5.
-urlpatterns = []
+from django.urls import path
+
+from projeto.api import api
+
+urlpatterns = [path('api/v1/', api.urls)]
