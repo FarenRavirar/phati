@@ -4,7 +4,10 @@ Toda rota abre `com_permissao` por `exige_permissao`, que carrega o alvo dentro 
 escopo nem existe e a rota responde 404) e devolve dado já materializado: o ninja serializa depois que o bloco fecha.
 """
 
-from ninja import Router, Schema
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from ninja import Field, Router, Schema
+from pydantic import field_validator
 
 from permissao.pode import exige_permissao
 from territorio import cadastro, listagem
@@ -13,11 +16,22 @@ from territorio.models import Empresa, Fazenda, SubArea
 roteador = Router(tags=['territorio'])
 
 
+# Os limites são os das colunas: sem eles, nome longo chegava ao banco e dava 500 (achado do Greptile, PR #14).
 class EntradaEmpresa(Schema):
-    nome: str
-    nome_administrador: str
-    email_administrador: str
+    nome: str = Field(max_length=200)
+    nome_administrador: str = Field(max_length=200)
+    email_administrador: str = Field(max_length=254)
     cpf_administrador: str
+
+    @field_validator('email_administrador')
+    @classmethod
+    def email_valido(cls, valor):
+        # Endereço malformado chegaria ao `on_commit` e estouraria depois de a empresa gravada (Sourcery, PR #14).
+        try:
+            validate_email(valor)
+        except ValidationError as erro:
+            raise ValueError('email_invalido') from erro
+        return valor
 
 
 class SaidaEmpresa(Schema):
@@ -28,11 +42,11 @@ class SaidaEmpresa(Schema):
 
 
 class EntradaNome(Schema):
-    nome: str
+    nome: str = Field(max_length=200)
 
 
 class EntradaSubArea(Schema):
-    nome: str
+    nome: str = Field(max_length=200)
     pai_id: int | None = None
 
 
@@ -55,6 +69,12 @@ def _empresa(request, empresa_id, **_):
 
 def _fazenda(request, fazenda_id, **_):
     return Fazenda.objects.get(pk=fazenda_id)
+
+
+def _alvo_da_sub_area(request, fazenda_id, dados, **_):
+    # Quem recebeu `criar_sub_area` só numa sub-área cria filha dela, não raiz da fazenda: o alvo é o pai quando há
+    # pai (o serviço confere que o pai é da fazenda da URL). Achado do Sourcery, PR #14.
+    return SubArea.objects.get(pk=dados.pai_id) if dados.pai_id is not None else _fazenda(request, fazenda_id)
 
 
 @roteador.post('empresas', url_name='empresas_criar', response={201: SaidaEmpresa})
@@ -80,7 +100,7 @@ def listar_fazendas(request):
 
 
 @roteador.post('fazendas/{fazenda_id}/sub-areas', url_name='sub_areas_criar', response={201: SaidaSubArea})
-@exige_permissao('criar_sub_area', _fazenda)
+@exige_permissao('criar_sub_area', _alvo_da_sub_area)
 def criar_sub_area(request, fazenda_id: int, dados: EntradaSubArea):
     pai = SubArea.objects.get(pk=dados.pai_id) if dados.pai_id is not None else None
     sub_area = cadastro.criar_sub_area(request.user, _fazenda(request, fazenda_id), dados.nome, pai)

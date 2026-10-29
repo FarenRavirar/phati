@@ -34,6 +34,7 @@ MIDDLEWARE = [
 ]
 # O segredo do link de redefinição vai no fragmento da URL (nunca chega ao servidor) e, por garantia, nenhuma
 # resposta deixa o navegador mandar a URL de origem a terceiros (T5.5a item 1; OWASP Forgot Password Cheat Sheet).
+# A tela `/redefinir-senha` ainda não existe: ela precisa ler o fragmento e enviá-lo a `redefinir-senha/confirmar`.
 SECURE_REFERRER_POLICY = 'no-referrer'
 
 ROOT_URLCONF = 'projeto.urls'
@@ -91,6 +92,9 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_AGE = 12 * 3600  # teto absoluto de 12 h; a ociosidade de 30 min vem em sessao.py
 SESSAO_OCIOSIDADE_SEGUNDOS = 30 * 60
 ACESSO_APLICATIVO_DIAS = 30  # deslizante e teto absoluto desde o login (NIST SP 800-63B-4, AAL1)
+# Depois da rotação, o segredo antigo ainda troca por outro durante esta janela (resposta perdida, retry); passada
+# a janela, usá-lo é reuso e derruba a sequência. Okta usa 30 s por padrão (0 a 60); Auth0 chama de overlap.
+ACESSO_APLICATIVO_JANELA_SEGUNDOS = 30
 
 # Bloqueio por conta (R2): após LIMITE falhas seguidas, BASE segundos, dobrando a cada falha até TETO.
 AUTENTICACAO_FALHAS_LIMITE = 5

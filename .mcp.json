@@ -17,7 +17,7 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "$env:API_KEY_21ST=[Environment]::GetEnvironmentVariable(\"API_KEY_21ST\",\"User\"); npx -y @21st-dev/magic@0.2.3"
+        "if(-not $env:API_KEY_21ST){$env:API_KEY_21ST=[Environment]::GetEnvironmentVariable(\"API_KEY_21ST\",\"User\")}; npx -y @21st-dev/magic@0.2.3"
       ]
     }
   }

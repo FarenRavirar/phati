@@ -26,14 +26,17 @@
             "type": "string"
           },
           "email_administrador": {
+            "maxLength": 254,
             "title": "Email Administrador",
             "type": "string"
           },
           "nome": {
+            "maxLength": 200,
             "title": "Nome",
             "type": "string"
           },
           "nome_administrador": {
+            "maxLength": 200,
             "title": "Nome Administrador",
             "type": "string"
           }
@@ -56,6 +59,7 @@
           "dispositivo": {
             "anyOf": [
               {
+                "maxLength": 200,
                 "type": "string"
               },
               {
@@ -79,6 +83,7 @@
       "EntradaNome": {
         "properties": {
           "nome": {
+            "maxLength": 200,
             "title": "Nome",
             "type": "string"
           }
@@ -118,6 +123,7 @@
       "EntradaSubArea": {
         "properties": {
           "nome": {
+            "maxLength": 200,
             "title": "Nome",
             "type": "string"
           },
@@ -376,10 +382,10 @@
         },
         "security": [
           {
-            "AutenticacaoNavegador": []
+            "AutenticacaoAplicativo": []
           },
           {
-            "AutenticacaoAplicativo": []
+            "AutenticacaoNavegador": []
           }
         ],
         "summary": "Criar Empresa",
@@ -426,10 +432,10 @@
         },
         "security": [
           {
-            "AutenticacaoNavegador": []
+            "AutenticacaoAplicativo": []
           },
           {
-            "AutenticacaoAplicativo": []
+            "AutenticacaoNavegador": []
           }
         ],
         "summary": "Criar Fazenda",
@@ -502,10 +508,10 @@
         },
         "security": [
           {
-            "AutenticacaoNavegador": []
+            "AutenticacaoAplicativo": []
           },
           {
-            "AutenticacaoAplicativo": []
+            "AutenticacaoNavegador": []
           }
         ],
         "summary": "Listar Fazendas",
@@ -552,10 +558,10 @@
         },
         "security": [
           {
-            "AutenticacaoNavegador": []
+            "AutenticacaoAplicativo": []
           },
           {
-            "AutenticacaoAplicativo": []
+            "AutenticacaoNavegador": []
           }
         ],
         "summary": "Criar Sub Area",
@@ -625,10 +631,10 @@
         },
         "security": [
           {
-            "AutenticacaoNavegador": []
+            "AutenticacaoAplicativo": []
           },
           {
-            "AutenticacaoAplicativo": []
+            "AutenticacaoNavegador": []
           }
         ],
         "summary": "Sair",
@@ -658,10 +664,10 @@
         },
         "security": [
           {
-            "AutenticacaoNavegador": []
+            "AutenticacaoAplicativo": []
           },
           {
-            "AutenticacaoAplicativo": []
+            "AutenticacaoNavegador": []
           }
         ],
         "summary": "Trocar Senha",

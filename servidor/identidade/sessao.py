@@ -15,6 +15,7 @@ from django.contrib.auth import login
 from django.db import transaction
 from django.utils import timezone
 
+from comum.auditoria import auditar
 from identidade.models import AcessoAplicativo, Pessoa
 
 
@@ -70,8 +71,17 @@ def emitir_acesso(pessoa, dispositivo):
         return _emitir(pessoa, dispositivo, agora, agora)
 
 
+def _sequencia(pessoa_id, acesso):
+    """Acessos da mesma entrada: o que `renovar_acesso` emite herda dispositivo e `entrada_em`."""
+    return AcessoAplicativo.objects.filter(pessoa_id=pessoa_id, dispositivo=acesso.dispositivo, entrada_em=acesso.entrada_em)
+
+
 def renovar_acesso(segredo):
-    """Troca o segredo por um novo e invalida o antigo. Devolve `(pessoa, segredo_novo)` ou `None`."""
+    """Troca o segredo por um novo. Devolve `(pessoa, segredo_novo)` ou `None`.
+
+    O segredo trocado ainda renova durante `ACESSO_APLICATIVO_JANELA_SEGUNDOS`: a resposta pode ter se perdido e o
+    aplicativo tenta de novo. Passada a janela, usá-lo é reuso (roubo ou cópia): a sequência inteira é revogada e o
+    evento `acesso_reutilizado` fica gravado. Segredo revogado por sair ou por troca de senha nunca renova."""
     agora = timezone.now()
     hash_segredo = hash_do_segredo(segredo)
     with transaction.atomic():
@@ -81,15 +91,23 @@ def renovar_acesso(segredo):
         if pessoa_id is None:
             return None
         pessoa = Pessoa.objects.select_for_update().get(pk=pessoa_id)
-        acesso = (
-            AcessoAplicativo.objects.select_for_update()
-            .filter(hash_segredo=hash_segredo, revogado_em__isnull=True, expira_em__gt=agora)
-            .first()
-        )
-        if acesso is None:
+        if pessoa.deve_trocar_senha:
+            return None  # acesso de primeira entrada só serve para trocar a senha, não se prolonga (Sourcery, PR #14)
+        acesso = AcessoAplicativo.objects.select_for_update().filter(hash_segredo=hash_segredo).first()
+        if acesso is None or acesso.expira_em <= agora:
             return None
-        acesso.revogado_em = agora
-        acesso.save(update_fields=['revogado_em'])
+        if acesso.revogado_em is None:
+            acesso.revogado_em = agora
+            acesso.substituido_em = agora
+            acesso.save(update_fields=['revogado_em', 'substituido_em'])
+        else:
+            vivos = _sequencia(pessoa_id, acesso).filter(revogado_em__isnull=True, expira_em__gt=agora)
+            if acesso.substituido_em is None or not vivos.exists():
+                return None  # encerrado por sair ou por troca de senha: não ressuscita
+            if (agora - acesso.substituido_em).total_seconds() >= settings.ACESSO_APLICATIVO_JANELA_SEGUNDOS:
+                vivos.update(revogado_em=agora)
+                auditar('acesso_reutilizado', pessoa, pessoa, pessoa.empresa_origem_id)
+                return None
         return pessoa, _emitir(pessoa, acesso.dispositivo, agora, acesso.entrada_em)
 
 
@@ -104,8 +122,18 @@ def pessoa_do_acesso(segredo):
 
 
 def revogar_acesso(segredo):
-    """Encerra só este acesso (um dispositivo); `revogar_acessos` encerra todos da pessoa."""
-    AcessoAplicativo.objects.filter(hash_segredo=hash_do_segredo(segredo), revogado_em__isnull=True).update(revogado_em=timezone.now())
+    """Encerra a sequência de renovações deste acesso (um dispositivo, uma entrada); `revogar_acessos` encerra todos da pessoa.
+
+    Revogar só o hash recebido deixava o segredo novo de uma renovação concorrente valendo (achado do Greptile, PR #14):
+    a renovação revoga o hash e emite outro, com o mesmo dispositivo e a mesma `entrada_em`. A trava da pessoa, na ordem
+    de `renovar_acesso`, serializa as duas e o UPDATE alcança o segredo mais novo da sequência.
+    """
+    with transaction.atomic():
+        sequencia = AcessoAplicativo.objects.filter(hash_segredo=hash_do_segredo(segredo)).values('pessoa_id', 'dispositivo', 'entrada_em').first()
+        if sequencia is None:
+            return
+        Pessoa.objects.select_for_update().get(pk=sequencia['pessoa_id'])
+        AcessoAplicativo.objects.filter(**sequencia, revogado_em__isnull=True).update(revogado_em=timezone.now())
 
 
 def revogar_acessos(pessoa):

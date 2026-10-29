@@ -6,7 +6,7 @@ import re
 import pytest
 from django.test import Client
 
-from identidade import senha
+from identidade import senha, sessao
 from identidade.testes.conftest import CPF, SENHA
 
 NOVA = 'outra-senha-bem-longa'
@@ -34,7 +34,9 @@ def test_entrada_do_navegador_define_o_cookie_de_sessao_com_os_tres_atributos(pe
     assert resposta.status_code == 200
     assert resposta.json() == {'deve_trocar_senha': False, 'segredo': None}
     cookie = resposta.cookies['sessionid']
-    assert cookie['httponly'] and cookie['secure'] and cookie['samesite'] == 'Lax'
+    assert cookie['httponly']
+    assert cookie['secure']
+    assert cookie['samesite'] == 'Lax'
     assert 'csrftoken' in resposta.cookies
 
 
@@ -97,7 +99,8 @@ def test_acesso_do_aplicativo_rotaciona_a_cada_renovacao_e_o_anterior_deixa_de_v
     assert renovado.status_code == 200
     segundo = renovado.json()['segredo']
     assert segundo != primeiro
-    assert _enviar(Client(), 'acesso/renovar', {'segredo': primeiro}).status_code == 401
+    assert _enviar(Client(), 'sair', headers={'Authorization': f'Bearer {primeiro}'}).status_code == 401  # já não autentica
+    assert _enviar(Client(), 'acesso/renovar', {'segredo': primeiro}).status_code == 200  # dentro da janela, ainda renova
     assert _enviar(Client(), 'sair', headers={'Authorization': f'Bearer {primeiro}'}).status_code == 401
     assert _enviar(Client(), 'sair', headers={'Authorization': f'Bearer {segundo}'}).status_code == 204
 
@@ -134,5 +137,64 @@ def test_primeiro_acesso_so_alcanca_trocar_senha_e_sair_ate_trocar(pessoa):
     segredo = _entrar(Client(), senha_digitada=temporaria, dispositivo='celular').json()['segredo']
     cabecalho = {'Authorization': f'Bearer {segredo}'}
     bloqueada = Client().get('/api/v1/fazendas', headers=cabecalho)
-    assert (bloqueada.status_code, bloqueada.json()) == (403, {'detail': 'troca_de_senha_obrigatoria'})
+    assert (bloqueada.status_code, bloqueada.json()) == (403, {'detalhe': 'troca_de_senha_obrigatoria'})
     assert _enviar(Client(), 'trocar-senha', {'senha_atual': temporaria, 'senha_nova': NOVA}, headers=cabecalho).status_code == 204
+
+
+@pytest.mark.parametrize('tamanho, status', [(200, 200), (201, 422)])
+def test_dispositivo_respeita_o_limite_da_coluna(pessoa, tamanho, status):
+    assert _entrar(Client(), dispositivo='d' * tamanho).status_code == status
+
+
+def test_corpo_que_nao_e_json_declarado_nao_cria_sessao(pessoa):
+    # Achado do Qodo (PR #14): formulário text/plain de outro site entrava como JSON e criava sessão (login CSRF).
+    corpo = json.dumps({'cpf': CPF, 'senha': SENHA})
+    resposta = Client().post('/api/v1/entrar', data=corpo, content_type='text/plain')
+    assert resposta.status_code == 400
+    assert 'sessionid' not in resposta.cookies
+
+
+def test_erro_de_autenticacao_usa_a_mesma_chave_dos_outros_erros(db):
+    resposta = _enviar(Client(), 'sair')
+    assert resposta.status_code == 401
+    assert set(resposta.json()) == {'detalhe'}
+
+
+def test_sair_com_cookie_e_bearer_encerra_os_dois(pessoa):
+    # Achado do Qodo (PR #14): com os dois, o cookie ganhava e o segredo seguia valendo.
+    cliente = Client()
+    _entrar(cliente)
+    segredo = _entrar(Client(), dispositivo='celular').json()['segredo']
+    assert _enviar(cliente, 'sair', headers={'Authorization': f'Bearer {segredo}'}).status_code == 204
+    assert _enviar(Client(), 'sair', headers={'Authorization': f'Bearer {segredo}'}).status_code == 401
+    assert _enviar(cliente, 'sair').status_code == 401
+
+
+def test_falha_ao_emitir_o_acesso_nao_consome_a_senha_temporaria(pessoa, monkeypatch):
+    # Achado do Sourcery (PR #14): autenticar e emitir ficam na mesma transação.
+    temporaria = senha.emitir_senha_temporaria(pessoa)
+
+    def falha(*_):
+        raise OSError('banco fora')
+
+    with monkeypatch.context() as parcial:
+        parcial.setattr(sessao, 'emitir_acesso', falha)
+        resposta = _entrar(Client(raise_request_exception=False), senha_digitada=temporaria, dispositivo='celular')
+    assert resposta.status_code == 500
+    assert _entrar(Client(), senha_digitada=temporaria).status_code == 200
+
+
+def test_aplicativo_escreve_sem_cookie_nem_chave_csrf(pessoa):
+    # Achado do CodeRabbit (PR #14): o `APIKeyCookie` conferia o CSRF antes do Bearer e o aplicativo, que não tem
+    # cookie, levava 403 em toda escrita. O `Client` comum não confere CSRF e escondia o defeito.
+    segredo = _entrar(Client(), dispositivo='celular').json()['segredo']
+    cliente = Client(enforce_csrf_checks=True)
+    resposta = _enviar(cliente, 'trocar-senha', {'senha_atual': SENHA, 'senha_nova': NOVA}, headers={'Authorization': f'Bearer {segredo}'})
+    assert resposta.status_code == 204
+
+
+def test_cookie_sem_chave_csrf_continua_negado_mesmo_com_acesso_invalido(pessoa):
+    cliente = Client(enforce_csrf_checks=True)
+    _entrar(cliente)
+    resposta = _enviar(cliente, 'trocar-senha', {'senha_atual': SENHA, 'senha_nova': NOVA}, headers={'Authorization': 'Bearer invalido'})
+    assert resposta.status_code == 403

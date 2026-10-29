@@ -11,6 +11,7 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, Validat
 from ninja import NinjaAPI
 from ninja.errors import HttpError
 from ninja.errors import ValidationError as ErroDeEntrada
+from ninja.parser import Parser
 from ninja.security import APIKeyCookie, HttpBearer
 
 from identidade import sessao
@@ -42,8 +43,18 @@ class AutenticacaoAplicativo(HttpBearer):
         pessoa = sessao.pessoa_do_acesso(token)
         if pessoa is None:
             return None
-        setattr(request, 'segredo_do_acesso', token)
         return _liberar(request, pessoa)
+
+
+class LeitorJson(Parser):
+    """Só `application/json` entra. O ninja lê o corpo como JSON seja qual for o tipo, e um formulário `text/plain`
+    de outro site passa por cima do CORS: sem este teste, `entrar` criaria sessão a pedido de qualquer página
+    (login CSRF; achado do Qodo, PR #14)."""
+
+    def parse_body(self, request):
+        if request.content_type != 'application/json':
+            raise ValueError('tipo_de_conteudo_invalido')  # o ninja responde 400 a qualquer falha de leitura do corpo
+        return super().parse_body(request)
 
 
 api = NinjaAPI(
@@ -52,7 +63,11 @@ api = NinjaAPI(
     urls_namespace='api_v1',
     docs_url=None,
     openapi_url=None,
-    auth=[AutenticacaoNavegador(), AutenticacaoAplicativo()],
+    # Bearer primeiro: o `APIKeyCookie` confere o CSRF antes de olhar o cookie e, falhando, interrompe a cadeia; o
+    # aplicativo não tem cookie e levaria 403 em toda escrita (achado do CodeRabbit, PR #14). O `HttpBearer` devolve
+    # `None` sem o cabeçalho, e o navegador cai no cookie.
+    auth=[AutenticacaoAplicativo(), AutenticacaoNavegador()],
+    parser=LeitorJson(),
 )
 api.add_router('', roteador_identidade)
 api.add_router('', roteador_territorio)
@@ -63,6 +78,12 @@ def entrada_invalida(requisicao, erro):
     # Sem `input` nem `msg`: o valor recusado pode ser uma senha, e o Pydantic o devolveria na resposta.
     campos = [{'campo': [str(parte) for parte in item['loc']], 'tipo': item['type']} for item in erro.errors]
     return api.create_response(requisicao, {'detalhe': 'entrada_invalida', 'campos': campos}, status=422)
+
+
+# Uma forma só de erro: sem isto o ninja responde `detail` nos erros dele (401, 403 de CSRF) e `detalhe` nos nossos.
+@api.exception_handler(HttpError)
+def erro_http(requisicao, erro):
+    return api.create_response(requisicao, {'detalhe': erro.message}, status=erro.status_code)
 
 
 @api.exception_handler(ValidationError)

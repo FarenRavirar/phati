@@ -1,8 +1,9 @@
 """Rotas de identidade da API: entrar, sair, trocar senha, redefinir senha e renovar o acesso do aplicativo (R2 a R6, R15)."""
 
 from django.contrib.auth import logout
+from django.db import transaction
 from django.middleware.csrf import get_token
-from ninja import Router, Schema
+from ninja import Field, Router, Schema
 
 from identidade import login, redefinicao, senha, sessao
 
@@ -12,7 +13,7 @@ roteador = Router(tags=['identidade'])
 class EntradaEntrar(Schema):
     cpf: str
     senha: str
-    dispositivo: str | None = None  # com dispositivo, o aplicativo recebe um segredo; sem, o navegador recebe o cookie
+    dispositivo: str | None = Field(None, max_length=200)  # com dispositivo, o aplicativo recebe um segredo; sem, o navegador recebe o cookie
 
 
 class SaidaEntrar(Schema):
@@ -49,25 +50,30 @@ class SaidaErro(Schema):
 @roteador.post('entrar', auth=None, url_name='entrar', response={200: SaidaEntrar, 401: SaidaErro})
 def entrar(request, dados: EntradaEntrar):
     # CPF inexistente, senha errada, conta bloqueada e senha temporária vencida: o mesmo 401 (A2).
-    pessoa = login.autenticar(dados.cpf, dados.senha)
-    if pessoa is None:
-        return 401, {'detalhe': 'credenciais_invalidas'}
     segredo = None
-    if dados.dispositivo:
-        segredo = sessao.emitir_acesso(pessoa, dados.dispositivo)
-    else:
-        sessao.iniciar_sessao(request, pessoa)
+    # Autenticar e emitir na mesma transação: a trava da pessoa segue até o fim, então senha temporária consumida
+    # não se perde se a emissão falhar, e troca de senha no meio não deixa a senha antiga gerar acesso (Sourcery, PR #14).
+    with transaction.atomic():
+        pessoa = login.autenticar(dados.cpf, dados.senha)
+        if pessoa is None:
+            return 401, {'detalhe': 'credenciais_invalidas'}
+        if dados.dispositivo:
+            segredo = sessao.emitir_acesso(pessoa, dados.dispositivo)
+        else:
+            sessao.iniciar_sessao(request, pessoa)
+    if segredo is None:
         get_token(request)  # o CsrfViewMiddleware grava o cookie `csrftoken` na resposta
     return 200, {'deve_trocar_senha': pessoa.deve_trocar_senha, 'segredo': segredo}
 
 
 @roteador.post('sair', url_name='sair', response={204: None})
 def sair(request):
-    segredo = getattr(request, 'segredo_do_acesso', None)
-    if segredo is not None:
-        sessao.revogar_acesso(segredo)
-    else:
-        logout(request)
+    # Encerra o que vier na requisição: a autenticação aceita cookie ou Bearer e o cookie ganha quando os dois vêm
+    # (achado do Qodo, PR #14).
+    cabecalho = request.headers.get('Authorization', '')
+    if cabecalho.startswith('Bearer '):
+        sessao.revogar_acesso(cabecalho.removeprefix('Bearer ').strip())
+    logout(request)
     return 204, None
 
 

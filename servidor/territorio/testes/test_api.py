@@ -117,3 +117,39 @@ def test_sob_o_papel_app_a_listagem_vem_materializada_e_a_empresa_alheia_respond
     assert criada.status_code == 201
     # Y não existe para o papel `app` de quem só tem escopo em X: a RLS esconde, a rota responde 404.
     assert _enviar(mundo_http.admin, f'empresas/{mundo_http.y.pk}/fazendas', {'nome': 'Invasora'}).status_code == 404
+
+
+def _nome(tamanho):
+    return 'n' * tamanho
+
+
+@pytest.mark.parametrize('tamanho, status', [(200, 201), (201, 422)])
+def test_nome_de_fazenda_e_sub_area_respeita_o_limite_da_coluna(cenario, fabrica_pessoa, conceder_direto, tamanho, status):
+    # Achado do Greptile (PR #14): sem limite no schema, 201 caracteres chegavam ao banco e davam 500.
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    assert _enviar(admin, f'empresas/{cenario.x.pk}/fazendas', {'nome': _nome(tamanho)}).status_code == status
+    assert _enviar(admin, f'fazendas/{cenario.f1.pk}/sub-areas', {'nome': _nome(tamanho)}).status_code == status
+
+
+@pytest.mark.parametrize('campo', ['nome', 'nome_administrador', 'email_administrador'])
+def test_empresa_recusa_campo_acima_do_limite_da_coluna(plataforma, cpf_novo, campo):
+    corpo = {'nome': 'Empresa', 'nome_administrador': 'Ana', 'email_administrador': 'ana@exemplo.test', 'cpf_administrador': cpf_novo()}
+    corpo[campo] = _nome(255) + '@exemplo.test' if campo == 'email_administrador' else _nome(201)
+    resposta = _enviar(plataforma, 'empresas', corpo)
+    assert resposta.status_code == 422
+    assert resposta.json()['campos'][0]['campo'][-1] == campo
+
+
+def test_quem_tem_criar_sub_area_so_numa_sub_area_cria_filha_e_nao_raiz(cenario, fabrica_pessoa, conceder_direto):
+    # Achado do Sourcery (PR #14): a rota checava a fazenda e negava o que o serviço permite.
+    pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.g1)
+    assert _enviar(pessoa, f'fazendas/{cenario.f1.pk}/sub-areas', {'nome': 'Filha', 'pai_id': cenario.g1.pk}).status_code == 201
+    assert _enviar(pessoa, f'fazendas/{cenario.f1.pk}/sub-areas', {'nome': 'Raiz'}).status_code == 403
+    assert _enviar(pessoa, f'fazendas/{cenario.f1.pk}/sub-areas', {'nome': 'Irma', 'pai_id': cenario.g2.pk}).status_code == 403
+
+
+def test_empresa_recusa_email_malformado_antes_de_gravar(plataforma, cpf_novo):
+    corpo = {'nome': 'Empresa', 'nome_administrador': 'Ana', 'email_administrador': 'sem-arroba', 'cpf_administrador': cpf_novo()}
+    resposta = _enviar(plataforma, 'empresas', corpo)
+    assert resposta.status_code == 422
+    assert not Empresa.objects.filter(nome='Empresa').exists()

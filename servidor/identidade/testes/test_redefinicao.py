@@ -70,7 +70,7 @@ def test_a_propria_pessoa_pede_e_recebe_o_link_montado_com_url_base(pessoa, mail
     pedido = PedidoRedefinicao.objects.get()
     assert pedido.pessoa == pedido.solicitado_por == pessoa
     assert mailoutbox[0].to == [pessoa.email]
-    assert f'{settings.URL_BASE}/redefinir-senha?segredo=' in mailoutbox[0].body
+    assert f'{settings.URL_BASE}/redefinir-senha#segredo=' in mailoutbox[0].body
     segredo = _segredo(mailoutbox)
     assert pedido.hash_segredo == sessao.hash_do_segredo(segredo) != segredo
 
@@ -273,7 +273,10 @@ def test_pedidos_vencidos_da_pessoa_sao_apagados_no_pedido_seguinte(pessoa, monk
     redefinicao.pedir_redefinicao(CPF)
     _agora_em(monkeypatch, t0 + timedelta(minutes=11))
     redefinicao.pedir_redefinicao(CPF)
-    assert PedidoRedefinicao.objects.count() == 1
+    assert PedidoRedefinicao.objects.count() == 2  # o vencido fica até sair da janela do teto
+    _agora_em(monkeypatch, t0 + timedelta(minutes=71))
+    redefinicao.pedir_redefinicao(CPF)
+    assert PedidoRedefinicao.objects.count() == 1  # os dois antigos saíram da janela; fica só o novo
 
 
 @pytest.mark.django_db(transaction=True)
@@ -452,3 +455,27 @@ def test_redefinicoes_cruzadas_entre_administradores_da_plataforma_nao_dao_deadl
             lambda: redefinicao.pedir_redefinicao(cpf_a, solicitante=Pessoa.objects.get(pk=b.pk)),
         )
     assert len(mailoutbox) == 20
+
+
+def test_teto_de_pedidos_por_hora_e_resposta_neutra(pessoa, mailoutbox, monkeypatch):
+    # T5.5f: quem sabe o CPF não derruba o link da pessoa a cada minuto.
+    t0 = timezone.now()
+    for minuto in range(0, 12, 2):
+        _agora_em(monkeypatch, t0 + timedelta(minutes=minuto))
+        assert redefinicao.pedir_redefinicao(CPF) is None
+    assert len(mailoutbox) == redefinicao.TETO_POR_HORA
+    _agora_em(monkeypatch, t0 + timedelta(minutes=62))
+    redefinicao.pedir_redefinicao(CPF)
+    assert len(mailoutbox) == redefinicao.TETO_POR_HORA + 1
+
+
+def test_pedido_do_administrador_nao_entra_no_teto_da_pessoa(pessoa, outra_pessoa, mailoutbox, monkeypatch):
+    t0 = timezone.now()
+    for minuto in range(0, 10, 2):
+        _agora_em(monkeypatch, t0 + timedelta(minutes=minuto))
+        redefinicao.pedir_redefinicao(CPF)
+    outra_pessoa.administrador_plataforma = True
+    outra_pessoa.save(update_fields=['administrador_plataforma'])
+    _agora_em(monkeypatch, t0 + timedelta(minutes=11))
+    redefinicao.pedir_redefinicao(CPF, solicitante=outra_pessoa)
+    assert len(mailoutbox) == redefinicao.TETO_POR_HORA + 1

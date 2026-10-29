@@ -314,7 +314,8 @@ def test_decorador_de_listagem_abre_o_bloco_sem_chamar_pode_e_marca_a_rota(pesso
         return _variaveis_de_rls()
 
     assert rota(SimpleNamespace(user=pessoa)) is not None
-    assert getattr(rota, 'listagem') is True and getattr(rota, 'acao_exigida') == 'ver'
+    assert getattr(rota, 'listagem') is True
+    assert getattr(rota, 'acao_exigida') == 'ver'
 
 
 def test_decorador_sem_listagem_mantem_pode_e_marca_listagem_falsa(pessoa, cenario):
@@ -323,5 +324,6 @@ def test_decorador_sem_listagem_mantem_pode_e_marca_listagem_falsa(pessoa, cenar
         return 'ok'
 
     assert getattr(rota, 'listagem') is False
+    requisicao = SimpleNamespace(user=pessoa)
     with pytest.raises(PermissionDenied):
-        rota(SimpleNamespace(user=pessoa))
+        rota(requisicao)

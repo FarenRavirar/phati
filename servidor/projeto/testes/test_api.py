@@ -51,8 +51,9 @@ def test_pessoa_que_deve_trocar_a_senha_so_passa_nas_rotas_da_troca(fabrica_pess
     for liberada in ('trocar_senha', 'sair'):
         assert _liberar(_requisicao(liberada), pessoa) is pessoa
     for bloqueada in ('fazendas_listar', None):
+        requisicao = _requisicao(bloqueada)
         with pytest.raises(HttpError) as erro:
-            _liberar(_requisicao(bloqueada), pessoa)
+            _liberar(requisicao, pessoa)
         assert erro.value.status_code == 403
 
 
@@ -78,7 +79,7 @@ def test_aplicativo_com_segredo_desconhecido_ou_revogado_nao_autentica(fabrica_p
     segredo = sessao.emitir_acesso(pessoa, 'celular')
     requisicao = _requisicao('fazendas_listar')
     autenticada = autenticacao.authenticate(requisicao, segredo)
-    assert autenticada is not None and autenticada.pk == pessoa.pk
-    assert getattr(requisicao, 'segredo_do_acesso') == segredo
+    assert autenticada is not None
+    assert autenticada.pk == pessoa.pk
     sessao.revogar_acesso(segredo)
     assert autenticacao.authenticate(_requisicao(), segredo) is None

@@ -93,11 +93,25 @@ def definir_senha(pessoa, senha):
 
 
 def trocar_senha(pessoa, senha_atual, senha_nova):
+    # Import local: `login` calcula um hash na carga e o hasher é `GeradorHashArgon2`, deste módulo; importar `login`
+    # no topo quebra a carga quando `senha` é o primeiro a ser importado (circular).
+    from identidade import login
+
+    recusa = None
     with _pessoa_travada(pessoa) as travada:
         # A conferência da senha atual e a gravação da nova ficam sob a mesma trava.
-        if not travada.check_password(senha_atual):
-            raise ValidationError('Senha atual incorreta.', code='senha_atual_incorreta')
-        definir_senha(travada, senha_nova)
+        agora = timezone.now()
+        bloqueada = travada.bloqueada_ate is not None and travada.bloqueada_ate > agora
+        if bloqueada or not travada.check_password(senha_atual):
+            # Sessão roubada não adivinha a senha atual de graça: a falha entra no contador da conta, o mesmo do
+            # login (achado do Qodo, PR #14). A recusa sobe depois do bloco, senão o rollback desfaz a contagem.
+            if not bloqueada:
+                login.registrar_falha(travada, agora)
+            recusa = ValidationError('Senha atual incorreta.', code='senha_atual_incorreta')
+        else:
+            definir_senha(travada, senha_nova)
+    if recusa is not None:
+        raise recusa
     pessoa.refresh_from_db()
     email.enviar_aviso_de_troca(pessoa)
 
