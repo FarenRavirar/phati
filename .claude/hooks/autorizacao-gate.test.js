@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Suite do autorizacao-gate. Portado do artificio.
+// Suite do autorizacao-gate.
 //
 // Metade negativa e obrigatoria: um gate que bloqueia trabalho legitimo e
 // desligado na primeira vez que atrapalha, e ai nao protege mais nada. Os casos
@@ -32,13 +32,11 @@ const CASOS = [
   ['git commit -m "x"', 'commit-sem-autorizacao'],
   ['git commit -F - <<EOF', 'commit-sem-autorizacao'],
   ['rtk git commit -F msg.txt', 'commit-sem-autorizacao'],
-  ['rtk git push -u origin feat/x', 'push-sem-autorizacao'],
-  ['git push origin feat/x', 'push-sem-autorizacao'],
   ['git commit --amend', 'amend-proibido'],
   ['git push --force origin dev', 'push-force'],
   ['git push -f origin dev', 'push-force'],
-  ['git worktree add ../artificio-x', 'worktree-sem-aprovacao'],
-  ['git worktree remove ../artificio-x', 'worktree-sem-aprovacao'],
+  ['git worktree add ../phati-x', 'worktree-sem-aprovacao'],
+  ['git worktree remove ../phati-x', 'worktree-sem-aprovacao'],
   ['sudo apt-get install jq', 'pacote-novo'],
   ['apt install tree', 'pacote-novo'],
   ['ssh maruko docker restart site-prod-app', 'vm-escrita'],
@@ -73,6 +71,8 @@ const CASOS = [
 
   // --- PASSA: abrir PR sozinho nao empurra (o push e que pergunta) ---
   ['gh pr create --base dev --title x', null],
+  ['git push origin feat/x', null],
+  ['rtk git push -u origin feat/x', null],
 
   // --- PASSA: trabalho comum ---
   ['rtk rg "termo" servidor', null],
@@ -125,7 +125,6 @@ const DECISOES = [
   ['git push --' + 'force origin dev', 'deny'],
   ['git commit -m x', 'ask'],
   ['rtk git commit -F m.txt', 'ask'],
-  ['rtk git push', 'ask'],
   ['git work' + 'tree add ../x', 'ask'],
   ['ssh maruko docker restart app', 'ask'],
   ['sudo apt install foo', 'ask'],

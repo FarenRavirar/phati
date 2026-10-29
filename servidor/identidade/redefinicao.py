@@ -95,7 +95,8 @@ def confirmar_redefinicao(segredo, senha_nova):
             erro = recusa
         else:
             pedido.usado_em = agora
-            auditar('redefinicao_confirmada', pessoa, pessoa, pessoa.empresa_origem_id)
+            # Confirmação anônima, como o pedido: quem tem o link não abre sessão, então o autor fica vazio.
+            auditar('redefinicao_confirmada', None, pessoa, pessoa.empresa_origem_id)
         pedido.save(update_fields=['tentativas', 'usado_em'])
     if erro is not None:
         raise erro

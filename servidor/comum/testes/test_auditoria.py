@@ -129,7 +129,7 @@ def test_redefinicao_audita_pedido_e_confirmacao_sem_o_segredo(pessoa_com_senha,
     (confirmacao,) = _eventos('redefinicao_confirmada')
     # Pedido anônimo (sem sessão): o ator fica vazio, não vira o dono da conta.
     assert (pedido.pessoa_id, pedido.alvo_id) == (None, pessoa_com_senha.pk)
-    assert confirmacao.alvo_id == pessoa_com_senha.pk
+    assert (confirmacao.pessoa_id, confirmacao.alvo_id) == (None, pessoa_com_senha.pk)
     assert segredo not in str([(e.detalhes, e.alvo_tipo) for e in (pedido, confirmacao)])
 
 

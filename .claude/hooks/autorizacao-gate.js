@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Camada 3 da trava de autorizacao do AGENTS.md §Autorizacao. Portado do projeto artificio (autorizacao-gate.js).
+// Camada 3 da trava de autorizacao do AGENTS.md §Autorizacao.
 //
 // Por que existe, em uma frase: as regras declarativas dos tres harnesses
 // (permissions.deny/ask no Claude Code, .codex/rules/governanca.rules no Codex,
@@ -23,8 +23,9 @@
 // declarativa ja cobre bem nao se duplica aqui: duplicar espalha a manutencao e
 // faz as duas divergirem com o tempo.
 //
-// No phati o AGENTS.md exige autorizacao nominal tambem para `git push` e merge, entao push pergunta
-// (no artificio push e PR estao liberados; aqui nao). Nao ha banco de producao local: sem regra de SQL.
+// Decisao do mantenedor (2026-10-29): so o COMMIT pergunta; `git push` e `gh pr create`
+// nao aparecem abaixo, porque so acontecem depois de um commit autorizado. Sem regra de SQL: nao ha banco de
+// producao local.
 //
 // Falha aberta, deliberadamente: payload ilegivel ou erro interno sai com 0. Um
 // gate que derruba o turno e desligado na primeira vez que atrapalha, e ai nao
@@ -99,12 +100,6 @@ const REGRAS = [
     decisao: 'ask',
     test: /\bgit\s+commit\b/,
     porque: 'AGENTS.md §Autorizacao: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
-  },
-  {
-    nome: 'push-sem-autorizacao',
-    decisao: 'ask',
-    test: /\bgit\s+push\b/,
-    porque: 'AGENTS.md §Autorizacao: `git push` exige autorizacao nominal do mantenedor, a cada vez. Abrir a PR e a mesma acao do push. Depois de empurrar, parar: sem checks, sem polling.',
   },
   {
     nome: 'worktree-sem-aprovacao',
