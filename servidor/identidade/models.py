@@ -51,6 +51,12 @@ class Pessoa(AbstractBaseUser):
     objects = GerentePessoa()
     USERNAME_FIELD = 'cpf_busca'
 
+    def __str__(self):
+        return self.nome  # o padrão do Django mostraria `cpf_busca` (índice cego do CPF) no painel
+
+    def get_short_name(self):
+        return self.nome
+
     class Meta(AbstractBaseUser.Meta):
         db_table = 'pessoa'
 

@@ -1,6 +1,55 @@
 {
   "components": {
     "schemas": {
+      "EntradaConcessao": {
+        "properties": {
+          "cargo_id": {
+            "title": "Cargo Id",
+            "type": "integer"
+          },
+          "categoria_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Categoria Ids",
+            "type": "array"
+          },
+          "escopo": {
+            "$ref": "#/components/schemas/EntradaEscopo"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inicio"
+          }
+        },
+        "required": [
+          "cargo_id",
+          "escopo"
+        ],
+        "title": "EntradaConcessao",
+        "type": "object"
+      },
       "EntradaConfirmarRedefinicao": {
         "properties": {
           "segredo": {
@@ -17,6 +66,72 @@
           "senha_nova"
         ],
         "title": "EntradaConfirmarRedefinicao",
+        "type": "object"
+      },
+      "EntradaConvite": {
+        "properties": {
+          "cargo_id": {
+            "title": "Cargo Id",
+            "type": "integer"
+          },
+          "categoria_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Categoria Ids",
+            "type": "array"
+          },
+          "cpf": {
+            "title": "Cpf",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "escopo": {
+            "$ref": "#/components/schemas/EntradaEscopo"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inicio"
+          },
+          "nome": {
+            "maxLength": 200,
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cargo_id",
+          "escopo",
+          "nome",
+          "email",
+          "cpf"
+        ],
+        "title": "EntradaConvite",
         "type": "object"
       },
       "EntradaEmpresa": {
@@ -78,6 +193,46 @@
           "senha"
         ],
         "title": "EntradaEntrar",
+        "type": "object"
+      },
+      "EntradaEscopo": {
+        "description": "Exatamente um dos três: a concessão vale para a empresa inteira, uma fazenda ou uma sub-área.",
+        "properties": {
+          "empresa_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empresa Id"
+          },
+          "fazenda_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fazenda Id"
+          },
+          "sub_area_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Area Id"
+          }
+        },
+        "title": "EntradaEscopo",
         "type": "object"
       },
       "EntradaNome": {
@@ -161,6 +316,136 @@
           "senha_nova"
         ],
         "title": "EntradaTrocarSenha",
+        "type": "object"
+      },
+      "SaidaCargo": {
+        "properties": {
+          "base": {
+            "title": "Base",
+            "type": "string"
+          },
+          "empresa_id": {
+            "title": "Empresa Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "permissoes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissoes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "empresa_id",
+          "nome",
+          "base",
+          "permissoes"
+        ],
+        "title": "SaidaCargo",
+        "type": "object"
+      },
+      "SaidaConcessao": {
+        "properties": {
+          "cargo_id": {
+            "title": "Cargo Id",
+            "type": "integer"
+          },
+          "empresa_id": {
+            "title": "Empresa Id",
+            "type": "integer"
+          },
+          "fazenda_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fazenda Id"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inicio": {
+            "format": "date-time",
+            "title": "Inicio",
+            "type": "string"
+          },
+          "pessoa_id": {
+            "title": "Pessoa Id",
+            "type": "integer"
+          },
+          "sub_area_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Area Id"
+          }
+        },
+        "required": [
+          "id",
+          "pessoa_id",
+          "cargo_id",
+          "empresa_id",
+          "fazenda_id",
+          "sub_area_id",
+          "inicio",
+          "fim"
+        ],
+        "title": "SaidaConcessao",
+        "type": "object"
+      },
+      "SaidaConvite": {
+        "properties": {
+          "concessao_id": {
+            "title": "Concessao Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "senha_temporaria": {
+            "title": "Senha Temporaria",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "concessao_id",
+          "senha_temporaria"
+        ],
+        "title": "SaidaConvite",
         "type": "object"
       },
       "SaidaEmpresa": {
@@ -249,6 +534,69 @@
           "empresa_id"
         ],
         "title": "SaidaFazenda",
+        "type": "object"
+      },
+      "SaidaPermissao": {
+        "properties": {
+          "codigo": {
+            "title": "Codigo",
+            "type": "string"
+          },
+          "delegavel": {
+            "title": "Delegavel",
+            "type": "boolean"
+          },
+          "descricao": {
+            "title": "Descricao",
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo",
+          "descricao",
+          "delegavel"
+        ],
+        "title": "SaidaPermissao",
+        "type": "object"
+      },
+      "SaidaPessoa": {
+        "properties": {
+          "deve_trocar_senha": {
+            "title": "Deve Trocar Senha",
+            "type": "boolean"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "empresa_origem_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empresa Origem Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "email",
+          "empresa_origem_id",
+          "deve_trocar_senha"
+        ],
+        "title": "SaidaPessoa",
         "type": "object"
       },
       "SaidaRenovar": {
@@ -351,6 +699,40 @@
         "summary": "Renovar Acesso",
         "tags": [
           "identidade"
+        ]
+      }
+    },
+    "/api/v1/cargos": {
+      "get": {
+        "operationId": "permissao_api_listar_cargos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaCargo"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Cargos",
+        "tags": [
+          "permissao"
         ]
       }
     },
@@ -567,6 +949,237 @@
         "summary": "Criar Sub Area",
         "tags": [
           "territorio"
+        ]
+      }
+    },
+    "/api/v1/permissoes": {
+      "get": {
+        "operationId": "permissao_api_listar_permissoes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaPermissao"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Permissoes",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas": {
+      "get": {
+        "operationId": "permissao_api_listar_pessoas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaPessoa"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Pessoas",
+        "tags": [
+          "permissao"
+        ]
+      },
+      "post": {
+        "operationId": "permissao_api_convidar_pessoa",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConvite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaConvite"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Convidar Pessoa",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas/{pessoa_id}/concessoes": {
+      "post": {
+        "operationId": "permissao_api_conceder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pessoa_id",
+            "required": true,
+            "schema": {
+              "title": "Pessoa Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConcessao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaConcessao"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Conceder",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas/{pessoa_id}/concessoes/{concessao_id}": {
+      "delete": {
+        "operationId": "permissao_api_revogar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pessoa_id",
+            "required": true,
+            "schema": {
+              "title": "Pessoa Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "concessao_id",
+            "required": true,
+            "schema": {
+              "title": "Concessao Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Revogar",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas/{pessoa_id}/redefinir-senha": {
+      "post": {
+        "operationId": "permissao_api_redefinir_senha",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pessoa_id",
+            "required": true,
+            "schema": {
+              "title": "Pessoa Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Redefinir Senha",
+        "tags": [
+          "permissao"
         ]
       }
     },

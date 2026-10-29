@@ -117,3 +117,22 @@ def como_app(transactional_db):
     connections['default'] = connections['app']
     yield
     connections['default'] = original
+
+
+@pytest.fixture
+def entrar_no_painel(db):
+    """Devolve `entrar(pessoa)`: define uma senha, faz o login pela tela do painel e devolve o cliente já com a sessão."""
+    from django.test import Client
+
+    from identidade import cpf as modulo_cpf
+    from identidade import senha
+
+    def entrar(pessoa):
+        texto = 'uma senha longa e unica 2026'
+        senha.definir_senha(pessoa, texto)
+        cliente = Client()
+        resposta = cliente.post('/painel/login/', {'username': modulo_cpf.decifrar(pessoa.cpf_cifrado), 'password': texto})
+        assert resposta.status_code == 302, resposta.content.decode()[:300]
+        return cliente
+
+    return entrar

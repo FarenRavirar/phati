@@ -25,7 +25,7 @@ def test_acoes_de_auditoria_sao_as_do_r16():
     assert ACOES == {
         'empresa_criada', 'fazenda_criada', 'sub_area_criada', 'pessoa_criada', 'concessao_criada',
         'concessao_revogada', 'titularidade_transferida', 'redefinicao_pedida', 'redefinicao_confirmada', 'conta_bloqueada',
-        'acesso_reutilizado',
+        'acesso_reutilizado', 'cargo_alterado',
     }
 
 

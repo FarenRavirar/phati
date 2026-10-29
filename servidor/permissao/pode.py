@@ -202,6 +202,15 @@ def escopos_da_acao(pessoa, acao):
     )
 
 
+def age_em_algum_escopo(pessoa, *acoes):
+    """A pessoa exerce alguma das `acoes` em ao menos um lugar (plataforma, empresa, fazenda ou sub-área)."""
+    for acao in acoes:
+        escopos = escopos_da_acao(pessoa, acao)
+        if escopos.plataforma or escopos.empresas or escopos.fazendas or escopos.sub_areas:
+            return True
+    return False
+
+
 @contextmanager
 def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
     """Abre a transação com as variáveis de RLS da `pessoa` (R12): a união dos escopos das `acoes` (padrão `ver`).

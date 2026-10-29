@@ -46,6 +46,18 @@ MATRIZ = {
         'plataforma': OK, 'admin_x': NEGADO, 'curador_f1': NEGADO, 'tecnico_f1': NEGADO,
         'usuario_f1': NEGADO, 'sem_acesso': NEGADO, 'admin_y': OK,
     },
+    ('listar pessoas', 'get', 'pessoas'): {
+        'plataforma': OK, 'admin_x': OK, 'curador_f1': OK, 'tecnico_f1': VAZIA,
+        'usuario_f1': VAZIA, 'sem_acesso': VAZIA, 'admin_y': OK,
+    },
+    ('listar cargos', 'get', 'cargos'): {
+        'plataforma': OK, 'admin_x': OK, 'curador_f1': OK, 'tecnico_f1': VAZIA,
+        'usuario_f1': VAZIA, 'sem_acesso': VAZIA, 'admin_y': OK,
+    },
+    ('listar o catálogo', 'get', 'permissoes'): {
+        'plataforma': OK, 'admin_x': OK, 'curador_f1': OK, 'tecnico_f1': VAZIA,
+        'usuario_f1': VAZIA, 'sem_acesso': VAZIA, 'admin_y': OK,
+    },
 }
 
 

@@ -25,6 +25,11 @@ def hash_do_segredo(segredo):
 
 def iniciar_sessao(requisicao, pessoa):
     login(requisicao, pessoa, backend='django.contrib.auth.backends.ModelBackend')
+    carimbar(requisicao)
+
+
+def carimbar(requisicao):
+    """Marca entrada e última atividade da sessão (o painel entra por `login()` do Django e usa só isto)."""
     agora = timezone.now().timestamp()
     requisicao.session['entrada_em'] = agora
     requisicao.session['ultima_atividade'] = agora

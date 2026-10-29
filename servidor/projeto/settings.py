@@ -18,6 +18,10 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
     'django.contrib.sessions',
+    # Painel (T5.2): `ConfiguracaoDoPainel` no lugar de `django.contrib.admin`, para o site ser o `PainelSite`.
+    'projeto.apps.ConfiguracaoDoPainel',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
     # API JSON `/api/v1/` (T5.1); precisa estar aqui para o comando `export_openapi_schema` existir.
     'ninja',
     'identidade',
@@ -31,7 +35,24 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
 ]
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+STATIC_URL = 'static/'  # `collectstatic` e o servidor dos arquivos entram no deploy (T6.5)
+
 # O segredo do link de redefinição vai no fragmento da URL (nunca chega ao servidor) e, por garantia, nenhuma
 # resposta deixa o navegador mandar a URL de origem a terceiros (T5.5a item 1; OWASP Forgot Password Cheat Sheet).
 # A tela `/redefinir-senha` ainda não existe: ela precisa ler o fragmento e enviá-lo a `redefinir-senha/confirmar`.
@@ -109,6 +130,9 @@ AUTENTICACAO_FALHAS_LIMITE = 5
 AUTENTICACAO_BLOQUEIO_BASE_SEGUNDOS = 30
 AUTENTICACAO_BLOQUEIO_TETO_SEGUNDOS = 15 * 60
 
+# `ModelBackend` fica porque `sessao.iniciar_sessao` grava o caminho dele; o do CPF vem antes (T5.5a item 2).
+AUTHENTICATION_BACKENDS = ['identidade.backend.BackendCpf', 'django.contrib.auth.backends.ModelBackend']
+
 # E-mail só para credenciais (R6); SMTP por configuração.
 MAILERS = {
     'default': {
@@ -119,7 +143,7 @@ MAILERS = {
             'username': os.environ.get('PHATI_EMAIL_USUARIO', ''),
             'password': os.environ.get('PHATI_EMAIL_SENHA', ''),
             'use_tls': True,
-            'timeout': 10,  # sem prazo, SMTP mudo prenderia o processo (achado do Qodo, PR #9)
+            'timeout': int(os.environ.get('PHATI_EMAIL_TIMEOUT', '10')),  # sem prazo, SMTP mudo prenderia o processo (achado do Qodo, PR #9)
         },
     },
 }

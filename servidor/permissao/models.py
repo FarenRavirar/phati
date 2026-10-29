@@ -33,6 +33,9 @@ class Cargo(models.Model):
     empresa_id: int  # anotação só para o pyright
     permissoes = models.ManyToManyField(Permissao, through='CargoPermissao')
 
+    def __str__(self):
+        return self.nome
+
     class Meta:
         db_table = 'cargo'
         constraints = [

@@ -27,6 +27,14 @@ PERMITIDOS = {
     # Nomes impostos por biblioteca: `request` é a fixture do pytest que dá acesso ao teste em curso e o
     # primeiro parâmetro de toda rota do django-ninja (signature/details.py compara `name == "request"`).
     'request',
+    # Contratos do Django: `BaseCommand.handle` e `BaseBackend.get_user(user_id)` (identidade/backend.py e comandos).
+    'handle', 'get_user', 'user_id',
+    # Contratos do Django admin e de `AbstractBaseUser` usados pelo painel (projeto/painel.py e os admin.py).
+    'fields', 'model', 'list_display', 'search_fields', 'autocomplete_fields', 'get_queryset', 'save_model',
+    'delete_model', 'delete_queryset', 'delete_view', 'get_readonly_fields', 'default_site', 'extra_context',
+    'has_add_permission', 'has_change_permission', 'has_delete_permission', 'has_module_permission',
+    'has_view_permission', 'has_permission', 'has_redefinir_permission', 'login', 'login_form', 'password_change',
+    'confirm_login_allowed', 'error_messages', 'get_short_name',
 }
 
 # Palavras inglesas comuns em nome de código. Cresce quando um nome em inglês escapar.
@@ -78,7 +86,7 @@ def achados_em(codigo):
 
 
 def test_detecta_identificador_em_ingles():
-    assert achados_em('def get_user(): pass') == ['get_user']
+    assert achados_em('def get_company(): pass') == ['get_company']
     assert achados_em('class UserGroup:\n    nome_do_grupo = 1') == ['UserGroup']
     assert achados_em('class HasherArgon2: pass') == ['HasherArgon2']
     assert achados_em('def buscar_fazendas_autorizadas(pessoa): pass') == []
@@ -102,7 +110,7 @@ def test_nomes_de_except_e_de_match_tambem_contam():
 
 def test_dunder_do_python_passa_mas_dois_underscores_de_nome_ingles_nao():
     assert achados_em('class Empresa:\n    def __init__(self): pass') == []
-    assert achados_em('def __get_user(): pass') == ['__get_user']
+    assert achados_em('def __get_company(): pass') == ['__get_company']
     assert achados_em('_tokens = 1') == ['_tokens']
 
 
