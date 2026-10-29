@@ -20,7 +20,11 @@ Depois, uma vez como superusuário, criar papéis e banco e migrar:
 
 O papel dono roda as migrações e é dono das tabelas; o papel app é o da aplicação: não é dono e não tem `BYPASSRLS`.
 O processo web recebe só a credencial do `app`; a do dono fica em `migracao` e nos testes (sem `PHATI_BANCO_DONO_SENHA`, o `default` do Django é o próprio `app`).
-Os nomes das variáveis de ambiente estão em `.env.exemplo`. Sem `PHATI_CHAVE_SECRETA` o servidor não sobe.
+Os nomes das variáveis de ambiente estão em `.env.exemplo`. Sem `PHATI_CHAVE_SECRETA` ou `PHATI_CHAVE_CPF` o servidor não sobe.
+`PHATI_CHAVE_CPF` é a raiz da chave do CPF (32 bytes em base64 urlsafe); gerar com
+`python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. Perder a chave perde o acesso
+aos CPFs cifrados e à busca por CPF; rotação em `identidade/cpf.py`. `PHATI_URL_BASE` (padrão `http://localhost:8000`)
+monta o link de redefinição; `PHATI_EMAIL_*` configuram o SMTP (padrão `localhost:587`).
 
     python manage.py migrate
 

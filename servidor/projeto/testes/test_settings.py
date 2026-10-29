@@ -1,9 +1,11 @@
+import base64
 import re
 import runpy
 from pathlib import Path
 
 import pytest
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import ProgrammingError, connections
 
 CAMINHO = Path(settings.DIRETORIO_BASE) / 'projeto' / 'settings.py'
@@ -66,3 +68,53 @@ def test_healthcheck_do_banco_espera_o_servidor_tcp():
     # Achado do CodeRabbit (PR #1): sem `-h`, o pg_isready aceita o servidor temporário do initdb (só socket).
     compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
     assert 'pg_isready -h 127.0.0.1' in compose
+
+
+def test_smtp_tem_prazo_para_nao_prender_o_processo():
+    # Achado do Qodo (PR #9): sem timeout, um SMTP mudo bloqueia o pedido de redefinição sem fim.
+    # O pytest-django troca MAILERS por um backend em memória; por isso lê-se o arquivo, como nos testes acima.
+    opcoes = runpy.run_path(str(CAMINHO))['MAILERS']['default']['OPTIONS']
+    assert 0 < opcoes['timeout'] <= 30
+
+
+@pytest.mark.parametrize('invalida', ['', 'curta', 'AAAA' * 8, 'A' * 43, 'não-ascii-é' * 4])
+def test_chave_do_cpf_fora_do_formato_derruba_o_servidor(monkeypatch, invalida):
+    # Achado do CodeRabbit (PR #9): chave truncada ou com lixo trocaria o HMAC e perderia os CPFs já cadastrados.
+    monkeypatch.setenv('PHATI_CHAVE_CPF', invalida)
+    with pytest.raises(ImproperlyConfigured):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_chave_do_cpf_ausente_derruba_o_servidor(monkeypatch):
+    monkeypatch.delenv('PHATI_CHAVE_CPF')
+    with pytest.raises(ImproperlyConfigured):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_chave_do_cpf_de_32_bytes_e_aceita(monkeypatch):
+    bruta = bytes(range(32))
+    monkeypatch.setenv('PHATI_CHAVE_CPF', base64.urlsafe_b64encode(bruta).decode())
+    assert runpy.run_path(str(CAMINHO))['CHAVE_CPF'] == bruta
+
+
+def test_chave_do_cpf_com_caractere_estranho_derruba_o_servidor(monkeypatch):
+    # A decodificação tolerante do Python descarta o "!" e devolveria os mesmos 32 bytes; a forma canônica barra.
+    monkeypatch.setenv('PHATI_CHAVE_CPF', base64.urlsafe_b64encode(bytes(range(32))).decode() + '!')
+    with pytest.raises(ImproperlyConfigured):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
+    # Achado do CodeRabbit (PR #9): nada provava que o ambiente configura o SMTP.
+    monkeypatch.setenv('PHATI_EMAIL_HOST', 'smtp.exemplo.test')
+    monkeypatch.setenv('PHATI_EMAIL_PORTA', '2525')
+    monkeypatch.setenv('PHATI_EMAIL_USUARIO', 'usuario-de-teste')
+    monkeypatch.setenv('PHATI_EMAIL_SENHA', 'valor-de-teste')
+    monkeypatch.setenv('PHATI_EMAIL_REMETENTE', 'remetente@exemplo.test')
+    configuracao = runpy.run_path(str(CAMINHO))
+    opcoes = configuracao['MAILERS']['default']['OPTIONS']
+    assert opcoes['host'] == 'smtp.exemplo.test'
+    assert opcoes['port'] == 2525
+    assert opcoes['username'] == 'usuario-de-teste'
+    assert opcoes['password'] == 'valor-de-teste'
+    assert configuracao['DEFAULT_FROM_EMAIL'] == 'remetente@exemplo.test'

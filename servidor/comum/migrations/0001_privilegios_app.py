@@ -23,4 +23,10 @@ def revogar(apps, schema_editor):
 class Migration(migrations.Migration):
     initial = True
     dependencies = []
+    # Tabelas de terceiros (sessões, auth) também precisam dos privilégios do `app`: migram depois desta.
+    run_before = [
+        ('contenttypes', '0001_initial'),
+        ('auth', '0001_initial'),
+        ('sessions', '0001_initial'),
+    ]
     operations = [migrations.RunPython(conceder, revogar)]

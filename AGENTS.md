@@ -34,6 +34,7 @@ Hierarquia do domínio: Empresa → Fazenda/Imóvel → Tema/Estudo → Camada/V
 - **Autorização é por ação, nomeada, a cada vez** — `commit`, `push`, merge, deploy, escrita na VM `maruko`. Não acumula, não se infere de frase genérica ("pode seguir").
 - A VM `maruko` nunca é desligada, reiniciada ou suspensa pelo agente.
 - **Estado do código não se escreve em doc** (commitado, mergeado, SHA, branch, PR) — `git`/`gh` medem.
+- **Toda modificação da árvore entra no mesmo commit, exceto se o mantenedor disser o contrário** (§Git).
 - Validação repo-wide só no fim, um comando por vez.
 - `rtk` no lugar do comando cru, sempre. Filtro cortou o que faltava: `rtk recall <hash>` (`--grep`, `--from`, `--full`); sem filtro: `rtk bypass <cmd>` (antigo `rtk proxy`).
 
@@ -101,7 +102,7 @@ Repositório **público**: tudo que entra num commit é público e permanece no 
 - **Depois de abrir ou atualizar a PR, o agente para.** Push e `gh pr create` são a mesma ação. Sem acompanhar checks, sem `gh run watch`, sem polling, salvo pedido explícito.
 - **Nunca escrever na conversa da PR:** não responder, comentar, resolver thread, reagir nem acionar revisores (`@coderabbitai`, `@codex`). Análise de revisão vive só onde o mantenedor indicar; correção procedente vira commit novo. Resposta a revisor é sempre dele.
 - **Correção depois do review é commit novo em cima, com push fast-forward, e exige autorização nova**, como qualquer commit. Achado de bot ou de revisor não autoriza nada. O agente chega com a correção pronta na árvore, relata o veredicto medido de cada achado e para.
-- **Conteúdo do commit é o diff inteiro**, salvo exclusão explícita do mantenedor. Separar por conta própria é inferência de escopo proibida. Antes de todo commit, conferir `rtk git diff --cached` (§acima) e deixar o hook de vazamento rodar.
+- **Regra pétrea: toda modificação da árvore entra no mesmo commit, exceto se o mantenedor disser o contrário.** Conteúdo do commit é o diff inteiro (`git add -A`): código, teste, migração, config, CI e doc versionada. Nada fica de fora por iniciativa do agente, nem para "commitar depois", nem por parecer fora de escopo, nem por ser achado de revisor ou item de estilo. Separar por conta própria é inferência de escopo proibida; só a exclusão explícita do mantenedor, nomeando o que sai, vale. Antes de todo commit, conferir `rtk git diff --cached` (§acima) e deixar o hook de vazamento rodar.
 - **Nunca** `--amend`, `push --force`, `git checkout` entre `dev` e `main` durante promoção (usar `git fetch`, `rev-parse`, `log`), nem `--no-verify`.
 - Quem autoriza: criar branch e `push` de branch de trabalho → automático para código autorizado; `push` em `dev` → só via merge de PR; `push` em `main` e merge → aprovação explícita; `commit` → sempre nominal.
 - Mensagem multi-linha: `git commit -F - <<'FIM'` no Bash tool; conferir com `git log -1 --format=%B` antes de declarar pronto.

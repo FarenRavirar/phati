@@ -92,3 +92,4 @@ __pycache__/
 .pytest_cache/
 .coverage
 .venv/
+secret.txt

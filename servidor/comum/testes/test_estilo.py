@@ -16,6 +16,10 @@ PERMITIDOS = {
     'Meta', 'name', 'default_auto_field', 'db_table', 'constraints', 'application',
     'INSTALLED_APPS', 'ALLOWED_HOSTS', 'DEBUG', 'SECRET_KEY', 'DATABASES', 'DEFAULT_AUTO_FIELD',
     'LANGUAGE_CODE', 'TIME_ZONE', 'USE_TZ', 'ROOT_URLCONF', 'urlpatterns', 'self', 'cls', 'args', 'kwargs',
+    # Django impõe estes nomes (usuário customizado, hasher, sessão, e-mail).
+    'USERNAME_FIELD', 'password', 'last_login', 'AUTH_USER_MODEL', 'PASSWORD_HASHERS', 'DEFAULT_FROM_EMAIL',
+    'SESSION_COOKIE_HTTPONLY', 'SESSION_COOKIE_SECURE', 'SESSION_COOKIE_SAMESITE', 'SESSION_COOKIE_AGE',
+    'session',  # request.session é atributo do Django
 }
 
 # Palavras inglesas comuns em nome de código. Cresce quando um nome em inglês escapar.
@@ -27,7 +31,7 @@ INGLES = {
     'query', 'request', 'response', 'handle', 'build', 'make', 'load', 'save', 'read', 'write', 'send',
     'start', 'stop', 'run', 'level', 'parent', 'child', 'owner', 'access', 'allowed', 'created', 'updated',
     'enabled', 'valid', 'invalid', 'default', 'validate', 'normalize', 'helper', 'utils', 'manager',
-    'service', 'handler', 'context', 'connection', 'cursor', 'table', 'row', 'rows', 'schema',
+    'service', 'handler', 'hasher', 'context', 'connection', 'cursor', 'table', 'row', 'rows', 'schema',
 }
 
 
@@ -69,6 +73,7 @@ def achados_em(codigo):
 def test_detecta_identificador_em_ingles():
     assert achados_em('def get_user(): pass') == ['get_user']
     assert achados_em('class UserGroup:\n    nome_do_grupo = 1') == ['UserGroup']
+    assert achados_em('class HasherArgon2: pass') == ['HasherArgon2']
     assert achados_em('def buscar_fazendas_autorizadas(pessoa): pass') == []
 
 
