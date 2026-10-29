@@ -129,7 +129,8 @@ def test_pedido_trava_a_pessoa_para_nao_deixar_dois_links_validos(pessoa):
     # Achado do Qodo (PR #9): sem a trava, dois pedidos simultâneos deixariam dois links de pé.
     with CaptureQueriesContext(connection) as consultas:
         redefinicao.pedir_redefinicao(CPF)
-    assert any('FOR UPDATE' in c['sql'] and '"pessoa"' in c['sql'] for c in consultas)
+    # NO KEY UPDATE serializa como UPDATE e deixa a FK de `solicitado_por` passar (achado do Codex, PR #11).
+    assert any('FOR NO KEY UPDATE' in c['sql'] and '"pessoa"' in c['sql'] for c in consultas)
 
 
 def test_falha_do_smtp_desfaz_o_pedido_e_mantem_o_link_anterior(pessoa, mailoutbox, monkeypatch):
@@ -444,3 +445,17 @@ def test_administrador_sem_vinculo_pedindo_nao_envia_nem_registra(vinculos, mail
 
 def test_o_atalho_da_fase_2_saiu_do_codigo():
     assert 'shortcut:' not in Path(redefinicao.__file__).read_text(encoding='utf-8')
+
+
+@pytest.mark.django_db(transaction=True)
+def test_redefinicoes_cruzadas_entre_administradores_da_plataforma_nao_dao_deadlock(cpf_novo, mailoutbox):
+    for _ in range(10):
+        cpf_a, cpf_b = cpf_novo(), cpf_novo()
+        a = Pessoa.objects.criar(nome='Admin A', email='a@exemplo.test', cpf=cpf_a)
+        b = Pessoa.objects.criar(nome='Admin B', email='b@exemplo.test', cpf=cpf_b)
+        Pessoa.objects.filter(pk__in=[a.pk, b.pk]).update(administrador_plataforma=True)
+        _em_paralelo(
+            lambda: redefinicao.pedir_redefinicao(cpf_b, solicitante=Pessoa.objects.get(pk=a.pk)),
+            lambda: redefinicao.pedir_redefinicao(cpf_a, solicitante=Pessoa.objects.get(pk=b.pk)),
+        )
+    assert len(mailoutbox) == 20

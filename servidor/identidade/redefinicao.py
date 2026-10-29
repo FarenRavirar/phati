@@ -50,7 +50,9 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
     with transaction.atomic():
         # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O envio fica
         # dentro da transação: se o SMTP falhar, o link anterior continua valendo (achados do Qodo, PR #9).
-        Pessoa.objects.select_for_update().get(pk=alvo.pk)
+        # `no_key`: `solicitado_por` aponta para outra pessoa e a FK pede KEY SHARE; FOR UPDATE daria deadlock com
+        # duas redefinições cruzadas (mesma classe do achado do Codex no PR #11).
+        Pessoa.objects.select_for_update(no_key=True).get(pk=alvo.pk)
         # A criação do pedido é `expira_em - VALIDADE`; pedido recente, mesmo já usado, segura o novo.
         if PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__gt=agora + VALIDADE - INTERVALO_ENTRE_PEDIDOS).exists():
             return None

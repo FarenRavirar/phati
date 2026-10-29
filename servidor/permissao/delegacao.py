@@ -18,6 +18,14 @@ from permissao.pode import Alvo, alvo_de, memoria_de
 from territorio.models import Empresa, Fazenda, SubArea
 
 
+def _travar_pessoa(pk):
+    """Trava a linha da pessoa sem bloquear a checagem de chave estrangeira: `FOR UPDATE` conflita com o
+    `KEY SHARE` que gravar `concedida_por`, `revogada_por` ou `titular` pede em outra pessoa, e duas operações
+    cruzadas (A revoga B enquanto B revoga A) davam deadlock. `FOR NO KEY UPDATE` serializa do mesmo jeito e deixa
+    a FK passar (achado do Codex, PR #11, reproduzido por teste de corrida)."""
+    Pessoa.objects.select_for_update(no_key=True).get(pk=pk)
+
+
 def _campos_do_escopo(escopo):
     if isinstance(escopo, Empresa):
         return {'empresa_id': escopo.pk}
@@ -59,7 +67,7 @@ def _concede(vinculo, memoria, proposta, alvo, concedidas, pedidas):
     if not _nivel_permite(vinculo.base, proposta.cargo.base) or not _fim_cabe(vinculo, proposta.fim):
         return False
     if vinculo.base != 'administrador' and (
-        not concedidas <= vinculo.permissoes or not all(memoria.catalogo[codigo] for codigo in concedidas)
+        not concedidas.issubset(vinculo.permissoes) or not all(memoria.catalogo[codigo] for codigo in concedidas)
     ):
         return False
     # Ninguém concede categoria que não tem: lista vazia é nenhuma categoria (nega por padrão).
@@ -106,7 +114,7 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
     categorias = tuple(categorias)  # percorrido na checagem e na gravação: um gerador acabaria na primeira
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     with transaction.atomic():
-        Pessoa.objects.select_for_update().get(pk=pessoa.pk)
+        _travar_pessoa(pessoa.pk)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
         return _gravar(proposta, pessoa, categorias)
@@ -154,7 +162,7 @@ def revogar_concessao(quem, concessao):
     with transaction.atomic():
         # Pessoa, depois empresa: a trava da pessoa serializa as revogações dela e a da empresa fecha a corrida com
         # `transferir_titularidade` (um teste transacional prova as duas).
-        Pessoa.objects.select_for_update().get(pk=concessao.pessoa_id)
+        _travar_pessoa(concessao.pessoa_id)
         empresa = Empresa.objects.select_for_update().get(pk=concessao.empresa_id)
         atual = Concessao.objects.select_related('cargo').get(pk=concessao.pk)
         if not _pode_revogar(quem, atual):
@@ -181,7 +189,7 @@ def transferir_titularidade(quem, empresa, novo_titular):
         # Pessoa, depois empresa, a mesma ordem de `revogar_concessao`: a ordem inversa dava deadlock com a revogação
         # da concessão do novo titular, porque gravar `titular` pede KEY SHARE na pessoa (achado do Codex, PR #11,
         # reproduzido pelo teste de corrida).
-        Pessoa.objects.select_for_update().get(pk=novo_titular.pk)
+        _travar_pessoa(novo_titular.pk)
         atual = Empresa.objects.select_for_update().get(pk=empresa.pk)
         if not (quem.administrador_plataforma or quem.pk == atual.titular_id):
             raise PermissionDenied

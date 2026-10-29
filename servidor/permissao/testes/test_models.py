@@ -169,8 +169,9 @@ def test_concessao_de_administrador_do_titular_nao_ganha_prazo(cenario, partes):
     cenario.x.titular = partes['pessoa']
     cenario.x.save(update_fields=['titular'])
     consulta = Concessao.objects.filter(pk=concessao.pk)
+    amanha = timezone.now() + timedelta(days=1)
     with pytest.raises(IntegrityError, match='o titular não tem prazo'), transaction.atomic():
-        consulta.update(fim=timezone.now() + timedelta(days=1))
+        consulta.update(fim=amanha)
     outra = Concessao.objects.create(cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f1, **partes)
     assert Concessao.objects.filter(pk=outra.pk).update(fim=timezone.now() + timedelta(days=1)) == 1
 

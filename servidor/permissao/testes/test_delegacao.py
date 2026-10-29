@@ -199,8 +199,9 @@ def test_concessao_com_prazo_nao_concede_alem_do_proprio_fim(base, alvo, cenario
     cargo = cenario.cargos_x['usuario']
     with pytest.raises(PermissionDenied):
         conceder(quem, alvo, cargo, cenario.f1)  # sem fim
+    depois = fim + timedelta(days=1)
     with pytest.raises(PermissionDenied):
-        conceder(quem, alvo, cargo, cenario.f1, fim=fim + timedelta(days=1))
+        conceder(quem, alvo, cargo, cenario.f1, fim=depois)
     assert conceder(quem, alvo, cargo, cenario.f1, fim=fim).fim == fim
     assert conceder(quem, alvo, cargo, cenario.f1, fim=fim - timedelta(days=1)).fim == fim - timedelta(days=1)
 
@@ -218,8 +219,9 @@ def test_convite_com_periodo_invalido_nao_envia_email_nem_deixa_pessoa(cenario, 
     cpf = cpf_novo()
     agora = timezone.now()
     antes = Pessoa.objects.count()
+    ontem = agora - timedelta(days=1)
     with pytest.raises(IntegrityError):
-        convidar(admin, 'Fim Antes', 'f@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1, inicio=agora, fim=agora - timedelta(days=1))
+        convidar(admin, 'Fim Antes', 'f@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1, inicio=agora, fim=ontem)
     assert Pessoa.objects.count() == antes
     assert mailoutbox == []
 
@@ -510,6 +512,64 @@ def test_transferir_e_revogar_ao_mesmo_tempo_nunca_deixam_titular_sem_concessao(
         de_outro.refresh_from_db()
         # Titular com a concessão revogada é o estado proibido (R23).
         assert not (empresa.titular_id == outro.pk and de_outro.revogada_em is not None)
+    assert inesperados == []
+
+
+def _em_paralelo_sem_erro_de_banco(funcoes):
+    """Roda as funções ao mesmo tempo; recusa de regra é desfecho válido, erro de banco (deadlock) não."""
+    inesperados = []
+    largada = threading.Barrier(len(funcoes))
+
+    def correr(funcao):
+        largada.wait()
+        try:
+            funcao()
+        except (ValidationError, PermissionDenied):
+            pass
+        except Exception as erro:
+            inesperados.append(repr(erro))
+        finally:
+            connection.close()
+
+    fios = [threading.Thread(target=correr, args=(funcao,)) for funcao in funcoes]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join()
+    return inesperados
+
+
+# Transacional (como os testes de corrida acima): sem `cenario`, porque o catálogo some no fim; o Administrador
+# não precisa das ações na lista do cargo (D043).
+@pytest.mark.django_db(transaction=True)
+def test_revogacoes_cruzadas_entre_administradores_nao_dao_deadlock(fabrica_pessoa, conceder_direto):
+    empresa = Empresa.objects.create(nome='Empresa das revogações cruzadas')
+    cargo = Cargo.objects.create(empresa=empresa, nome='Administrador', base='administrador')
+    inesperados = []
+    for _ in range(15):
+        a, b = fabrica_pessoa('Admin A'), fabrica_pessoa('Admin B')
+        de_a, de_b = conceder_direto(a, cargo, empresa), conceder_direto(b, cargo, empresa)
+        inesperados += _em_paralelo_sem_erro_de_banco([
+            lambda: revogar_concessao(a, Concessao.objects.get(pk=de_b.pk)),
+            lambda: revogar_concessao(b, Concessao.objects.get(pk=de_a.pk)),
+        ])  # fmt: skip
+    assert inesperados == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concessoes_cruzadas_entre_administradores_nao_dao_deadlock(fabrica_pessoa, conceder_direto):
+    empresa = Empresa.objects.create(nome='Empresa das concessões cruzadas')
+    administrador = Cargo.objects.create(empresa=empresa, nome='Administrador', base='administrador')
+    usuario = Cargo.objects.create(empresa=empresa, nome='Usuário', base='usuario')
+    inesperados = []
+    for _ in range(15):
+        a, b = fabrica_pessoa('Admin A'), fabrica_pessoa('Admin B')
+        conceder_direto(a, administrador, empresa)
+        conceder_direto(b, administrador, empresa)
+        inesperados += _em_paralelo_sem_erro_de_banco([
+            lambda: conceder(a, b, usuario, empresa),
+            lambda: conceder(b, a, usuario, empresa),
+        ])  # fmt: skip
     assert inesperados == []
 
 
