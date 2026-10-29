@@ -1,6 +1,6 @@
 # Mantém atualizadas as dependências do phati e as versões fixadas por SHA ou digest (cadeia de suprimentos,
 # AGENTS.md §Segurança com IA, prática 6). O Dependabot só abre PR para revisão; nunca mergeia.
-# Mesmo desenho do projeto artificio. Python: o PR muda o pyproject.toml; o requirements.lock.txt precisa
+# Python: o PR muda o pyproject.toml; o requirements.lock.txt precisa
 # acompanhar na revisão (débito: lock com hashes, `specs/backlog.md`).
 version: 2
 updates:

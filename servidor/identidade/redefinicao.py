@@ -11,10 +11,10 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from comum.auditoria import auditar
 from identidade import cpf, email, senha, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
-from permissao.models import concessoes_ativas
-from permissao.pode import administrador_da_empresa
+from permissao.pode import administrador_da_empresa, memoria_de
 
 VALIDADE = timedelta(minutes=10)
 TENTATIVAS_POR_PEDIDO = 5
@@ -27,7 +27,8 @@ def pode_iniciar_redefinicao(solicitante, alvo):
     empresa onde `alvo` tem concessão ativa (colaborador externo). Técnico e empresa sem vínculo não."""
     if solicitante.pk == alvo.pk or solicitante.administrador_plataforma:
         return True
-    empresas = set(concessoes_ativas().filter(pessoa=alvo).values_list('empresa_id', flat=True))
+    # Pelas concessões que `pode()` já usa (função do banco): sob RLS o pedido não tem escopo para listá-las por ORM.
+    empresas = {vinculo.concessao.empresa_id for vinculo in memoria_de(alvo).vinculos}
     if alvo.empresa_origem_id is not None:
         empresas.add(alvo.empresa_origem_id)
     return any(administrador_da_empresa(solicitante, empresa_id) for empresa_id in empresas)
@@ -65,6 +66,8 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
             solicitado_por=solicitante or alvo,
             expira_em=agora + VALIDADE,
         )
+        # Sem `solicitante` o pedido é anônimo (sem sessão): atribuí-lo ao alvo culparia a vítima.
+        auditar('redefinicao_pedida', solicitante, alvo, alvo.empresa_origem_id)
         email.enviar_link_de_redefinicao(alvo, segredo)
     return None
 
@@ -92,6 +95,8 @@ def confirmar_redefinicao(segredo, senha_nova):
             erro = recusa
         else:
             pedido.usado_em = agora
+            # Confirmação anônima, como o pedido: quem tem o link não abre sessão, então o autor fica vazio.
+            auditar('redefinicao_confirmada', None, pessoa, pessoa.empresa_origem_id)
         pedido.save(update_fields=['tentativas', 'usado_em'])
     if erro is not None:
         raise erro

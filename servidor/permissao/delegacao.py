@@ -9,12 +9,15 @@ concessão, a ordem única de `identidade.senha._pessoa_travada`, para não volt
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+
 from django.utils import timezone
+
+from comum.auditoria import auditar
 
 from identidade import senha
 from identidade.models import Pessoa
-from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria, concessoes_ativas
-from permissao.pode import Alvo, alvo_de, memoria_de
+from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria
+from permissao.pode import Alvo, alvo_de, esquecer, memoria_de
 from territorio.models import Empresa, Fazenda, SubArea
 
 
@@ -48,12 +51,6 @@ def _nivel_permite(base_de_quem, base_do_cargo):
     return base_de_quem == 'administrador' or NIVEL_DA_BASE[base_de_quem] > NIVEL_DA_BASE[base_do_cargo]
 
 
-def _tem(vinculo, acao):
-    """O Administrador conta como quem tem todo o catálogo no escopo (D043), mesmo que o cargo dele, personalizado,
-    não liste `acao` (achado do Sourcery, PR #11)."""
-    return vinculo.base == 'administrador' or acao in vinculo.permissoes
-
-
 def _fim_cabe(vinculo, fim):
     """O acesso concedido não sobrevive à concessão de quem concede (achado do Qodo, PR #11; inferência a confirmar)."""
     limite = vinculo.concessao.fim
@@ -62,7 +59,7 @@ def _fim_cabe(vinculo, fim):
 
 def _concede(vinculo, memoria, proposta, alvo, concedidas, pedidas):
     """Uma concessão de quem concede satisfaz todas as regras de R10 para a proposta?"""
-    if not _tem(vinculo, 'convidar_pessoa') or not vinculo.cobre(alvo):
+    if not vinculo.tem('convidar_pessoa') or not vinculo.cobre(alvo):
         return False
     if not _nivel_permite(vinculo.base, proposta.cargo.base) or not _fim_cabe(vinculo, proposta.fim):
         return False
@@ -100,11 +97,16 @@ def _proposta(quem, cargo, escopo, inicio, fim):
     )
 
 
-def _gravar(proposta, pessoa, categorias):
+def _gravar(quem, proposta, pessoa, categorias):
     proposta.pessoa = pessoa
     proposta.save()
     ConcessaoCategoria.objects.bulk_create(
         ConcessaoCategoria(concessao=proposta, categoria=categoria) for categoria in categorias
+    )
+    auditar(
+        'concessao_criada', quem, proposta, proposta.empresa_id,
+        {'pessoa_id': pessoa.pk, 'cargo_id': proposta.cargo_id, 'fazenda_id': proposta.fazenda_id,
+         'sub_area_id': proposta.sub_area_id},
     )
     return proposta
 
@@ -117,7 +119,7 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
         _travar_pessoa(pessoa.pk)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
-        return _gravar(proposta, pessoa, categorias)
+        return _gravar(quem, proposta, pessoa, categorias)
 
 
 def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, fim=None):
@@ -132,7 +134,8 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
         pessoa = Pessoa.objects.criar(nome, email, cpf, empresa_origem=Empresa.objects.get(pk=proposta.empresa_id))
         # Grava a concessão antes de enviar a senha: período ou categoria recusados pelo banco não podem deixar um
         # e-mail com credencial de conta que não existe (achado do Codex, PR #11).
-        _gravar(proposta, pessoa, categorias)
+        auditar('pessoa_criada', quem, pessoa, proposta.empresa_id)
+        _gravar(quem, proposta, pessoa, categorias)
         temporaria = senha.emitir_senha_temporaria(pessoa)
     return pessoa, temporaria
 
@@ -144,7 +147,7 @@ def _pode_revogar(quem, concessao):
         return True
     alvo = _alvo_da_concessao(concessao)
     return any(
-        _tem(vinculo, 'revogar_acesso')
+        vinculo.tem('revogar_acesso')
         and vinculo.cobre(alvo)
         and _nivel_permite(vinculo.base, concessao.cargo.base)
         for vinculo in memoria_de(quem).vinculos
@@ -163,11 +166,18 @@ def revogar_concessao(quem, concessao):
         # Pessoa, depois empresa: a trava da pessoa serializa as revogações dela e a da empresa fecha a corrida com
         # `transferir_titularidade` (um teste transacional prova as duas).
         _travar_pessoa(concessao.pessoa_id)
-        empresa = Empresa.objects.select_for_update().get(pk=concessao.empresa_id)
+        # O titular só tem concessão da empresa inteira, então só ela disputa a trava com a transferência. Quem
+        # tem escopo de fazenda não enxerga a empresa para travar (RLS) e não alcança essa concessão de qualquer jeito.
+        titular_id = None
+        if concessao.fazenda_id is None:
+            empresa = Empresa.objects.select_for_update().filter(pk=concessao.empresa_id).first()
+            if empresa is None:
+                raise PermissionDenied
+            titular_id = empresa.titular_id
         atual = Concessao.objects.select_related('cargo').get(pk=concessao.pk)
         if not _pode_revogar(quem, atual):
             raise PermissionDenied
-        if atual.pessoa_id == empresa.titular_id and _administra_a_empresa_inteira(atual):
+        if atual.pessoa_id == titular_id and _administra_a_empresa_inteira(atual):
             raise ValidationError(
                 'O Administrador titular só sai por transferência de titularidade.', code='titular_protegido'
             )
@@ -176,6 +186,7 @@ def revogar_concessao(quem, concessao):
         atual.revogada_em = timezone.now()
         atual.revogada_por = quem
         atual.save(update_fields=['revogada_em', 'revogada_por'])
+        auditar('concessao_revogada', quem, atual, atual.empresa_id, {'pessoa_id': atual.pessoa_id})
     concessao.refresh_from_db()
 
 
@@ -193,12 +204,20 @@ def transferir_titularidade(quem, empresa, novo_titular):
         atual = Empresa.objects.select_for_update().get(pk=empresa.pk)
         if not (quem.administrador_plataforma or quem.pk == atual.titular_id):
             raise PermissionDenied
-        if not concessoes_ativas().filter(
-            pessoa=novo_titular, empresa=atual, fazenda__isnull=True, cargo__base='administrador', fim__isnull=True
-        ).exists():
+        # Concessões lidas de novo, depois da trava: a memória do objeto pode ser de antes dela.
+        esquecer(novo_titular)
+        if not any(
+            vinculo.base == 'administrador'
+            and vinculo.concessao.empresa_id == atual.pk
+            and vinculo.concessao.fazenda_id is None
+            and vinculo.concessao.fim is None
+            for vinculo in memoria_de(novo_titular).vinculos
+        ):
             raise ValidationError(
                 'O novo titular precisa ser Administrador da empresa inteira, sem prazo.', code='titular_invalido'
             )
+        titular_anterior = atual.titular_id
         atual.titular = novo_titular
         atual.save(update_fields=['titular'])
+        auditar('titularidade_transferida', quem, atual, atual.pk, {'de': titular_anterior, 'para': novo_titular.pk})
     empresa.refresh_from_db()

@@ -1,7 +1,7 @@
 name: codeql
 
 # CodeQL (SAST nativo do GitHub), grátis em repositório público. Resultados em Security -> Code scanning.
-# Sem segredo e sem serviço externo. Mesmo desenho do projeto artificio, com as linguagens do phati:
+# Sem segredo e sem serviço externo. Linguagens do phati:
 # python (servidor/), javascript-typescript (hooks do git e scripts) e actions (os próprios workflows).
 on:
   pull_request:

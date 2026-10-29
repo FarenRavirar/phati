@@ -35,7 +35,6 @@
     ],
     "ask": [
       "Bash(git commit:*)",
-      "Bash(git push:*)",
       "Bash(git worktree:*)",
       "Bash(git merge:*)",
       "Bash(git reset:*)",
@@ -60,7 +59,8 @@
       { "matcher": "Read", "hooks": [ { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-read-gate.js\"" } ] },
       { "matcher": "Bash", "hooks": [
         { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-enforce.js\"" },
-        { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\"" }
+        { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\"" },
+        { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\"" }
       ] }
     ]
   }

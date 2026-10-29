@@ -6,16 +6,22 @@ vencimento valem na requisição seguinte. Nada vai para a sessão. Quem mantém
 comando) chama `esquecer()` depois de mudar concessões.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import wraps
 
 from django.core.exceptions import PermissionDenied
+from django.db import DEFAULT_DB_ALIAS, connection, connections, transaction
+from django.utils import timezone
 
-from permissao.models import BASES_COM_CATEGORIA, Concessao, Permissao, concessoes_ativas
+from permissao.models import BASES_COM_CATEGORIA, Concessao, Permissao
 from territorio.models import Empresa, Fazenda, SubArea
 
 # Ações que só o Administrador da plataforma exerce; nenhum cargo as concede, mesmo que `cargo_permissao` as traga.
 ACOES_DA_PLATAFORMA = frozenset({'criar_empresa'})
+# O Administrador conta como quem tem estas, mesmo que o cargo personalizado não as liste (D043); o escopo de RLS
+# delas segue a mesma regra, senão o papel `app` barraria o que `pode_conceder` autoriza.
+ACOES_DE_DELEGACAO = frozenset({'convidar_pessoa', 'revogar_acesso'})
 _ATRIBUTO_MEMORIA = '_memoria_do_pode'
 
 
@@ -54,6 +60,10 @@ class Vinculo:
     permissoes: frozenset[str]
     categorias: frozenset[int]
 
+    def tem(self, acao):
+        """O Administrador conta como quem tem todo o catálogo no escopo (D043); os demais, só o que o cargo lista."""
+        return self.base == 'administrador' or acao in self.permissoes
+
     def cobre(self, alvo):
         """Empresa cobre tudo dela; fazenda cobre as sub-áreas; sub-área cobre os descendentes pelo `caminho`."""
         concessao = self.concessao
@@ -87,20 +97,20 @@ class Memoria:
 def memoria_de(pessoa):
     memoria = getattr(pessoa, _ATRIBUTO_MEMORIA, None)
     if memoria is None:
-        concessoes = (
-            concessoes_ativas()
-            .filter(pessoa=pessoa)
-            .select_related('cargo')
-            .prefetch_related('categorias', 'cargo__permissoes')
-        )
+        with connection.cursor() as consulta:
+            # Função do banco (migração 0003): lê as concessões da própria pessoa sem depender das variáveis de RLS
+            # que `com_permissao` ainda vai calcular a partir delas. O filtro de "ativa" repete `concessoes_ativas`;
+            # test_rls confere os dois nas bordas.
+            consulta.execute('SELECT * FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
+            linhas = consulta.fetchall()
         vinculos = tuple(
             Vinculo(
-                concessao,
-                concessao.cargo.base,
-                frozenset(permissao.pk for permissao in concessao.cargo.permissoes.all()),
-                frozenset(categoria.pk for categoria in concessao.categorias.all()),
+                Concessao(id=cid, empresa_id=empresa, fazenda_id=fazenda, sub_area_id=sub_area, fim=fim),
+                base,
+                frozenset(permissoes),
+                frozenset(categorias),
             )
-            for concessao in concessoes
+            for cid, empresa, fazenda, sub_area, fim, base, permissoes, categorias in linhas
         )
         memoria = Memoria(dict(Permissao.objects.values_list('codigo', 'delegavel')), vinculos)
         setattr(pessoa, _ATRIBUTO_MEMORIA, memoria)
@@ -157,6 +167,7 @@ class Escopos:
     fazendas: frozenset[int] = frozenset()
     sub_areas: frozenset[int] = frozenset()
     fazendas_das_sub_areas: frozenset[int] = frozenset()
+    empresas_das_fazendas: frozenset[int] = frozenset()  # empresa de cada fazenda ou sub-área do escopo (só leitura)
 
 
 def escopos_da_acao(pessoa, acao):
@@ -169,7 +180,11 @@ def escopos_da_acao(pessoa, acao):
         return Escopos(plataforma=True)
     if acao in ACOES_DA_PLATAFORMA:
         return Escopos()
-    concessoes = [vinculo.concessao for vinculo in memoria.vinculos if acao in vinculo.permissoes]
+    concessoes = [
+        vinculo.concessao
+        for vinculo in memoria.vinculos
+        if (vinculo.tem(acao) if acao in ACOES_DE_DELEGACAO else acao in vinculo.permissoes)
+    ]
     return Escopos(
         empresas=frozenset(c.empresa_id for c in concessoes if c.fazenda_id is None),
         fazendas=frozenset(c.fazenda_id for c in concessoes if c.fazenda_id is not None and c.sub_area_id is None),
@@ -177,11 +192,53 @@ def escopos_da_acao(pessoa, acao):
         fazendas_das_sub_areas=frozenset(
             c.fazenda_id for c in concessoes if c.sub_area_id is not None and c.fazenda_id is not None
         ),
+        empresas_das_fazendas=frozenset(c.empresa_id for c in concessoes if c.fazenda_id is not None),
     )
 
 
+_LER_VARIAVEIS = (
+    "SELECT coalesce(current_setting('app.plataforma', true), ''),"
+    " coalesce(current_setting('app.empresas', true), ''),"
+    " coalesce(current_setting('app.empresas_de_fazendas', true), ''),"
+    " coalesce(current_setting('app.fazendas', true), '')"
+)
+# `is_local = true`: vale só até o fim da transação. `false` valeria para a sessão inteira e vazaria para a
+# transação seguinte da mesma conexão (test_set_config_local barra isso no código).
+_FIXAR_VARIAVEIS = (
+    "SELECT set_config('app.plataforma', %s, true), set_config('app.empresas', %s, true),"
+    " set_config('app.empresas_de_fazendas', %s, true), set_config('app.fazendas', %s, true)"
+)
+
+
+@contextmanager
+def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
+    """Abre a transação com as variáveis de RLS da `pessoa` (R12): a união dos escopos das `acoes` (padrão `ver`).
+
+    Sem este bloco o papel `app` não vê linha alguma das tabelas com RLS. Ao sair sem erro devolve os valores que já
+    estavam (bloco dentro de bloco, ou dentro da transação do chamador); com erro a transação ou o ponto de
+    salvamento desfaz tudo, as variáveis inclusive. Granularidade de sub-área e de categoria continua em `pode()`.
+    """
+    escopos = [escopos_da_acao(pessoa, acao) for acao in (acoes or ('ver',))]
+    def lista(*conjuntos):
+        return ','.join(str(pk) for pk in sorted(set().union(*conjuntos)))
+
+    # Mesma ordem de `_FIXAR_VARIAVEIS`.
+    novos = (
+        '1' if any(escopo.plataforma for escopo in escopos) else '',
+        lista(*(e.empresas for e in escopos)),
+        lista(*(e.empresas_das_fazendas for e in escopos)),
+        lista(*(e.fazendas | e.fazendas_das_sub_areas for e in escopos)),
+    )
+    with transaction.atomic(using=usando), connections[usando].cursor() as consulta:
+        consulta.execute(_LER_VARIAVEIS)
+        anteriores = consulta.fetchone()
+        consulta.execute(_FIXAR_VARIAVEIS, novos)
+        yield
+        consulta.execute(_FIXAR_VARIAVEIS, anteriores)
+
+
 def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
-    """Decorador de rota: nega com `PermissionDenied` (403) antes de a rota rodar.
+    """Decorador de rota: nega com `PermissionDenied` (403) antes de a rota rodar, dentro de `com_permissao`.
 
     `obter_alvo(requisicao, *args, **kwargs)` devolve o alvo da ação e `obter_categoria(...)`, a categoria do dado, se
     a rota trata dado categorizado: sem ela, Técnico e Usuário com categoria passariam por qualquer categoria
@@ -191,11 +248,14 @@ def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
     def decorar(funcao):
         @wraps(funcao)
         def interna(requisicao, *args, **kwargs):
-            alvo = obter_alvo(requisicao, *args, **kwargs) if obter_alvo else None
-            categoria = obter_categoria(requisicao, *args, **kwargs) if obter_categoria else None
-            if not pode(requisicao.user, acao, alvo, categoria):
-                raise PermissionDenied
-            return funcao(requisicao, *args, **kwargs)
+            # O escopo vem antes de `obter_alvo`: na produção o papel `app` só carrega o alvo (Fazenda, SubArea,
+            # CategoriaDado) que a RLS deixa ver; alvo fora do escopo some e a rota responde como não encontrado.
+            with com_permissao(requisicao.user, acao):
+                alvo = obter_alvo(requisicao, *args, **kwargs) if obter_alvo else None
+                categoria = obter_categoria(requisicao, *args, **kwargs) if obter_categoria else None
+                if not pode(requisicao.user, acao, alvo, categoria):
+                    raise PermissionDenied
+                return funcao(requisicao, *args, **kwargs)
 
         setattr(interna, 'acao_exigida', acao)
         return interna

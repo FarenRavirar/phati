@@ -5,11 +5,12 @@ from types import SimpleNamespace
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import PermissionDenied
+from django.db import connection
 from django.utils import timezone
 
 from permissao import pode as modulo_pode
 from permissao.models import Cargo, CargoPermissao, CategoriaDado
-from permissao.pode import administrador_da_empresa, esquecer, exige_permissao, pode
+from permissao.pode import administrador_da_empresa, com_permissao, esquecer, exige_permissao, pode
 
 pytestmark = pytest.mark.django_db
 
@@ -259,3 +260,48 @@ def test_decorador_marca_a_acao_exigida_e_sem_alvo_nega_quem_nao_e_plataforma(pe
     with pytest.raises(PermissionDenied):
         rota(requisicao)
     assert rota(_requisicao(plataforma)) == 'ok'
+
+
+def _variaveis_de_rls():
+    with connection.cursor() as consulta:
+        consulta.execute("SELECT current_setting('app.empresas', true), current_setting('app.fazendas', true)")
+        return consulta.fetchone()
+
+
+def test_decorador_roda_a_rota_dentro_de_com_permissao(pessoa, cenario, conceder_direto):
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)
+    vistas = []
+
+    @exige_permissao('ver', lambda requisicao: cenario.f1)
+    def rota(requisicao):
+        vistas.append(_variaveis_de_rls())
+
+    rota(_requisicao(_recarregar(pessoa)))
+    assert vistas == [('', str(cenario.f1.pk))]
+    assert _variaveis_de_rls()[1] in ('', None)  # a rota terminou: nada fica para a transação seguinte
+
+
+def test_com_permissao_une_os_escopos_das_acoes(pessoa, cenario, conceder_direto):
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)  # só `ver`
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.f2)  # `ver` e `convidar_pessoa`
+    with com_permissao(_recarregar(pessoa), 'ver', 'convidar_pessoa'):
+        assert _variaveis_de_rls() == ('', f'{cenario.f1.pk},{cenario.f2.pk}')
+    with com_permissao(_recarregar(pessoa), 'convidar_pessoa'):
+        assert _variaveis_de_rls() == ('', str(cenario.f2.pk))
+
+
+def test_com_permissao_sem_acao_usa_ver(pessoa, cenario, conceder_direto):
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.x)
+    with com_permissao(_recarregar(pessoa)):
+        assert _variaveis_de_rls() == (str(cenario.x.pk), '')
+
+
+def test_com_permissao_inclui_a_fazenda_das_sub_areas(pessoa, cenario, conceder_direto):
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.g1)
+    with com_permissao(_recarregar(pessoa)):
+        assert _variaveis_de_rls() == ('', str(cenario.f1.pk))
+
+
+def test_com_permissao_sem_concessao_nao_abre_escopo(pessoa, cenario):
+    with com_permissao(pessoa, 'ver'):
+        assert _variaveis_de_rls() == ('', '')

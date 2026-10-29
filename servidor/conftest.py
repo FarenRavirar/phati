@@ -93,3 +93,16 @@ def cenario(db):
     return SimpleNamespace(
         x=x, y=y, f1=f1, f2=f2, fy=fy, g1=g1, t1=t1, g2=g2, cargos_x=criar_cargos_base(x), cargos_y=criar_cargos_base(y)
     )
+
+
+@pytest.fixture
+def como_app(transactional_db):
+    """Roda o ORM como o papel `app` (o de produção, sujeito à RLS), não como o dono que o teste usa por padrão.
+
+    O papel `app` é outra conexão e só enxerga dado já gravado: use com `django_db(transaction=True)`. O banco do
+    teste mantém `default` como dono para as migrações; aqui o alias `default` aponta para a conexão `app`.
+    """
+    original = connections['default']
+    connections['default'] = connections['app']
+    yield
+    connections['default'] = original

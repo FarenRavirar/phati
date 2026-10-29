@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from comum.auditoria import auditar
 from identidade import cpf
 from identidade.models import Pessoa
 
@@ -53,6 +54,7 @@ def autenticar(cpf_texto, senha):
             if pessoa.falhas_consecutivas >= settings.AUTENTICACAO_FALHAS_LIMITE:
                 segundos = _bloqueio_em_segundos(pessoa.falhas_consecutivas)
                 pessoa.bloqueada_ate = agora + timedelta(seconds=segundos)
+                auditar('conta_bloqueada', None, pessoa, pessoa.empresa_origem_id, {'segundos': segundos})
             pessoa.save(update_fields=['falhas_consecutivas', 'bloqueada_ate'])
             return None
         if pessoa.deve_trocar_senha:
