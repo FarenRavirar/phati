@@ -42,7 +42,7 @@ def test_o_codigo_do_servidor_so_usa_variavel_local():
 def test_o_codigo_fixa_as_variaveis_de_forma_local():
     # Os dois modelos de `set_config` (cinco variáveis de contexto e a assinatura da identidade) vivem em contexto.py.
     texto = (RAIZ / 'permissao' / 'contexto.py').read_text(encoding='utf-8')
-    assert texto.count("', %s, true)") == 2
+    assert texto.count("', %s, true)") == 6
     assert 'set_config' not in (RAIZ / 'permissao' / 'pode.py').read_text(encoding='utf-8')
 
 

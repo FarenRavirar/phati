@@ -119,3 +119,17 @@ def test_identidade_assinada_nao_sobrevive_a_memoria_de(mundo):
         assert consulta.fetchone() == ('',)
         consulta.execute('SELECT concessao_id FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
         assert consulta.fetchall() == []
+
+
+def test_erro_na_consulta_de_vinculos_sobe_o_erro_original(mundo):
+    # Achado do Greptile (PR #15): a limpeza no `finally` rodava na transação abortada e escondia o erro real.
+    from identidade.models import Pessoa
+    from permissao.pode import memoria_de
+
+    pessoa = Pessoa.objects.get(pk=mundo.dono_x.pk)
+    with transaction.atomic():
+        with connection.cursor() as consulta:
+            consulta.execute('DROP FUNCTION vinculos_da_pessoa(bigint, timestamptz)')
+        with pytest.raises(ProgrammingError, match='vinculos_da_pessoa'):
+            memoria_de(pessoa)
+        transaction.set_rollback(True)  # devolve a função ao banco

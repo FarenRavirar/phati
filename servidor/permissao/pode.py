@@ -103,12 +103,12 @@ def memoria_de(pessoa):
             # que `com_permissao` ainda vai calcular a partir delas. O filtro de "ativa" repete `concessoes_ativas`;
             # test_rls confere os dois nas bordas. A identidade assinada (migração 0004) vale só nesta consulta: a
             # transação do chamador pode seguir adiante, então a assinatura sai antes (achado do Sourcery, PR #15).
+            # Com erro, `atomic()` desfaz a transação (ou o ponto de salvamento) e a assinatura vai junto; limpar no
+            # `finally` rodaria SQL em transação abortada e esconderia o erro real (achado do Greptile, PR #15).
             fixar_identidade(consulta, pessoa.pk)
-            try:
-                consulta.execute('SELECT * FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
-                linhas = consulta.fetchall()
-            finally:
-                limpar_identidade(consulta)
+            consulta.execute('SELECT * FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
+            linhas = consulta.fetchall()
+            limpar_identidade(consulta)
         vinculos = tuple(
             Vinculo(
                 Concessao(id=cid, empresa_id=empresa, fazenda_id=fazenda, sub_area_id=sub_area, fim=fim),

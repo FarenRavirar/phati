@@ -16,11 +16,22 @@ import hmac
 from django.conf import settings
 
 _NUMERO_DA_TRANSACAO = 'SELECT pg_current_xact_id()::text'
-_VARIAVEIS = ('plataforma', 'empresas', 'empresas_de_fazendas', 'fazendas', 'assinatura')
-_LER = 'SELECT ' + ', '.join(f"coalesce(current_setting('app.{nome}', true), '')" for nome in _VARIAVEIS)
+# SQL escrito por extenso, sem `+`, f-string, `%` nem `.format`: a regra `sqlalchemy-execute-raw-query` do Sourcery
+# acusa como "SQL por concatenação" a constante montada em código (falso positivo medido no PR #15).
+_LER = (
+    "SELECT coalesce(current_setting('app.plataforma', true), ''),"
+    " coalesce(current_setting('app.empresas', true), ''),"
+    " coalesce(current_setting('app.empresas_de_fazendas', true), ''),"
+    " coalesce(current_setting('app.fazendas', true), ''),"
+    " coalesce(current_setting('app.assinatura', true), '')"
+)
 # `is_local = true`: vale só até o fim da transação. `false` valeria para a sessão inteira e vazaria para a
 # transação seguinte da mesma conexão (test_set_config_local barra isso no código).
-_FIXAR = 'SELECT ' + ', '.join(f"set_config('app.{nome}', %s, true)" for nome in _VARIAVEIS)
+_FIXAR = (
+    "SELECT set_config('app.plataforma', %s, true), set_config('app.empresas', %s, true),"
+    " set_config('app.empresas_de_fazendas', %s, true), set_config('app.fazendas', %s, true),"
+    " set_config('app.assinatura', %s, true)"
+)
 _FIXAR_IDENTIDADE = "SELECT set_config('app.assinatura_pessoa', %s, true)"
 
 
