@@ -13,6 +13,8 @@ from django.utils import timezone
 
 from identidade import cpf, email, senha, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
+from permissao.models import concessoes_ativas
+from permissao.pode import administrador_da_empresa
 
 VALIDADE = timedelta(minutes=10)
 TENTATIVAS_POR_PEDIDO = 5
@@ -21,9 +23,14 @@ INTERVALO_ENTRE_PEDIDOS = timedelta(minutes=1)
 
 
 def pode_iniciar_redefinicao(solicitante, alvo):
-    # shortcut: falta o Administrador de empresa com origem ou concessão ativa sobre `alvo` (T3.4a), que depende de
-    # cargo e concessão da Fase 3; até lá só a própria pessoa e o Administrador da plataforma.
-    return solicitante.pk == alvo.pk or solicitante.administrador_plataforma
+    """R5: a própria pessoa, o Administrador da plataforma e o Administrador da empresa de origem de `alvo` ou de
+    empresa onde `alvo` tem concessão ativa (colaborador externo). Técnico e empresa sem vínculo não."""
+    if solicitante.pk == alvo.pk or solicitante.administrador_plataforma:
+        return True
+    empresas = set(concessoes_ativas().filter(pessoa=alvo).values_list('empresa_id', flat=True))
+    if alvo.empresa_origem_id is not None:
+        empresas.add(alvo.empresa_origem_id)
+    return any(administrador_da_empresa(solicitante, empresa_id) for empresa_id in empresas)
 
 
 def pedir_redefinicao(cpf_texto, solicitante=None):

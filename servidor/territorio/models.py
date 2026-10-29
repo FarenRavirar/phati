@@ -5,6 +5,10 @@ from django.db.models import Q
 class Empresa(models.Model):
     nome = models.CharField(max_length=200)
     criada_em = models.DateTimeField(auto_now_add=True)
+    # Administrador titular (R23): o primeiro, criado com a empresa. Só sai por transferência de titularidade
+    # (permissao.delegacao). Nulo só no instante entre criar a empresa e convidar o titular, na mesma transação.
+    titular = models.ForeignKey('identidade.Pessoa', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    titular_id: int | None  # anotação só para o pyright
 
     class Meta:
         db_table = 'empresa'
@@ -29,6 +33,7 @@ class Fazenda(models.Model):
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT)
     nome = models.CharField(max_length=200)
     criada_em = models.DateTimeField(auto_now_add=True)
+    empresa_id: int  # anotação só para o pyright: o Django cria a coluna `empresa_id`
 
     class Meta:
         db_table = 'fazenda'
@@ -52,6 +57,8 @@ class SubArea(models.Model):
     nivel = models.PositiveSmallIntegerField()
     nome = models.CharField(max_length=200)
     caminho = models.TextField(default='/', editable=False)
+    empresa_id: int  # anotações só para o pyright: o Django cria as colunas `<campo>_id`
+    fazenda_id: int
 
     class Meta:
         db_table = 'sub_area'
@@ -61,4 +68,6 @@ class SubArea(models.Model):
                 condition=Q(nivel=1, pai__isnull=True) | Q(nivel__gt=1, pai__isnull=False),
                 name='sub_area_raiz_sem_pai',
             ),
+            # Alvo da chave estrangeira composta de concessao (permissao 0002): sub-área e fazenda da concessão andam juntas.
+            models.UniqueConstraint(fields=['id', 'fazenda'], name='sub_area_id_fazenda_unico'),
         ]

@@ -5,6 +5,7 @@ O ramo do Administrador de empresa (origem ou concessão ativa) fecha na Fase 3 
 
 import re
 import threading
+from pathlib import Path
 from datetime import timedelta
 
 import pytest
@@ -18,9 +19,11 @@ from django.test.utils import CaptureQueriesContext
 from django.test import RequestFactory
 from django.utils import timezone
 
+from identidade import cpf as modulo_cpf
 from identidade import email, login, redefinicao, senha, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
 from identidade.testes.conftest import CPF, SENHA
+from permissao.models import Cargo, CargoPermissao
 
 pytestmark = pytest.mark.django_db
 
@@ -347,3 +350,97 @@ def test_confirmacao_simultanea_a_outra_operacao_da_pessoa_nao_da_deadlock(pesso
             fio.join()
         assert [r for r in resultados if r.startswith('erro')] == []
         assert len(resultados) == 2
+
+
+# --- T3.4a (R5, A5): o Administrador de empresa inicia a redefinição de quem tem vínculo com a empresa dele ---
+
+
+@pytest.fixture
+def vinculos(cenario, fabrica_pessoa, conceder_direto):
+    """Administrador de X e de Y; `da_x` tem origem em X; `externo` tem origem em Y e concessão em X."""
+    admin_x, admin_y = fabrica_pessoa('Admin da X'), fabrica_pessoa('Admin da Y')
+    conceder_direto(admin_x, cenario.cargos_x['administrador'], cenario.x)
+    conceder_direto(admin_y, cenario.cargos_y['administrador'], cenario.y)
+    da_x = fabrica_pessoa('Pessoa da X', empresa_origem=cenario.x)
+    externo = fabrica_pessoa('Colaborador Externo', empresa_origem=cenario.y)
+    concessao = conceder_direto(externo, cenario.cargos_x['usuario'], cenario.f1)
+    return type('Vinculos', (), {'admin_x': admin_x, 'admin_y': admin_y, 'da_x': da_x, 'externo': externo, 'concessao': concessao})
+
+
+def test_administrador_da_empresa_de_origem_inicia(vinculos):
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_x, vinculos.da_x) is True
+
+
+def test_administrador_da_empresa_com_concessao_ativa_do_colaborador_externo_inicia(vinculos):
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_x, vinculos.externo) is True
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_y, vinculos.externo) is True  # a de origem dele
+
+
+def test_administrador_de_empresa_sem_vinculo_nao_inicia(vinculos):
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_y, vinculos.da_x) is False
+
+
+def test_concessao_revogada_ou_vencida_nao_da_vinculo(vinculos, cenario, fabrica_pessoa, conceder_direto, monkeypatch):
+    revogador = fabrica_pessoa('Quem Revoga')
+    concessao = vinculos.concessao
+    concessao.revogada_em = timezone.now()
+    concessao.revogada_por = revogador
+    concessao.save()
+    so_em_x = fabrica_pessoa('Só com concessão em X')
+    vencida = conceder_direto(
+        so_em_x, cenario.cargos_x['usuario'], cenario.f1,
+        inicio=timezone.now() - timedelta(days=2), fim=timezone.now() - timedelta(days=1),
+    )  # fmt: skip
+    assert vencida.pk is not None
+    # `externo` mantém a origem em Y: o Administrador de X perdeu o vínculo, o de Y não.
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_x, vinculos.externo) is False
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_y, vinculos.externo) is True
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_x, so_em_x) is False
+
+
+def test_concessao_com_inicio_no_futuro_nao_da_vinculo(vinculos, cenario, fabrica_pessoa, conceder_direto):
+    futuro = fabrica_pessoa('Começa Amanhã')
+    conceder_direto(futuro, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=1))
+    assert redefinicao.pode_iniciar_redefinicao(vinculos.admin_x, futuro) is False
+
+
+def test_tecnico_e_curador_da_empresa_nao_iniciam(vinculos, cenario, fabrica_pessoa, conceder_direto):
+    for base in ('tecnico', 'curador'):
+        quem = fabrica_pessoa(f'Pessoa {base}')
+        conceder_direto(quem, cenario.cargos_x[base], cenario.x)
+        assert redefinicao.pode_iniciar_redefinicao(quem, vinculos.da_x) is False
+
+
+def test_administrador_so_de_fazenda_nao_inicia(vinculos, cenario, fabrica_pessoa, conceder_direto):
+    na_fazenda = fabrica_pessoa('Admin da F1')
+    conceder_direto(na_fazenda, cenario.cargos_x['administrador'], cenario.f1)
+    assert redefinicao.pode_iniciar_redefinicao(na_fazenda, vinculos.da_x) is False
+
+
+def test_administrador_sem_redefinir_senha_no_cargo_nao_inicia(vinculos, cenario, fabrica_pessoa, conceder_direto):
+    capado = Cargo.objects.create(empresa=cenario.x, nome='Admin sem redefinir', base='administrador')
+    CargoPermissao.objects.create(cargo=capado, permissao_id='ver')
+    quem = fabrica_pessoa('Admin Capado')
+    conceder_direto(quem, capado, cenario.x)
+    assert redefinicao.pode_iniciar_redefinicao(quem, vinculos.da_x) is False
+
+
+def test_administrador_de_empresa_nunca_escolhe_a_senha_e_o_link_vai_para_a_pessoa(vinculos, cenario, mailoutbox):
+    redefinicao.pedir_redefinicao('', solicitante=vinculos.admin_x)  # CPF inválido: resposta neutra
+    assert mailoutbox == []
+    pessoa_alvo = Pessoa.objects.get(pk=vinculos.da_x.pk)
+    cpf_alvo = modulo_cpf.decifrar(pessoa_alvo.cpf_cifrado)
+    redefinicao.pedir_redefinicao(cpf_alvo, solicitante=vinculos.admin_x)
+    assert mailoutbox[0].to == [pessoa_alvo.email]
+    assert PedidoRedefinicao.objects.get().solicitado_por == vinculos.admin_x
+
+
+def test_administrador_sem_vinculo_pedindo_nao_envia_nem_registra(vinculos, mailoutbox):
+    cpf_alvo = modulo_cpf.decifrar(Pessoa.objects.get(pk=vinculos.da_x.pk).cpf_cifrado)
+    assert redefinicao.pedir_redefinicao(cpf_alvo, solicitante=vinculos.admin_y) is None
+    assert PedidoRedefinicao.objects.count() == 0
+    assert mailoutbox == []
+
+
+def test_o_atalho_da_fase_2_saiu_do_codigo():
+    assert 'shortcut:' not in Path(redefinicao.__file__).read_text(encoding='utf-8')
