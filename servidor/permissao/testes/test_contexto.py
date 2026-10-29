@@ -104,6 +104,8 @@ def test_papel_app_nao_executa_a_verificacao_de_identidade(mundo):
         dono.execute("SELECT has_function_privilege('app', 'app_identidade_ok(bigint)', 'EXECUTE')")
         assert dono.fetchone() == (False,)
         dono.execute("SELECT has_function_privilege('app', 'app_contexto_ok()', 'EXECUTE')")
+        assert dono.fetchone() == (False,)
+        dono.execute("SELECT has_function_privilege('app', 'app_contexto()', 'EXECUTE')")
         assert dono.fetchone() == (True,)  # as políticas rodam como o `app` e precisam chamá-la
 
 
@@ -133,3 +135,18 @@ def test_erro_na_consulta_de_vinculos_sobe_o_erro_original(mundo):
         with pytest.raises(ProgrammingError, match='vinculos_da_pessoa'):
             memoria_de(pessoa)
         transaction.set_rollback(True)  # devolve a função ao banco
+
+
+def test_escopo_alterado_no_meio_da_consulta_nao_abre_outra_empresa(mundo):
+    # Achado do CodeRabbit (PR #15): a assinatura conferida uma única vez (InitPlan) deixava `app.empresas` mudar
+    # entre as linhas da mesma consulta, por um `set_config` volátil no WHERE.
+    from permissao.contexto import fixar_contexto
+
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
+        fixar_contexto(consulta, '', str(mundo.x.pk), '', '')
+        consulta.execute(
+            "SELECT id FROM empresa WHERE set_config('app.empresas', CASE WHEN id > 0 THEN %s ELSE '' END, true) IS NOT NULL"
+            " ORDER BY id",
+            [f'{mundo.x.pk},{mundo.y.pk}'],
+        )
+        assert {linha[0] for linha in consulta.fetchall()} == {mundo.x.pk}

@@ -455,7 +455,7 @@ def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
         migracao.remover(None, editor)
     try:
         with connection.cursor() as consulta:
-            consulta.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('app_contexto_ok', 'app_identidade_ok', 'app_segredo_impressao')")
+            consulta.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('app_contexto', 'app_contexto_ok', 'app_identidade_ok', 'app_segredo_impressao')")
             assert consulta.fetchone() == (0,)
             consulta.execute("SELECT to_regclass('rls_segredo')")
             assert consulta.fetchone() == (None,)
