@@ -1,7 +1,7 @@
 """Auditoria só de acréscimo (R16, A13): cada ação listada gera um evento, e o papel `app` não altera nem apaga."""
 
 import pytest
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import ProgrammingError, connections, transaction
 
 from comum.auditoria import ACOES, auditar
@@ -94,10 +94,11 @@ def test_transferir_titularidade_audita_de_e_para(plataforma, cpf_novo):
 
 def test_acao_negada_nao_deixa_evento(cenario, fabrica_pessoa, cpf_novo):
     intruso = fabrica_pessoa('Intruso')
+    cpf = cpf_novo()
     with pytest.raises(PermissionDenied):
         criar_fazenda(intruso, cenario.x, 'F9')
     with pytest.raises(PermissionDenied):
-        criar_empresa(intruso, 'Empresa Intrusa', 'Ivo', 'ivo@exemplo.test', cpf_novo())
+        criar_empresa(intruso, 'Empresa Intrusa', 'Ivo', 'ivo@exemplo.test', cpf)
     assert EventoAuditoria.objects.count() == 0
 
 
@@ -106,8 +107,9 @@ def test_acao_que_falha_depois_desfaz_o_evento(plataforma, cpf_novo, monkeypatch
         raise OSError('smtp fora')
 
     monkeypatch.setattr('identidade.email.enviar_senha_temporaria', falha)
+    cpf = cpf_novo()
     with pytest.raises(OSError):
-        criar_empresa(plataforma, 'Empresa Falha', 'Fabio', 'fabio@exemplo.test', cpf_novo())
+        criar_empresa(plataforma, 'Empresa Falha', 'Fabio', 'fabio@exemplo.test', cpf)
     assert EventoAuditoria.objects.count() == 0
 
 
@@ -125,7 +127,8 @@ def test_redefinicao_audita_pedido_e_confirmacao_sem_o_segredo(pessoa_com_senha,
     redefinicao.confirmar_redefinicao(segredo, 'outra senha longa e unica 2026')
     (pedido,) = _eventos('redefinicao_pedida')
     (confirmacao,) = _eventos('redefinicao_confirmada')
-    assert (pedido.pessoa_id, pedido.alvo_id) == (pessoa_com_senha.pk, pessoa_com_senha.pk)
+    # Pedido anônimo (sem sessão): o ator fica vazio, não vira o dono da conta.
+    assert (pedido.pessoa_id, pedido.alvo_id) == (None, pessoa_com_senha.pk)
     assert confirmacao.alvo_id == pessoa_com_senha.pk
     assert segredo not in str([(e.detalhes, e.alvo_tipo) for e in (pedido, confirmacao)])
 
@@ -133,8 +136,9 @@ def test_redefinicao_audita_pedido_e_confirmacao_sem_o_segredo(pessoa_com_senha,
 def test_senha_recusada_na_redefinicao_nao_audita_confirmacao(pessoa_com_senha, mailoutbox):
     redefinicao.pedir_redefinicao(CPF)
     segredo = mailoutbox[0].body.split('segredo=')[1].split()[0]
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError) as recusa:
         redefinicao.confirmar_redefinicao(segredo, 'curta')
+    assert recusa.value.code == 'senha_curta'
     assert _eventos('redefinicao_confirmada') == []
 
 
@@ -147,11 +151,16 @@ def test_bloqueio_de_conta_audita_com_a_duracao(pessoa_com_senha):
     assert (evento.pessoa_id, evento.alvo_id, evento.detalhes) == (None, pessoa_com_senha.pk, {'segundos': 30})
 
 
+def _executar_como_app(comando):
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
+        consulta.execute(comando)
+
+
 @pytest.mark.django_db(databases=['default', 'app'])
 @pytest.mark.parametrize('comando', ["UPDATE evento_auditoria SET acao = 'x'", 'DELETE FROM evento_auditoria', 'TRUNCATE evento_auditoria'])
 def test_papel_app_nao_altera_nem_apaga_a_auditoria(comando):
-    with pytest.raises(ProgrammingError, match='permission denied'), transaction.atomic(using='app'):
-        connections['app'].cursor().execute(comando)
+    with pytest.raises(ProgrammingError, match='permission denied'):
+        _executar_como_app(comando)
 
 
 @pytest.mark.django_db(databases=['default', 'app'])

@@ -41,7 +41,7 @@ def test_o_codigo_do_servidor_so_usa_variavel_local():
 
 def test_o_codigo_fixa_as_variaveis_de_forma_local():
     texto = (RAIZ / 'permissao' / 'pode.py').read_text(encoding='utf-8')
-    assert 'set_config(%s, %s, true)' in texto
+    assert texto.count("', %s, true)") == 4
 
 
 def test_definir_variavel_com_false_e_barrado():

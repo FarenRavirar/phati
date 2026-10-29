@@ -1,7 +1,8 @@
 # Segunda barreira no banco (R12; plan.md §Camada de banco — RLS). Escrita à mão: política, função e gatilho.
 #
 # Variáveis de transação que `permissao.pode.com_permissao` fixa com `set_config(..., true)`:
-#   app.plataforma ('1' ou vazio), app.empresas e app.fazendas (listas de ids separados por vírgula).
+#   app.plataforma ('1' ou vazio), app.empresas, app.empresas_de_fazendas (só leitura) e app.fazendas (listas de
+#   ids separados por vírgula).
 # Sem variável, `current_setting(..., true)` devolve NULL ou '' e nenhuma linha passa. O dono das tabelas
 # (papel das migrações) ignora a RLS porque não há FORCE; o papel `app` não é dono e não tem BYPASSRLS.
 
@@ -18,14 +19,23 @@ POLITICAS = {
     'fazenda': "app_lista_contem('app.empresas', empresa_id) OR app_lista_contem('app.fazendas', id)",
     'sub_area': "app_lista_contem('app.empresas', empresa_id) OR app_lista_contem('app.fazendas', fazenda_id)",
     'concessao': "app_lista_contem('app.empresas', empresa_id) OR app_lista_contem('app.fazendas', fazenda_id)",
-    **{tabela: "app_lista_contem('app.empresas', empresa_id)" for tabela in TABELAS_POR_EMPRESA},
+    **dict.fromkeys(TABELAS_POR_EMPRESA, "app_lista_contem('app.empresas', empresa_id)"),
+}
+
+# Quem tem escopo de fazenda ou sub-área precisa ler (nunca escrever) a empresa e o que é dela: `convidar` busca a
+# empresa e `revogar_concessao` junta o cargo. A leitura vem de `app.empresas_de_fazendas`; a política `escopo`, que
+# vale para escrever, continua só com `app.empresas`. Duas políticas permissivas de SELECT somam por OU.
+LEITURA_POR_FAZENDA = {
+    'empresa': 'id',
+    **dict.fromkeys(TABELAS_POR_EMPRESA, 'empresa_id'),
 }
 
 FUNCOES = """
+-- Sem SET na função: com ele o PostgreSQL não a embute na política e ela vira chamada opaca por linha.
 -- Id está na lista da variável? Variável ausente ou vazia vira NULL, que a política trata como negado (o cast de
 -- '' para bigint daria erro em vez de zero linhas).
 CREATE FUNCTION app_lista_contem(variavel text, valor bigint) RETURNS boolean
-    LANGUAGE sql STABLE SET search_path = pg_catalog AS $$
+    LANGUAGE sql STABLE AS $$
     SELECT valor = ANY (string_to_array(nullif(current_setting(variavel, true), ''), ',')::bigint[])
 $$;
 
@@ -68,9 +78,15 @@ def criar(apps, schema_editor):
     for tabela, expressao in POLITICAS.items():
         schema_editor.execute(f'ALTER TABLE {tabela} ENABLE ROW LEVEL SECURITY')
         schema_editor.execute(f'CREATE POLICY escopo ON {tabela} FOR ALL USING ({PLATAFORMA} OR {expressao})')
+    for tabela, coluna in LEITURA_POR_FAZENDA.items():
+        schema_editor.execute(
+            f"CREATE POLICY leitura_por_fazenda ON {tabela} FOR SELECT USING (app_lista_contem('app.empresas_de_fazendas', {coluna}))"
+        )
 
 
 def remover(apps, schema_editor):
+    for tabela in LEITURA_POR_FAZENDA:
+        schema_editor.execute(f'DROP POLICY leitura_por_fazenda ON {tabela}')
     for tabela in POLITICAS:
         schema_editor.execute(f'DROP POLICY escopo ON {tabela}')
         schema_editor.execute(f'ALTER TABLE {tabela} DISABLE ROW LEVEL SECURITY')

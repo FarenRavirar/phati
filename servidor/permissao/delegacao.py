@@ -16,8 +16,8 @@ from comum.auditoria import auditar
 
 from identidade import senha
 from identidade.models import Pessoa
-from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria, concessoes_ativas
-from permissao.pode import Alvo, alvo_de, memoria_de
+from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria
+from permissao.pode import Alvo, alvo_de, esquecer, memoria_de
 from territorio.models import Empresa, Fazenda, SubArea
 
 
@@ -172,11 +172,18 @@ def revogar_concessao(quem, concessao):
         # Pessoa, depois empresa: a trava da pessoa serializa as revogações dela e a da empresa fecha a corrida com
         # `transferir_titularidade` (um teste transacional prova as duas).
         _travar_pessoa(concessao.pessoa_id)
-        empresa = Empresa.objects.select_for_update().get(pk=concessao.empresa_id)
+        # O titular só tem concessão da empresa inteira, então só ela disputa a trava com a transferência. Quem
+        # tem escopo de fazenda não enxerga a empresa para travar (RLS) e não alcança essa concessão de qualquer jeito.
+        titular_id = None
+        if concessao.fazenda_id is None:
+            empresa = Empresa.objects.select_for_update().filter(pk=concessao.empresa_id).first()
+            if empresa is None:
+                raise PermissionDenied
+            titular_id = empresa.titular_id
         atual = Concessao.objects.select_related('cargo').get(pk=concessao.pk)
         if not _pode_revogar(quem, atual):
             raise PermissionDenied
-        if atual.pessoa_id == empresa.titular_id and _administra_a_empresa_inteira(atual):
+        if atual.pessoa_id == titular_id and _administra_a_empresa_inteira(atual):
             raise ValidationError(
                 'O Administrador titular só sai por transferência de titularidade.', code='titular_protegido'
             )
@@ -203,9 +210,15 @@ def transferir_titularidade(quem, empresa, novo_titular):
         atual = Empresa.objects.select_for_update().get(pk=empresa.pk)
         if not (quem.administrador_plataforma or quem.pk == atual.titular_id):
             raise PermissionDenied
-        if not concessoes_ativas().filter(
-            pessoa=novo_titular, empresa=atual, fazenda__isnull=True, cargo__base='administrador', fim__isnull=True
-        ).exists():
+        # Concessões lidas de novo, depois da trava: a memória do objeto pode ser de antes dela.
+        esquecer(novo_titular)
+        if not any(
+            vinculo.base == 'administrador'
+            and vinculo.concessao.empresa_id == atual.pk
+            and vinculo.concessao.fazenda_id is None
+            and vinculo.concessao.fim is None
+            for vinculo in memoria_de(novo_titular).vinculos
+        ):
             raise ValidationError(
                 'O novo titular precisa ser Administrador da empresa inteira, sem prazo.', code='titular_invalido'
             )

@@ -160,6 +160,7 @@ class Escopos:
     fazendas: frozenset[int] = frozenset()
     sub_areas: frozenset[int] = frozenset()
     fazendas_das_sub_areas: frozenset[int] = frozenset()
+    empresas_das_fazendas: frozenset[int] = frozenset()  # empresa de cada fazenda ou sub-área do escopo (só leitura)
 
 
 def escopos_da_acao(pessoa, acao):
@@ -180,16 +181,22 @@ def escopos_da_acao(pessoa, acao):
         fazendas_das_sub_areas=frozenset(
             c.fazenda_id for c in concessoes if c.sub_area_id is not None and c.fazenda_id is not None
         ),
+        empresas_das_fazendas=frozenset(c.empresa_id for c in concessoes if c.fazenda_id is not None),
     )
 
 
-def _fixar_variaveis(consulta, valores):
-    # `is_local = true`: vale só até o fim da transação. `false` valeria para a sessão inteira e vazaria para a
-    # transação seguinte da mesma conexão (test_set_config_local barra isso no código).
-    consulta.execute(
-        'SELECT ' + ', '.join(['set_config(%s, %s, true)'] * len(valores)),
-        [item for nome, valor in valores.items() for item in (nome, valor)],
-    )
+_LER_VARIAVEIS = (
+    "SELECT coalesce(current_setting('app.plataforma', true), ''),"
+    " coalesce(current_setting('app.empresas', true), ''),"
+    " coalesce(current_setting('app.empresas_de_fazendas', true), ''),"
+    " coalesce(current_setting('app.fazendas', true), '')"
+)
+# `is_local = true`: vale só até o fim da transação. `false` valeria para a sessão inteira e vazaria para a
+# transação seguinte da mesma conexão (test_set_config_local barra isso no código).
+_FIXAR_VARIAVEIS = (
+    "SELECT set_config('app.plataforma', %s, true), set_config('app.empresas', %s, true),"
+    " set_config('app.empresas_de_fazendas', %s, true), set_config('app.fazendas', %s, true)"
+)
 
 
 @contextmanager
@@ -201,23 +208,26 @@ def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
     salvamento desfaz tudo, as variáveis inclusive. Granularidade de sub-área e de categoria continua em `pode()`.
     """
     escopos = [escopos_da_acao(pessoa, acao) for acao in (acoes or ('ver',))]
-    novos = {
-        'app.plataforma': '1' if any(escopo.plataforma for escopo in escopos) else '',
-        'app.empresas': ','.join(str(pk) for pk in sorted(set().union(*(e.empresas for e in escopos)))),
-        'app.fazendas': ','.join(
-            str(pk) for pk in sorted(set().union(*(e.fazendas | e.fazendas_das_sub_areas for e in escopos)))
-        ),
-    }
+    def lista(*conjuntos):
+        return ','.join(str(pk) for pk in sorted(set().union(*conjuntos)))
+
+    # Mesma ordem de `_FIXAR_VARIAVEIS`.
+    novos = (
+        '1' if any(escopo.plataforma for escopo in escopos) else '',
+        lista(*(e.empresas for e in escopos)),
+        lista(*(e.empresas_das_fazendas for e in escopos)),
+        lista(*(e.fazendas | e.fazendas_das_sub_areas for e in escopos)),
+    )
     with transaction.atomic(using=usando), connections[usando].cursor() as consulta:
-        consulta.execute('SELECT ' + ', '.join(f"coalesce(current_setting('{nome}', true), '')" for nome in novos))
-        anteriores = dict(zip(novos, consulta.fetchone()))
-        _fixar_variaveis(consulta, novos)
+        consulta.execute(_LER_VARIAVEIS)
+        anteriores = consulta.fetchone()
+        consulta.execute(_FIXAR_VARIAVEIS, novos)
         yield
-        _fixar_variaveis(consulta, anteriores)
+        consulta.execute(_FIXAR_VARIAVEIS, anteriores)
 
 
 def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
-    """Decorador de rota: nega com `PermissionDenied` (403) antes de a rota rodar.
+    """Decorador de rota: nega com `PermissionDenied` (403) antes de a rota rodar, dentro de `com_permissao`.
 
     `obter_alvo(requisicao, *args, **kwargs)` devolve o alvo da ação e `obter_categoria(...)`, a categoria do dado, se
     a rota trata dado categorizado: sem ela, Técnico e Usuário com categoria passariam por qualquer categoria
@@ -227,11 +237,13 @@ def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
     def decorar(funcao):
         @wraps(funcao)
         def interna(requisicao, *args, **kwargs):
-            alvo = obter_alvo(requisicao, *args, **kwargs) if obter_alvo else None
-            categoria = obter_categoria(requisicao, *args, **kwargs) if obter_categoria else None
-            if not pode(requisicao.user, acao, alvo, categoria):
-                raise PermissionDenied
+            # O escopo vem antes de `obter_alvo`: na produção o papel `app` só carrega o alvo (Fazenda, SubArea,
+            # CategoriaDado) que a RLS deixa ver; alvo fora do escopo some e a rota responde como não encontrado.
             with com_permissao(requisicao.user, acao):
+                alvo = obter_alvo(requisicao, *args, **kwargs) if obter_alvo else None
+                categoria = obter_categoria(requisicao, *args, **kwargs) if obter_categoria else None
+                if not pode(requisicao.user, acao, alvo, categoria):
+                    raise PermissionDenied
                 return funcao(requisicao, *args, **kwargs)
 
         setattr(interna, 'acao_exigida', acao)
