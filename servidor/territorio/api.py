@@ -63,18 +63,19 @@ class SaidaSubArea(Schema):
     fazenda_id: int
 
 
-def _empresa(request, empresa_id, **_):
+# Os três recebem `(requisicao, **parametros_da_rota)` de `exige_permissao`; `*_` absorve a requisição, que não usam.
+def _empresa(*_, empresa_id, **__):
     return Empresa.objects.get(pk=empresa_id)
 
 
-def _fazenda(request, fazenda_id, **_):
+def _fazenda(*_, fazenda_id, **__):
     return Fazenda.objects.get(pk=fazenda_id)
 
 
-def _alvo_da_sub_area(request, fazenda_id, dados, **_):
+def _alvo_da_sub_area(*_, fazenda_id, dados, **__):
     # Quem recebeu `criar_sub_area` só numa sub-área cria filha dela, não raiz da fazenda: o alvo é o pai quando há
     # pai (o serviço confere que o pai é da fazenda da URL). Achado do Sourcery, PR #14.
-    return SubArea.objects.get(pk=dados.pai_id) if dados.pai_id is not None else _fazenda(request, fazenda_id)
+    return SubArea.objects.get(pk=dados.pai_id) if dados.pai_id is not None else _fazenda(fazenda_id=fazenda_id)
 
 
 @roteador.post('empresas', url_name='empresas_criar', response={201: SaidaEmpresa})
@@ -89,7 +90,7 @@ def criar_empresa(request, dados: EntradaEmpresa):
 @roteador.post('empresas/{empresa_id}/fazendas', url_name='fazendas_criar', response={201: SaidaFazenda})
 @exige_permissao('criar_fazenda', _empresa)
 def criar_fazenda(request, empresa_id: int, dados: EntradaNome):
-    fazenda = cadastro.criar_fazenda(request.user, _empresa(request, empresa_id), dados.nome)
+    fazenda = cadastro.criar_fazenda(request.user, _empresa(empresa_id=empresa_id), dados.nome)
     return 201, {'id': fazenda.pk, 'nome': fazenda.nome, 'empresa_id': fazenda.empresa_id}
 
 
@@ -103,5 +104,5 @@ def listar_fazendas(request):
 @exige_permissao('criar_sub_area', _alvo_da_sub_area)
 def criar_sub_area(request, fazenda_id: int, dados: EntradaSubArea):
     pai = SubArea.objects.get(pk=dados.pai_id) if dados.pai_id is not None else None
-    sub_area = cadastro.criar_sub_area(request.user, _fazenda(request, fazenda_id), dados.nome, pai)
+    sub_area = cadastro.criar_sub_area(request.user, _fazenda(fazenda_id=fazenda_id), dados.nome, pai)
     return 201, {'id': sub_area.pk, 'nome': sub_area.nome, 'nivel': sub_area.nivel, 'fazenda_id': sub_area.fazenda_id}

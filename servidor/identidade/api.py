@@ -70,9 +70,10 @@ def entrar(request, dados: EntradaEntrar):
 def sair(request):
     # Encerra o que vier na requisição: a autenticação aceita cookie ou Bearer e o cookie ganha quando os dois vêm
     # (achado do Qodo, PR #14).
-    cabecalho = request.headers.get('Authorization', '')
-    if cabecalho.startswith('Bearer '):
-        sessao.revogar_acesso(cabecalho.removeprefix('Bearer ').strip())
+    # Mesma leitura do HttpBearer do ninja: esquema em qualquer caixa, separado por um espaço (achado do Codex, PR #14).
+    esquema, _, segredo = request.headers.get('Authorization', '').partition(' ')
+    if esquema.lower() == 'bearer' and segredo:
+        sessao.revogar_acesso(segredo.strip())
     logout(request)
     return 204, None
 

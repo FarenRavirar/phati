@@ -198,3 +198,11 @@ def test_cookie_sem_chave_csrf_continua_negado_mesmo_com_acesso_invalido(pessoa)
     _entrar(cliente)
     resposta = _enviar(cliente, 'trocar-senha', {'senha_atual': SENHA, 'senha_nova': NOVA}, headers={'Authorization': 'Bearer invalido'})
     assert resposta.status_code == 403
+
+
+@pytest.mark.parametrize('esquema', ['Bearer', 'bearer', 'BEARER'])
+def test_sair_revoga_o_acesso_com_o_esquema_em_qualquer_caixa(pessoa, esquema):
+    # Achado do Codex (PR #14): o HttpBearer do ninja compara o esquema em minúsculas e `sair` só reconhecia "Bearer".
+    segredo = _entrar(Client(), dispositivo='celular').json()['segredo']
+    assert _enviar(Client(), 'sair', headers={'Authorization': f'{esquema} {segredo}'}).status_code == 204
+    assert _enviar(Client(), 'sair', headers={'Authorization': f'Bearer {segredo}'}).status_code == 401
