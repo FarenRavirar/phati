@@ -105,3 +105,17 @@ def test_papel_app_nao_executa_a_verificacao_de_identidade(mundo):
         assert dono.fetchone() == (False,)
         dono.execute("SELECT has_function_privilege('app', 'app_contexto_ok()', 'EXECUTE')")
         assert dono.fetchone() == (True,)  # as políticas rodam como o `app` e precisam chamá-la
+
+
+def test_identidade_assinada_nao_sobrevive_a_memoria_de(mundo):
+    # Achado do Sourcery (PR #15): na transação do chamador a assinatura ficava valendo depois da consulta.
+    from identidade.models import Pessoa
+    from permissao.pode import memoria_de
+
+    pessoa = Pessoa.objects.get(pk=mundo.dono_x.pk)
+    with transaction.atomic(), connection.cursor() as consulta:
+        assert len(memoria_de(pessoa).vinculos) == 1  # a consulta funcionou
+        consulta.execute("SELECT current_setting('app.assinatura_pessoa', true)")
+        assert consulta.fetchone() == ('',)
+        consulta.execute('SELECT concessao_id FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
+        assert consulta.fetchall() == []

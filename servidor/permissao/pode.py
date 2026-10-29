@@ -14,7 +14,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import DEFAULT_DB_ALIAS, connection, connections, transaction
 from django.utils import timezone
 
-from permissao.contexto import fixar_contexto, fixar_identidade, ler_contexto, restaurar_contexto
+from permissao.contexto import fixar_contexto, fixar_identidade, ler_contexto, limpar_identidade, restaurar_contexto
 from permissao.models import BASES_COM_CATEGORIA, Concessao, Permissao
 from territorio.models import Empresa, Fazenda, SubArea
 
@@ -101,10 +101,14 @@ def memoria_de(pessoa):
         with transaction.atomic(), connection.cursor() as consulta:
             # Função do banco (migração 0003): lê as concessões da própria pessoa sem depender das variáveis de RLS
             # que `com_permissao` ainda vai calcular a partir delas. O filtro de "ativa" repete `concessoes_ativas`;
-            # test_rls confere os dois nas bordas. A identidade assinada (migração 0004) vale só nesta transação.
+            # test_rls confere os dois nas bordas. A identidade assinada (migração 0004) vale só nesta consulta: a
+            # transação do chamador pode seguir adiante, então a assinatura sai antes (achado do Sourcery, PR #15).
             fixar_identidade(consulta, pessoa.pk)
-            consulta.execute('SELECT * FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
-            linhas = consulta.fetchall()
+            try:
+                consulta.execute('SELECT * FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, timezone.now()])
+                linhas = consulta.fetchall()
+            finally:
+                limpar_identidade(consulta)
         vinculos = tuple(
             Vinculo(
                 Concessao(id=cid, empresa_id=empresa, fazenda_id=fazenda, sub_area_id=sub_area, fim=fim),

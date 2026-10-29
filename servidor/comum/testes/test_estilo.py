@@ -21,6 +21,7 @@ PERMITIDOS = {
     'SESSION_COOKIE_HTTPONLY', 'SESSION_COOKIE_SECURE', 'SESSION_COOKIE_SAMESITE', 'SESSION_COOKIE_AGE',
     'session',  # request.session é atributo do Django
     'user',  # request.user é atributo do Django; a API grava a pessoa autenticada nele (projeto/api.py)
+    'app_configs',  # primeiro parâmetro que o Django passa a toda verificação registrada (permissao/checks.py)
     # Nomes dos parâmetros de `authenticate` no django-ninja: o pyright barra o override com outro nome.
     'key', 'token',
     # Nomes impostos por biblioteca: `request` é a fixture do pytest que dá acesso ao teste em curso e o

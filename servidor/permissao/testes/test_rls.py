@@ -449,10 +449,16 @@ def test_pedido_de_redefinicao_por_administrador_de_empresa_com_concessao_sob_rl
 
 def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
     migracao = import_module('permissao.migrations.0003_rls')
+    contexto = import_module('permissao.migrations.0004_contexto_assinado')
     with connection.schema_editor() as editor:
+        contexto.remover(None, editor)
         migracao.remover(None, editor)
     try:
         with connection.cursor() as consulta:
+            consulta.execute("SELECT count(*) FROM pg_proc WHERE proname IN ('app_contexto_ok', 'app_identidade_ok', 'app_segredo_impressao')")
+            assert consulta.fetchone() == (0,)
+            consulta.execute("SELECT to_regclass('rls_segredo')")
+            assert consulta.fetchone() == (None,)
             consulta.execute('SELECT count(*) FROM pg_policies WHERE tablename = ANY(%s)', [list(TABELAS)])
             assert consulta.fetchone() == (0,)
             consulta.execute('SELECT count(*) FROM pg_class WHERE relname = ANY(%s) AND relrowsecurity', [list(TABELAS)])
@@ -463,8 +469,11 @@ def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
             assert consulta.fetchone() == (False,)
     finally:
         # Transacional: o banco só é esvaziado ao fim, então o estado aplicado volta mesmo se uma asserção falhar.
+        # A 0004 volta junto: sem ela os testes seguintes rodariam com as políticas e o `vinculos_da_pessoa` sem
+        # assinatura (achado do Codex, PR #15).
         with connection.schema_editor() as editor:
             migracao.criar(None, editor)
+            contexto.criar(None, editor)
     assert _tabelas_sem_rls_nem_excecao() == set()
 
 

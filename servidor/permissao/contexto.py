@@ -53,3 +53,8 @@ def restaurar_contexto(consulta, anteriores):
 def fixar_identidade(consulta, pessoa_id):
     """Assina, na transação corrente, a identidade que `vinculos_da_pessoa` aceita consultar."""
     consulta.execute(_FIXAR_IDENTIDADE, [_assinar(_numero_da_transacao(consulta), str(pessoa_id))])
+
+
+def limpar_identidade(consulta):
+    """Tira a assinatura de identidade da transação: ela vale só durante a consulta que a pediu."""
+    consulta.execute(_FIXAR_IDENTIDADE, [''])

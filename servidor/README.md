@@ -22,7 +22,7 @@ O papel dono roda as migrações e é dono das tabelas; o papel app é o da apli
 O processo web recebe só a credencial do `app`; a do dono fica em `migracao` e nos testes (sem `PHATI_BANCO_DONO_SENHA`, o `default` do Django é o próprio `app`).
 Os nomes das variáveis de ambiente estão em `.env.exemplo`. Sem `PHATI_CHAVE_SECRETA`, `PHATI_CHAVE_CPF` ou `PHATI_SEGREDO_RLS` o servidor não sobe.
 `PHATI_SEGREDO_RLS` (32 bytes em base64 urlsafe, gerado do mesmo modo) assina o contexto de RLS; a migração
-`permissao/0004` grava uma cópia em `rls_segredo`, que o papel `app` não lê. Rotação em `permissao/contexto.py`.
+`permissao/0004` grava uma cópia em `rls_segredo`, que o papel `app` não lê. Rotação em `permissao/contexto.py`. Ao atualizar uma instalação que já tem a versão anterior, parar o `app` antes da `migracao`: worker antigo não assina o contexto e o banco nega tudo até ele sair. `manage.py check --database default` acusa segredo diferente do gravado.
 `PHATI_CHAVE_CPF` é a raiz da chave do CPF (32 bytes em base64 urlsafe); gerar com
 `python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`. Perder a chave perde o acesso
 aos CPFs cifrados e à busca por CPF; rotação em `identidade/cpf.py`. `PHATI_URL_BASE` (padrão `http://localhost:8000`)

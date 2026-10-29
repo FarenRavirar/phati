@@ -40,6 +40,13 @@ CREATE FUNCTION app_identidade_ok(pessoa bigint) RETURNS boolean
         false)
 $$;
 
+-- Impressão (SHA-256) do segredo, para `permissao.checks` acusar PHATI_SEGREDO_RLS diferente do gravado; de um
+-- segredo aleatório de 32 bytes o hash não devolve o segredo, e quem a chama não consegue assinar com ela.
+CREATE FUNCTION app_segredo_impressao() RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+    SELECT encode(sha256(valor), 'hex') FROM public.rls_segredo
+$$;
+
 -- Como na 0003, mais a exigência de que a pessoa pedida seja a de identidade assinada pela aplicação.
 CREATE OR REPLACE FUNCTION vinculos_da_pessoa(pessoa bigint, agora timestamptz) RETURNS TABLE (
     concessao_id bigint, empresa_id bigint, fazenda_id bigint, sub_area_id bigint, fim timestamptz,
@@ -80,6 +87,8 @@ def criar(apps, schema_editor):
         'REVOKE ALL ON FUNCTION app_contexto_ok() FROM PUBLIC',
         f'GRANT EXECUTE ON FUNCTION app_contexto_ok() TO {app}',
         'REVOKE ALL ON FUNCTION app_identidade_ok(bigint) FROM PUBLIC',
+        'REVOKE ALL ON FUNCTION app_segredo_impressao() FROM PUBLIC',
+        f'GRANT EXECUTE ON FUNCTION app_segredo_impressao() TO {app}',
     ):
         schema_editor.execute(instrucao)
     _politicas(schema_editor, GUARDA)
@@ -92,6 +101,7 @@ def remover(apps, schema_editor):
     schema_editor.execute(vinculos.replace('CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION', 1))
     schema_editor.execute('DROP FUNCTION app_contexto_ok()')
     schema_editor.execute('DROP FUNCTION app_identidade_ok(bigint)')
+    schema_editor.execute('DROP FUNCTION app_segredo_impressao()')
     schema_editor.execute('DROP TABLE rls_segredo')
 
 
