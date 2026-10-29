@@ -83,3 +83,12 @@ def test_aplicativo_com_segredo_desconhecido_ou_revogado_nao_autentica(fabrica_p
     assert autenticada.pk == pessoa.pk
     sessao.revogar_acesso(segredo)
     assert autenticacao.authenticate(_requisicao(), segredo) is None
+
+
+def test_toda_resposta_da_api_leva_referrer_policy_no_referrer(db):
+    # Achado do CodeRabbit (PR #14): a configuração existe, falta a prova na resposta HTTP.
+    from django.test import Client
+
+    resposta = Client().get('/api/v1/fazendas')
+    assert resposta.status_code == 401
+    assert resposta['Referrer-Policy'] == 'no-referrer'
