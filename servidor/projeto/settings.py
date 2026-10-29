@@ -77,13 +77,21 @@ URL_BASE = os.environ.get('PHATI_URL_BASE', 'http://localhost:8000')  # link de 
 
 # Raiz da chave do CPF (plan.md §Autenticação): 32 bytes em base64 urlsafe; as subchaves de busca e de cifra saem
 # dela por HKDF (identidade/cpf.py). Gerar: python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
-try:
-    CHAVE_CPF = base64.urlsafe_b64decode(os.environ['PHATI_CHAVE_CPF'].encode('ascii'))
-    # Decodificação tolerante descarta caractere inválido sem avisar; a recodificação confere a forma canônica.
-    if len(CHAVE_CPF) != 32 or base64.urlsafe_b64encode(CHAVE_CPF).decode() != os.environ['PHATI_CHAVE_CPF']:
-        raise ValueError
-except (KeyError, ValueError) as erro:
-    raise ImproperlyConfigured('PHATI_CHAVE_CPF ausente ou fora do formato base64 urlsafe de 32 bytes.') from erro
+def _chave_de_32_bytes(nome):
+    try:
+        bruta = base64.urlsafe_b64decode(os.environ[nome].encode('ascii'))
+        # Decodificação tolerante descarta caractere inválido sem avisar; a recodificação confere a forma canônica.
+        if len(bruta) != 32 or base64.urlsafe_b64encode(bruta).decode() != os.environ[nome]:
+            raise ValueError
+    except (KeyError, ValueError) as erro:
+        raise ImproperlyConfigured(f'{nome} ausente ou fora do formato base64 urlsafe de 32 bytes.') from erro
+    return bruta
+
+
+CHAVE_CPF = _chave_de_32_bytes('PHATI_CHAVE_CPF')
+# Segredo da assinatura do contexto de RLS (permissao/contexto.py): a migração 0004 grava uma cópia em `rls_segredo`,
+# que o papel `app` não lê. Mesmo formato da chave do CPF; gerar com o mesmo comando.
+SEGREDO_RLS = _chave_de_32_bytes('PHATI_SEGREDO_RLS')
 
 # Sessão de navegador (R15): ociosidade e duração absoluta; o cookie é emitido pela API (Fase 5).
 SESSION_COOKIE_HTTPONLY = True

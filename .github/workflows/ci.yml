@@ -23,6 +23,7 @@ jobs:
     env:
       PHATI_CHAVE_SECRETA: chave-de-teste-ci
       PHATI_CHAVE_CPF: Y2hhdmUtZGUtdGVzdGUtY2ktMzItYnl0ZXMtLS0tLS0=
+      PHATI_SEGREDO_RLS: c2VncmVkby1ybHMtZGUtdGVzdGUtY2ktMzItYnl0ZXM=
       PHATI_BANCO_NOME: phati
       PHATI_BANCO_HOST: 127.0.0.1
       PHATI_BANCO_DONO_USUARIO: dono
@@ -75,6 +76,7 @@ jobs:
           {
             echo "PHATI_CHAVE_SECRETA=$(openssl rand -hex 32)"
             echo "PHATI_CHAVE_CPF=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "PHATI_SEGREDO_RLS=$(openssl rand -base64 32 | tr '+/' '-_')"
             echo "PHATI_BANCO_SUPER_SENHA=$(openssl rand -hex 16)"
             echo "PHATI_BANCO_DONO_USUARIO=dono"
             echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"

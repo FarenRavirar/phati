@@ -104,6 +104,26 @@ def test_chave_do_cpf_com_caractere_estranho_derruba_o_servidor(monkeypatch):
         runpy.run_path(str(CAMINHO))
 
 
+@pytest.mark.parametrize('invalido', ['', 'curta', 'AAAA' * 8, 'A' * 43])
+def test_segredo_da_rls_fora_do_formato_derruba_o_servidor(monkeypatch, invalido):
+    # Segredo errado trocaria a assinatura do contexto de RLS: o banco negaria todo acesso sem aviso.
+    monkeypatch.setenv('PHATI_SEGREDO_RLS', invalido)
+    with pytest.raises(ImproperlyConfigured, match='PHATI_SEGREDO_RLS'):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_segredo_da_rls_ausente_derruba_o_servidor(monkeypatch):
+    monkeypatch.delenv('PHATI_SEGREDO_RLS')
+    with pytest.raises(ImproperlyConfigured, match='PHATI_SEGREDO_RLS'):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_segredo_da_rls_de_32_bytes_e_aceito(monkeypatch):
+    bruto = bytes(range(32, 64))
+    monkeypatch.setenv('PHATI_SEGREDO_RLS', base64.urlsafe_b64encode(bruto).decode())
+    assert runpy.run_path(str(CAMINHO))['SEGREDO_RLS'] == bruto
+
+
 def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
     # Achado do CodeRabbit (PR #9): nada provava que o ambiente configura o SMTP.
     monkeypatch.setenv('PHATI_EMAIL_HOST', 'smtp.exemplo.test')

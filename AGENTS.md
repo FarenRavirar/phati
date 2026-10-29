@@ -93,7 +93,7 @@ Repositório **público**: tudo que entra num commit é público e permanece no 
 
 `<tipo>/<escopo>` → PR → `dev` (homologação) → `main` (produção). Tipos: `feat/`, `fix/`, `chore/`, `docs/`, `infra/`.
 
-- **`dev` é a branch padrão.** Branch nova sai sempre de `dev` atualizado: `git fetch origin && git switch -c <tipo>/<escopo> origin/dev`. Nunca sobre outra branch de trabalho.
+- **`dev` é a branch padrão.** Branch nova sai sempre de `dev` atualizado: `git fetch origin && git switch -c <tipo>/<escopo> --no-track origin/dev`. Sem `--no-track` o Git grava `origin/dev` como upstream da branch nova; o primeiro push de branch de trabalho é `git push -u origin <tipo>/<escopo>`. Nunca sobre outra branch de trabalho.
 - **Nada é commitado direto em `dev` nem em `main`.** Tudo entra por branch e PR, inclusive mudança só de documentação. Única exceção: o commit inicial que cria as duas branches, com autorização nominal.
 - **`main` só avança por fast-forward a partir de `dev`.** Invariante: `main` é ancestral de `dev`. Proibido "Squash and merge" e "Create a merge commit" ao promover: criam commit em `main` que não existe em `dev`. Promoção é um workflow `workflow_dispatch` que exige digitar a confirmação `PROMOTE_DEV_TO_MAIN`; alternativa manual, só "Rebase and merge". Um guard de CI falha se a invariante quebrar.
 - **Promover não é publicar.** Mover `main` só move o ponteiro Git. Depois da promoção, nunca declarar "em produção" sem disparar e confirmar o deploy.

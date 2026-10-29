@@ -14,6 +14,7 @@ from django.db import IntegrityError, ProgrammingError, connection, connections,
 from django.utils import timezone
 
 from permissao.models import Cargo, CargoPermissao, CategoriaDado, ConcessaoCategoria, Permissao, concessoes_ativas
+from permissao.contexto import fixar_contexto, fixar_identidade, ler_contexto
 from permissao.delegacao import convidar, revogar_concessao
 from permissao.models import Concessao
 from permissao.pode import com_permissao, esquecer, pode
@@ -31,6 +32,12 @@ INSERIR_FAZENDA = 'INSERT INTO fazenda (empresa_id, nome, criada_em) VALUES (%s,
 INSERIR_CATEGORIA = 'INSERT INTO concessao_categoria (concessao_id, categoria_id) VALUES (%s, %s)'
 FIXAR = 'SELECT set_config(%s, %s, true)'
 pytestmark = pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+
+
+def fixar(consulta, nome, valor):
+    """Fixa uma variável de RLS e reassina o contexto, como `com_permissao` faz."""
+    consulta.execute(FIXAR, [f'app.{nome}', str(valor)])
+    fixar_contexto(consulta, *ler_contexto(consulta)[:4])
 
 
 @pytest.fixture
@@ -73,7 +80,7 @@ def _ids(tabela, **variaveis):
     """Ids que o papel `app` enxerga em `tabela`, com as variáveis de RLS dadas (ou nenhuma)."""
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
         for nome, valor in variaveis.items():
-            consulta.execute(FIXAR, [f'app.{nome}', str(valor)])
+            fixar(consulta, nome, valor)
         consulta.execute(f'SELECT id FROM {tabela}')
         return {linha[0] for linha in consulta.fetchall()}
 
@@ -82,7 +89,7 @@ def _executar_como_app(variaveis, comando, parametros):
     """Roda `comando` como o papel `app` com as variáveis de RLS dadas e deixa a exceção subir."""
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
         for nome, valor in variaveis.items():
-            consulta.execute(FIXAR, [f'app.{nome}', str(valor)])
+            fixar(consulta, nome, valor)
         consulta.execute(comando, parametros)
 
 
@@ -143,7 +150,7 @@ def test_insert_em_fazenda_fora_do_escopo_falha(mundo):
 
 def test_insert_na_fazenda_do_escopo_passa(mundo):
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
-        consulta.execute(FIXAR, ['app.fazendas', str(mundo.f1.pk)])
+        fixar(consulta, 'fazendas', mundo.f1.pk)
         consulta.execute(INSERIR_SUB_AREA, [mundo.x.pk, mundo.f1.pk, 'legitima', '/'])
     assert SubArea.objects.filter(nome='legitima').exists()
 
@@ -155,7 +162,7 @@ def test_insert_em_empresa_fora_do_escopo_falha(mundo):
 
 def test_atualizacao_em_linha_de_outra_fazenda_atinge_zero_linhas(mundo):
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
-        consulta.execute(FIXAR, ['app.fazendas', str(mundo.f1.pk)])
+        fixar(consulta, 'fazendas', mundo.f1.pk)
         consulta.execute("UPDATE fazenda SET nome = 'invadida' WHERE id = %s", [mundo.f2.pk])
         assert consulta.rowcount == 0
         consulta.execute("UPDATE fazenda SET nome = 'minha' WHERE id = %s", [mundo.f1.pk])
@@ -186,7 +193,7 @@ def test_duas_concessoes_em_empresas_diferentes_valem_as_duas(mundo, conceder_di
 
 def test_variavel_nao_vaza_para_a_transacao_seguinte_na_mesma_conexao(mundo):
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
-        consulta.execute(FIXAR, ['app.empresas', str(mundo.x.pk)])
+        fixar(consulta, 'empresas', mundo.x.pk)
         consulta.execute('SELECT count(*) FROM fazenda')
         assert consulta.fetchone()[0] == 2
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
@@ -268,7 +275,7 @@ def test_gatilho_de_categoria_roda_como_dono_e_nao_depende_da_visibilidade(mundo
     # enxergá-los (SECURITY DEFINER) para aceitar a categoria legítima.
     categoria = CategoriaDado.objects.get(empresa=mundo.x)
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
-        consulta.execute(FIXAR, ['app.fazendas', str(mundo.f1.pk)])
+        fixar(consulta, 'fazendas', mundo.f1.pk)
         consulta.execute(INSERIR_CATEGORIA, [mundo.do_externo.pk, categoria.pk])
     assert ConcessaoCategoria.objects.filter(concessao=mundo.do_externo).count() == 1
 
@@ -306,7 +313,8 @@ def test_funcao_de_vinculos_confere_com_concessoes_ativas_nas_bordas(mundo, conc
         'aberta': {'inicio': agora - dois_dias},
     }
     concessoes = {nome: conceder_direto(pessoa, mundo.usuario_x, mundo.f2, **campos) for nome, campos in casos.items()}
-    with connection.cursor() as consulta:
+    with transaction.atomic(), connection.cursor() as consulta:
+        fixar_identidade(consulta, pessoa.pk)
         consulta.execute('SELECT concessao_id FROM vinculos_da_pessoa(%s, %s)', [pessoa.pk, agora])
         pelo_banco = {linha[0] for linha in consulta.fetchall()}
     pelo_orm = set(concessoes_ativas(agora).filter(pessoa=pessoa).values_list('pk', flat=True))
@@ -388,7 +396,7 @@ def test_leitura_por_fazenda_nao_vira_escrita(mundo):
     assert mundo.admin_x.pk in _ids('cargo', **leitura)
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
         for nome, valor in leitura.items():
-            consulta.execute(FIXAR, [f'app.{nome}', str(valor)])
+            fixar(consulta, nome, valor)
         consulta.execute("UPDATE empresa SET nome = 'invadida' WHERE id = %s", [mundo.x.pk])
         assert consulta.rowcount == 0
         consulta.execute("UPDATE cargo SET nome = 'invadido' WHERE id = %s", [mundo.admin_x.pk])
