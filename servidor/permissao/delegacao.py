@@ -9,7 +9,10 @@ concessão, a ordem única de `identidade.senha._pessoa_travada`, para não volt
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+
 from django.utils import timezone
+
+from comum.auditoria import auditar
 
 from identidade import senha
 from identidade.models import Pessoa
@@ -100,11 +103,16 @@ def _proposta(quem, cargo, escopo, inicio, fim):
     )
 
 
-def _gravar(proposta, pessoa, categorias):
+def _gravar(quem, proposta, pessoa, categorias):
     proposta.pessoa = pessoa
     proposta.save()
     ConcessaoCategoria.objects.bulk_create(
         ConcessaoCategoria(concessao=proposta, categoria=categoria) for categoria in categorias
+    )
+    auditar(
+        'concessao_criada', quem, proposta, proposta.empresa_id,
+        {'pessoa_id': pessoa.pk, 'cargo_id': proposta.cargo_id, 'fazenda_id': proposta.fazenda_id,
+         'sub_area_id': proposta.sub_area_id},
     )
     return proposta
 
@@ -117,7 +125,7 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
         _travar_pessoa(pessoa.pk)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
-        return _gravar(proposta, pessoa, categorias)
+        return _gravar(quem, proposta, pessoa, categorias)
 
 
 def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, fim=None):
@@ -132,7 +140,8 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
         pessoa = Pessoa.objects.criar(nome, email, cpf, empresa_origem=Empresa.objects.get(pk=proposta.empresa_id))
         # Grava a concessão antes de enviar a senha: período ou categoria recusados pelo banco não podem deixar um
         # e-mail com credencial de conta que não existe (achado do Codex, PR #11).
-        _gravar(proposta, pessoa, categorias)
+        auditar('pessoa_criada', quem, pessoa, proposta.empresa_id)
+        _gravar(quem, proposta, pessoa, categorias)
         temporaria = senha.emitir_senha_temporaria(pessoa)
     return pessoa, temporaria
 
@@ -176,6 +185,7 @@ def revogar_concessao(quem, concessao):
         atual.revogada_em = timezone.now()
         atual.revogada_por = quem
         atual.save(update_fields=['revogada_em', 'revogada_por'])
+        auditar('concessao_revogada', quem, atual, atual.empresa_id, {'pessoa_id': atual.pessoa_id})
     concessao.refresh_from_db()
 
 
@@ -199,6 +209,8 @@ def transferir_titularidade(quem, empresa, novo_titular):
             raise ValidationError(
                 'O novo titular precisa ser Administrador da empresa inteira, sem prazo.', code='titular_invalido'
             )
+        titular_anterior = atual.titular_id
         atual.titular = novo_titular
         atual.save(update_fields=['titular'])
+        auditar('titularidade_transferida', quem, atual, atual.pk, {'de': titular_anterior, 'para': novo_titular.pk})
     empresa.refresh_from_db()

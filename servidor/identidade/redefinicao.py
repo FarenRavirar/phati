@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from comum.auditoria import auditar
 from identidade import cpf, email, senha, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
 from permissao.models import concessoes_ativas
@@ -65,6 +66,7 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
             solicitado_por=solicitante or alvo,
             expira_em=agora + VALIDADE,
         )
+        auditar('redefinicao_pedida', solicitante or alvo, alvo, alvo.empresa_origem_id)
         email.enviar_link_de_redefinicao(alvo, segredo)
     return None
 
@@ -92,6 +94,7 @@ def confirmar_redefinicao(segredo, senha_nova):
             erro = recusa
         else:
             pedido.usado_em = agora
+            auditar('redefinicao_confirmada', pessoa, pessoa, pessoa.empresa_origem_id)
         pedido.save(update_fields=['tentativas', 'usado_em'])
     if erro is not None:
         raise erro
