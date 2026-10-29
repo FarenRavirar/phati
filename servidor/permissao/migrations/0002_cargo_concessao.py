@@ -28,6 +28,18 @@ BEGIN
 END $$;
 CREATE TRIGGER cargo_validar BEFORE UPDATE ON cargo FOR EACH ROW EXECUTE FUNCTION cargo_validar();
 
+-- A empresa da categoria não muda: os vínculos já gravados em concessao_categoria foram validados contra ela
+-- (achado do Qodo, PR #11).
+CREATE FUNCTION categoria_dado_validar() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+BEGIN
+    IF OLD.empresa_id <> NEW.empresa_id THEN
+        RAISE EXCEPTION 'categoria_dado: a empresa não muda' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER categoria_dado_validar BEFORE UPDATE ON categoria_dado
+    FOR EACH ROW EXECUTE FUNCTION categoria_dado_validar();
+
 -- Só o fim e a revogação mudam: trocar pessoa, cargo ou escopo de uma concessão é conceder de novo (R16).
 CREATE FUNCTION concessao_validar() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -35,6 +47,18 @@ BEGIN
         OR OLD.fazenda_id IS DISTINCT FROM NEW.fazenda_id OR OLD.sub_area_id IS DISTINCT FROM NEW.sub_area_id
         OR OLD.inicio <> NEW.inicio OR OLD.concedida_por_id <> NEW.concedida_por_id THEN
         RAISE EXCEPTION 'concessao: só o fim e a revogação mudam' USING ERRCODE = 'check_violation';
+    END IF;
+    -- Revogada não volta: limpar a revogação reativaria o acesso (achado do Sourcery, PR #11).
+    IF OLD.revogada_em IS NOT NULL
+        AND (NEW.revogada_em IS DISTINCT FROM OLD.revogada_em OR NEW.revogada_por_id IS DISTINCT FROM OLD.revogada_por_id) THEN
+        RAISE EXCEPTION 'concessao: revogada não volta' USING ERRCODE = 'check_violation';
+    END IF;
+    -- A concessão de Administrador da empresa inteira do titular não ganha prazo: venceria sem transferência (R23).
+    IF NEW.fim IS NOT NULL AND NEW.fim IS DISTINCT FROM OLD.fim AND NEW.fazenda_id IS NULL AND EXISTS (
+        SELECT 1 FROM public.empresa e JOIN public.cargo c ON c.id = NEW.cargo_id
+        WHERE e.id = NEW.empresa_id AND e.titular_id = NEW.pessoa_id AND c.base = 'administrador'
+    ) THEN
+        RAISE EXCEPTION 'concessao: o titular não tem prazo' USING ERRCODE = 'check_violation';
     END IF;
     RETURN NEW;
 END $$;
@@ -63,6 +87,8 @@ CREATE TRIGGER concessao_categoria_validar BEFORE INSERT OR UPDATE ON concessao_
 """
 
 REMOVER = """
+DROP TRIGGER categoria_dado_validar ON categoria_dado;
+DROP FUNCTION categoria_dado_validar();
 DROP TRIGGER concessao_categoria_validar ON concessao_categoria;
 DROP FUNCTION concessao_categoria_validar();
 DROP TRIGGER concessao_validar ON concessao;

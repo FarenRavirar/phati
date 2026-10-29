@@ -34,6 +34,38 @@ def _alvo_da_concessao(concessao):
     return alvo_de(SubArea.objects.get(pk=concessao.sub_area_id))
 
 
+def _nivel_permite(base_de_quem, base_do_cargo):
+    """Nível estritamente abaixo (R10), salvo o Administrador, que também convida e revoga Administrador
+    (mantenedor, 2026-10-29)."""
+    return base_de_quem == 'administrador' or NIVEL_DA_BASE[base_de_quem] > NIVEL_DA_BASE[base_do_cargo]
+
+
+def _tem(vinculo, acao):
+    """O Administrador conta como quem tem todo o catálogo no escopo (D043), mesmo que o cargo dele, personalizado,
+    não liste `acao` (achado do Sourcery, PR #11)."""
+    return vinculo.base == 'administrador' or acao in vinculo.permissoes
+
+
+def _fim_cabe(vinculo, fim):
+    """O acesso concedido não sobrevive à concessão de quem concede (achado do Qodo, PR #11; inferência a confirmar)."""
+    limite = vinculo.concessao.fim
+    return limite is None or (fim is not None and fim <= limite)
+
+
+def _concede(vinculo, memoria, proposta, alvo, concedidas, pedidas):
+    """Uma concessão de quem concede satisfaz todas as regras de R10 para a proposta?"""
+    if not _tem(vinculo, 'convidar_pessoa') or not vinculo.cobre(alvo):
+        return False
+    if not _nivel_permite(vinculo.base, proposta.cargo.base) or not _fim_cabe(vinculo, proposta.fim):
+        return False
+    if vinculo.base != 'administrador' and (
+        not concedidas <= vinculo.permissoes or not all(memoria.catalogo[codigo] for codigo in concedidas)
+    ):
+        return False
+    # Ninguém concede categoria que não tem: lista vazia é nenhuma categoria (nega por padrão).
+    return vinculo.base not in BASES_COM_CATEGORIA or pedidas <= vinculo.categorias
+
+
 def pode_conceder(quem, concessao, categorias=()):
     """`concessao` é a proposta (cargo, empresa, escopo, período), salva ou não; `categorias` são as pedidas.
 
@@ -51,23 +83,7 @@ def pode_conceder(quem, concessao, categorias=()):
     alvo = _alvo_da_concessao(concessao)
     concedidas = frozenset(cargo.permissoes.values_list('pk', flat=True))
     pedidas = frozenset(categoria.pk for categoria in categorias)
-    for vinculo in memoria.vinculos:
-        if 'convidar_pessoa' not in vinculo.permissoes or not vinculo.cobre(alvo):
-            continue
-        # Nível estritamente abaixo (R10), salvo o Administrador, que também convida Administrador (mantenedor, 2026-10-29).
-        if NIVEL_DA_BASE[vinculo.base] < NIVEL_DA_BASE[cargo.base] or (
-            vinculo.base != 'administrador' and NIVEL_DA_BASE[vinculo.base] == NIVEL_DA_BASE[cargo.base]
-        ):
-            continue
-        if vinculo.base != 'administrador' and (
-            not concedidas <= vinculo.permissoes or not all(memoria.catalogo[codigo] for codigo in concedidas)
-        ):
-            continue
-        # Ninguém concede categoria que não tem: lista vazia é nenhuma categoria (nega por padrão).
-        if vinculo.base in BASES_COM_CATEGORIA and not pedidas <= vinculo.categorias:
-            continue
-        return True
-    return False
+    return any(_concede(vinculo, memoria, concessao, alvo, concedidas, pedidas) for vinculo in memoria.vinculos)
 
 
 def _proposta(quem, cargo, escopo, inicio, fim):
@@ -87,6 +103,7 @@ def _gravar(proposta, pessoa, categorias):
 
 def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
     """Concede `cargo` a `pessoa` em `escopo` (Empresa, Fazenda ou SubArea). Negado: `PermissionDenied`."""
+    categorias = tuple(categorias)  # percorrido na checagem e na gravação: um gerador acabaria na primeira
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     with transaction.atomic():
         Pessoa.objects.select_for_update().get(pk=pessoa.pk)
@@ -99,13 +116,16 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
     """Cria a pessoa (origem na empresa do escopo), envia a senha temporária e concede o cargo, tudo na mesma
     transação: SMTP que falha desfaz o convite. Devolve `(pessoa, senha_temporaria)`. CPF já cadastrado levanta
     `cpf_duplicado`: para quem já existe, `conceder()`."""
+    categorias = tuple(categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     if not pode_conceder(quem, proposta, categorias):
         raise PermissionDenied
     with transaction.atomic():
         pessoa = Pessoa.objects.criar(nome, email, cpf, empresa_origem=Empresa.objects.get(pk=proposta.empresa_id))
-        temporaria = senha.emitir_senha_temporaria(pessoa)
+        # Grava a concessão antes de enviar a senha: período ou categoria recusados pelo banco não podem deixar um
+        # e-mail com credencial de conta que não existe (achado do Codex, PR #11).
         _gravar(proposta, pessoa, categorias)
+        temporaria = senha.emitir_senha_temporaria(pessoa)
     return pessoa, temporaria
 
 
@@ -116,9 +136,9 @@ def _pode_revogar(quem, concessao):
         return True
     alvo = _alvo_da_concessao(concessao)
     return any(
-        'revogar_acesso' in vinculo.permissoes
+        _tem(vinculo, 'revogar_acesso')
         and vinculo.cobre(alvo)
-        and (vinculo.base == 'administrador' or NIVEL_DA_BASE[vinculo.base] > NIVEL_DA_BASE[concessao.cargo.base])
+        and _nivel_permite(vinculo.base, concessao.cargo.base)
         for vinculo in memoria_de(quem).vinculos
     )
 
@@ -153,17 +173,24 @@ def revogar_concessao(quem, concessao):
 
 def transferir_titularidade(quem, empresa, novo_titular):
     """Passa o título de Administrador titular (R23). Só o titular atual ou a plataforma transferem, e o novo titular
-    precisa ser Administrador ativo da empresa inteira. O titular antigo vira Administrador comum."""
+    precisa ser Administrador ativo da empresa inteira, sem prazo (concessão que vence deixaria a empresa com titular
+    sem acesso). O titular antigo vira Administrador comum."""
     if quem is None or not quem.is_authenticated:
         raise PermissionDenied
     with transaction.atomic():
+        # Pessoa, depois empresa, a mesma ordem de `revogar_concessao`: a ordem inversa dava deadlock com a revogação
+        # da concessão do novo titular, porque gravar `titular` pede KEY SHARE na pessoa (achado do Codex, PR #11,
+        # reproduzido pelo teste de corrida).
+        Pessoa.objects.select_for_update().get(pk=novo_titular.pk)
         atual = Empresa.objects.select_for_update().get(pk=empresa.pk)
         if not (quem.administrador_plataforma or quem.pk == atual.titular_id):
             raise PermissionDenied
         if not concessoes_ativas().filter(
-            pessoa=novo_titular, empresa=atual, fazenda__isnull=True, cargo__base='administrador'
+            pessoa=novo_titular, empresa=atual, fazenda__isnull=True, cargo__base='administrador', fim__isnull=True
         ).exists():
-            raise ValidationError('O novo titular precisa ser Administrador da empresa inteira.', code='titular_invalido')
+            raise ValidationError(
+                'O novo titular precisa ser Administrador da empresa inteira, sem prazo.', code='titular_invalido'
+            )
         atual.titular = novo_titular
         atual.save(update_fields=['titular'])
     empresa.refresh_from_db()

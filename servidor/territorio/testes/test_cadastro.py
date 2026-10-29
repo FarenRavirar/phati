@@ -38,8 +38,9 @@ def test_administrador_de_empresa_nao_cria_empresa(cenario, fabrica_pessoa, conc
     admin = fabrica_pessoa('Admin da X')
     conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
     antes = _contagens()
+    cpf = cpf_novo()
     with pytest.raises(PermissionDenied):
-        criar_empresa(admin, 'Empresa Intrusa', 'Ivo Intruso', 'ivo@exemplo.test', cpf_novo())
+        criar_empresa(admin, 'Empresa Intrusa', 'Ivo Intruso', 'ivo@exemplo.test', cpf)
     assert _contagens() == antes
     assert mailoutbox == []
 
@@ -49,8 +50,9 @@ def test_cargo_personalizado_com_criar_empresa_nao_cria_empresa(cenario, fabrica
     CargoPermissao.objects.create(cargo=cargo, permissao_id='criar_empresa')
     pessoa = fabrica_pessoa('Quase Plataforma')
     conceder_direto(pessoa, cargo, cenario.x)
+    cpf = cpf_novo()
     with pytest.raises(PermissionDenied):
-        criar_empresa(pessoa, 'Empresa Intrusa', 'Ivo Intruso', 'ivo@exemplo.test', cpf_novo())
+        criar_empresa(pessoa, 'Empresa Intrusa', 'Ivo Intruso', 'ivo@exemplo.test', cpf)
 
 
 def test_smtp_que_falha_nao_deixa_empresa_cargo_pessoa_nem_concessao(plataforma, cpf_novo, monkeypatch):
@@ -59,8 +61,9 @@ def test_smtp_que_falha_nao_deixa_empresa_cargo_pessoa_nem_concessao(plataforma,
 
     monkeypatch.setattr(email, 'enviar_senha_temporaria', falha)
     antes = _contagens()
+    cpf = cpf_novo()
     with pytest.raises(smtplib.SMTPException):
-        criar_empresa(plataforma, 'Empresa Nova', 'Ana Administradora', 'ana@exemplo.test', cpf_novo())
+        criar_empresa(plataforma, 'Empresa Nova', 'Ana Administradora', 'ana@exemplo.test', cpf)
     assert _contagens() == antes
 
 
@@ -102,9 +105,32 @@ def test_sub_area_em_ate_tres_niveis_e_o_quarto_e_recusado(cenario, fabrica_pess
     talhao = criar_sub_area(admin, cenario.f2, 'Talhão', pai=SubArea.objects.get(pk=gleba.pk))
     folha = criar_sub_area(admin, cenario.f2, 'Folha', pai=SubArea.objects.get(pk=talhao.pk))
     assert (gleba.nivel, talhao.nivel, folha.nivel) == (1, 2, 3)
+    pai = SubArea.objects.get(pk=folha.pk)
     with pytest.raises(ValidationError) as erro:
-        criar_sub_area(admin, cenario.f2, 'Quarto', pai=SubArea.objects.get(pk=folha.pk))
+        criar_sub_area(admin, cenario.f2, 'Quarto', pai=pai)
     assert erro.value.code == 'nivel_maximo'
+
+
+def test_sub_area_criada_ja_vale_para_quem_tem_concessao_no_ancestral(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin da X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.f2)
+    usuario = fabrica_pessoa('Usuario da Gleba')
+    gleba = criar_sub_area(admin, cenario.f2, 'Gleba')
+    conceder_direto(usuario, cenario.cargos_x['usuario'], gleba)
+    talhao = criar_sub_area(admin, cenario.f2, 'Talhão', pai=SubArea.objects.get(pk=gleba.pk))
+    assert talhao.caminho == f'/{gleba.pk}/'
+    assert pode(usuario, 'ver', talhao) is True
+
+
+def test_pai_de_outra_fazenda_levanta_pai_de_outra_fazenda_e_nada_fica(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin da X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    pai = SubArea.objects.get(pk=cenario.g1.pk)  # sub-área da F1
+    antes = SubArea.objects.count()
+    with pytest.raises(ValidationError) as erro:
+        criar_sub_area(admin, cenario.f2, 'Filha enviesada', pai=pai)
+    assert erro.value.code == 'pai_de_outra_fazenda'
+    assert SubArea.objects.count() == antes
 
 
 def test_sub_area_so_com_permissao_no_escopo(cenario, fabrica_pessoa, conceder_direto):

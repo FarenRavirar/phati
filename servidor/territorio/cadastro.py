@@ -50,9 +50,13 @@ def criar_fazenda(solicitante, empresa, nome):
 
 def criar_sub_area(solicitante, fazenda, nome, pai=None):
     """Sub-área raiz da fazenda (sem `pai`) ou filha de `pai`; até 3 níveis (R7). Passe `pai` lido do banco."""
+    if pai is not None and pai.fazenda_id != fazenda.pk:
+        raise ValidationError('O pai é de outra fazenda.', code='pai_de_outra_fazenda')
     if not pode(solicitante, 'criar_sub_area', pai or fazenda):
         raise PermissionDenied
     nivel = 1 if pai is None else pai.nivel + 1
     if nivel > NIVEL_MAXIMO:
         raise ValidationError('A divisão da fazenda tem no máximo 3 níveis.', code='nivel_maximo')
-    return SubArea.objects.create(empresa=fazenda.empresa, fazenda=fazenda, pai=pai, nivel=nivel, nome=nome)
+    sub_area = SubArea.objects.create(empresa=fazenda.empresa, fazenda=fazenda, pai=pai, nivel=nivel, nome=nome)
+    sub_area.refresh_from_db()  # o gatilho preenche `caminho`, de que `pode()` depende (achado do Qodo, PR #11)
+    return sub_area

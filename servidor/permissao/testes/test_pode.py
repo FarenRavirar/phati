@@ -225,12 +225,28 @@ def test_decorador_nega_antes_de_rodar_a_rota(pessoa, cenario, conceder_direto):
         chamadas.append(fazenda)
         return 'ok'
 
+    requisicao = _requisicao(pessoa)
     with pytest.raises(PermissionDenied):
-        rota(_requisicao(pessoa), cenario.f1)
+        rota(requisicao, cenario.f1)
     assert chamadas == []
     conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)
     assert rota(_requisicao(_recarregar(pessoa)), cenario.f1) == 'ok'
     assert chamadas == [cenario.f1]
+
+
+def test_decorador_confere_a_categoria_do_dado(pessoa, cenario, conceder_direto):
+    solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    agua = CategoriaDado.objects.create(empresa=cenario.x, nome='Água')
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f1, categorias=[solo])
+
+    @exige_permissao('criar_registro_campo', lambda requisicao, fazenda, categoria: fazenda, lambda requisicao, fazenda, categoria: categoria)
+    def rota(requisicao, fazenda, categoria):
+        return 'ok'
+
+    requisicao = _requisicao(_recarregar(pessoa))
+    assert rota(requisicao, cenario.f1, solo) == 'ok'
+    with pytest.raises(PermissionDenied):
+        rota(requisicao, cenario.f1, agua)
 
 
 def test_decorador_marca_a_acao_exigida_e_sem_alvo_nega_quem_nao_e_plataforma(pessoa, plataforma):
@@ -239,6 +255,7 @@ def test_decorador_marca_a_acao_exigida_e_sem_alvo_nega_quem_nao_e_plataforma(pe
         return 'ok'
 
     assert getattr(rota, 'acao_exigida') == 'criar_empresa'
+    requisicao = _requisicao(pessoa)
     with pytest.raises(PermissionDenied):
-        rota(_requisicao(pessoa))
+        rota(requisicao)
     assert rota(_requisicao(plataforma)) == 'ok'

@@ -2,6 +2,9 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+MODELO_EMPRESA = 'territorio.Empresa'
+MODELO_PESSOA = 'identidade.Pessoa'
+
 
 class Permissao(models.Model):
     """Ação do catálogo fixo (R8). Cresce só por migração (risco R-7 da spec)."""
@@ -24,7 +27,7 @@ class Cargo(models.Model):
     """Conjunto de permissões, por empresa (R8). `base` e `empresa` não mudam depois de criados (gatilho na migração
     0002): trocar a base sob concessões já feitas mudaria a hierarquia de convite e as categorias em silêncio."""
 
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT)
+    empresa = models.ForeignKey(MODELO_EMPRESA, on_delete=models.PROTECT)
     nome = models.CharField(max_length=100)
     base = models.CharField(max_length=20, choices=[(base, base) for base in NIVEL_DA_BASE])
     empresa_id: int  # anotação só para o pyright
@@ -52,7 +55,7 @@ class CargoPermissao(models.Model):
 class CategoriaDado(models.Model):
     """Categoria de dado, eixo da concessão de Técnico e Usuário (D035). Lista mínima nesta spec."""
 
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT)
+    empresa = models.ForeignKey(MODELO_EMPRESA, on_delete=models.PROTECT)
     nome = models.CharField(max_length=100)
 
     class Meta:
@@ -67,16 +70,16 @@ class Concessao(models.Model):
     (gatilho) são garantidas no banco (migração 0002), não só por esta classe.
     """
 
-    pessoa = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT)
+    pessoa = models.ForeignKey(MODELO_PESSOA, on_delete=models.PROTECT)
     cargo = models.ForeignKey(Cargo, on_delete=models.PROTECT)
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT)
+    empresa = models.ForeignKey(MODELO_EMPRESA, on_delete=models.PROTECT)
     fazenda = models.ForeignKey('territorio.Fazenda', null=True, blank=True, on_delete=models.PROTECT)
     sub_area = models.ForeignKey('territorio.SubArea', null=True, blank=True, on_delete=models.PROTECT)
     inicio = models.DateTimeField(default=timezone.now)
     fim = models.DateTimeField(null=True, blank=True)
     revogada_em = models.DateTimeField(null=True, blank=True)
-    concedida_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
-    revogada_por = models.ForeignKey('identidade.Pessoa', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    concedida_por = models.ForeignKey(MODELO_PESSOA, on_delete=models.PROTECT, related_name='+')
+    revogada_por = models.ForeignKey(MODELO_PESSOA, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
     categorias = models.ManyToManyField(CategoriaDado, through='ConcessaoCategoria')
 
     # Anotações só para o pyright: o Django cria as colunas `<campo>_id`, que o verificador de tipos não enxerga.

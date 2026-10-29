@@ -180,18 +180,20 @@ def escopos_da_acao(pessoa, acao):
     )
 
 
-def exige_permissao(acao, obter_alvo=None):
+def exige_permissao(acao, obter_alvo=None, obter_categoria=None):
     """Decorador de rota: nega com `PermissionDenied` (403) antes de a rota rodar.
 
-    `obter_alvo(requisicao, *args, **kwargs)` devolve o alvo da ação. A rota decorada leva `acao_exigida`, que a
-    varredura de rotas da Fase 5 confere.
+    `obter_alvo(requisicao, *args, **kwargs)` devolve o alvo da ação e `obter_categoria(...)`, a categoria do dado, se
+    a rota trata dado categorizado: sem ela, Técnico e Usuário com categoria passariam por qualquer categoria
+    (achado do Sourcery, PR #11). A rota decorada leva `acao_exigida`, que a varredura de rotas da Fase 5 confere.
     """
 
     def decorar(funcao):
         @wraps(funcao)
         def interna(requisicao, *args, **kwargs):
             alvo = obter_alvo(requisicao, *args, **kwargs) if obter_alvo else None
-            if not pode(requisicao.user, acao, alvo):
+            categoria = obter_categoria(requisicao, *args, **kwargs) if obter_categoria else None
+            if not pode(requisicao.user, acao, alvo, categoria):
                 raise PermissionDenied
             return funcao(requisicao, *args, **kwargs)
 

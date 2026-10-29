@@ -2,11 +2,13 @@
 
 import smtplib
 import threading
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, connection
+from django.utils import timezone
 
 from identidade import email
 from identidade.models import Pessoa
@@ -162,6 +164,66 @@ def test_nivel_menor_nao_concede_cargo_de_nivel_maior_mesmo_com_as_permissoes(al
         conceder(quem, alvo, do_curador, cenario.f1)
 
 
+# --- Administrador com cargo enxuto, gerador de categorias ---
+
+
+def test_administrador_de_cargo_enxuto_convida_e_revoga_mesmo_sem_as_acoes_na_lista(alvo, cenario, fabrica_pessoa, conceder_direto):
+    enxuto = _cargo(cenario.x, 'Admin enxuto', 'administrador', 'ver')
+    admin = _com(fabrica_pessoa, conceder_direto, enxuto, cenario.x)
+    concessao = conceder(admin, alvo, cenario.cargos_x['usuario'], cenario.f1)
+    revogar_concessao(admin, concessao)
+    assert concessao.revogada_por == admin
+
+
+def test_categorias_em_gerador_chegam_inteiras_a_concessao(alvo, cenario, fabrica_pessoa, conceder_direto):
+    solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    agua = CategoriaDado.objects.create(empresa=cenario.x, nome='Água')
+    curador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.f1)
+    concessao = conceder(curador, alvo, cenario.cargos_x['tecnico'], cenario.f1, categorias=(c for c in (solo, agua)))
+    assert set(concessao.categorias.all()) == {solo, agua}
+
+
+# --- período: o acesso concedido não sobrevive ao de quem concede ---
+
+
+def _com_fim(fabrica_pessoa, conceder_direto, cargo, escopo, fim):
+    pessoa = fabrica_pessoa('Prazo Curto')
+    conceder_direto(pessoa, cargo, escopo, fim=fim)
+    return pessoa
+
+
+@pytest.mark.parametrize('base', ['curador', 'administrador'])
+def test_concessao_com_prazo_nao_concede_alem_do_proprio_fim(base, alvo, cenario, fabrica_pessoa, conceder_direto):
+    fim = timezone.now() + timedelta(days=7)
+    quem = _com_fim(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.f1, fim)
+    cargo = cenario.cargos_x['usuario']
+    with pytest.raises(PermissionDenied):
+        conceder(quem, alvo, cargo, cenario.f1)  # sem fim
+    with pytest.raises(PermissionDenied):
+        conceder(quem, alvo, cargo, cenario.f1, fim=fim + timedelta(days=1))
+    assert conceder(quem, alvo, cargo, cenario.f1, fim=fim).fim == fim
+    assert conceder(quem, alvo, cargo, cenario.f1, fim=fim - timedelta(days=1)).fim == fim - timedelta(days=1)
+
+
+def test_concessao_sem_fim_concede_com_ou_sem_fim_e_a_plataforma_nao_tem_limite(alvo, cenario, fabrica_pessoa, conceder_direto, plataforma):
+    curador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.f1)
+    cargo = cenario.cargos_x['usuario']
+    assert conceder(curador, alvo, cargo, cenario.f1).fim is None
+    assert conceder(curador, alvo, cargo, cenario.f1, fim=timezone.now() + timedelta(days=3)).fim is not None
+    assert conceder(plataforma, alvo, cargo, cenario.f1).fim is None
+
+
+def test_convite_com_periodo_invalido_nao_envia_email_nem_deixa_pessoa(cenario, fabrica_pessoa, conceder_direto, cpf_novo, mailoutbox):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    cpf = cpf_novo()
+    agora = timezone.now()
+    antes = Pessoa.objects.count()
+    with pytest.raises(IntegrityError):
+        convidar(admin, 'Fim Antes', 'f@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1, inicio=agora, fim=agora - timedelta(days=1))
+    assert Pessoa.objects.count() == antes
+    assert mailoutbox == []
+
+
 # --- categorias ---
 
 
@@ -221,16 +283,20 @@ def test_convite_cria_a_pessoa_envia_a_senha_temporaria_e_concede(cenario, fabri
         admin, 'Beatriz Convidada', 'bia@exemplo.test', cpf_novo(), cenario.cargos_x['curador'], cenario.f1
     )
     assert pessoa.empresa_origem == cenario.x
-    assert pessoa.deve_trocar_senha is True and pessoa.check_password(temporaria)
-    assert len(mailoutbox) == 1 and temporaria in mailoutbox[0].body and mailoutbox[0].to == ['bia@exemplo.test']
+    assert pessoa.deve_trocar_senha is True
+    assert pessoa.check_password(temporaria)
+    assert len(mailoutbox) == 1
+    assert temporaria in mailoutbox[0].body
+    assert mailoutbox[0].to == ['bia@exemplo.test']
     assert pode(_recarregar(pessoa), 'convidar_pessoa', cenario.f1) is True
 
 
 def test_convite_negado_por_nivel_nao_cria_pessoa_nem_envia_email(cenario, fabrica_pessoa, conceder_direto, cpf_novo, mailoutbox):
     curador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.f1)
     antes = Pessoa.objects.count()
+    cpf = cpf_novo()
     with pytest.raises(PermissionDenied):
-        convidar(curador, 'Carlos Convidado', 'c@exemplo.test', cpf_novo(), cenario.cargos_x['curador'], cenario.f1)
+        convidar(curador, 'Carlos Convidado', 'c@exemplo.test', cpf, cenario.cargos_x['curador'], cenario.f1)
     assert Pessoa.objects.count() == antes
     assert mailoutbox == []
 
@@ -243,8 +309,9 @@ def test_smtp_que_falha_desfaz_o_convite_inteiro(cenario, fabrica_pessoa, conced
 
     monkeypatch.setattr(email, 'enviar_senha_temporaria', falha)
     antes_pessoas, antes_concessoes = Pessoa.objects.count(), Concessao.objects.count()
+    cpf = cpf_novo()
     with pytest.raises(smtplib.SMTPException):
-        convidar(admin, 'Davi Convidado', 'd@exemplo.test', cpf_novo(), cenario.cargos_x['usuario'], cenario.f1)
+        convidar(admin, 'Davi Convidado', 'd@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1)
     assert (Pessoa.objects.count(), Concessao.objects.count()) == (antes_pessoas, antes_concessoes)
 
 
@@ -270,7 +337,8 @@ def test_revogar_grava_quem_e_quando_e_a_requisicao_seguinte_e_negada(cenario, f
     titular, concessao = _revogavel(cenario, fabrica_pessoa, conceder_direto)
     assert pode(_recarregar(titular), 'ver', cenario.f1) is True
     revogar_concessao(curador, concessao)
-    assert concessao.revogada_por == curador and concessao.revogada_em is not None
+    assert concessao.revogada_por == curador
+    assert concessao.revogada_em is not None
     assert pode(_recarregar(titular), 'ver', cenario.f1) is False
 
 
@@ -336,6 +404,14 @@ def test_titular_transfere_o_titulo_e_a_protecao_acompanha(cenario, titulares):
     assert erro.value.code == 'titular_protegido'
     revogar_concessao(titulares.outro, titulares.de_titular)  # o antigo titular é Administrador comum
     assert titulares.de_titular.revogada_em is not None
+
+
+def test_novo_titular_com_concessao_de_prazo_e_recusado(cenario, titulares, fabrica_pessoa, conceder_direto):
+    com_prazo = fabrica_pessoa('Admin com prazo')
+    conceder_direto(com_prazo, cenario.cargos_x['administrador'], cenario.x, fim=timezone.now() + timedelta(days=30))
+    with pytest.raises(ValidationError) as erro:
+        transferir_titularidade(titulares.titular, cenario.x, com_prazo)
+    assert erro.value.code == 'titular_invalido'
 
 
 def test_so_o_titular_ou_a_plataforma_transferem(cenario, titulares, plataforma, fabrica_pessoa, conceder_direto):
@@ -404,9 +480,10 @@ def test_transferir_e_revogar_ao_mesmo_tempo_nunca_deixam_titular_sem_concessao(
     cargo = Cargo.objects.create(empresa=empresa, nome='Administrador', base='administrador')
     titular, outro = fabrica_pessoa('Titular'), fabrica_pessoa('Outro Admin')
     conceder_direto(titular, cargo, empresa)
-    de_outro = conceder_direto(outro, cargo, empresa)
+    inesperados = []
     for _ in range(15):
-        Concessao.objects.filter(pk=de_outro.pk).update(revogada_em=None, revogada_por=None)
+        outro = fabrica_pessoa('Outro Admin')  # revogada não volta: pessoa e concessão novas por volta
+        de_outro = conceder_direto(outro, cargo, empresa)
         Empresa.objects.filter(pk=empresa.pk).update(titular=titular)
         largada = threading.Barrier(2)
 
@@ -416,6 +493,8 @@ def test_transferir_e_revogar_ao_mesmo_tempo_nunca_deixam_titular_sem_concessao(
                 funcao()
             except (ValidationError, PermissionDenied):
                 pass  # a recusa é um desfecho válido da corrida
+            except Exception as erro:  # deadlock e afins: não podem ficar escondidos na thread
+                inesperados.append(repr(erro))
             finally:
                 connection.close()
 
@@ -431,6 +510,7 @@ def test_transferir_e_revogar_ao_mesmo_tempo_nunca_deixam_titular_sem_concessao(
         de_outro.refresh_from_db()
         # Titular com a concessão revogada é o estado proibido (R23).
         assert not (empresa.titular_id == outro.pk and de_outro.revogada_em is not None)
+    assert inesperados == []
 
 
 # Transacional: o teste esvazia as tabelas ao fim, inclusive o catálogo da migração; por isso não usa `cenario`

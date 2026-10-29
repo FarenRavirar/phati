@@ -104,17 +104,27 @@ def test_trocar_a_categoria_de_lugar_tambem_e_validado(cenario, partes):
     alheia = CategoriaDado.objects.create(empresa=cenario.y, nome='Alheia')
     concessao = Concessao.objects.create(cargo=cenario.cargos_x['tecnico'], empresa=cenario.x, **partes)
     ligacao = ConcessaoCategoria.objects.create(concessao=concessao, categoria=solo)
+    consulta = ConcessaoCategoria.objects.filter(pk=ligacao.pk)
     with pytest.raises(IntegrityError, match='categoria de outra empresa'), transaction.atomic():
-        ConcessaoCategoria.objects.filter(pk=ligacao.pk).update(categoria=alheia)
+        consulta.update(categoria=alheia)
+
+
+def test_empresa_da_categoria_nao_muda(cenario):
+    solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    consulta = CategoriaDado.objects.filter(pk=solo.pk)
+    with pytest.raises(IntegrityError, match='a empresa não muda'), transaction.atomic():
+        consulta.update(empresa=cenario.y)
+    assert consulta.update(nome='Solo renomeado') == 1
 
 
 def test_base_e_empresa_do_cargo_nao_mudam(cenario):
     cargo = cenario.cargos_x['usuario']
+    consulta = Cargo.objects.filter(pk=cargo.pk)
     with pytest.raises(IntegrityError, match='base e empresa'), transaction.atomic():
-        Cargo.objects.filter(pk=cargo.pk).update(base='curador')
+        consulta.update(base='curador')
     with pytest.raises(IntegrityError, match='base e empresa'), transaction.atomic():
-        Cargo.objects.filter(pk=cargo.pk).update(empresa=cenario.y)
-    assert Cargo.objects.filter(pk=cargo.pk).update(nome='Usuário renomeado') == 1
+        consulta.update(empresa=cenario.y)
+    assert consulta.update(nome='Usuário renomeado') == 1
 
 
 def test_base_invalida_e_nome_repetido_na_empresa_sao_recusados(cenario):
@@ -134,22 +144,47 @@ def test_concessao_so_muda_o_fim_e_a_revogacao(cenario, partes):
         {'concedida_por': partes['pessoa']},
         {'inicio': timezone.now() - timedelta(days=9)},
     ]
+    consulta = Concessao.objects.filter(pk=concessao.pk)
     for troca in trocas:
         with pytest.raises(IntegrityError, match='só o fim e a revogação'), transaction.atomic():
-            Concessao.objects.filter(pk=concessao.pk).update(**troca)
+            consulta.update(**troca)
     agora = timezone.now()
-    assert Concessao.objects.filter(pk=concessao.pk).update(fim=agora + timedelta(days=30)) == 1
-    assert Concessao.objects.filter(pk=concessao.pk).update(revogada_em=agora, revogada_por=partes['concedida_por']) == 1
+    assert consulta.update(fim=agora + timedelta(days=30)) == 1
+    assert consulta.update(revogada_em=agora, revogada_por=partes['concedida_por']) == 1
+
+
+def test_concessao_revogada_nao_volta_a_valer(cenario, partes):
+    concessao = Concessao.objects.create(cargo=cenario.cargos_x['usuario'], empresa=cenario.x, **partes)
+    consulta = Concessao.objects.filter(pk=concessao.pk)
+    agora = timezone.now()
+    assert consulta.update(revogada_em=agora, revogada_por=partes['concedida_por']) == 1
+    with pytest.raises(IntegrityError, match='revogada não volta'), transaction.atomic():
+        consulta.update(revogada_em=None, revogada_por=None)
+    with pytest.raises(IntegrityError, match='revogada não volta'), transaction.atomic():
+        consulta.update(revogada_por=partes['pessoa'])
+
+
+def test_concessao_de_administrador_do_titular_nao_ganha_prazo(cenario, partes):
+    concessao = Concessao.objects.create(cargo=cenario.cargos_x['administrador'], empresa=cenario.x, **partes)
+    cenario.x.titular = partes['pessoa']
+    cenario.x.save(update_fields=['titular'])
+    consulta = Concessao.objects.filter(pk=concessao.pk)
+    with pytest.raises(IntegrityError, match='o titular não tem prazo'), transaction.atomic():
+        consulta.update(fim=timezone.now() + timedelta(days=1))
+    outra = Concessao.objects.create(cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f1, **partes)
+    assert Concessao.objects.filter(pk=outra.pk).update(fim=timezone.now() + timedelta(days=1)) == 1
 
 
 def test_sub_area_e_fazenda_com_concessao_nao_mudam_de_dono(cenario, partes):
     Concessao.objects.create(
         cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f1, sub_area=cenario.g1, **partes
     )
+    sub_areas = SubArea.objects.filter(pk=cenario.g1.pk)
+    fazendas = Fazenda.objects.filter(pk=cenario.f1.pk)
     with pytest.raises(IntegrityError), transaction.atomic():
-        SubArea.objects.filter(pk=cenario.g1.pk).update(fazenda=cenario.f2)
+        sub_areas.update(fazenda=cenario.f2)
     with pytest.raises(IntegrityError), transaction.atomic():
-        Fazenda.objects.filter(pk=cenario.f1.pk).update(empresa=cenario.y)
+        fazendas.update(empresa=cenario.y)
 
 
 @pytest.mark.django_db(databases=['default', 'app'])
