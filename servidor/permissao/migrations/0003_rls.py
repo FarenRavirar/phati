@@ -76,20 +76,23 @@ def criar(apps, schema_editor):
     ])
     _executar(schema_editor, [f'ALTER FUNCTION {nome}() SECURITY DEFINER' for nome in GATILHOS_COMO_DONO])
     for tabela, expressao in POLITICAS.items():
-        schema_editor.execute(f'ALTER TABLE {tabela} ENABLE ROW LEVEL SECURITY')
-        schema_editor.execute(f'CREATE POLICY escopo ON {tabela} FOR ALL USING ({PLATAFORMA} OR {expressao})')
+        nome = schema_editor.quote_name(tabela)
+        schema_editor.execute(f'ALTER TABLE {nome} ENABLE ROW LEVEL SECURITY')
+        schema_editor.execute(f'CREATE POLICY escopo ON {nome} FOR ALL USING ({PLATAFORMA} OR {expressao})')
     for tabela, coluna in LEITURA_POR_FAZENDA.items():
         schema_editor.execute(
-            f"CREATE POLICY leitura_por_fazenda ON {tabela} FOR SELECT USING (app_lista_contem('app.empresas_de_fazendas', {coluna}))"
+            f"CREATE POLICY leitura_por_fazenda ON {schema_editor.quote_name(tabela)} FOR SELECT "
+            f"USING (app_lista_contem('app.empresas_de_fazendas', {schema_editor.quote_name(coluna)}))"
         )
 
 
 def remover(apps, schema_editor):
     for tabela in LEITURA_POR_FAZENDA:
-        schema_editor.execute(f'DROP POLICY leitura_por_fazenda ON {tabela}')
+        schema_editor.execute(f'DROP POLICY leitura_por_fazenda ON {schema_editor.quote_name(tabela)}')
     for tabela in POLITICAS:
-        schema_editor.execute(f'DROP POLICY escopo ON {tabela}')
-        schema_editor.execute(f'ALTER TABLE {tabela} DISABLE ROW LEVEL SECURITY')
+        nome = schema_editor.quote_name(tabela)
+        schema_editor.execute(f'DROP POLICY escopo ON {nome}')
+        schema_editor.execute(f'ALTER TABLE {nome} DISABLE ROW LEVEL SECURITY')
     _executar(schema_editor, [f'ALTER FUNCTION {nome}() SECURITY INVOKER' for nome in GATILHOS_COMO_DONO])
     schema_editor.execute('DROP FUNCTION vinculos_da_pessoa(bigint, timestamptz)')
     schema_editor.execute('DROP FUNCTION app_lista_contem(text, bigint)')

@@ -456,3 +456,19 @@ def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
     with connection.schema_editor() as editor:
         migracao.criar(None, editor)
     assert _tabelas_sem_rls_nem_excecao() == set()
+
+
+def test_administrador_de_cargo_enxuto_convida_e_revoga_sob_rls(mundo, como_app, cpf_novo, fabrica_pessoa, conceder_direto, plataforma):
+    # D043: o Administrador conta como quem tem `convidar_pessoa` e `revogar_acesso` mesmo sem listá-las no cargo;
+    # o escopo de RLS dessas ações segue a regra (achado do Codex, PR #12).
+    with com_permissao(plataforma, 'ver'):  # montagem do cenário: o papel `app` só grava com escopo
+        enxuto = Cargo.objects.create(empresa=mundo.x, nome='Admin enxuto', base='administrador')
+        CargoPermissao.objects.create(cargo=enxuto, permissao_id='ver')
+        admin = fabrica_pessoa('Admin Enxuto')
+        conceder_direto(admin, enxuto, mundo.f1)
+    admin = _como(mundo, admin)
+    with com_permissao(admin, 'convidar_pessoa', 'revogar_acesso'):
+        pessoa, _ = convidar(admin, 'Nova', 'nova@exemplo.test', cpf_novo(), mundo.usuario_x, mundo.f1)
+        nova = Concessao.objects.get(pessoa_id=pessoa.pk)
+        revogar_concessao(admin, nova)
+        assert Concessao.objects.get(pk=nova.pk).revogada_em is not None

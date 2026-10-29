@@ -51,12 +51,6 @@ def _nivel_permite(base_de_quem, base_do_cargo):
     return base_de_quem == 'administrador' or NIVEL_DA_BASE[base_de_quem] > NIVEL_DA_BASE[base_do_cargo]
 
 
-def _tem(vinculo, acao):
-    """O Administrador conta como quem tem todo o catálogo no escopo (D043), mesmo que o cargo dele, personalizado,
-    não liste `acao` (achado do Sourcery, PR #11)."""
-    return vinculo.base == 'administrador' or acao in vinculo.permissoes
-
-
 def _fim_cabe(vinculo, fim):
     """O acesso concedido não sobrevive à concessão de quem concede (achado do Qodo, PR #11; inferência a confirmar)."""
     limite = vinculo.concessao.fim
@@ -65,7 +59,7 @@ def _fim_cabe(vinculo, fim):
 
 def _concede(vinculo, memoria, proposta, alvo, concedidas, pedidas):
     """Uma concessão de quem concede satisfaz todas as regras de R10 para a proposta?"""
-    if not _tem(vinculo, 'convidar_pessoa') or not vinculo.cobre(alvo):
+    if not vinculo.tem('convidar_pessoa') or not vinculo.cobre(alvo):
         return False
     if not _nivel_permite(vinculo.base, proposta.cargo.base) or not _fim_cabe(vinculo, proposta.fim):
         return False
@@ -153,7 +147,7 @@ def _pode_revogar(quem, concessao):
         return True
     alvo = _alvo_da_concessao(concessao)
     return any(
-        _tem(vinculo, 'revogar_acesso')
+        vinculo.tem('revogar_acesso')
         and vinculo.cobre(alvo)
         and _nivel_permite(vinculo.base, concessao.cargo.base)
         for vinculo in memoria_de(quem).vinculos

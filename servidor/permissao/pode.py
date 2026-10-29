@@ -19,6 +19,9 @@ from territorio.models import Empresa, Fazenda, SubArea
 
 # Ações que só o Administrador da plataforma exerce; nenhum cargo as concede, mesmo que `cargo_permissao` as traga.
 ACOES_DA_PLATAFORMA = frozenset({'criar_empresa'})
+# O Administrador conta como quem tem estas, mesmo que o cargo personalizado não as liste (D043); o escopo de RLS
+# delas segue a mesma regra, senão o papel `app` barraria o que `pode_conceder` autoriza.
+ACOES_DE_DELEGACAO = frozenset({'convidar_pessoa', 'revogar_acesso'})
 _ATRIBUTO_MEMORIA = '_memoria_do_pode'
 
 
@@ -56,6 +59,10 @@ class Vinculo:
     base: str
     permissoes: frozenset[str]
     categorias: frozenset[int]
+
+    def tem(self, acao):
+        """O Administrador conta como quem tem todo o catálogo no escopo (D043); os demais, só o que o cargo lista."""
+        return self.base == 'administrador' or acao in self.permissoes
 
     def cobre(self, alvo):
         """Empresa cobre tudo dela; fazenda cobre as sub-áreas; sub-área cobre os descendentes pelo `caminho`."""
@@ -173,7 +180,11 @@ def escopos_da_acao(pessoa, acao):
         return Escopos(plataforma=True)
     if acao in ACOES_DA_PLATAFORMA:
         return Escopos()
-    concessoes = [vinculo.concessao for vinculo in memoria.vinculos if acao in vinculo.permissoes]
+    concessoes = [
+        vinculo.concessao
+        for vinculo in memoria.vinculos
+        if (vinculo.tem(acao) if acao in ACOES_DE_DELEGACAO else acao in vinculo.permissoes)
+    ]
     return Escopos(
         empresas=frozenset(c.empresa_id for c in concessoes if c.fazenda_id is None),
         fazendas=frozenset(c.fazenda_id for c in concessoes if c.fazenda_id is not None and c.sub_area_id is None),
