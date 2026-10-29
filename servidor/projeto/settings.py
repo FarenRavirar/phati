@@ -18,10 +18,23 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
     'django.contrib.sessions',
+    # API JSON `/api/v1/` (T5.1); precisa estar aqui para o comando `export_openapi_schema` existir.
+    'ninja',
     'identidade',
     'territorio',
     'permissao',
 ]
+
+# Sessão e CSRF só para a API (cookie de navegador); a ordem é a que o Django exige: sessão antes de autenticação.
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+]
+# O segredo do link de redefinição vai no fragmento da URL (nunca chega ao servidor) e, por garantia, nenhuma
+# resposta deixa o navegador mandar a URL de origem a terceiros (T5.5a item 1; OWASP Forgot Password Cheat Sheet).
+SECURE_REFERRER_POLICY = 'no-referrer'
 
 ROOT_URLCONF = 'projeto.urls'
 

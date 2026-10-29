@@ -133,21 +133,14 @@ def test_pedido_trava_a_pessoa_para_nao_deixar_dois_links_validos(pessoa):
     assert any('FOR NO KEY UPDATE' in c['sql'] and '"pessoa"' in c['sql'] for c in consultas)
 
 
-def test_falha_do_smtp_desfaz_o_pedido_e_mantem_o_link_anterior(pessoa, mailoutbox, monkeypatch):
-    t0 = timezone.now()
-    _agora_em(monkeypatch, t0)
-    redefinicao.pedir_redefinicao(CPF)
-    anterior = _segredo(mailoutbox)
-    _agora_em(monkeypatch, t0 + timedelta(minutes=2))
-
+def test_falha_do_smtp_nao_aparece_na_resposta_do_pedido(pessoa, monkeypatch):
+    # Se a falha subisse, só CPF existente daria erro: oráculo de CPF cadastrado (T5.5a 4 e 5).
     def falha(*_):
         raise OSError('smtp fora')
 
-    monkeypatch.setattr(email, 'enviar_link_de_redefinicao', falha)
-    with pytest.raises(OSError):
-        redefinicao.pedir_redefinicao(CPF)
-    assert PedidoRedefinicao.objects.count() == 1
-    redefinicao.confirmar_redefinicao(anterior, NOVA)
+    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+    assert redefinicao.pedir_redefinicao(CPF) is None
+    assert redefinicao.pedir_redefinicao('00000000000') is None
 
 
 def test_apagar_pessoa_que_pediu_a_propria_redefinicao_funciona(pessoa):

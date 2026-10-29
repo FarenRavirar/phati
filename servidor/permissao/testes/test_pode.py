@@ -305,3 +305,23 @@ def test_com_permissao_inclui_a_fazenda_das_sub_areas(pessoa, cenario, conceder_
 def test_com_permissao_sem_concessao_nao_abre_escopo(pessoa, cenario):
     with com_permissao(pessoa, 'ver'):
         assert _variaveis_de_rls() == ('', '')
+
+
+def test_decorador_de_listagem_abre_o_bloco_sem_chamar_pode_e_marca_a_rota(pessoa, cenario):
+    # Sem alvo, `pode()` só passaria a plataforma; a listagem filtra por escopo e devolve vazio a quem não tem concessão.
+    @exige_permissao('ver', listagem=True)
+    def rota(requisicao):
+        return _variaveis_de_rls()
+
+    assert rota(SimpleNamespace(user=pessoa)) is not None
+    assert getattr(rota, 'listagem') is True and getattr(rota, 'acao_exigida') == 'ver'
+
+
+def test_decorador_sem_listagem_mantem_pode_e_marca_listagem_falsa(pessoa, cenario):
+    @exige_permissao('ver', lambda requisicao: cenario.f1)
+    def rota(requisicao):
+        return 'ok'
+
+    assert getattr(rota, 'listagem') is False
+    with pytest.raises(PermissionDenied):
+        rota(SimpleNamespace(user=pessoa))

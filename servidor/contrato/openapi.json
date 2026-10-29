@@ -1,0 +1,675 @@
+{
+  "components": {
+    "schemas": {
+      "EntradaConfirmarRedefinicao": {
+        "properties": {
+          "segredo": {
+            "title": "Segredo",
+            "type": "string"
+          },
+          "senha_nova": {
+            "title": "Senha Nova",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segredo",
+          "senha_nova"
+        ],
+        "title": "EntradaConfirmarRedefinicao",
+        "type": "object"
+      },
+      "EntradaEmpresa": {
+        "properties": {
+          "cpf_administrador": {
+            "title": "Cpf Administrador",
+            "type": "string"
+          },
+          "email_administrador": {
+            "title": "Email Administrador",
+            "type": "string"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "nome_administrador": {
+            "title": "Nome Administrador",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nome",
+          "nome_administrador",
+          "email_administrador",
+          "cpf_administrador"
+        ],
+        "title": "EntradaEmpresa",
+        "type": "object"
+      },
+      "EntradaEntrar": {
+        "properties": {
+          "cpf": {
+            "title": "Cpf",
+            "type": "string"
+          },
+          "dispositivo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispositivo"
+          },
+          "senha": {
+            "title": "Senha",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpf",
+          "senha"
+        ],
+        "title": "EntradaEntrar",
+        "type": "object"
+      },
+      "EntradaNome": {
+        "properties": {
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nome"
+        ],
+        "title": "EntradaNome",
+        "type": "object"
+      },
+      "EntradaRenovar": {
+        "properties": {
+          "segredo": {
+            "title": "Segredo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segredo"
+        ],
+        "title": "EntradaRenovar",
+        "type": "object"
+      },
+      "EntradaSolicitarRedefinicao": {
+        "properties": {
+          "cpf": {
+            "title": "Cpf",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpf"
+        ],
+        "title": "EntradaSolicitarRedefinicao",
+        "type": "object"
+      },
+      "EntradaSubArea": {
+        "properties": {
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "pai_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pai Id"
+          }
+        },
+        "required": [
+          "nome"
+        ],
+        "title": "EntradaSubArea",
+        "type": "object"
+      },
+      "EntradaTrocarSenha": {
+        "properties": {
+          "senha_atual": {
+            "title": "Senha Atual",
+            "type": "string"
+          },
+          "senha_nova": {
+            "title": "Senha Nova",
+            "type": "string"
+          }
+        },
+        "required": [
+          "senha_atual",
+          "senha_nova"
+        ],
+        "title": "EntradaTrocarSenha",
+        "type": "object"
+      },
+      "SaidaEmpresa": {
+        "properties": {
+          "administrador_id": {
+            "title": "Administrador Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "senha_temporaria": {
+            "title": "Senha Temporaria",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "administrador_id",
+          "senha_temporaria"
+        ],
+        "title": "SaidaEmpresa",
+        "type": "object"
+      },
+      "SaidaEntrar": {
+        "properties": {
+          "deve_trocar_senha": {
+            "title": "Deve Trocar Senha",
+            "type": "boolean"
+          },
+          "segredo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segredo"
+          }
+        },
+        "required": [
+          "deve_trocar_senha"
+        ],
+        "title": "SaidaEntrar",
+        "type": "object"
+      },
+      "SaidaErro": {
+        "properties": {
+          "detalhe": {
+            "title": "Detalhe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detalhe"
+        ],
+        "title": "SaidaErro",
+        "type": "object"
+      },
+      "SaidaFazenda": {
+        "properties": {
+          "empresa_id": {
+            "title": "Empresa Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "empresa_id"
+        ],
+        "title": "SaidaFazenda",
+        "type": "object"
+      },
+      "SaidaRenovar": {
+        "properties": {
+          "segredo": {
+            "title": "Segredo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segredo"
+        ],
+        "title": "SaidaRenovar",
+        "type": "object"
+      },
+      "SaidaSubArea": {
+        "properties": {
+          "fazenda_id": {
+            "title": "Fazenda Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nivel": {
+            "title": "Nivel",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "nivel",
+          "fazenda_id"
+        ],
+        "title": "SaidaSubArea",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "AutenticacaoAplicativo": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "AutenticacaoNavegador": {
+        "in": "cookie",
+        "name": "sessionid",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "",
+    "title": "phati",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/acesso/renovar": {
+      "post": {
+        "operationId": "identidade_api_renovar_acesso",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRenovar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaRenovar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaErro"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Renovar Acesso",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/empresas": {
+      "post": {
+        "operationId": "territorio_api_criar_empresa",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmpresa"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaEmpresa"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoNavegador": []
+          },
+          {
+            "AutenticacaoAplicativo": []
+          }
+        ],
+        "summary": "Criar Empresa",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/empresas/{empresa_id}/fazendas": {
+      "post": {
+        "operationId": "territorio_api_criar_fazenda",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "empresa_id",
+            "required": true,
+            "schema": {
+              "title": "Empresa Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaNome"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaFazenda"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoNavegador": []
+          },
+          {
+            "AutenticacaoAplicativo": []
+          }
+        ],
+        "summary": "Criar Fazenda",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/entrar": {
+      "post": {
+        "operationId": "identidade_api_entrar",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEntrar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaEntrar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaErro"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Entrar",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/fazendas": {
+      "get": {
+        "operationId": "territorio_api_listar_fazendas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaFazenda"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoNavegador": []
+          },
+          {
+            "AutenticacaoAplicativo": []
+          }
+        ],
+        "summary": "Listar Fazendas",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/fazendas/{fazenda_id}/sub-areas": {
+      "post": {
+        "operationId": "territorio_api_criar_sub_area",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fazenda_id",
+            "required": true,
+            "schema": {
+              "title": "Fazenda Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaSubArea"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaSubArea"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoNavegador": []
+          },
+          {
+            "AutenticacaoAplicativo": []
+          }
+        ],
+        "summary": "Criar Sub Area",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/redefinir-senha/confirmar": {
+      "post": {
+        "operationId": "identidade_api_confirmar_redefinicao",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConfirmarRedefinicao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Confirmar Redefinicao",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/redefinir-senha/solicitar": {
+      "post": {
+        "operationId": "identidade_api_solicitar_redefinicao",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaSolicitarRedefinicao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Solicitar Redefinicao",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/sair": {
+      "post": {
+        "operationId": "identidade_api_sair",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoNavegador": []
+          },
+          {
+            "AutenticacaoAplicativo": []
+          }
+        ],
+        "summary": "Sair",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/trocar-senha": {
+      "post": {
+        "operationId": "identidade_api_trocar_senha",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaTrocarSenha"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoNavegador": []
+          },
+          {
+            "AutenticacaoAplicativo": []
+          }
+        ],
+        "summary": "Trocar Senha",
+        "tags": [
+          "identidade"
+        ]
+      }
+    }
+  },
+  "servers": []
+}

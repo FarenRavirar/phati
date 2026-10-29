@@ -105,8 +105,8 @@ def trocar_senha(pessoa, senha_atual, senha_nova):
 def emitir_senha_temporaria(pessoa):
     """Gera a senha temporária (uso único, 72 h), grava só o hash, envia por e-mail e a devolve a quem criou.
 
-    Gravação e envio ficam na mesma transação: se o SMTP falhar, a exceção desfaz a troca e a pessoa
-    segue com a credencial anterior (achado do Qodo, PR #9).
+    O e-mail sai depois do commit; a senha volta a quem chama, então falha do SMTP (só log) não deixa a pessoa
+    sem acesso (achado do Qodo, PR #9; T5.5a 4 e 5).
     """
     senha = ''.join(secrets.choice(ALFABETO_TEMPORARIA) for _ in range(16))
     with _pessoa_travada(pessoa) as travada:

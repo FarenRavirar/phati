@@ -79,9 +79,6 @@ permission:
     "ssh *": ask
     "scp *": ask
   task: deny
-  "codebase-memory*": allow
-  "codebase_memory*": allow
-  "mcp__codebase_memory__*": allow
 ---
 
 # Papel

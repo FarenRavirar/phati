@@ -93,6 +93,21 @@ def renovar_acesso(segredo):
         return pessoa, _emitir(pessoa, acesso.dispositivo, agora, acesso.entrada_em)
 
 
+def pessoa_do_acesso(segredo):
+    """Pessoa dona do acesso vigente, sem rotacionar o segredo. `None` para segredo desconhecido, revogado ou vencido."""
+    acesso = (
+        AcessoAplicativo.objects.select_related('pessoa')
+        .filter(hash_segredo=hash_do_segredo(segredo), revogado_em__isnull=True, expira_em__gt=timezone.now())
+        .first()
+    )
+    return acesso.pessoa if acesso else None
+
+
+def revogar_acesso(segredo):
+    """Encerra só este acesso (um dispositivo); `revogar_acessos` encerra todos da pessoa."""
+    AcessoAplicativo.objects.filter(hash_segredo=hash_do_segredo(segredo), revogado_em__isnull=True).update(revogado_em=timezone.now())
+
+
 def revogar_acessos(pessoa):
     # Sozinha, a revogação também trava a pessoa antes dos acessos, a ordem de emitir e renovar (achado do
     # CodeRabbit, PR #9); dentro de definir_senha a trava já existe e esta é reentrante.

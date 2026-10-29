@@ -49,8 +49,9 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
     agora = timezone.now()
     segredo = secrets.token_urlsafe(16)
     with transaction.atomic():
-        # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O envio fica
-        # dentro da transação: se o SMTP falhar, o link anterior continua valendo (achados do Qodo, PR #9).
+        # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O e-mail sai
+        # depois do commit (`email.py`): rollback não envia link de pedido que não existe, e falha do SMTP não
+        # chega à resposta, que seria um oráculo de CPF cadastrado.
         # `no_key`: `solicitado_por` aponta para outra pessoa e a FK pede KEY SHARE; FOR UPDATE daria deadlock com
         # duas redefinições cruzadas (mesma classe do achado do Codex no PR #11).
         Pessoa.objects.select_for_update(no_key=True).get(pk=alvo.pk)

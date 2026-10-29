@@ -1,9 +1,12 @@
 """A6 (R6): só três modelos de mensagem, e todo envio passa por eles."""
 
 import re
+import smtplib
 from pathlib import Path
 
+import pytest
 from django.conf import settings
+from django.db import transaction
 
 from identidade import email
 
@@ -36,3 +39,37 @@ def test_nenhum_outro_modulo_envia_email():
         and envio.search(arquivo.read_text(encoding='utf-8'))
     ]
     assert fora == []
+
+
+class _Desfaz(Exception):
+    pass
+
+
+def test_rollback_da_transacao_nao_envia_o_email(pessoa, mailoutbox, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True) as chamadas:
+        with pytest.raises(_Desfaz):
+            with transaction.atomic():
+                email.enviar_aviso_de_troca(pessoa)
+                raise _Desfaz
+    assert chamadas == []
+    assert mailoutbox == []
+
+
+def test_email_so_sai_depois_do_commit(pessoa, mailoutbox, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True) as chamadas:
+        email.enviar_aviso_de_troca(pessoa)
+        assert mailoutbox == []
+    assert len(chamadas) == 1
+    assert len(mailoutbox) == 1
+
+
+def test_falha_do_smtp_vai_para_o_log_sem_senha_nem_texto_da_excecao(pessoa, monkeypatch, caplog):
+    def falha(*_):
+        raise smtplib.SMTPException('texto-da-excecao')
+
+    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+    email.enviar_senha_temporaria(pessoa, 'ABC123')
+    assert 'senha_temporaria' in caplog.text
+    assert 'SMTPException' in caplog.text
+    assert 'ABC123' not in caplog.text
+    assert 'texto-da-excecao' not in caplog.text

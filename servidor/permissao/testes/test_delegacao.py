@@ -303,18 +303,17 @@ def test_convite_negado_por_nivel_nao_cria_pessoa_nem_envia_email(cenario, fabri
     assert mailoutbox == []
 
 
-def test_smtp_que_falha_desfaz_o_convite_inteiro(cenario, fabrica_pessoa, conceder_direto, cpf_novo, monkeypatch):
+def test_smtp_que_falha_nao_desfaz_o_convite(cenario, fabrica_pessoa, conceder_direto, cpf_novo, monkeypatch):
+    # O e-mail sai depois do commit (T5.5a 4 e 5): falha de SMTP vira log, a concessão fica de pé.
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
 
-    def falha(pessoa, senha):
+    def falha(*_):
         raise smtplib.SMTPException('fora do ar')
 
-    monkeypatch.setattr(email, 'enviar_senha_temporaria', falha)
-    antes_pessoas, antes_concessoes = Pessoa.objects.count(), Concessao.objects.count()
-    cpf = cpf_novo()
-    with pytest.raises(smtplib.SMTPException):
-        convidar(admin, 'Davi Convidado', 'd@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1)
-    assert (Pessoa.objects.count(), Concessao.objects.count()) == (antes_pessoas, antes_concessoes)
+    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+    antes = Concessao.objects.count()
+    convidar(admin, 'Davi Convidado', 'd@exemplo.test', cpf_novo(), cenario.cargos_x['usuario'], cenario.f1)
+    assert Concessao.objects.count() == antes + 1
 
 
 def test_convite_com_cpf_ja_cadastrado_levanta_cpf_duplicado(cenario, fabrica_pessoa, conceder_direto, cpf_novo):

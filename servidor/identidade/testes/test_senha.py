@@ -113,17 +113,17 @@ def test_trocar_senha_revoga_os_acessos_do_aplicativo(pessoa):
     assert renovar_acesso(segredo) is None
 
 
-def test_falha_do_smtp_desfaz_a_senha_temporaria_e_mantem_a_anterior(pessoa, monkeypatch):
-    # Achado do Qodo (PR #9): senha trocada sem e-mail e sem retorno deixava a pessoa sem acesso.
+def test_falha_do_smtp_nao_desfaz_a_senha_temporaria_que_volta_a_quem_criou(pessoa, monkeypatch):
+    # Achado do Qodo (PR #9) tratado em T5.5a 4 e 5: a senha temporária volta ao Administrador que a emitiu,
+    # então a falha do e-mail (pós-commit, só log) não deixa a pessoa sem acesso.
     def falha(*_):
         raise OSError('smtp fora')
 
-    monkeypatch.setattr(senha.email, 'enviar_senha_temporaria', falha)
-    with pytest.raises(OSError):
-        senha.emitir_senha_temporaria(pessoa)
+    monkeypatch.setattr(senha.email.EmailMessage, 'send', falha)
+    temporaria = senha.emitir_senha_temporaria(pessoa)
     pessoa.refresh_from_db()
-    assert pessoa.check_password(SENHA)
-    assert not pessoa.deve_trocar_senha
+    assert pessoa.check_password(temporaria)
+    assert pessoa.deve_trocar_senha
 
 
 def test_troca_e_emissao_travam_a_pessoa(pessoa):
