@@ -13,6 +13,8 @@ from django.utils import timezone
 
 from identidade import cpf, email, senha, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
+from permissao.models import concessoes_ativas
+from permissao.pode import administrador_da_empresa
 
 VALIDADE = timedelta(minutes=10)
 TENTATIVAS_POR_PEDIDO = 5
@@ -21,9 +23,14 @@ INTERVALO_ENTRE_PEDIDOS = timedelta(minutes=1)
 
 
 def pode_iniciar_redefinicao(solicitante, alvo):
-    # shortcut: falta o Administrador de empresa com origem ou concessão ativa sobre `alvo` (T3.4a), que depende de
-    # cargo e concessão da Fase 3; até lá só a própria pessoa e o Administrador da plataforma.
-    return solicitante.pk == alvo.pk or solicitante.administrador_plataforma
+    """R5: a própria pessoa, o Administrador da plataforma e o Administrador da empresa de origem de `alvo` ou de
+    empresa onde `alvo` tem concessão ativa (colaborador externo). Técnico e empresa sem vínculo não."""
+    if solicitante.pk == alvo.pk or solicitante.administrador_plataforma:
+        return True
+    empresas = set(concessoes_ativas().filter(pessoa=alvo).values_list('empresa_id', flat=True))
+    if alvo.empresa_origem_id is not None:
+        empresas.add(alvo.empresa_origem_id)
+    return any(administrador_da_empresa(solicitante, empresa_id) for empresa_id in empresas)
 
 
 def pedir_redefinicao(cpf_texto, solicitante=None):
@@ -43,7 +50,9 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
     with transaction.atomic():
         # Trava a pessoa: dois pedidos simultâneos se serializam e só o último link fica de pé. O envio fica
         # dentro da transação: se o SMTP falhar, o link anterior continua valendo (achados do Qodo, PR #9).
-        Pessoa.objects.select_for_update().get(pk=alvo.pk)
+        # `no_key`: `solicitado_por` aponta para outra pessoa e a FK pede KEY SHARE; FOR UPDATE daria deadlock com
+        # duas redefinições cruzadas (mesma classe do achado do Codex no PR #11).
+        Pessoa.objects.select_for_update(no_key=True).get(pk=alvo.pk)
         # A criação do pedido é `expira_em - VALIDADE`; pedido recente, mesmo já usado, segura o novo.
         if PedidoRedefinicao.objects.filter(pessoa=alvo, expira_em__gt=agora + VALIDADE - INTERVALO_ENTRE_PEDIDOS).exists():
             return None
