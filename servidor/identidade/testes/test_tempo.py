@@ -23,13 +23,15 @@ ATRASO = 0.3  # SMTP lento simulado, em segundos
 FOLGA = 0.05  # diferença máxima aceita entre as medianas, em segundos
 
 
-def _mediana(cliente, rota, corpo, antes=lambda: None):
+def _mediana(cliente, rota, corpo, esperado, antes=lambda: None):
     tempos = []
     for _ in range(RODADAS):
         antes()
         inicio = time.perf_counter()
-        cliente.post(rota, json.dumps(corpo), content_type='application/json')
+        resposta = cliente.post(rota, json.dumps(corpo), content_type='application/json')
         tempos.append(time.perf_counter() - inicio)
+        # Pedido que falha rápido nos dois casos passaria no teste sem exercitar o caminho (Sourcery, PR #17).
+        assert resposta.status_code == esperado
     return statistics.median(tempos)
 
 
@@ -43,9 +45,9 @@ def test_pedido_de_redefinicao_com_smtp_lento_leva_o_mesmo_tempo_para_cpf_existe
     rota = '/api/v1/redefinir-senha/solicitar'
     cliente = Client()
     # Pedido recente segura o novo: sem apagar, só a primeira rodada pagaria o caminho inteiro.
-    existente = _mediana(cliente, rota, {'cpf': CPF}, antes=PedidoRedefinicao.objects.all().delete)
-    inexistente = _mediana(cliente, rota, {'cpf': cpf_novo()})
-    assert existente - inexistente < FOLGA
+    existente = _mediana(cliente, rota, {'cpf': CPF}, 204, antes=PedidoRedefinicao.objects.all().delete)
+    inexistente = _mediana(cliente, rota, {'cpf': cpf_novo()}, 204)
+    assert abs(existente - inexistente) < FOLGA
 
 
 def test_entrada_com_senha_errada_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo):
@@ -53,6 +55,6 @@ def test_entrada_com_senha_errada_leva_o_mesmo_tempo_para_cpf_existente_e_inexis
     cliente = Client()
     corpo = {'cpf': CPF, 'senha': 'senha errada de teste'}
     # Zera o contador: depois de algumas falhas a conta bloqueia e a rodada deixaria de gravar a falha.
-    existente = _mediana(cliente, rota, corpo, antes=lambda: Pessoa.objects.update(falhas_consecutivas=0, bloqueada_ate=None))
-    inexistente = _mediana(cliente, rota, {**corpo, 'cpf': cpf_novo()})
+    existente = _mediana(cliente, rota, corpo, 401, antes=lambda: Pessoa.objects.update(falhas_consecutivas=0, bloqueada_ate=None))
+    inexistente = _mediana(cliente, rota, {**corpo, 'cpf': cpf_novo()}, 401)
     assert abs(existente - inexistente) < FOLGA

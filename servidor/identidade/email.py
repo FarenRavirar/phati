@@ -7,14 +7,16 @@ dado gravado. Falha do SMTP não derruba quem chamou: vai para o log só com o m
 exceção (a mensagem carrega a senha temporária ou o link, e a exceção do backend pode citar o endereço). Quem
 perdeu a mensagem pede outra: o Administrador reenvia pela redefinição de senha (decisão a confirmar, T5.5a 4 e 5).
 
-O envio roda numa thread, depois da resposta: o SMTP (até `PHATI_EMAIL_PRAZO`) não entra no tempo da resposta, e CPF
-existente e inexistente não se distinguem por ele (T5.5c; OWASP Forgot Password, Django #31505). Sem fila durável: se o
-processo cair com a thread no meio, a mensagem se perde, como já se perdia na falha de SMTP (outbox é decisão de T5.5a 5).
+O envio roda numa thread única, depois da resposta: o SMTP (até `PHATI_EMAIL_PRAZO`) não entra no tempo da resposta, e CPF
+existente e inexistente não se distinguem por ele (T5.5c; OWASP Forgot Password, Django #31505). Uma thread só limita o
+consumo e entrega na ordem do commit (Sourcery e Greptile, PR #17); ela não é daemon, então a saída normal do processo
+espera a fila esvaziar. Sem fila durável: se o processo for morto, a mensagem se perde, como já se perdia na falha de
+SMTP (outbox é decisão de T5.5a 5).
 """
 
 import logging
 import smtplib
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 from django.conf import settings
@@ -39,9 +41,15 @@ def _enviar_agora(pessoa, modelo, assunto, corpo):
         registro.error('falha ao enviar o e-mail %s para a pessoa %s: %s', modelo, pessoa.pk, falha)
 
 
+_FILA = ThreadPoolExecutor(max_workers=1, thread_name_prefix='email')
+
+
 def _despachar(funcao):
-    # `daemon`: thread de e-mail não segura o encerramento do worker. O teste troca esta função pela chamada direta.
-    threading.Thread(target=funcao, daemon=True).start()
+    # O teste troca esta função pela chamada direta. Falha ao enfileirar não pode chegar ao `on_commit`: o dado já gravou.
+    try:
+        _FILA.submit(funcao)
+    except RuntimeError as erro:
+        registro.error('falha ao enfileirar o envio de e-mail: %s', type(erro).__name__)
 
 
 def _enviar(pessoa, modelo, assunto, corpo):

@@ -137,7 +137,7 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
                     raise
                 existente = Pessoa.objects.get(cpf_busca=busca)  # outro convite criou a pessoa entre a consulta e a gravação
         # CPF novo paga o Argon2 da senha temporária; o existente paga um equivalente, senão o tempo mostra o cadastro (T5.5c).
-        check_password('sem efeito', _HASH_FALSO)
+        check_password(cpf_texto, _HASH_FALSO)  # entrada qualquer: só o custo importa (Sonar S6437 recusa literal)
         _registrar(quem, existente, proposta, categorias, inicio)
     return None, None
 

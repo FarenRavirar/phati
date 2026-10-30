@@ -3,6 +3,7 @@
 import re
 import smtplib
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -167,3 +168,30 @@ def test_despacho_real_roda_o_envio_noutra_thread(monkeypatch):
     _DESPACHO_REAL(envio)
     assert terminou.wait(5)
     assert ids[0] != threading.get_ident()
+
+
+def test_despacho_real_entrega_na_ordem_e_com_uma_thread_so():
+    # Sourcery e Greptile, PR #17: uma thread por e-mail acumula sob SMTP lento e deixa a ordem do commit se perder.
+    ordem, threads, terminou = [], set(), threading.Event()
+
+    def envio(numero):
+        time.sleep(0.01 * (5 - numero))  # o primeiro é o mais lento: com threads soltas, chegaria por último
+        ordem.append(numero)
+        threads.add(threading.get_ident())
+        if numero == 4:
+            terminou.set()
+
+    for numero in range(5):
+        _DESPACHO_REAL(lambda n=numero: envio(n))
+    assert terminou.wait(5)
+    assert ordem == [0, 1, 2, 3, 4]
+    assert len(threads) == 1
+
+
+def test_falha_ao_enfileirar_nao_chega_a_quem_chamou(monkeypatch, caplog):
+    def recusar(funcao):
+        raise RuntimeError('fila encerrada')
+
+    monkeypatch.setattr(email._FILA, 'submit', recusar)
+    _DESPACHO_REAL(lambda: None)
+    assert 'falha ao enfileirar o envio de e-mail: RuntimeError' in caplog.text
