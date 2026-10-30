@@ -30,7 +30,7 @@ def test_pagina_nao_fica_em_cache_e_nao_vaza_referencia():
     assert b'/api/v1/redefinir-senha/confirmar' in resposta.content
 
 
-def test_pagina_so_aceita_get():
+def test_pagina_so_aceita_consulta():
     assert Client().post('/redefinir-senha').status_code == 405
 
 

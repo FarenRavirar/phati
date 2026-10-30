@@ -48,8 +48,9 @@ def _despachar(funcao):
     # O teste troca esta função pela chamada direta. Falha ao enfileirar não pode chegar ao `on_commit`: o dado já gravou.
     try:
         _FILA.submit(funcao)
-    except RuntimeError as erro:
-        registro.error('falha ao enfileirar o envio de e-mail: %s', type(erro).__name__)
+    except RuntimeError:
+        # Com traceback (Sonar, PR #17): o erro vem da fila, não do SMTP, então não leva endereço nem segredo.
+        registro.exception('falha ao enfileirar o envio de e-mail')
 
 
 def _enviar(pessoa, modelo, assunto, corpo):

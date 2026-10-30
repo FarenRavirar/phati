@@ -194,4 +194,5 @@ def test_falha_ao_enfileirar_nao_chega_a_quem_chamou(monkeypatch, caplog):
 
     monkeypatch.setattr(email._FILA, 'submit', recusar)
     _DESPACHO_REAL(lambda: None)
-    assert 'falha ao enfileirar o envio de e-mail: RuntimeError' in caplog.text
+    assert 'falha ao enfileirar o envio de e-mail' in caplog.text
+    assert 'RuntimeError: fila encerrada' in caplog.text  # traceback presente: `registro.exception`
