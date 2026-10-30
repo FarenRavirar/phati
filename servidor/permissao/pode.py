@@ -261,7 +261,11 @@ def permissoes_efetivas(pessoa, escopo=None):
             efetivas |= {
                 acao
                 for acao in ACOES_DE_DELEGACAO | {'gerenciar_cargo'}
-                if any(vinculo.tem(acao) and vinculo.cobre(alvo) for vinculo in memoria_de(pessoa).vinculos)
+                # Cargo é da empresa: `gerenciar_cargo` exige vínculo na empresa inteira (`cargo._pode_gerenciar`).
+                if any(
+                    vinculo.tem(acao) and vinculo.cobre(Alvo(alvo.empresa_id) if acao == 'gerenciar_cargo' else alvo)
+                    for vinculo in memoria_de(pessoa).vinculos
+                )
             }
         # `redefinir_senha` só vale a quem a rota aceita: a plataforma ou o Administrador da empresa (R5); cargo
         # personalizado de Curador ou Técnico com a ação passa em `pode()` e a rota recusa (Sourcery, PR #18).

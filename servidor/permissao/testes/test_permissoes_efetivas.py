@@ -81,3 +81,14 @@ def test_redefinir_senha_so_aparece_para_o_administrador_da_empresa(cenario, fab
     assert pode(curador, 'redefinir_senha', cenario.x)
     assert 'redefinir_senha' not in permissoes_efetivas(curador, cenario.x)
     assert 'redefinir_senha' in permissoes_efetivas(admin, cenario.x)
+
+
+def test_administrador_so_de_fazenda_nao_gerencia_cargo_mas_convida(cenario, fabrica_pessoa, conceder_direto):
+    # Greptile, PR #18: cargo é da empresa; a rota exige vínculo na empresa inteira.
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Admin de fazenda enxuto', base='administrador')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    admin = fabrica_pessoa('Admin da F1')
+    conceder_direto(admin, cargo, cenario.f1)
+    efetivas = permissoes_efetivas(admin, cenario.f1)
+    assert 'convidar_pessoa' in efetivas
+    assert 'gerenciar_cargo' not in efetivas
