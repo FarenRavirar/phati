@@ -14,7 +14,8 @@ from django.utils import timezone
 from comum.auditoria import auditar
 from identidade import cpf, email, senha, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
-from permissao.pode import administrador_da_empresa, memoria_de
+from permissao.pode import administrador_da_empresa, memoria_de, pode
+from territorio.models import Empresa
 
 VALIDADE = timedelta(minutes=10)
 TENTATIVAS_POR_PEDIDO = 5
@@ -24,6 +25,19 @@ INTERVALO_ENTRE_PEDIDOS = timedelta(minutes=1)
 # derrubar o link dela a cada minuto nem encher a caixa (OWASP Forgot Password Cheat Sheet: limite por conta).
 TETO_POR_HORA = 5
 JANELA_DO_TETO = timedelta(hours=1)
+
+
+def empresa_de_atuacao(alvo, solicitante):
+    """Primeira empresa (por id), entre a de origem de `alvo` e as das concessões dele, onde `solicitante` tem
+    `redefinir_senha`; `None` se nenhuma. A regra final continua em `pode_iniciar_redefinicao`. Escolher só a de menor
+    id negava o Administrador de uma empresa que não fosse a primeira (Sourcery, PR #16)."""
+    ids = {vinculo.concessao.empresa_id for vinculo in memoria_de(alvo).vinculos}
+    if alvo.empresa_origem_id is not None:
+        ids.add(alvo.empresa_origem_id)
+    return next(
+        (empresa for empresa in Empresa.objects.filter(pk__in=ids).order_by('pk') if pode(solicitante, 'redefinir_senha', empresa)),
+        None,
+    )
 
 
 def pode_iniciar_redefinicao(solicitante, alvo):

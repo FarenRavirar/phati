@@ -12,8 +12,9 @@ from projeto.api import api
 
 # Sem sessão por desenho: quem ainda não tem credencial entra, pede ou confirma a redefinição, ou renova o token.
 PUBLICAS = frozenset({'entrar', 'redefinir_senha_solicitar', 'redefinir_senha_confirmar', 'acesso_renovar'})
-# Autenticadas, mas sem alvo de terceiro: encerram a sessão da própria pessoa ou trocam a senha dela (R15).
-DA_PROPRIA_PESSOA = frozenset({'sair', 'trocar_senha'})
+# Autenticadas, mas sem alvo de terceiro: encerram a sessão da própria pessoa, trocam a senha dela (R15) ou respondem
+# aos convites dirigidos a ela (R24; o id do convite só alcança convite dela e a permissão de quem convidou é refeita no aceite).
+DA_PROPRIA_PESSOA = frozenset({'sair', 'trocar_senha', 'convites_listar', 'convites_aceitar', 'convites_recusar'})
 
 
 def _operacoes():

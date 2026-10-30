@@ -62,6 +62,8 @@ Buscar doc oficial, issues e changelog antes de projetar solução própria. Int
 
 **Do agente, sem perguntar:** como implementar, padrão, nomes, estrutura de teste, ferramenta, redação de doc interna. Antes de perguntar: cabe em medição? cabe em pesquisa? Só o que sobrar é pergunta, com opções medidas e recomendação.
 
+**Pesquisa inclui o mercado** (mantenedor, 2026-10-29): prática de produtos comparáveis, documentação oficial, código aberto e literatura acadêmica. Dúvida de desenho que isso responde chega ao mantenedor já pesquisada: 2 a 4 opções, o que cada fonte faz (link), recomendação marcada "inferência a confirmar" e o que a pesquisa não confirmou. Pergunta seca ("como você quer fazer X?") é defeito. Número escolhido por prática de mercado (limite, prazo, tamanho de página) cita a referência e fica "a confirmar" até o mantenedor concordar.
+
 ### Autorização
 
 Não acumula. "Commite" autoriza só aquele commit. Editar arquivo local é livre. Frase genérica não autoriza; autorização nomeia a ação.
@@ -179,7 +181,7 @@ Como convivem com as regras do projeto, em caso de choque:
 - `humanizer` tem padrões escritos para inglês. Em português, aplicar só os que valem na língua (formatação por regra, inflação, sobras de chat, abertura e fecho ornamentais); não traduzir expressões.
 - Skill e hook de terceiros são código com acesso ao ambiente (§Segurança com IA, prática 6). Auditoria dos commits acima, medida em 2026-10-21: `humanizer` não tem hooks, MCP nem rede. `ponytail` tem 3 hooks (`SessionStart`, `SubagentStart`, `UserPromptSubmit`); executam só `node` próprio e `git ls-files`/`git rev-parse`; única rede é o webhook opcional do plugin (`webhookUrl`), vazio por padrão. Escrevem em `~/.config/ponytail/band/*.csv` (custo, tokens, nome da tarefa) e num flag de modo em `~/.claude`. O `/ponytail band import` lê transcrições de sessões passadas.
 - **`webhookUrl` e `webhookToken` do `ponytail` ficam vazios, sempre**: nome de tarefa e custo não saem da máquina (dado de cliente pode aparecer no primeiro prompt). Preencher exige aprovação nominal.
-- Atualizar `ponytail` ou `humanizer` (a instalação por marketplace segue a branch principal) exige ler o diff do commit novo e aprovação nominal antes. Desligar atualização automática do marketplace.
+- Atualização automática dos marketplaces fica ligada (mantenedor, 2026-10-29). Depois de atualizar, o agente lê o diff; rede, execução nova ou `webhookUrl` preenchido: parar e avisar.
 
 ## SDD (Spec-Driven Development)
 

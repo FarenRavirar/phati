@@ -12,6 +12,7 @@ from functools import wraps
 
 from django.core.exceptions import PermissionDenied
 from django.db import DEFAULT_DB_ALIAS, connection, connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from permissao.contexto import fixar_contexto, fixar_identidade, ler_contexto, limpar_identidade, restaurar_contexto
@@ -200,6 +201,48 @@ def escopos_da_acao(pessoa, acao):
         ),
         empresas_das_fazendas=frozenset(c.empresa_id for c in concessoes if c.fazenda_id is not None),
     )
+
+
+def unir_escopos(pessoa, *acoes):
+    """União dos escopos de várias ações: telas que servem a mais de uma operação (convidar, revogar, redefinir)."""
+    todos = [escopos_da_acao(pessoa, acao) for acao in acoes]
+    uniao = lambda campo: frozenset().union(*(getattr(e, campo) for e in todos))
+    return Escopos(
+        plataforma=any(e.plataforma for e in todos),
+        empresas=uniao('empresas'), fazendas=uniao('fazendas'), sub_areas=uniao('sub_areas'),
+        fazendas_das_sub_areas=uniao('fazendas_das_sub_areas'), empresas_das_fazendas=uniao('empresas_das_fazendas'),
+    )
+
+
+def escopo_de(linha):
+    """Sub-área, fazenda ou empresa de uma linha com `sub_area_id`, `fazenda_id` e `empresa_id` (concessão, convite,
+    escopo da entrada da API), o mais específico primeiro."""
+    if linha.sub_area_id is not None:
+        return SubArea.objects.get(pk=linha.sub_area_id)
+    if linha.fazenda_id is not None:
+        return Fazenda.objects.get(pk=linha.fazenda_id)
+    return Empresa.objects.get(pk=linha.empresa_id)
+
+
+def filtro_do_escopo(escopos):
+    """`Q` das linhas com colunas `empresa_id`, `fazenda_id` e `sub_area` (concessão, convite) que `escopos` alcança.
+
+    Fazenda inteira cobre as sub-áreas dela; quem tem só uma sub-área alcança ela e as descendentes (o `caminho` guarda
+    os ancestrais). Um filtro só, sem `pode()` por linha. Plataforma: o chamador não filtra.
+    """
+    filtro = Q(empresa_id__in=escopos.empresas) | Q(fazenda_id__in=escopos.fazendas) | Q(sub_area_id__in=escopos.sub_areas)
+    for sub_area_id in escopos.sub_areas:
+        filtro |= Q(sub_area__caminho__contains=f'/{sub_area_id}/')
+    return filtro
+
+
+def age_em_algum_escopo(pessoa, *acoes):
+    """A pessoa exerce alguma das `acoes` em ao menos um lugar (plataforma, empresa, fazenda ou sub-área)."""
+    for acao in acoes:
+        escopos = escopos_da_acao(pessoa, acao)
+        if escopos.plataforma or escopos.empresas or escopos.fazendas or escopos.sub_areas:
+            return True
+    return False
 
 
 @contextmanager
