@@ -98,6 +98,7 @@ class SaidaConviteEnviado(Schema):
     empresa_nome: str
     criado_em: AwareDatetime
     expira_em: AwareDatetime
+    vencido: bool
 
 
 class SaidaConviteRecebido(Schema):
@@ -319,7 +320,7 @@ def recusar_convite(request, convite_id: int):
 def listar_convites_enviados(request):
     return [
         {'id': c.pk, 'cargo_nome': c.cargo_nome, 'empresa_nome': c.empresa_nome, 'criado_em': c.criado_em,
-         'expira_em': c.expira_em}
+         'expira_em': c.expira_em, 'vencido': c.expira_em <= timezone.now()}
         for c in convite.convites_enviados(request.user)
     ]
 

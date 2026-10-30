@@ -137,3 +137,5 @@ def test_aviso_de_convite_nao_leva_segredo_nem_link_de_acao(pessoa, mailoutbox):
     assert 'Usuário' in corpo
     assert '#segredo=' not in corpo
     assert 'aceitar' in corpo.lower()
+    # Nenhum endereço além da página inicial: um link de ação (qualquer formato) faria do e-mail um atalho reencaminhável.
+    assert set(re.findall(r'https?://\S+?(?=[\s.,;]*(?:\s|$))', corpo)) <= {settings.URL_BASE}

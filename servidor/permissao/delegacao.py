@@ -71,6 +71,13 @@ def _concede(vinculo, memoria, proposta, alvo, concedidas, pedidas):
     return vinculo.base not in BASES_COM_CATEGORIA or pedidas <= vinculo.categorias
 
 
+def exigir_categoria_compativel(cargo, categorias):
+    """Só Técnico e Usuário têm categoria de dado (D035); o gatilho do banco recusa o resto, e sem esta checagem a
+    entrada ruim virava erro 500, ou um convite que só falhava no aceite (Codex, PR #16)."""
+    if categorias and cargo.base not in BASES_COM_CATEGORIA:
+        raise ValidationError('Este cargo não aceita categoria de dado.', code='categoria_incompativel')
+
+
 def pode_conceder(quem, concessao, categorias=()):
     """`concessao` é a proposta (cargo, empresa, escopo, período), salva ou não; `categorias` são as pedidas.
 
@@ -79,11 +86,13 @@ def pode_conceder(quem, concessao, categorias=()):
     """
     if quem is None or not quem.is_authenticated:
         return False
-    if quem.administrador_plataforma:
-        return True
     cargo = concessao.cargo
+    # Antes do atalho da plataforma: cargo de uma empresa em escopo de outra viola a chave composta do banco, e a
+    # plataforma também não pode propor isso (erro 500 e convite inválido; Sourcery, PR #16).
     if cargo.empresa_id != concessao.empresa_id:
         return False
+    if quem.administrador_plataforma:
+        return True
     memoria = memoria_de(quem)
     alvo = _alvo_da_concessao(concessao)
     concedidas = frozenset(cargo.permissoes.values_list('pk', flat=True))
@@ -114,6 +123,7 @@ def _gravar(quem, proposta, pessoa, categorias):
 def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
     """Concede `cargo` a `pessoa` em `escopo` (Empresa, Fazenda ou SubArea). Negado: `PermissionDenied`."""
     categorias = tuple(categorias)  # percorrido na checagem e na gravação: um gerador acabaria na primeira
+    exigir_categoria_compativel(cargo, categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
@@ -127,6 +137,7 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
     transação; o e-mail sai depois do commit e falha de SMTP só vai para o log, sem desfazer o convite. Devolve `(pessoa, senha_temporaria)`. CPF já cadastrado levanta
     `cpf_duplicado`: para quem já existe, `conceder()`."""
     categorias = tuple(categorias)
+    exigir_categoria_compativel(cargo, categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     if not pode_conceder(quem, proposta, categorias):
         raise PermissionDenied

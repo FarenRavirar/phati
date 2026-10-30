@@ -7,7 +7,7 @@ criados (gatilho da migração 0002), então alterar é só nome e permissões. 
 """
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from comum.auditoria import auditar
 from permissao.delegacao import _nivel_permite
@@ -38,10 +38,11 @@ def _codigos_validos(codigos):
     return codigos
 
 
-def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None):
+def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=None):
     """Cria (`base` obrigatória) ou altera (`cargo`) o cargo de `empresa` e grava o conjunto exato de `codigos`.
 
-    Negado: `PermissionDenied`. Devolve o cargo.
+    Negado: `PermissionDenied`. Na alteração, `versao` é a que quem edita leu: se o cargo mudou desde então (ou a versão
+    não veio), levanta `cargo_alterado_por_outra_pessoa` e não grava nada. Devolve o cargo.
     """
     nome = (nome or '').strip()
     if not nome or len(nome) > 100:
@@ -57,18 +58,29 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None):
             raise ValidationError('Base do cargo inválida.', code='base_invalida')
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied
+        # Depois da autorização: quem não pode gerenciar o cargo não descobre a versão dele.
+        if cargo is not None and versao != cargo.versao:
+            raise ValidationError('Outra pessoa alterou este cargo. Recarregue a página e edite de novo.', code='cargo_alterado_por_outra_pessoa')
         # `(empresa, nome)` é único no banco; sem isto o conflito virava IntegrityError e erro 500 (Qodo, PR #16).
         repetido = Cargo.objects.filter(empresa=empresa, nome=nome)
         if cargo is not None:
             repetido = repetido.exclude(pk=cargo.pk)
         if repetido.exists():
             raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado')
-        if cargo is None:
-            cargo = Cargo.objects.create(empresa=empresa, nome=nome, base=base)
-        else:
-            cargo.nome = nome
-            cargo.save(update_fields=['nome'])
-            CargoPermissao.objects.filter(cargo=cargo).delete()
+        try:
+            with transaction.atomic():  # ponto de salvamento: o erro de integridade aborta a transação inteira
+                if cargo is None:
+                    cargo = Cargo.objects.create(empresa=empresa, nome=nome, base=base)
+                else:
+                    cargo.nome, cargo.versao = nome, cargo.versao + 1
+                    cargo.save(update_fields=['nome', 'versao'])  # sob a trava de linha acima: ninguém soma ao mesmo tempo
+        except IntegrityError as erro:
+            # A pré-checagem acima não vê a corrida: dois pedidos passam por ela e o segundo bate na restrição única.
+            # Só essa restrição vira erro de regra; outra falha de integridade continua visível (Qodo, PR #16).
+            if getattr(getattr(erro.__cause__, 'diag', None), 'constraint_name', None) != 'cargo_nome_unico_por_empresa':
+                raise
+            raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado') from None
+        CargoPermissao.objects.filter(cargo=cargo).delete()  # cargo novo não tem linhas: nada a apagar
         CargoPermissao.objects.bulk_create(CargoPermissao(cargo=cargo, permissao_id=c) for c in sorted(codigos))
         auditar('cargo_alterado', quem, cargo, empresa.pk, {'nome': nome, 'base': base, 'permissoes': sorted(codigos)})
     return cargo

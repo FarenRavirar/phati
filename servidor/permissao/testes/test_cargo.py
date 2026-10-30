@@ -38,7 +38,7 @@ def test_administrador_cria_cargo_e_o_evento_guarda_o_conjunto(cenario, fabrica_
 def test_altera_nome_e_troca_o_conjunto_inteiro(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     cargo = gerenciar_cargo(admin, cenario.x, 'Campo', ['ver', 'baixar_documento'], base='usuario')
-    gerenciar_cargo(admin, cenario.x, 'Campo 2', ['ver'], cargo=cargo)
+    gerenciar_cargo(admin, cenario.x, 'Campo 2', ['ver'], cargo=cargo, versao=cargo.versao)
     cargo.refresh_from_db()
     assert (cargo.nome, cargo.base, _codigos(cargo)) == ('Campo 2', 'usuario', {'ver'})
     assert EventoAuditoria.objects.filter(acao='cargo_alterado').count() == 2
@@ -58,7 +58,7 @@ def test_administrador_de_x_nao_gerencia_cargo_da_empresa_y(cenario, fabrica_pes
     with pytest.raises(PermissionDenied):
         gerenciar_cargo(admin, cenario.y, 'Invasor', ['ver'], base='usuario')
     with pytest.raises(PermissionDenied):
-        gerenciar_cargo(admin, cenario.x, 'Roubo', ['ver'], cargo=cenario.cargos_y['usuario'])
+        gerenciar_cargo(admin, cenario.x, 'Roubo', ['ver'], cargo=cenario.cargos_y['usuario'], versao=1)
     assert not Cargo.objects.filter(nome__in=['Invasor', 'Roubo']).exists()
 
 
@@ -109,7 +109,7 @@ def test_pessoa_anonima_nao_gerencia(cenario):
 def test_renomear_para_nome_de_outro_cargo_da_empresa_e_recusado_sem_erro_de_banco(cenario, plataforma):
     leitor = gerenciar_cargo(plataforma, cenario.x, 'Leitor', ['ver'], base='usuario')
     with pytest.raises(ValidationError) as erro:
-        gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], cargo=leitor)
+        gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], cargo=leitor, versao=leitor.versao)
     assert erro.value.code == 'nome_duplicado'
     leitor.refresh_from_db()
     assert leitor.nome == 'Leitor'
@@ -119,3 +119,57 @@ def test_criar_cargo_com_nome_repetido_e_recusado(cenario, plataforma):
     with pytest.raises(ValidationError) as erro:
         gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], base='usuario')
     assert erro.value.code == 'nome_duplicado'
+
+
+def test_corrida_de_nome_repetido_vira_erro_de_regra_ao_renomear(cenario, plataforma, monkeypatch):
+    leitor = gerenciar_cargo(plataforma, cenario.x, 'Leitor', ['ver'], base='usuario')
+    # A pré-checagem não enxerga a corrida (outro pedido gravou o nome depois dela): aqui ela passa em branco.
+    monkeypatch.setattr(Cargo.objects, 'filter', lambda *args, **kwargs: Cargo.objects.none())
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], cargo=leitor, versao=leitor.versao)
+    assert erro.value.code == 'nome_duplicado'
+
+
+def test_corrida_de_nome_repetido_vira_erro_de_regra_ao_criar(cenario, plataforma, monkeypatch):
+    monkeypatch.setattr(Cargo.objects, 'filter', lambda *args, **kwargs: Cargo.objects.none())
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], base='usuario')
+    assert erro.value.code == 'nome_duplicado'
+    assert Cargo.objects.get_queryset().filter(empresa=cenario.x, nome='Usuário').count() == 1
+
+
+def test_edicao_com_versao_velha_e_recusada_e_nao_sobrescreve(cenario, plataforma):
+    cargo = gerenciar_cargo(plataforma, cenario.x, 'Campo', ['ver', 'baixar_documento'], base='usuario')
+    lida_pelos_dois = cargo.versao
+    gerenciar_cargo(plataforma, cenario.x, 'Campo', ['ver'], cargo=cargo, versao=lida_pelos_dois)
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Campo velho', ['ver', 'baixar_documento'], cargo=cargo, versao=lida_pelos_dois)
+    assert erro.value.code == 'cargo_alterado_por_outra_pessoa'
+    cargo.refresh_from_db()
+    assert (cargo.nome, _codigos(cargo)) == ('Campo', {'ver'})
+
+
+def test_cada_edicao_soma_um_a_versao(cenario, plataforma):
+    cargo = gerenciar_cargo(plataforma, cenario.x, 'Campo', ['ver'], base='usuario')
+    inicial = cargo.versao
+    for passo in (1, 2):
+        gerenciar_cargo(plataforma, cenario.x, 'Campo', ['ver'], cargo=cargo, versao=cargo.versao)
+        cargo.refresh_from_db()
+        assert cargo.versao == inicial + passo
+
+
+def test_edicao_sem_versao_falha_fechada(cenario, plataforma):
+    cargo = gerenciar_cargo(plataforma, cenario.x, 'Campo', ['ver'], base='usuario')
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Campo 2', ['ver'], cargo=cargo)
+    assert erro.value.code == 'cargo_alterado_por_outra_pessoa'
+    cargo.refresh_from_db()
+    assert cargo.nome == 'Campo'
+
+
+def test_conflito_de_versao_nao_audita_nada(cenario, plataforma):
+    cargo = gerenciar_cargo(plataforma, cenario.x, 'Campo', ['ver'], base='usuario')
+    antes = EventoAuditoria.objects.filter(acao='cargo_alterado').count()
+    with pytest.raises(ValidationError):
+        gerenciar_cargo(plataforma, cenario.x, 'Campo 2', ['ver'], cargo=cargo, versao=cargo.versao + 5)
+    assert EventoAuditoria.objects.filter(acao='cargo_alterado').count() == antes

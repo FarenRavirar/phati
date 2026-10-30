@@ -7,13 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from identidade import email
 from identidade.models import Pessoa
 from permissao.delegacao import conceder, convidar, pode_conceder, revogar_concessao, transferir_titularidade
-from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao
+from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, ConcessaoCategoria
 from permissao.pode import pode
 from territorio.models import Empresa
 
@@ -248,11 +248,20 @@ def test_curador_concede_categoria_a_tecnico_e_a_concessao_guarda(alvo, cenario,
     assert list(concessao.categorias.all()) == [solo]
 
 
-def test_categoria_em_cargo_de_nivel_curador_e_recusada_pelo_banco_e_nada_fica(alvo, cenario, plataforma):
+def test_categoria_em_cargo_de_nivel_curador_e_recusada_pelo_servico_e_nada_fica(alvo, cenario, plataforma):
     solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValidationError) as erro:
         conceder(plataforma, alvo, cenario.cargos_x['curador'], cenario.f1, categorias=[solo])
+    assert erro.value.code == 'categoria_incompativel'
     assert Concessao.objects.filter(pessoa=alvo).count() == 0
+
+
+def test_gatilho_do_banco_ainda_recusa_categoria_em_cargo_de_nivel_curador(alvo, cenario):
+    # A defesa do banco vale para quem grava sem passar pelo serviço (Codex, PR #16: a checagem do serviço é a primeira).
+    solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    concessao = Concessao.objects.create(pessoa=alvo, cargo=cenario.cargos_x['curador'], empresa=cenario.x, fazenda=cenario.f1, concedida_por=alvo)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ConcessaoCategoria.objects.create(concessao=concessao, categoria=solo)
 
 
 # --- pode_conceder direto ---

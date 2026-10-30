@@ -1,11 +1,13 @@
 """Convite de CPF que já existe (R24, A20; T5.5i): pendente até o aceite, que refaz as regras de R10 com quem convidou."""
 
 import json
+import threading
 from datetime import timedelta
 from importlib import import_module
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import connection
 from django.test import Client
 from django.utils import timezone
 
@@ -14,7 +16,7 @@ from identidade import cpf as modulo_cpf
 from identidade import sessao
 from identidade.models import Pessoa
 from permissao import convite as servico
-from permissao.models import Convite, Concessao, Permissao
+from permissao.models import CategoriaDado, Convite, Concessao, Permissao
 
 
 @pytest.fixture(autouse=True)
@@ -277,9 +279,14 @@ def test_reenviar_renova_a_validade_e_avisa_de_novo(cenario, fabrica_pessoa, con
 
 
 def test_tecnico_nao_lista_nem_cancela_convites(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     tecnico = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['tecnico'], cenario.f1)
+    _convidar(admin, cenario, fabrica_pessoa('Existente'))
+    convite_id = Convite.objects.get().pk  # convite de verdade, de outra pessoa: o id 1 solto passaria por 404 de qualquer jeito
     assert _enviar(tecnico, 'convites-enviados', metodo='get').json() == []
-    assert _enviar(tecnico, 'convites-enviados/1', metodo='delete').status_code in (403, 404)
+    assert _enviar(tecnico, f'convites-enviados/{convite_id}', metodo='delete').status_code in (403, 404)
+    assert _enviar(tecnico, f'convites-enviados/{convite_id}/reenviar').status_code in (403, 404)
+    assert Convite.objects.get().cancelado_em is None
 
 
 def test_servico_so_deixa_quem_convidou_cancelar_ou_reenviar(cenario, fabrica_pessoa, conceder_direto):
@@ -329,3 +336,147 @@ def test_teto_de_convites_por_hora_de_quem_convida(cenario, fabrica_pessoa, conc
     assert len(mailoutbox) == servico.MAXIMO_DE_CONVITES_POR_HORA
     Convite.objects.update(criado_em=timezone.now() - timedelta(hours=2))
     assert _convidar(admin, cenario, fabrica_pessoa('Depois da hora')).status_code == 201
+
+
+def test_convite_repetido_com_outro_periodo_substitui_o_anterior(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    longo = (timezone.now() + timedelta(days=30)).isoformat()
+    curto = (timezone.now() + timedelta(days=1)).isoformat()
+    base = {'nome': 'Q', 'email': 'q@exemplo.test', 'cpf': _cpf_de(existente), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    assert _enviar(admin, 'pessoas', {**base, 'fim': longo}).status_code == 201
+    assert _enviar(admin, 'pessoas', {**base, 'fim': curto}).status_code == 201
+    assert Convite.objects.filter(cancelado_em__isnull=True).count() == 1
+    assert Convite.objects.filter(cancelado_em__isnull=False).count() == 1
+    assert _enviar(existente, f'convites/{Convite.objects.get(cancelado_em__isnull=True).pk}/aceitar').status_code == 204
+    concessao = Concessao.objects.get(pessoa=existente, empresa=cenario.x)
+    assert concessao.fim is not None
+    assert concessao.fim < timezone.now() + timedelta(days=2)
+
+
+def test_convite_repetido_com_outras_categorias_substitui_o_anterior(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    categoria = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    base = {'nome': 'Q', 'email': 'q@exemplo.test', 'cpf': _cpf_de(existente), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    assert _enviar(admin, 'pessoas', base).status_code == 201
+    assert _enviar(admin, 'pessoas', {**base, 'categoria_ids': [categoria.pk]}).status_code == 201
+    aberto = Convite.objects.get(cancelado_em__isnull=True)
+    assert list(aberto.categorias.all()) == [categoria]
+
+
+def test_convite_vencido_sem_resposta_aparece_na_lista_de_quem_convidou_marcado(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    _convidar(admin, cenario, fabrica_pessoa('Existente'))
+    Convite.objects.update(expira_em=timezone.now() - timedelta(days=1))
+    lista = _enviar(admin, 'convites-enviados', metodo='get').json()
+    assert [c['vencido'] for c in lista] == [True]
+    Convite.objects.update(enviado_em=timezone.now() - timedelta(minutes=2))
+    assert _enviar(admin, f'convites-enviados/{lista[0]["id"]}/reenviar').status_code == 204
+    assert [c['vencido'] for c in _enviar(admin, 'convites-enviados', metodo='get').json()] == [False]
+
+
+def test_convite_vencido_ha_muito_tempo_sai_da_lista(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    _convidar(admin, cenario, fabrica_pessoa('Existente'))
+    Convite.objects.update(expira_em=timezone.now() - servico.RETENCAO_DE_VENCIDOS - timedelta(days=1))
+    assert _enviar(admin, 'convites-enviados', metodo='get').json() == []
+
+
+def test_cpf_novo_consome_a_mesma_cota_por_hora_do_convite(cenario, fabrica_pessoa, conceder_direto, cpf_novo, mailoutbox):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    corpo = lambda: {'nome': 'N', 'email': 'n@exemplo.test', 'cpf': cpf_novo(), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    for _ in range(servico.MAXIMO_DE_CONVITES_POR_HORA):
+        assert _enviar(admin, 'pessoas', corpo()).status_code == 201
+    total = Pessoa.objects.count()
+    resposta = _enviar(admin, 'pessoas', corpo())
+    assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'convites_demais'})
+    assert Pessoa.objects.count() == total
+    assert len(mailoutbox) == servico.MAXIMO_DE_CONVITES_POR_HORA
+
+
+def test_cota_mistura_cpf_novo_e_existente(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    metade = servico.MAXIMO_DE_CONVITES_POR_HORA // 2
+    novo = lambda: {'nome': 'N', 'email': 'n@exemplo.test', 'cpf': cpf_novo(), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    for numero in range(metade):
+        assert _enviar(admin, 'pessoas', novo()).status_code == 201
+        assert _convidar(admin, cenario, fabrica_pessoa(f'Existente {numero}')).status_code == 201
+    assert _enviar(admin, 'pessoas', novo()).status_code == 400
+    assert _convidar(admin, cenario, fabrica_pessoa('Uma a mais')).status_code == 400
+
+
+@pytest.mark.parametrize('base', ['administrador', 'curador'])
+def test_categoria_em_cargo_que_nao_aceita_categoria_e_recusada_antes_de_gravar(cenario, fabrica_pessoa, conceder_direto, cpf_novo, mailoutbox, base):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    categoria = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    total = Pessoa.objects.count()
+    comum = {'nome': 'N', 'email': 'n@exemplo.test', 'cargo_id': cenario.cargos_x[base].pk, 'escopo': {'fazenda_id': cenario.f1.pk}, 'categoria_ids': [categoria.pk]}
+    novo = _enviar(admin, 'pessoas', {**comum, 'cpf': cpf_novo()})
+    ja_existe = _enviar(admin, 'pessoas', {**comum, 'cpf': _cpf_de(existente)})
+    assert [(r.status_code, r.json()) for r in (novo, ja_existe)] == [(400, {'detalhe': 'categoria_incompativel'})] * 2
+    assert Pessoa.objects.count() == total
+    assert not Convite.objects.exists()
+    assert mailoutbox == []
+
+
+@pytest.fixture
+def mundo_da_cota(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    return admin, [fabrica_pessoa(f'Existente {n}') for n in range(servico.MAXIMO_DE_CONVITES_POR_HORA + 2)]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_pedidos_paralelos_do_mesmo_remetente_nao_passam_do_teto(cenario, mundo_da_cota):
+    admin, existentes = mundo_da_cota
+    cargo, fazenda = cenario.cargos_x['usuario'], cenario.f1
+    for pessoa in existentes[: servico.MAXIMO_DE_CONVITES_POR_HORA - 1]:
+        servico.convidar_por_cpf(admin, 'N', 'n@exemplo.test', _cpf_de(pessoa), cargo, fazenda)
+    resultados, largada = [], threading.Barrier(2)
+
+    def correr(pessoa):
+        largada.wait()
+        try:
+            servico.convidar_por_cpf(admin, 'N', 'n@exemplo.test', _cpf_de(pessoa), cargo, fazenda)
+            resultados.append('ok')
+        except ValidationError as erro:
+            resultados.append(erro.code)
+        finally:
+            connection.close()
+
+    fios = [threading.Thread(target=correr, args=(pessoa,)) for pessoa in existentes[-2:]]
+    for fio in fios:
+        fio.start()
+    for fio in fios:
+        fio.join()
+    assert sorted(resultados) == ['convites_demais', 'ok']
+    assert Convite.objects.count() == servico.MAXIMO_DE_CONVITES_POR_HORA
+
+
+def test_plataforma_com_cargo_de_outra_empresa_e_negada_nos_dois_caminhos_e_nada_fica(cenario, plataforma, fabrica_pessoa, cpf_novo, mailoutbox):
+    existente = fabrica_pessoa('Existente')
+    cargo_de_y, escopo_de_x = cenario.cargos_y['usuario'], {'fazenda_id': cenario.f1.pk}
+    base = {'nome': 'N', 'email': 'n@exemplo.test', 'cargo_id': cargo_de_y.pk, 'escopo': escopo_de_x}
+    total = Pessoa.objects.count()
+    novo = _enviar(plataforma, 'pessoas', {**base, 'cpf': cpf_novo()})
+    ja_existe = _enviar(plataforma, 'pessoas', {**base, 'cpf': _cpf_de(existente)})
+    assert (novo.status_code, ja_existe.status_code) == (403, 403)
+    assert Pessoa.objects.count() == total
+    assert not Convite.objects.exists()
+    assert mailoutbox == []
+    conceder = _enviar(plataforma, f'pessoas/{existente.pk}/concessoes', {'cargo_id': cargo_de_y.pk, 'escopo': escopo_de_x})
+    assert conceder.status_code == 403
+    assert not Concessao.objects.filter(pessoa=existente).exists()
+
+
+def test_convite_com_fim_ja_passado_sai_das_listas_e_nao_se_reenvia(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    _convidar(admin, cenario, existente)
+    convite_id = Convite.objects.get().pk
+    Convite.objects.update(fim=timezone.now() - timedelta(seconds=1), enviado_em=timezone.now() - timedelta(minutes=2))
+    assert _enviar(existente, 'convites', metodo='get').json() == []
+    assert _enviar(admin, 'convites-enviados', metodo='get').json() == []
+    resposta = _enviar(admin, f'convites-enviados/{convite_id}/reenviar')
+    assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'convite_vencido'})

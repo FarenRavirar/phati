@@ -73,6 +73,8 @@ class FormularioCargo(forms.ModelForm):
     codigos = forms.ModelMultipleChoiceField(
         Permissao.objects.all(), required=False, widget=forms.CheckboxSelectMultiple, label='Permissões'
     )
+    # A versão que quem edita leu volta no envio; o serviço recusa se o cargo mudou nesse meio tempo.
+    versao = forms.IntegerField(required=False, widget=forms.HiddenInput)
 
     class Meta:
         model = Cargo
@@ -82,6 +84,7 @@ class FormularioCargo(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             self.fields['codigos'].initial = list(self.instance.permissoes.values_list('pk', flat=True))
+            self.fields['versao'].initial = self.instance.versao
 
 
 @admin.register(Cargo)
@@ -105,6 +108,6 @@ class CargoAdmin(AdministracaoPorServico):
         dados = form.cleaned_data
         codigos = [permissao.pk for permissao in dados['codigos']]
         if change:
-            gerenciar_cargo(request.user, obj.empresa, dados['nome'], codigos, cargo=obj)
+            gerenciar_cargo(request.user, obj.empresa, dados['nome'], codigos, cargo=obj, versao=dados['versao'])
         else:
             self.concluir_criacao(obj, gerenciar_cargo(request.user, dados['empresa'], dados['nome'], codigos, base=dados['base']))

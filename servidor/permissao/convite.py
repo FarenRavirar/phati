@@ -9,27 +9,31 @@ credenciais, e ampliar essa regra é decisão do mantenedor (T5.5i).
 from datetime import timedelta
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from comum.auditoria import auditar
+from comum.models import EventoAuditoria
 from identidade import cpf as modulo_cpf
 from identidade import email
 from identidade.models import Pessoa
 from permissao import delegacao
-from permissao.delegacao import _gravar, _proposta, _travar_pessoa, pode_conceder
+from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder
 from permissao.models import Cargo, Convite, ConviteCategoria
 from permissao.pode import com_permissao
 from territorio.models import Empresa, Fazenda, SubArea
 
-# Inferência a confirmar (D053): o MateCat usa 3 dias.
+# Confirmada pelo mantenedor (D053): 7 dias; o MateCat usa 3.
 VALIDADE = timedelta(days=7)
 # Limites contra encher a caixa de alguém ou usar o sistema para enviar e-mail em massa (AGENTS.md, prática 9).
 # Referências de mercado (pesquisa de 2026-10-29): Supabase deixa 60 s entre reenvios por usuário; Discourse limita
 # reenvio de convite a 10 por hora; Clerk limita convites a 100 por hora; o MateCat limita 50 e-mails por pedido.
 INTERVALO_ENTRE_ENVIOS = timedelta(seconds=60)
 MAXIMO_DE_ENVIOS_POR_CONVITE = 4  # o primeiro e três reenvios
-MAXIMO_DE_CONVITES_POR_HORA = 50  # por quem convida
+MAXIMO_DE_CONVITES_POR_HORA = 50  # por quem convida; conta convite de CPF existente e pessoa nova criada pelo convite
+RETENCAO_DE_VENCIDOS = timedelta(days=30)  # convite vencido sem resposta continua na lista de quem convidou por este tempo
+_TRAVA_DA_COTA = 5301  # primeiro número do par da trava consultiva (o segundo é o id de quem convida)
 
 
 def _escopo_do_convite(convite):
@@ -40,10 +44,21 @@ def _escopo_do_convite(convite):
     return Empresa.objects.get(pk=convite.empresa_id)
 
 
+def _exigir_em_aberto(convite):
+    """Convite aceito, recusado ou cancelado não muda mais (um lugar só para as três respostas e o reenvio)."""
+    if convite.aceito_em or convite.recusado_em or convite.cancelado_em:
+        raise ValidationError('Convite já respondido.', code='convite_encerrado')
+
+
+def _com_fim_no_futuro():
+    # Convite cujo `fim` já passou nunca será aceito (o banco recusa `fim <= inicio`): fora das duas listas (Sourcery).
+    return Q(fim__isnull=True) | Q(fim__gt=timezone.now())
+
+
 def _pendentes(pessoa):
     return Convite.objects.filter(
-        pessoa=pessoa, aceito_em__isnull=True, recusado_em__isnull=True, cancelado_em__isnull=True,
-        expira_em__gt=timezone.now(),
+        _com_fim_no_futuro(), pessoa=pessoa, aceito_em__isnull=True, recusado_em__isnull=True,
+        cancelado_em__isnull=True, expira_em__gt=timezone.now(),
     )
 
 
@@ -51,21 +66,38 @@ def _avisar(convite, pessoa):
     email.enviar_aviso_de_convite(pessoa, convite.empresa_nome, convite.cargo_nome, convite.expira_em)
 
 
-def _registrar(quem, pessoa, proposta, categorias):
+def _exigir_cota(quem):
+    """Trava e confere a cota por hora de quem convida, para os dois caminhos (CPF novo e existente). A trava
+    consultiva é por remetente: pedidos para pessoas diferentes não disputam a trava da pessoa, e sem ela dois
+    pedidos leriam 49 e gravariam o 50º e o 51º (Greptile e Codex, PR #16). Sem deadlock: ela vem antes de toda
+    trava de linha deste fluxo."""
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT pg_advisory_xact_lock(%s, %s)', [_TRAVA_DA_COTA, quem.pk])
+    desde = timezone.now() - timedelta(hours=1)
+    convites = Convite.objects.filter(convidado_por=quem, criado_em__gt=desde).count()
+    criadas = EventoAuditoria.objects.filter(acao='pessoa_criada', pessoa_id=quem.pk, hora_servidor__gt=desde).count()
+    if convites + criadas >= MAXIMO_DE_CONVITES_POR_HORA:
+        raise ValidationError('Convites demais na última hora.', code='convites_demais')
+
+
+def _registrar(quem, pessoa, proposta, categorias, inicio):
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
-        igual = _pendentes(pessoa).filter(
+        for igual in _pendentes(pessoa).filter(
             convidado_por=quem, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id,
             fazenda_id=proposta.fazenda_id, sub_area_id=proposta.sub_area_id,
-        )
-        if igual.exists():  # o mesmo convite repetido não empilha linhas nem renova a validade
-            return
-        recentes = Convite.objects.filter(convidado_por=quem, criado_em__gt=timezone.now() - timedelta(hours=1))
-        if recentes.count() >= MAXIMO_DE_CONVITES_POR_HORA:
-            raise ValidationError('Convites demais na última hora.', code='convites_demais')
+        ):
+            ids_antigos = set(igual.categorias.values_list('pk', flat=True))
+            if (igual.inicio, igual.fim, ids_antigos) == (inicio, proposta.fim, {c.pk for c in categorias}):
+                return  # o mesmo convite repetido não empilha linhas nem renova a validade
+            # Mesmo lugar e cargo com outro período ou outras categorias: o novo vale e o antigo sai, senão o aceite
+            # criaria o acesso antigo (Greptile, PR #16).
+            igual.cancelado_em = timezone.now()
+            igual.save(update_fields=['cancelado_em'])
+            auditar('convite_cancelado', quem, igual, igual.empresa_id, {'substituido': True})
         convite = Convite.objects.create(
             pessoa=pessoa, convidado_por=quem, cargo=proposta.cargo, empresa_id=proposta.empresa_id,
-            fazenda_id=proposta.fazenda_id, sub_area_id=proposta.sub_area_id, inicio=proposta.inicio, fim=proposta.fim,
+            fazenda_id=proposta.fazenda_id, sub_area_id=proposta.sub_area_id, inicio=inicio, fim=proposta.fim,
             empresa_nome=Empresa.objects.get(pk=proposta.empresa_id).nome, cargo_nome=proposta.cargo.nome,
             expira_em=timezone.now() + VALIDADE,
         )
@@ -83,19 +115,22 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
     if quem is None or not quem.is_authenticated:
         raise PermissionDenied  # antes de `_proposta`, que exige uma Pessoa em `concedida_por`
     categorias = tuple(categorias)
+    exigir_categoria_compativel(cargo, categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     if not pode_conceder(quem, proposta, categorias):
         raise PermissionDenied
     busca = modulo_cpf.chave_de_busca(modulo_cpf.normalizar_cpf(cpf_texto))
-    existente = Pessoa.objects.filter(cpf_busca=busca).first()
-    if existente is None:
-        try:
-            return delegacao.convidar(quem, nome, email, cpf_texto, cargo, escopo, categorias, inicio, fim)
-        except ValidationError as erro:
-            if erro.code != 'cpf_duplicado':
-                raise
-            existente = Pessoa.objects.get(cpf_busca=busca)  # outro convite criou a pessoa entre a consulta e a gravação
-    _registrar(quem, existente, proposta, categorias)
+    with transaction.atomic():
+        _exigir_cota(quem)
+        existente = Pessoa.objects.filter(cpf_busca=busca).first()
+        if existente is None:
+            try:
+                return delegacao.convidar(quem, nome, email, cpf_texto, cargo, escopo, categorias, inicio, fim)
+            except ValidationError as erro:
+                if erro.code != 'cpf_duplicado':
+                    raise
+                existente = Pessoa.objects.get(cpf_busca=busca)  # outro convite criou a pessoa entre a consulta e a gravação
+        _registrar(quem, existente, proposta, categorias, inicio)
     return None, None
 
 
@@ -106,8 +141,7 @@ def convites_da_pessoa(pessoa):
 def _convite_aberto(pessoa, convite_id):
     """O convite é da pessoa, ainda não foi aceito nem recusado e não venceu; outra coisa é 404 ou erro de regra."""
     convite = Convite.objects.select_for_update().get(pk=convite_id, pessoa=pessoa)
-    if convite.aceito_em or convite.recusado_em or convite.cancelado_em:
-        raise ValidationError('Convite já respondido.', code='convite_encerrado')
+    _exigir_em_aberto(convite)
     agora = timezone.now()
     if convite.expira_em <= agora or (convite.fim is not None and convite.fim <= agora):
         raise ValidationError('Convite vencido.', code='convite_vencido')
@@ -139,8 +173,7 @@ def recusar(pessoa, convite_id):
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
         convite = Convite.objects.select_for_update().get(pk=convite_id, pessoa=pessoa)
-        if convite.aceito_em or convite.recusado_em or convite.cancelado_em:
-            raise ValidationError('Convite já respondido.', code='convite_encerrado')
+        _exigir_em_aberto(convite)
         convite.recusado_em = timezone.now()
         convite.save(update_fields=['recusado_em'])
         auditar('convite_recusado', pessoa, convite, convite.empresa_id)
@@ -148,11 +181,11 @@ def recusar(pessoa, convite_id):
 
 
 def convites_enviados(quem):
-    """Convites pendentes de `quem`. Não carrega a pessoa: quem convida não vê dado de quem já existe (R24)."""
+    """Convites sem resposta de `quem`, vencidos recentes inclusive. Não carrega a pessoa: quem convida não vê dado de quem já existe (R24)."""
     return list(
         Convite.objects.filter(
-            convidado_por=quem, aceito_em__isnull=True, recusado_em__isnull=True, cancelado_em__isnull=True,
-            expira_em__gt=timezone.now(),
+            _com_fim_no_futuro(), convidado_por=quem, aceito_em__isnull=True, recusado_em__isnull=True, cancelado_em__isnull=True,
+            expira_em__gt=timezone.now() - RETENCAO_DE_VENCIDOS,  # o vencido aparece, marcado, para poder ser reenviado
         ).order_by('pk')
     )
 
@@ -160,8 +193,7 @@ def convites_enviados(quem):
 def _convite_de_quem_convidou(quem, convite_id):
     """Só quem convidou mexe no convite; outro id, 404. Trava a linha e recusa o que já foi respondido."""
     convite = Convite.objects.select_for_update().get(pk=convite_id, convidado_por=quem)
-    if convite.aceito_em or convite.recusado_em or convite.cancelado_em:
-        raise ValidationError('Convite já respondido.', code='convite_encerrado')
+    _exigir_em_aberto(convite)
     return convite
 
 
@@ -178,6 +210,8 @@ def reenviar(quem, convite_id):
     with transaction.atomic():
         convite = _convite_de_quem_convidou(quem, convite_id)
         agora = timezone.now()
+        if convite.fim is not None and convite.fim <= agora:
+            raise ValidationError('O período do convite já terminou.', code='convite_vencido')
         if convite.envios >= MAXIMO_DE_ENVIOS_POR_CONVITE:
             raise ValidationError('Limite de reenvios do convite.', code='reenvio_esgotado')
         if agora - convite.enviado_em < INTERVALO_ENTRE_ENVIOS:

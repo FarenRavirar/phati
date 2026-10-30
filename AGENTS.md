@@ -62,6 +62,8 @@ Buscar doc oficial, issues e changelog antes de projetar solução própria. Int
 
 **Do agente, sem perguntar:** como implementar, padrão, nomes, estrutura de teste, ferramenta, redação de doc interna. Antes de perguntar: cabe em medição? cabe em pesquisa? Só o que sobrar é pergunta, com opções medidas e recomendação.
 
+**Pesquisa inclui o mercado** (mantenedor, 2026-10-29): prática de produtos comparáveis, documentação oficial, código aberto e literatura acadêmica. Dúvida de desenho que isso responde chega ao mantenedor já pesquisada: 2 a 4 opções, o que cada fonte faz (link), recomendação marcada "inferência a confirmar" e o que a pesquisa não confirmou. Pergunta seca ("como você quer fazer X?") é defeito. Número escolhido por prática de mercado (limite, prazo, tamanho de página) cita a referência e fica "a confirmar" até o mantenedor concordar.
+
 ### Autorização
 
 Não acumula. "Commite" autoriza só aquele commit. Editar arquivo local é livre. Frase genérica não autoriza; autorização nomeia a ação.

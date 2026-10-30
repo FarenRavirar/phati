@@ -515,6 +515,10 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "vencido": {
+            "title": "Vencido",
+            "type": "boolean"
           }
         },
         "required": [
@@ -522,7 +526,8 @@
           "cargo_nome",
           "empresa_nome",
           "criado_em",
-          "expira_em"
+          "expira_em",
+          "vencido"
         ],
         "title": "SaidaConviteEnviado",
         "type": "object"

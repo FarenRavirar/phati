@@ -31,6 +31,9 @@ class Cargo(models.Model):
     nome = models.CharField(max_length=100)
     base = models.CharField(max_length=20, choices=[(base, base) for base in NIVEL_DA_BASE])
     empresa_id: int  # anotação só para o pyright
+    # Bloqueio otimista: quem edita devolve a versão que leu, e a edição velha é recusada em vez de sobrescrever a outra
+    # (padrão de ETag e If-Match; pesquisa de 2026-10-29). Começa em 1 e sobe a cada edição.
+    versao = models.PositiveIntegerField(default=1)
     permissoes = models.ManyToManyField(Permissao, through='CargoPermissao')
 
     def __str__(self):

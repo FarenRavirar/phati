@@ -87,7 +87,7 @@ def test_administrador_cria_e_altera_cargo_pelo_painel_com_evento(cenario, fabri
     assert cliente.post('/painel/permissao/cargo/add/', corpo).status_code == 302
     cargo = Cargo.objects.get(nome='Campo')
     assert set(cargo.permissoes.values_list('pk', flat=True)) == {'ver', 'criar_registro_campo'}
-    assert cliente.post(f'/painel/permissao/cargo/{cargo.pk}/change/', {'nome': 'Campo 2', 'codigos': ['ver']}).status_code == 302
+    assert cliente.post(f'/painel/permissao/cargo/{cargo.pk}/change/', {'nome': 'Campo 2', 'codigos': ['ver'], 'versao': cargo.versao}).status_code == 302
     cargo.refresh_from_db()
     assert (cargo.nome, cargo.base, set(cargo.permissoes.values_list('pk', flat=True))) == ('Campo 2', 'tecnico', {'ver'})
     assert EventoAuditoria.objects.filter(acao='cargo_alterado').count() == 2
@@ -98,7 +98,7 @@ def test_curador_nao_cria_nem_altera_cargo_e_ve_so_os_da_propria_empresa(cenario
     corpo = {'nome': 'Intruso', 'empresa': cenario.x.pk, 'base': 'usuario', 'codigos': ['ver']}
     assert cliente.post('/painel/permissao/cargo/add/', corpo).status_code == 403
     alheio = cenario.cargos_y['usuario']
-    assert cliente.post(f'/painel/permissao/cargo/{alheio.pk}/change/', {'nome': 'Roubado', 'codigos': []}).status_code in (302, 403, 404)
+    assert cliente.post(f'/painel/permissao/cargo/{alheio.pk}/change/', {'nome': 'Roubado', 'codigos': [], 'versao': alheio.versao}).status_code in (302, 403, 404)
     alheio.refresh_from_db()
     assert alheio.nome != 'Roubado'
     assert not Cargo.objects.filter(nome='Intruso').exists()
@@ -123,8 +123,8 @@ def test_painel_sob_o_papel_app_com_rls(cenario, pessoas_do_painel, entrar_no_pa
         with com_permissao(admin_x, 'convidar_pessoa'):  # o ORM do teste é o papel `app`: sem contexto, não vê linha
             return Concessao.objects.filter(pessoa=alvo).first()
 
-    assert 'F1' in cliente.get('/painel/territorio/fazenda/').content.decode()
-    assert 'F1' not in cliente_y.get('/painel/territorio/fazenda/').content.decode()
+    assert '>F1<' in cliente.get('/painel/territorio/fazenda/').content.decode()
+    assert '>F1<' not in cliente_y.get('/painel/territorio/fazenda/').content.decode()
     corpo = {'pessoa': alvo.pk, 'cargo': cenario.cargos_x['usuario'].pk, 'fazenda': cenario.f1.pk, 'inicio_0': '2026-01-01', 'inicio_1': '00:00:00'}
     cliente_y.post('/painel/permissao/concessao/add/', corpo)
     assert concessao_do_alvo() is None
@@ -152,7 +152,7 @@ def test_gestor_so_com_gerenciar_cargo_altera_cargo_existente(cenario, fabrica_p
     pessoa = _com(fabrica_pessoa, conceder_direto, gestor, cenario.x, 'Gestora')
     alvo = cenario.cargos_x['usuario']
     cliente = entrar_no_painel(pessoa)
-    assert cliente.post(f'/painel/permissao/cargo/{alvo.pk}/change/', {'nome': 'Leitor', 'codigos': ['ver']}).status_code == 302
+    assert cliente.post(f'/painel/permissao/cargo/{alvo.pk}/change/', {'nome': 'Leitor', 'codigos': ['ver'], 'versao': alvo.versao}).status_code == 302
     alvo.refresh_from_db()
     assert alvo.nome == 'Leitor'
 
@@ -180,8 +180,23 @@ def test_painel_nao_concede_a_pessoa_fora_do_alcance(cenario, fabrica_pessoa, co
 
 def test_renomear_cargo_para_nome_repetido_vira_mensagem_e_nao_erro_500(cenario, plataforma, entrar_no_painel):
     leitor = Cargo.objects.create(empresa=cenario.x, nome='Leitor', base='usuario')
-    resposta = entrar_no_painel(plataforma).post(f'/painel/permissao/cargo/{leitor.pk}/change/', {'nome': 'Usuário', 'codigos': ['ver']}, follow=True)
+    resposta = entrar_no_painel(plataforma).post(f'/painel/permissao/cargo/{leitor.pk}/change/', {'nome': 'Usuário', 'codigos': ['ver'], 'versao': leitor.versao}, follow=True)
     assert resposta.status_code == 200
     assert any('Já existe' in m for m in _mensagens(resposta))
     leitor.refresh_from_db()
     assert leitor.nome == 'Leitor'
+
+
+def test_formulario_do_cargo_leva_a_versao_e_o_segundo_salvamento_velho_e_recusado(cenario, plataforma, entrar_no_painel):
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Campo', base='usuario')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    cliente = entrar_no_painel(plataforma)
+    pagina = cliente.get(f'/painel/permissao/cargo/{cargo.pk}/change/').content.decode()
+    assert f'name="versao" value="{cargo.versao}"' in pagina
+    lida = cargo.versao
+    primeira = cliente.post(f'/painel/permissao/cargo/{cargo.pk}/change/', {'nome': 'Primeiro', 'codigos': ['ver'], 'versao': lida})
+    assert primeira.status_code == 302
+    segunda = cliente.post(f'/painel/permissao/cargo/{cargo.pk}/change/', {'nome': 'Segundo', 'codigos': ['ver'], 'versao': lida}, follow=True)
+    assert any('Outra pessoa' in m for m in _mensagens(segunda))
+    cargo.refresh_from_db()
+    assert (cargo.nome, cargo.versao) == ('Primeiro', lida + 1)
