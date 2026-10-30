@@ -233,5 +233,5 @@ Só `AGENTS.md`, `CLAUDE.md` e a config de revisão vivem no repositório públi
 | Erros conhecidos | `.specify/memory/errors.md` |
 | Specs SDD | `specs/README.md`, `specs/backlog.md`, `specs/*/` |
 | Sessões | `sessoes/` |
-| Skills | `.agents/skills/`; obrigatórias via plugin: `ponytail`, `humanizer` |
+| Skills | `.agents/skills/`; obrigatórias via plugin: `ponytail`, `humanizer`. Front (D058): `web-design-guidelines` (regras fixadas, sem busca remota) e `phati-geoportal` em `.agents/skills/`; `impeccable` instalada só localmente em `.claude/skills/` (ignorada no Git), com hooks desligados |
 | Subagentes | `.claude/agents/` |
