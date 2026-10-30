@@ -345,3 +345,30 @@ def test_pagina_padrao_tem_no_maximo_trinta_pessoas(cenario, fabrica_pessoa, con
     for numero in range(32):
         fabrica_pessoa(f'Da empresa {numero}', empresa_origem=cenario.x)
     assert len(_enviar(admin, 'pessoas', metodo='get').json()) == 30
+
+
+def test_convite_leva_o_mesmo_tempo_para_cpf_novo_e_existente(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+    # T5.5c, R24, A2: 15 rodadas de cada caso (30 convites, abaixo da cota de 50 por hora).
+    # Folga de 20 ms contra o resíduo medido em 2026-10-29 (5 a 7 ms; sem o Argon2 equivalente a diferença é de 35 ms); o e-mail sai em thread (`identidade.email._despachar`).
+    import statistics
+    import time
+
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    cabecalho = {'Authorization': f'Bearer {sessao.emitir_acesso(admin, "teste")}'}
+    cargo, escopo = cenario.cargos_x['usuario'], {'fazenda_id': cenario.f1.pk}
+
+    def medir(cpfs):
+        tempos = []
+        for cpf in cpfs:
+            inicio = time.perf_counter()
+            resposta = Client().post('/api/v1/pessoas', data=json.dumps(_convite(cargo, escopo, cpf)), content_type='application/json', headers=cabecalho)
+            tempos.append(time.perf_counter() - inicio)
+            assert resposta.status_code == 201
+        return statistics.median(tempos)
+
+    cpfs_existentes = [cpf_novo() for _ in range(15)]
+    for cpf in cpfs_existentes:
+        Pessoa.objects.criar(nome='Existente', email='existente@exemplo.test', cpf=cpf)
+    novos = medir([cpf_novo() for _ in range(15)])
+    existente = medir(cpfs_existentes)
+    assert abs(novos - existente) < 0.02

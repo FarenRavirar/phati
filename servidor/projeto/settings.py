@@ -46,6 +46,8 @@ MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        # `projeto` não é app com `templates/` próprio (o app do painel é o do admin): a página de redefinição mora aqui.
+        'DIRS': [Path(__file__).resolve().parent / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

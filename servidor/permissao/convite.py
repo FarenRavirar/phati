@@ -8,6 +8,7 @@ credenciais, e ampliar essa regra é decisão do mantenedor (T5.5i).
 
 from datetime import timedelta
 
+from django.contrib.auth.hashers import check_password
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.db.models import Q
@@ -17,6 +18,7 @@ from comum.auditoria import auditar
 from comum.models import EventoAuditoria
 from identidade import cpf as modulo_cpf
 from identidade import email
+from identidade.login import _HASH_FALSO
 from identidade.models import Pessoa
 from permissao import delegacao
 from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder
@@ -134,6 +136,8 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
                 if erro.code != 'cpf_duplicado':
                     raise
                 existente = Pessoa.objects.get(cpf_busca=busca)  # outro convite criou a pessoa entre a consulta e a gravação
+        # CPF novo paga o Argon2 da senha temporária; o existente paga um equivalente, senão o tempo mostra o cadastro (T5.5c).
+        check_password('sem efeito', _HASH_FALSO)
         _registrar(quem, existente, proposta, categorias, inicio)
     return None, None
 
