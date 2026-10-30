@@ -65,7 +65,8 @@ def test_senha_temporaria_consumida_nao_se_perde_se_a_sessao_nao_abre(pessoa, mo
         raise RuntimeError('sessão indisponível')
 
     monkeypatch.setattr(sessao, 'iniciar_sessao', falhar)
+    requisicao = _requisicao()
     with pytest.raises(RuntimeError):
-        acesso.entrar(_requisicao(), CPF, temporaria)
+        acesso.entrar(requisicao, CPF, temporaria)
     monkeypatch.undo()
     assert acesso.entrar(_requisicao(), CPF, temporaria) == (Pessoa.objects.get(pk=pessoa.pk), None)

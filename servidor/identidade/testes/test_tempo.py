@@ -16,6 +16,7 @@ from identidade.testes.conftest import CPF
 
 RODADAS = 15
 FOLGA = 0.05  # diferença máxima aceita entre as medianas, em segundos
+TETO = 0.15  # mediana máxima do pedido de redefinição, abaixo do atraso do SMTP simulado (200 ms)
 
 
 def _mediana(cliente, rota, corpo, esperado, antes=lambda: None):
@@ -37,6 +38,9 @@ def test_pedido_de_redefinicao_com_smtp_lento_leva_o_mesmo_tempo_para_cpf_existe
     existente = _mediana(cliente, rota, {'cpf': CPF}, 204, antes=PedidoRedefinicao.objects.all().delete)
     inexistente = _mediana(cliente, rota, {'cpf': cpf_novo()}, 204)
     assert abs(existente - inexistente) < FOLGA
+    # Envio síncrono nos dois caminhos soma o mesmo atraso às duas medianas e passaria acima; o teto prova que o
+    # SMTP lento (200 ms) ficou fora da resposta (Sourcery, PR #18).
+    assert max(existente, inexistente) < TETO
 
 
 def test_entrada_com_senha_errada_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo):

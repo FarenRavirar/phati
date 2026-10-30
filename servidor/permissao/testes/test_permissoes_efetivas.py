@@ -2,6 +2,7 @@
 
 import pytest
 
+from permissao.models import Cargo, CargoPermissao, Permissao
 from permissao.pode import pode, permissoes_efetivas
 
 pytestmark = pytest.mark.django_db
@@ -45,8 +46,38 @@ def test_concordancia_com_pode_em_cada_acao(cenario, fabrica_pessoa, conceder_di
     pessoa = fabrica_pessoa('Curadora')
     conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.f1)
     efetivas = permissoes_efetivas(pessoa, cenario.f1)
-    assert efetivas  # sem isto o laço abaixo passaria vazio
-    for acao in efetivas:
-        assert pode(pessoa, acao, cenario.f1)
+    assert efetivas  # sem isto a comparação abaixo passaria vazia
+    # Conjunto completo, não só os presentes: omissão também reprova (Sourcery, PR #18).
+    assert efetivas == {codigo for codigo in Permissao.objects.values_list('codigo', flat=True) if pode(pessoa, codigo, cenario.f1)}
     assert not pode(pessoa, 'criar_empresa', cenario.f1)
     assert 'criar_empresa' not in efetivas
+
+
+def test_administrador_com_cargo_sem_delegacao_ainda_exerce_delegacao_e_gerencia_de_cargo(cenario, fabrica_pessoa, conceder_direto):
+    # Qodo, PR #18: delegação e `gerenciar_cargo` valem pelo nível do Administrador (D043), não pela lista do cargo.
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Admin enxuto', base='administrador')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    admin = fabrica_pessoa('Admin enxuto')
+    conceder_direto(admin, cargo, cenario.x)
+    efetivas = permissoes_efetivas(admin, cenario.x)
+    assert {'convidar_pessoa', 'revogar_acesso', 'gerenciar_cargo'} <= efetivas
+    assert permissoes_efetivas(admin, cenario.y) == frozenset()
+
+
+def test_usuario_nao_ganha_delegacao_nem_gerencia_de_cargo(cenario, fabrica_pessoa, conceder_direto):
+    usuario = fabrica_pessoa('Usuario')
+    conceder_direto(usuario, cenario.cargos_x['usuario'], cenario.x)
+    assert not permissoes_efetivas(usuario, cenario.x) & {'convidar_pessoa', 'revogar_acesso', 'gerenciar_cargo'}
+
+
+def test_redefinir_senha_so_aparece_para_o_administrador_da_empresa(cenario, fabrica_pessoa, conceder_direto):
+    # Sourcery, PR #18: a rota recusa quem não é Administrador, ainda que o cargo personalizado traga a ação.
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Curador com redefinição', base='curador')
+    for codigo in ('ver', 'redefinir_senha'):
+        CargoPermissao.objects.create(cargo=cargo, permissao_id=codigo)
+    curador, admin = fabrica_pessoa('Curador'), fabrica_pessoa('Admin da X')
+    conceder_direto(curador, cargo, cenario.x)
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    assert pode(curador, 'redefinir_senha', cenario.x)
+    assert 'redefinir_senha' not in permissoes_efetivas(curador, cenario.x)
+    assert 'redefinir_senha' in permissoes_efetivas(admin, cenario.x)

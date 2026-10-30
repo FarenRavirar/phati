@@ -7,7 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'servidor', 'projeto', 'templates', 'redefinir_senha.html'), 'utf8');
-const CODIGO_DA_PAGINA = HTML.match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i)[1];  // CodeQL, PR #17: aceita <SCRIPT> e atributos
+const CODIGO_DA_PAGINA = HTML.match(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i)[1];  // CodeQL, PR #17 e #18: aceita <SCRIPT>, atributos e fechamento tolerante
 
 function elemento(oculto = false) {
   const ouvintes = {};
