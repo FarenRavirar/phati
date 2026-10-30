@@ -6,10 +6,17 @@ O envio sai só depois do commit da transação em curso (`on_commit`): rollback
 dado gravado. Falha do SMTP não derruba quem chamou: vai para o log só com o modelo, a pessoa e o tipo da
 exceção (a mensagem carrega a senha temporária ou o link, e a exceção do backend pode citar o endereço). Quem
 perdeu a mensagem pede outra: o Administrador reenvia pela redefinição de senha (decisão a confirmar, T5.5a 4 e 5).
+
+O envio roda numa thread única, depois da resposta: o SMTP (até `PHATI_EMAIL_PRAZO`) não entra no tempo da resposta, e CPF
+existente e inexistente não se distinguem por ele (T5.5c; OWASP Forgot Password, Django #31505). Uma thread só limita o
+consumo e entrega na ordem do commit (Sourcery e Greptile, PR #17); ela não é daemon, então a saída normal do processo
+espera a fila esvaziar. Sem fila durável: se o processo for morto, a mensagem se perde, como já se perdia na falha de
+SMTP (outbox é decisão de T5.5a 5).
 """
 
 import logging
 import smtplib
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 from django.conf import settings
@@ -34,8 +41,20 @@ def _enviar_agora(pessoa, modelo, assunto, corpo):
         registro.error('falha ao enviar o e-mail %s para a pessoa %s: %s', modelo, pessoa.pk, falha)
 
 
+_FILA = ThreadPoolExecutor(max_workers=1, thread_name_prefix='email')
+
+
+def _despachar(funcao):
+    # O teste troca esta função pela chamada direta. Falha ao enfileirar não pode chegar ao `on_commit`: o dado já gravou.
+    try:
+        _FILA.submit(funcao)
+    except RuntimeError:
+        # Com traceback (Sonar, PR #17): o erro vem da fila, não do SMTP, então não leva endereço nem segredo.
+        registro.exception('falha ao enfileirar o envio de e-mail')
+
+
 def _enviar(pessoa, modelo, assunto, corpo):
-    transaction.on_commit(partial(_enviar_agora, pessoa, modelo, assunto, corpo))
+    transaction.on_commit(partial(_despachar, partial(_enviar_agora, pessoa, modelo, assunto, corpo)))
 
 
 def enviar_senha_temporaria(pessoa, senha):

@@ -2,6 +2,8 @@
 
 import re
 import smtplib
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,9 @@ from django.utils import timezone
 
 from identidade import email, redefinicao, senha
 from identidade.testes.conftest import CPF
+
+# Guardado na importação, antes de a fixture automática do conftest trocar `_despachar` pela chamada direta.
+_DESPACHO_REAL = email._despachar
 from territorio import cadastro
 
 RAIZ = Path(settings.DIRETORIO_BASE)
@@ -149,3 +154,45 @@ def test_aviso_de_convite_mostra_a_data_no_fuso_de_sao_paulo(pessoa, mailoutbox)
     email.enviar_aviso_de_convite(pessoa, 'Empresa X', 'Usuário', datetime(2026, 11, 6, 1, 0, tzinfo=fuso.utc))
     assert 'até 05/11/2026' in mailoutbox[0].body
     assert '06/11/2026' not in mailoutbox[0].body
+
+
+def test_despacho_real_roda_o_envio_noutra_thread(monkeypatch):
+    # T5.5c: o conftest troca `_despachar` pela chamada direta; o original sai da thread da requisição.
+    ids = []
+    terminou = threading.Event()
+
+    def envio():
+        ids.append(threading.get_ident())
+        terminou.set()
+
+    _DESPACHO_REAL(envio)
+    assert terminou.wait(5)
+    assert ids[0] != threading.get_ident()
+
+
+def test_despacho_real_entrega_na_ordem_e_com_uma_thread_so():
+    # Sourcery e Greptile, PR #17: uma thread por e-mail acumula sob SMTP lento e deixa a ordem do commit se perder.
+    ordem, threads, terminou = [], set(), threading.Event()
+
+    def envio(numero):
+        time.sleep(0.01 * (5 - numero))  # o primeiro é o mais lento: com threads soltas, chegaria por último
+        ordem.append(numero)
+        threads.add(threading.get_ident())
+        if numero == 4:
+            terminou.set()
+
+    for numero in range(5):
+        _DESPACHO_REAL(lambda n=numero: envio(n))
+    assert terminou.wait(5)
+    assert ordem == [0, 1, 2, 3, 4]
+    assert len(threads) == 1
+
+
+def test_falha_ao_enfileirar_nao_chega_a_quem_chamou(monkeypatch, caplog):
+    def recusar(funcao):
+        raise RuntimeError('fila encerrada')
+
+    monkeypatch.setattr(email._FILA, 'submit', recusar)
+    _DESPACHO_REAL(lambda: None)
+    assert 'falha ao enfileirar o envio de e-mail' in caplog.text
+    assert 'RuntimeError: fila encerrada' in caplog.text  # traceback presente: `registro.exception`

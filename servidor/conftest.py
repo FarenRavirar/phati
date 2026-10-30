@@ -13,9 +13,10 @@ def _fechar_conexao_app():
 
 @pytest.fixture(autouse=True)
 def _email_na_hora(request, monkeypatch):
-    """O teste comum roda numa transação que nunca faz commit, então `on_commit` não dispararia e `mailoutbox`
+    """`_despachar` (thread em produção) vira chamada direta: o teste lê `mailoutbox` sem corrida. O teste comum roda numa transação que nunca faz commit, então `on_commit` não dispararia e `mailoutbox`
     ficaria vazia: aqui o envio sai na hora. Teste que exercita o commit pede `django_capture_on_commit_callbacks`
     e fica com o `on_commit` verdadeiro."""
+    monkeypatch.setattr('identidade.email._despachar', lambda funcao: funcao())
     if 'django_capture_on_commit_callbacks' not in request.fixturenames:
         from types import SimpleNamespace
 
