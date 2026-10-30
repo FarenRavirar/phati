@@ -17,7 +17,7 @@ from django.db.models import Q
 from django.http import HttpResponseRedirect
 
 from identidade import sessao
-from permissao.pode import age_em_algum_escopo, com_permissao, escopos_da_acao
+from permissao.pode import age_em_algum_escopo, com_permissao, unir_escopos
 
 # O que abre o painel: ver o território, sozinho, não basta (Técnico e Usuário veem e não administram).
 ACOES_DE_GESTAO = (
@@ -25,6 +25,8 @@ ACOES_DE_GESTAO = (
     'gerenciar_cargo',
 )
 ACOES_DO_PAINEL = ('ver', *ACOES_DE_GESTAO)
+# Telas de pessoa e de concessão servem a quem convida, a quem revoga e a quem redefine senha.
+ACOES_DE_PESSOAS = ('convidar_pessoa', 'revogar_acesso', 'redefinir_senha')
 
 
 class FormularioEntrada(AuthenticationForm):
@@ -72,12 +74,20 @@ class PainelSite(AdminSite):
 
     def login(self, request, extra_context=None):
         resposta = super().login(request, extra_context)
-        if request.method == 'POST' and request.user.is_authenticated:
+        # Login válido redireciona; senha errada devolve 200. Carimbar só no redirecionamento: quem já estava logado e
+        # erra a senha continuaria `is_authenticated` e renovaria o teto de 12 h sem saber a senha (Codex, PR #16).
+        if request.method == 'POST' and resposta.status_code == 302 and request.user.is_authenticated:
             sessao.carimbar(request)  # o `login()` do Django não grava `entrada_em` nem `ultima_atividade`
         return resposta
 
     def password_change(self, request, extra_context=None):
         raise PermissionDenied
+
+
+# Como `do_escopo` enxerga cada tabela (nome do campo que liga ao escopo).
+EMPRESAS = {'empresa': 'pk'}
+FAZENDAS = {'empresa': 'empresa_id', 'fazenda': 'pk'}
+SUB_AREAS = {'empresa': 'empresa_id', 'fazenda': 'fazenda_id', 'sub_area': 'pk', 'caminho': 'caminho'}
 
 
 def escolher_escopo(empresa, fazenda, sub_area):
@@ -88,10 +98,10 @@ def escolher_escopo(empresa, fazenda, sub_area):
     return escolhido
 
 
-def do_escopo(consulta, pessoa, acao, *, empresa=None, fazenda=None, sub_area=None, irmas=False):
+def do_escopo(consulta, pessoa, acao, *, empresa=None, fazenda=None, ancestral=None, sub_area=None, caminho=None, irmas=False):
     """Restringe `consulta` ao que `pessoa` alcança com `acao`. O painel não confia só na RLS: este filtro vale
     também quando o ORM roda como dono (testes) e dá a granularidade de fazenda e sub-área que a RLS não tem."""
-    escopos = escopos_da_acao(pessoa, acao)
+    escopos = unir_escopos(pessoa, *((acao,) if isinstance(acao, str) else acao))
     if escopos.plataforma:
         return consulta
     filtro = Q(pk__in=[])
@@ -99,10 +109,17 @@ def do_escopo(consulta, pessoa, acao, *, empresa=None, fazenda=None, sub_area=No
         filtro |= Q(**{f'{empresa}__in': escopos.empresas})
         if irmas:  # quem age numa fazenda enxerga a empresa dela (e os cargos), não os dados das outras fazendas
             filtro |= Q(**{f'{empresa}__in': escopos.empresas_das_fazendas})
+    # `fazenda`: registros de quem tem a fazenda inteira. `ancestral`: a própria fazenda de quem só tem uma sub-área
+    # dela. Misturar os dois mostraria as sub-áreas irmãs e as concessões delas (Codex e Greptile, PR #16).
     if fazenda:
-        filtro |= Q(**{f'{fazenda}__in': escopos.fazendas | escopos.fazendas_das_sub_areas})
+        filtro |= Q(**{f'{fazenda}__in': escopos.fazendas})
+    if ancestral:
+        filtro |= Q(**{f'{ancestral}__in': escopos.fazendas | escopos.fazendas_das_sub_areas})
     if sub_area:
         filtro |= Q(**{f'{sub_area}__in': escopos.sub_areas})
+    if caminho:  # descendentes da sub-área autorizada: o caminho guarda os ids dos ancestrais ('/1/5/')
+        for sub_area_id in escopos.sub_areas:
+            filtro |= Q(**{f'{caminho}__contains': f'/{sub_area_id}/'})
     return consulta.filter(filtro)
 
 
@@ -119,8 +136,29 @@ class AdministracaoPorServico(ModelAdmin):
     acao_de_remocao = None
     acao_de_alteracao = None
 
-    def _age(self, request, acao):
-        return acao is not None and age_em_algum_escopo(request.user, acao)
+    # Campo do formulário → (ação, argumentos de `do_escopo`): as opções só mostram o que a pessoa alcança. Negar a
+    # gravação depois não bastaria, porque a lista já teria exposto nome e id do que está fora (Greptile, PR #16).
+    campos_do_escopo = {}
+
+    def _age(self, request, acoes):
+        acoes = (acoes,) if isinstance(acoes, str) else (acoes or ())
+        return bool(acoes) and age_em_algum_escopo(request.user, *acoes)
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        formulario = super().get_form(request, obj, change, **kwargs)
+        restringir = self.restringir_campos
+
+        class FormularioRestrito(formulario):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                restringir(request, self.fields)
+
+        return FormularioRestrito
+
+    def restringir_campos(self, request, campos):
+        for nome, (acao, argumentos) in self.campos_do_escopo.items():
+            if nome in campos:
+                campos[nome].queryset = do_escopo(campos[nome].queryset, request.user, acao, **argumentos)
 
     def has_module_permission(self, request):
         return self._age(request, self.acao_de_leitura)

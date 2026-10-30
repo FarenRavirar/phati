@@ -36,7 +36,12 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    # `X-Frame-Options: DENY` (padrão do Django): o painel não pode ser embutido em outro site (Qodo, PR #16).
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+# A senha temporária criada no painel vai numa mensagem: na sessão do servidor, nunca no cookie `messages`, que o
+# navegador lê e o proxy pode registrar (Qodo, PR #16).
+MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
 
 TEMPLATES = [
     {

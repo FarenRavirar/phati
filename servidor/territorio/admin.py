@@ -3,7 +3,7 @@
 from django import forms
 from django.contrib import admin, messages
 
-from projeto.painel import AdministracaoPorServico, do_escopo
+from projeto.painel import EMPRESAS, SUB_AREAS, AdministracaoPorServico, do_escopo
 from territorio import cadastro
 from territorio.models import Empresa, Fazenda, SubArea
 
@@ -47,9 +47,10 @@ class FazendaAdmin(AdministracaoPorServico):
     form = FormularioFazenda
     list_display = ('nome', 'empresa')
     acao_de_criacao = 'criar_fazenda'
+    campos_do_escopo = {'empresa': ('criar_fazenda', EMPRESAS)}
 
     def get_queryset(self, request):
-        return do_escopo(super().get_queryset(request), request.user, 'ver', empresa='empresa_id', fazenda='pk')
+        return do_escopo(super().get_queryset(request), request.user, 'ver', empresa='empresa_id', fazenda='pk', ancestral='pk')
 
     def save_model(self, request, obj, form, change):
         self.concluir_criacao(obj, cadastro.criar_fazenda(request.user, form.cleaned_data['empresa'], form.cleaned_data['nome']))
@@ -66,10 +67,15 @@ class SubAreaAdmin(AdministracaoPorServico):
     form = FormularioSubArea
     list_display = ('nome', 'fazenda', 'nivel')
     acao_de_criacao = 'criar_sub_area'
+    campos_do_escopo = {
+        'fazenda': ('criar_sub_area', {'empresa': 'empresa_id', 'fazenda': 'pk', 'ancestral': 'pk'}),
+        'pai': ('criar_sub_area', SUB_AREAS),
+    }
 
     def get_queryset(self, request):
         return do_escopo(
-            super().get_queryset(request), request.user, 'ver', empresa='empresa_id', fazenda='fazenda_id', sub_area='pk'
+            super().get_queryset(request), request.user, 'ver',
+            empresa='empresa_id', fazenda='fazenda_id', sub_area='pk', caminho='caminho',
         )
 
     def save_model(self, request, obj, form, change):

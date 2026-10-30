@@ -39,8 +39,10 @@ def registrar_falha(pessoa, agora):
     pessoa.save(update_fields=['falhas_consecutivas', 'bloqueada_ate'])
 
 
-def autenticar(cpf_texto, senha):
-    """Devolve a pessoa autenticada ou `None`. A senha temporária é consumida no primeiro acesso correto."""
+def autenticar(cpf_texto, senha, consumir=True):
+    """Devolve a pessoa autenticada ou `None`. A senha temporária é consumida no primeiro acesso correto, salvo
+    `consumir=False`: o painel recusa quem ainda deve trocar a senha, e consumi-la antes trancaria a pessoa fora da
+    troca obrigatória da API (Sourcery, PR #16)."""
     try:
         busca = cpf.chave_de_busca(cpf.normalizar_cpf(cpf_texto))
     except ValidationError:
@@ -65,7 +67,8 @@ def autenticar(cpf_texto, senha):
         if pessoa.deve_trocar_senha:
             if pessoa.senha_temporaria_ate is None or pessoa.senha_temporaria_ate <= agora:
                 return None
-            pessoa.senha_temporaria_ate = None
+            if consumir:
+                pessoa.senha_temporaria_ate = None
         pessoa.falhas_consecutivas = 0
         pessoa.bloqueada_ate = None
         pessoa.save(update_fields=['falhas_consecutivas', 'bloqueada_ate', 'senha_temporaria_ate'])

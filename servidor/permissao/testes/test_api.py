@@ -58,7 +58,7 @@ def test_administrador_convida_usuario_na_fazenda_e_a_pessoa_aparece_na_lista(ce
 @pytest.mark.parametrize('base', ['tecnico', 'usuario'])
 def test_cargo_sem_convidar_nao_convida_nem_concede(cenario, fabrica_pessoa, conceder_direto, cpf_novo, base):
     pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.f1)
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     assert _enviar(pessoa, 'pessoas', _convite(cenario.cargos_x['usuario'], {'fazenda_id': cenario.f1.pk}, cpf_novo())).status_code == 403
     corpo = {'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
     assert _enviar(pessoa, f'pessoas/{alvo.pk}/concessoes', corpo).status_code == 403
@@ -71,7 +71,7 @@ def test_administrador_de_x_nao_convida_nem_concede_na_empresa_y(cenario, fabric
     convite = _convite(cenario.cargos_y['usuario'], {'fazenda_id': cenario.fy.pk}, cpf_novo())
     assert _enviar(admin, 'pessoas', convite).status_code in (403, 404)
     assert Pessoa.objects.count() == total
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     corpo = {'cargo_id': cenario.cargos_y['usuario'].pk, 'escopo': {'empresa_id': cenario.y.pk}}
     assert _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo).status_code in (403, 404)
     assert not Concessao.objects.filter(pessoa=alvo).exists()
@@ -79,7 +79,7 @@ def test_administrador_de_x_nao_convida_nem_concede_na_empresa_y(cenario, fabric
 
 def test_cargo_de_outra_empresa_numa_concessao_da_propria_e_negado(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     corpo = {'cargo_id': cenario.cargos_y['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
     assert _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo).status_code in (403, 404)
     assert not Concessao.objects.filter(pessoa=alvo).exists()
@@ -106,7 +106,7 @@ def test_lista_de_pessoas_nao_expoe_cpf_nem_hash_de_senha(cenario, fabrica_pesso
 def test_concede_e_revoga_e_a_revogacao_de_outra_empresa_ou_de_outra_pessoa_e_negada(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     admin_y = _com(fabrica_pessoa, conceder_direto, cenario.cargos_y['administrador'], cenario.y, 'Admin Y')
-    alvo, outra = fabrica_pessoa('Alvo'), fabrica_pessoa('Outra')
+    alvo, outra = fabrica_pessoa('Alvo', empresa_origem=cenario.x), fabrica_pessoa('Outra', empresa_origem=cenario.x)
     corpo = {'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
     criada = _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo)
     assert criada.status_code == 201
@@ -151,9 +151,11 @@ def test_redefinicao_negada_a_outra_empresa_ao_tecnico_e_a_pessoa_inexistente_na
     admin_y = _com(fabrica_pessoa, conceder_direto, cenario.cargos_y['administrador'], cenario.y, 'Admin Y')
     tecnico = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['tecnico'], cenario.f1, 'Técnico')
     alvo = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1, 'Alvo')
-    assert _enviar(admin_y, f'pessoas/{alvo.pk}/redefinir-senha').status_code in (403, 404)
-    assert _enviar(tecnico, f'pessoas/{alvo.pk}/redefinir-senha').status_code == 403
-    assert _enviar(admin_y, 'pessoas/999999/redefinir-senha').status_code in (403, 404)
+    # Existente fora do alcance e inexistente respondem igual (404): 403 revelaria que a pessoa existe.
+    inexistente = _enviar(admin_y, 'pessoas/999999/redefinir-senha')
+    assert inexistente.status_code == 404
+    assert _enviar(admin_y, f'pessoas/{alvo.pk}/redefinir-senha').status_code == inexistente.status_code
+    assert _enviar(tecnico, f'pessoas/{alvo.pk}/redefinir-senha').status_code == inexistente.status_code
     assert not PedidoRedefinicao.objects.filter(pessoa=alvo).exists()
 
 
@@ -181,7 +183,7 @@ def test_plataforma_lista_cargos_de_todas_as_empresas(cenario, plataforma):
 )
 def test_escopo_sem_exatamente_um_alvo_e_422_sem_ecoar_o_valor(cenario, fabrica_pessoa, conceder_direto, escopo):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     resposta = _enviar(admin, f'pessoas/{alvo.pk}/concessoes', {'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': escopo})
     assert resposta.status_code == 422
     assert resposta.json()['detalhe'] == 'entrada_invalida'
@@ -190,34 +192,25 @@ def test_escopo_sem_exatamente_um_alvo_e_422_sem_ecoar_o_valor(cenario, fabrica_
 
 def test_periodo_invalido_e_422_e_nao_500(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     passado = (timezone.now() - timedelta(days=1)).isoformat()
     corpo = {'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}, 'fim': passado}
     assert _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo).status_code == 422
     assert not Concessao.objects.filter(pessoa=alvo).exists()
 
 
-def test_convite_com_e_mail_malformado_ou_cpf_repetido_nao_grava_pessoa(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+def test_convite_com_e_mail_malformado_nao_grava_pessoa(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    existente = fabrica_pessoa('Existente')
-    escopo = {'fazenda_id': cenario.f1.pk}
-    ruim = _convite(cenario.cargos_x['usuario'], escopo, cpf_novo(), email='sem-arroba')
-    assert _enviar(admin, 'pessoas', ruim).status_code == 422
+    ruim = _convite(cenario.cargos_x['usuario'], {'fazenda_id': cenario.f1.pk}, cpf_novo(), email='sem-arroba')
     total = Pessoa.objects.count()
-    assert total == 2
-    # CPF de pessoa já cadastrada: o serviço recusa; quem já existe recebe concessão pela outra rota.
-    from identidade import cpf as modulo_cpf
-
-    repetido = _convite(cenario.cargos_x['usuario'], escopo, modulo_cpf.decifrar(existente.cpf_cifrado))
-    resposta = _enviar(admin, 'pessoas', repetido)
-    assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'cpf_duplicado'})
+    assert _enviar(admin, 'pessoas', ruim).status_code == 422
     assert Pessoa.objects.count() == total
 
 
 def test_categoria_de_outra_empresa_e_recusada(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     alheia = CategoriaDado.objects.create(empresa=cenario.y, nome='Alheia')
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     corpo = {'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}, 'categoria_ids': [alheia.pk]}
     resposta = _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo)
     assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'categoria_invalida'})
@@ -248,7 +241,7 @@ def test_fluxo_completo_sob_o_papel_app_com_rls(cenario, pessoas_do_fluxo, cpf_n
     assert pessoa_id not in {p['id'] for p in _enviar(admin_y, 'pessoas', metodo='get').json()}
     assert {c['empresa_id'] for c in _enviar(admin, 'cargos', metodo='get').json()} == {cenario.x.pk}
     assert _enviar(admin_y, f'pessoas/{pessoa_id}/concessoes/{concessao_id}', metodo='delete').status_code in (403, 404)
-    assert _enviar(admin_y, f'pessoas/{pessoa_id}/redefinir-senha').status_code in (403, 404)
+    assert _enviar(admin_y, f'pessoas/{pessoa_id}/redefinir-senha').status_code == 404
     assert _enviar(admin, f'pessoas/{pessoa_id}/redefinir-senha').status_code == 204
     assert _enviar(admin, f'pessoas/{pessoa_id}/concessoes/{concessao_id}', metodo='delete').status_code == 204
 
@@ -259,5 +252,96 @@ def test_cargo_personalizado_com_redefinir_senha_sem_ser_administrador_nao_redef
     CargoPermissao.objects.create(cargo=cargo, permissao_id='redefinir_senha')
     suporte = _com(fabrica_pessoa, conceder_direto, cargo, cenario.x, 'Suporte')
     alvo = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1, 'Alvo')
-    assert _enviar(suporte, f'pessoas/{alvo.pk}/redefinir-senha').status_code in (403, 404)
+    assert _enviar(suporte, f'pessoas/{alvo.pk}/redefinir-senha').status_code == 404
     assert not PedidoRedefinicao.objects.filter(pessoa=alvo).exists()
+
+
+def test_plataforma_pede_redefinicao_de_outra_conta_da_plataforma_que_nao_tem_empresa(plataforma, fabrica_pessoa):
+    outra = fabrica_pessoa('Outra plataforma')
+    outra.administrador_plataforma = True
+    outra.save(update_fields=['administrador_plataforma'])
+    assert _enviar(plataforma, f'pessoas/{outra.pk}/redefinir-senha').status_code == 204
+    assert PedidoRedefinicao.objects.filter(pessoa=outra, solicitado_por=plataforma).count() == 1
+
+
+def test_administrador_de_empresa_nao_redefine_conta_da_plataforma(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    assert _enviar(admin, f'pessoas/{plataforma.pk}/redefinir-senha').status_code == 404
+    assert not PedidoRedefinicao.objects.filter(pessoa=plataforma).exists()
+
+
+def test_administrador_da_segunda_empresa_redefine_pessoa_com_acesso_nas_duas(cenario, fabrica_pessoa, conceder_direto):
+    admin_y = _com(fabrica_pessoa, conceder_direto, cenario.cargos_y['administrador'], cenario.y, 'Admin Y')
+    colaboradora = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1, 'Colaboradora')
+    conceder_direto(colaboradora, cenario.cargos_y['usuario'], cenario.fy)
+    assert _enviar(admin_y, f'pessoas/{colaboradora.pk}/redefinir-senha').status_code == 204
+    assert PedidoRedefinicao.objects.filter(pessoa=colaboradora, solicitado_por=admin_y).count() == 1
+
+
+def test_concessao_a_pessoa_fora_do_alcance_responde_como_inexistente_e_nao_grava(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    estranha = fabrica_pessoa('Estranha')  # sem origem nem concessão na empresa X: a tabela `pessoa` não tem RLS
+    corpo = {'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    inexistente = _enviar(admin, 'pessoas/999999/concessoes', corpo)
+    assert inexistente.status_code == 404
+    assert _enviar(admin, f'pessoas/{estranha.pk}/concessoes', corpo).status_code == inexistente.status_code
+    assert not Concessao.objects.filter(pessoa=estranha).exists()
+
+
+def test_lista_de_pessoas_nao_faz_consulta_por_concessao(cenario, fabrica_pessoa, conceder_direto, django_assert_num_queries):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    conceder_direto(fabrica_pessoa('Dois', empresa_origem=cenario.x), cenario.cargos_x['usuario'], cenario.g1)
+
+    def consultas():
+        with CaptureQueriesContext(connection) as captura:
+            assert _enviar(admin, 'pessoas', metodo='get').status_code == 200
+        return len(captura)
+
+    poucas = consultas()
+    for numero in range(8):
+        conceder_direto(fabrica_pessoa(f'Mais {numero}', empresa_origem=cenario.x), cenario.cargos_x['usuario'], cenario.g1)
+    assert consultas() == poucas
+
+
+def test_curador_de_sub_area_lista_a_pessoa_da_filha_e_nao_a_da_irma(cenario, fabrica_pessoa, conceder_direto):
+    curador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.g1, 'Curador de G1')
+    filha = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.t1, 'Pessoa de T1')
+    irma = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.g2, 'Pessoa de G2')
+    ids = {p['id'] for p in _enviar(curador, 'pessoas', metodo='get').json()}
+    assert filha.pk in ids
+    assert irma.pk not in ids
+
+
+def test_lista_de_pessoas_tem_limite_marcador_e_teto(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    for numero in range(4):
+        fabrica_pessoa(f'Da empresa {numero}', empresa_origem=cenario.x)
+    primeira = _enviar(admin, 'pessoas?limite=2', metodo='get').json()
+    assert len(primeira) == 2
+    segunda = _enviar(admin, f'pessoas?limite=2&depois={primeira[-1]["id"]}', metodo='get').json()
+    assert len(segunda) == 2
+    assert not {p['id'] for p in primeira} & {p['id'] for p in segunda}
+    assert min(p['id'] for p in segunda) > max(p['id'] for p in primeira)
+    todas = []
+    marcador = 0
+    while pagina := _enviar(admin, f'pessoas?limite=2&depois={marcador}', metodo='get').json():
+        todas += pagina
+        marcador = pagina[-1]['id']
+    assert len(todas) == len({p['id'] for p in todas}) == 5  # o administrador e as quatro da empresa
+
+
+@pytest.mark.parametrize('consulta', ['limite=0', 'limite=101', 'depois=-1', 'limite=abc'])
+def test_limite_fora_da_faixa_e_422_sem_ecoar_o_valor(cenario, fabrica_pessoa, conceder_direto, consulta):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    resposta = _enviar(admin, f'pessoas?{consulta}', metodo='get')
+    assert (resposta.status_code, resposta.json()['detalhe']) == (422, 'entrada_invalida')
+
+
+def test_pagina_padrao_tem_no_maximo_trinta_pessoas(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    for numero in range(32):
+        fabrica_pessoa(f'Da empresa {numero}', empresa_origem=cenario.x)
+    assert len(_enviar(admin, 'pessoas', metodo='get').json()) == 30

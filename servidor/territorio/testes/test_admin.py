@@ -42,8 +42,8 @@ def test_administrador_cria_fazenda_na_propria_empresa_e_e_negado_na_alheia(cena
     cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x))
     assert cliente.post('/painel/territorio/fazenda/add/', {'empresa': cenario.x.pk, 'nome': 'Nova'}).status_code == 302
     assert Fazenda.objects.filter(empresa=cenario.x, nome='Nova').exists()
-    # Dono do banco enxerga a empresa Y no formulário: quem barra é o serviço (`pode()`), com 403.
-    assert cliente.post('/painel/territorio/fazenda/add/', {'empresa': cenario.y.pk, 'nome': 'Invasora'}).status_code == 403
+    # A empresa Y nem é opção no formulário (200 com erro); se fosse, o serviço barraria com 403.
+    assert cliente.post('/painel/territorio/fazenda/add/', {'empresa': cenario.y.pk, 'nome': 'Invasora'}).status_code in (200, 403)
     assert not Fazenda.objects.filter(nome='Invasora').exists()
 
 
@@ -51,7 +51,8 @@ def test_curador_ve_so_a_fazenda_dele_e_nao_cria(cenario, fabrica_pessoa, conced
     cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.f1))
     pagina = cliente.get('/painel/territorio/fazenda/').content.decode()
     assert 'F1' in pagina
-    assert 'FY' not in pagina and '>F2<' not in pagina
+    assert '>FY<' not in pagina
+    assert '>F2<' not in pagina
     assert cliente.get('/painel/territorio/fazenda/add/').status_code == 403
     assert cliente.post('/painel/territorio/fazenda/add/', {'empresa': cenario.x.pk, 'nome': 'Nova'}).status_code == 403
     assert not Fazenda.objects.filter(nome='Nova').exists()
@@ -61,7 +62,8 @@ def test_administrador_de_y_nao_ve_fazenda_de_x(cenario, fabrica_pessoa, concede
     cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_y['administrador'], cenario.y))
     pagina = cliente.get('/painel/territorio/fazenda/').content.decode()
     assert 'FY' in pagina
-    assert '>F1<' not in pagina and '>F2<' not in pagina
+    assert '>F1<' not in pagina
+    assert '>F2<' not in pagina
 
 
 def test_sub_area_filha_pelo_painel_e_pai_de_outra_fazenda_vira_mensagem(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
@@ -82,3 +84,11 @@ def test_nenhuma_tela_territorial_edita_ou_apaga_linha_direto(cenario, plataform
     assert cliente.post(f'/painel/territorio/{rota}/{alvo.pk}/delete/', {'post': 'yes'}).status_code == 403
     alvo.refresh_from_db()
     assert alvo.nome != 'Trocado'
+
+
+def test_curador_de_sub_area_ve_a_dele_e_as_filhas_mas_nao_a_irma(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.g1))
+    pagina = cliente.get('/painel/territorio/subarea/').content.decode()
+    assert '>G1<' in pagina
+    assert '>T1<' in pagina
+    assert '>G2<' not in pagina

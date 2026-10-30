@@ -1,4 +1,4 @@
-"""A6 (R6): só três modelos de mensagem, e todo envio passa por eles."""
+"""A6 (R6): só quatro modelos de mensagem (três credenciais e o aviso de convite), e todo envio passa por eles."""
 
 import re
 import smtplib
@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 from django.core.mail import BadHeaderError
 from django.db import transaction
+from django.utils import timezone
 
 from identidade import email, redefinicao, senha
 from identidade.testes.conftest import CPF
@@ -16,19 +17,20 @@ from territorio import cadastro
 RAIZ = Path(settings.DIRETORIO_BASE)
 
 
-def test_tres_modelos_um_para_cada_credencial(pessoa, mailoutbox):
+def test_quatro_modelos_tres_credenciais_e_o_aviso_de_convite(pessoa, mailoutbox):
     email.enviar_senha_temporaria(pessoa, 'ABC123')
     email.enviar_link_de_redefinicao(pessoa, 'segredo')
     email.enviar_aviso_de_troca(pessoa)
-    assert [m.to for m in mailoutbox] == [[pessoa.email]] * 3
+    email.enviar_aviso_de_convite(pessoa, 'Empresa X', 'Usuário', timezone.now())
+    assert [m.to for m in mailoutbox] == [[pessoa.email]] * 4
     assert 'ABC123' in mailoutbox[0].body
     assert f'{settings.URL_BASE}/redefinir-senha#segredo=segredo' in mailoutbox[1].body
-    assert len({m.subject for m in mailoutbox}) == 3
+    assert len({m.subject for m in mailoutbox}) == 4
 
 
-def test_so_existem_tres_funcoes_de_envio():
+def test_so_existem_quatro_funcoes_de_envio():
     fonte = Path(email.__file__).read_text(encoding='utf-8')
-    assert len(re.findall(r'^def enviar_', fonte, re.M)) == len(email.MODELOS) == 3
+    assert len(re.findall(r'^def enviar_', fonte, re.M)) == len(email.MODELOS) == 4
 
 
 def test_nenhum_outro_modulo_envia_email():
@@ -126,3 +128,12 @@ def test_endereco_malformado_na_hora_do_envio_vai_para_o_log_e_nao_estoura(pesso
     monkeypatch.setattr(email.EmailMessage, 'send', falha)
     email.enviar_aviso_de_troca(pessoa)
     assert 'ValueError' in caplog.text  # no Django 6.1 `BadHeaderError` é `ValueError`
+
+
+def test_aviso_de_convite_nao_leva_segredo_nem_link_de_acao(pessoa, mailoutbox):
+    email.enviar_aviso_de_convite(pessoa, 'Empresa X', 'Usuário', timezone.now())
+    corpo = mailoutbox[0].body
+    assert 'Empresa X' in corpo
+    assert 'Usuário' in corpo
+    assert '#segredo=' not in corpo
+    assert 'aceitar' in corpo.lower()

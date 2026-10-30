@@ -101,5 +101,21 @@ def test_entrada_invalida_nao_grava_nada(cenario, plataforma, codigos, nome, bas
 def test_pessoa_anonima_nao_gerencia(cenario):
     from django.contrib.auth.models import AnonymousUser
 
+    anonima = AnonymousUser()
     with pytest.raises(PermissionDenied):
-        gerenciar_cargo(AnonymousUser(), cenario.x, 'A', ['ver'], base='usuario')
+        gerenciar_cargo(anonima, cenario.x, 'A', ['ver'], base='usuario')
+
+
+def test_renomear_para_nome_de_outro_cargo_da_empresa_e_recusado_sem_erro_de_banco(cenario, plataforma):
+    leitor = gerenciar_cargo(plataforma, cenario.x, 'Leitor', ['ver'], base='usuario')
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], cargo=leitor)
+    assert erro.value.code == 'nome_duplicado'
+    leitor.refresh_from_db()
+    assert leitor.nome == 'Leitor'
+
+
+def test_criar_cargo_com_nome_repetido_e_recusado(cenario, plataforma):
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Usuário', ['ver'], base='usuario')
+    assert erro.value.code == 'nome_duplicado'

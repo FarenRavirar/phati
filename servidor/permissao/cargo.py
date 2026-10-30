@@ -57,6 +57,12 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None):
             raise ValidationError('Base do cargo inválida.', code='base_invalida')
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied
+        # `(empresa, nome)` é único no banco; sem isto o conflito virava IntegrityError e erro 500 (Qodo, PR #16).
+        repetido = Cargo.objects.filter(empresa=empresa, nome=nome)
+        if cargo is not None:
+            repetido = repetido.exclude(pk=cargo.pk)
+        if repetido.exists():
+            raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado')
         if cargo is None:
             cargo = Cargo.objects.create(empresa=empresa, nome=nome, base=base)
         else:

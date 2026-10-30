@@ -34,7 +34,7 @@ PERMITIDOS = {
     'delete_model', 'delete_queryset', 'delete_view', 'get_readonly_fields', 'default_site', 'extra_context',
     'has_add_permission', 'has_change_permission', 'has_delete_permission', 'has_module_permission',
     'has_view_permission', 'has_permission', 'has_redefinir_permission', 'login', 'login_form', 'password_change',
-    'confirm_login_allowed', 'error_messages', 'get_short_name',
+    'confirm_login_allowed', 'error_messages', 'get_short_name', 'get_form', 'MESSAGE_STORAGE', 'response_add',
 }
 
 # Palavras inglesas comuns em nome de código. Cresce quando um nome em inglês escapar.

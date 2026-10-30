@@ -26,6 +26,9 @@ TABELAS = ('empresa', 'nivel_divisao', 'fazenda', 'sub_area', 'cargo', 'categori
 # R12: fora da RLS, cada uma com a defesa que a protege (testes abaixo).
 EXCECOES = {
     'pessoa', 'cargo_permissao', 'concessao_categoria', 'pedido_redefinicao', 'acesso_aplicativo', 'evento_auditoria',
+    # Convite (R24): quem recebe ainda não tem escopo na empresa, então a defesa é a consulta por `pessoa` em
+    # `permissao/convite.py`, com teste negativo em `test_convite.py`.
+    'convite',
 }
 INSERIR_SUB_AREA = 'INSERT INTO sub_area (empresa_id, fazenda_id, nivel, nome, caminho) VALUES (%s, %s, 1, %s, %s)'
 INSERIR_FAZENDA = 'INSERT INTO fazenda (empresa_id, nome, criada_em) VALUES (%s, %s, now())'

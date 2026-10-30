@@ -16,7 +16,7 @@ class BackendCpf(BaseBackend):
     def authenticate(self, request, username=None, password=None, **_):
         if username is None or password is None:
             return None
-        pessoa = login.autenticar(username, password)
+        pessoa = login.autenticar(username, password, consumir=False)
         if pessoa is None:
             raise PermissionDenied
         return pessoa

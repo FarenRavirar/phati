@@ -6,7 +6,7 @@ import pytest
 from django.contrib.messages import get_messages
 
 from comum.models import EventoAuditoria
-from permissao.models import Cargo, Concessao, Permissao
+from permissao.models import Cargo, CargoPermissao, Concessao, Permissao
 from permissao.pode import com_permissao
 
 
@@ -28,7 +28,7 @@ def _mensagens(resposta):
 
 def test_administrador_concede_pelo_painel_e_a_lista_mostra(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     cliente = entrar_no_painel(admin)
     corpo = {'pessoa': alvo.pk, 'cargo': cenario.cargos_x['usuario'].pk, 'fazenda': cenario.f1.pk, 'inicio_0': '2026-01-01', 'inicio_1': '00:00:00'}
     assert cliente.post('/painel/permissao/concessao/add/', corpo).status_code == 302
@@ -39,9 +39,9 @@ def test_administrador_concede_pelo_painel_e_a_lista_mostra(cenario, fabrica_pes
 def test_concessao_de_cargo_de_outra_empresa_ou_por_tecnico_e_negada(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     tecnico = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['tecnico'], cenario.f1, 'Técnico')
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     base = {'pessoa': alvo.pk, 'fazenda': cenario.f1.pk, 'inicio_0': '2026-01-01', 'inicio_1': '00:00:00'}
-    assert entrar_no_painel(admin).post('/painel/permissao/concessao/add/', {**base, 'cargo': cenario.cargos_y['usuario'].pk}).status_code == 403
+    assert entrar_no_painel(admin).post('/painel/permissao/concessao/add/', {**base, 'cargo': cenario.cargos_y['usuario'].pk}).status_code in (200, 403)
     # Técnico nem abre o painel (vai para o login): negado do mesmo jeito, sem concessão gravada.
     assert entrar_no_painel(tecnico).post('/painel/permissao/concessao/add/', {**base, 'cargo': cenario.cargos_x['usuario'].pk}).status_code in (302, 403)
     assert not Concessao.objects.filter(pessoa=alvo).exists()
@@ -49,7 +49,7 @@ def test_concessao_de_cargo_de_outra_empresa_ou_por_tecnico_e_negada(cenario, fa
 
 def test_apagar_concessao_no_painel_revoga_e_nao_apaga_a_linha(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    alvo = fabrica_pessoa('Alvo')
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
     concessao = conceder_direto(alvo, cenario.cargos_x['usuario'], cenario.f1)
     resposta = entrar_no_painel(admin).post(f'/painel/permissao/concessao/{concessao.pk}/delete/', {'post': 'yes'})
     assert resposta.status_code == 302
@@ -110,7 +110,7 @@ def pessoas_do_painel(cenario, fabrica_pessoa, conceder_direto):
     return (
         _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x, 'Admin X'),
         _com(fabrica_pessoa, conceder_direto, cenario.cargos_y['administrador'], cenario.y, 'Admin Y'),
-        fabrica_pessoa('Alvo'),
+        fabrica_pessoa('Alvo', empresa_origem=cenario.x),
     )
 
 
@@ -135,3 +135,53 @@ def test_painel_sob_o_papel_app_com_rls(cenario, pessoas_do_painel, entrar_no_pa
     assert getattr(concessao_do_alvo(), 'revogada_em', 'sumiu') is None
     assert cliente.post(f'/painel/permissao/concessao/{concessao.pk}/delete/', {'post': 'yes'}).status_code == 302
     assert getattr(concessao_do_alvo(), 'revogada_em', None) is not None
+
+
+def test_curador_de_sub_area_nao_ve_concessao_da_irma(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    curador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.g1, 'Curador de G1')
+    _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.g2, 'Moradora de G2')
+    _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.t1, 'Moradora de T1')
+    pagina = entrar_no_painel(curador).get('/painel/permissao/concessao/').content.decode()
+    assert 'Moradora de T1' in pagina
+    assert 'Moradora de G2' not in pagina
+
+
+def test_gestor_so_com_gerenciar_cargo_altera_cargo_existente(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    gestor = Cargo.objects.create(empresa=cenario.x, nome='Gestor', base='curador')
+    CargoPermissao.objects.bulk_create(CargoPermissao(cargo=gestor, permissao_id=c) for c in ('ver', 'gerenciar_cargo'))
+    pessoa = _com(fabrica_pessoa, conceder_direto, gestor, cenario.x, 'Gestora')
+    alvo = cenario.cargos_x['usuario']
+    cliente = entrar_no_painel(pessoa)
+    assert cliente.post(f'/painel/permissao/cargo/{alvo.pk}/change/', {'nome': 'Leitor', 'codigos': ['ver']}).status_code == 302
+    alvo.refresh_from_db()
+    assert alvo.nome == 'Leitor'
+
+
+def test_quem_so_revoga_acesso_ve_as_concessoes_e_revoga(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    revogador = Cargo.objects.create(empresa=cenario.x, nome='Revogador', base='curador')
+    CargoPermissao.objects.bulk_create(CargoPermissao(cargo=revogador, permissao_id=c) for c in ('ver', 'revogar_acesso'))
+    pessoa = _com(fabrica_pessoa, conceder_direto, revogador, cenario.x, 'Revogadora')
+    alvo = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1, 'Alvo do revogador')
+    cliente = entrar_no_painel(pessoa)
+    assert 'Alvo do revogador' in cliente.get('/painel/permissao/concessao/').content.decode()
+    concessao = Concessao.objects.get(pessoa=alvo)
+    assert cliente.post(f'/painel/permissao/concessao/{concessao.pk}/delete/', {'post': 'yes'}).status_code == 302
+    concessao.refresh_from_db()
+    assert concessao.revogada_em is not None
+
+
+def test_painel_nao_concede_a_pessoa_fora_do_alcance(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    estranha = fabrica_pessoa('Estranha')
+    corpo = {'pessoa': estranha.pk, 'cargo': cenario.cargos_x['usuario'].pk, 'fazenda': cenario.f1.pk, 'inicio_0': '2026-01-01', 'inicio_1': '00:00:00'}
+    assert entrar_no_painel(admin).post('/painel/permissao/concessao/add/', corpo).status_code == 200
+    assert not Concessao.objects.filter(pessoa=estranha).exists()
+
+
+def test_renomear_cargo_para_nome_repetido_vira_mensagem_e_nao_erro_500(cenario, plataforma, entrar_no_painel):
+    leitor = Cargo.objects.create(empresa=cenario.x, nome='Leitor', base='usuario')
+    resposta = entrar_no_painel(plataforma).post(f'/painel/permissao/cargo/{leitor.pk}/change/', {'nome': 'Usuário', 'codigos': ['ver']}, follow=True)
+    assert resposta.status_code == 200
+    assert any('Já existe' in m for m in _mensagens(resposta))
+    leitor.refresh_from_db()
+    assert leitor.nome == 'Leitor'

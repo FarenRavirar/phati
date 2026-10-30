@@ -202,6 +202,17 @@ def escopos_da_acao(pessoa, acao):
     )
 
 
+def unir_escopos(pessoa, *acoes):
+    """União dos escopos de várias ações: telas que servem a mais de uma operação (convidar, revogar, redefinir)."""
+    todos = [escopos_da_acao(pessoa, acao) for acao in acoes]
+    uniao = lambda campo: frozenset().union(*(getattr(e, campo) for e in todos))
+    return Escopos(
+        plataforma=any(e.plataforma for e in todos),
+        empresas=uniao('empresas'), fazendas=uniao('fazendas'), sub_areas=uniao('sub_areas'),
+        fazendas_das_sub_areas=uniao('fazendas_das_sub_areas'), empresas_das_fazendas=uniao('empresas_das_fazendas'),
+    )
+
+
 def age_em_algum_escopo(pessoa, *acoes):
     """A pessoa exerce alguma das `acoes` em ao menos um lugar (plataforma, empresa, fazenda ou sub-área)."""
     for acao in acoes:

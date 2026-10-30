@@ -89,3 +89,37 @@ def test_acao_em_massa_de_apagar_nao_existe(cenario, fabrica_pessoa, conceder_di
     )
     assert Fazenda.objects.filter(pk=cenario.f1.pk).exists()
     assert 'delete_selected' not in resposta.content.decode().split('name="action"')[-1][:2000]
+
+
+def test_entrada_invalida_de_quem_ja_esta_logado_nao_renova_o_teto_da_sessao(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    cliente = entrar_no_painel(admin)
+    sessao = cliente.session
+    sessao['entrada_em'] -= 3600
+    sessao.save()
+    antes = cliente.session['entrada_em']
+    cliente.post('/painel/login/', {'username': modulo_cpf.decifrar(admin.cpf_cifrado), 'password': 'senha errada 2026'})
+    assert cliente.session['entrada_em'] == antes
+
+
+def test_entrada_no_painel_com_senha_temporaria_nao_a_consome(cenario, fabrica_pessoa, conceder_direto):
+    from identidade import login
+
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    cpf = modulo_cpf.decifrar(admin.cpf_cifrado)
+    texto = senha.emitir_senha_temporaria(admin)
+    Client().post('/painel/login/', {'username': cpf, 'password': texto})
+    # A troca obrigatória é da API: a mesma senha temporária ainda precisa entrar lá.
+    assert login.autenticar(cpf, texto) is not None
+
+
+def test_painel_nao_pode_ser_embutido_em_outro_site(db):
+    assert Client().get('/painel/login/')['X-Frame-Options'] == 'DENY'
+
+
+def test_senha_temporaria_criada_no_painel_nao_viaja_em_cookie(plataforma, entrar_no_painel, cpf_novo):
+    cliente = entrar_no_painel(plataforma)
+    corpo = {'nome': 'Empresa Nova', 'nome_administrador': 'Ana', 'email_administrador': 'ana@exemplo.test', 'cpf_administrador': cpf_novo()}
+    resposta = cliente.post('/painel/territorio/empresa/add/', corpo)
+    assert resposta.status_code == 302
+    assert 'messages' not in resposta.cookies  # a mensagem fica na sessão do servidor, não num cookie legível pelo navegador

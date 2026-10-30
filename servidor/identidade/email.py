@@ -1,6 +1,7 @@
-"""E-mail só para credenciais (R6): senha temporária, link de redefinição e aviso de troca.
+"""E-mail só para credenciais e para o aviso de convite (R6): senha temporária, link de redefinição, aviso de troca e
+aviso de convite. O aviso de convite não leva segredo nem link de ação (D053).
 
-Toda mensagem do sistema passa por uma destas três funções; nenhum outro módulo envia e-mail (A6).
+Toda mensagem do sistema passa por uma destas quatro funções; nenhum outro módulo envia e-mail (A6).
 O envio sai só depois do commit da transação em curso (`on_commit`): rollback não deixa e-mail enviado sem o
 dado gravado. Falha do SMTP não derruba quem chamou: vai para o log só com o modelo, a pessoa e o tipo da
 exceção (a mensagem carrega a senha temporária ou o link, e a exceção do backend pode citar o endereço). Quem
@@ -17,7 +18,7 @@ from django.db import transaction
 
 registro = logging.getLogger(__name__)
 
-MODELOS = ('senha_temporaria', 'redefinicao', 'aviso_de_troca')
+MODELOS = ('senha_temporaria', 'redefinicao', 'aviso_de_troca', 'convite')
 
 
 def _enviar_agora(pessoa, modelo, assunto, corpo):
@@ -63,4 +64,17 @@ def enviar_aviso_de_troca(pessoa):
         'aviso_de_troca',
         'Sua senha do phati foi alterada',
         f'Olá, {pessoa.nome}.\n\nA senha da sua conta foi alterada. Se não foi você, avise o administrador da sua empresa.',
+    )
+
+
+def enviar_aviso_de_convite(pessoa, empresa_nome, cargo_nome, expira_em):
+    # Sem segredo e sem link de ação: o aceite é dentro do sistema, com a conta autenticada. Quem não conhece a
+    # empresa recusa (padrão de GitHub, WorkOS e Entra: o convidado sempre é avisado e escolhe).
+    _enviar(
+        pessoa,
+        'convite',
+        'Você recebeu um convite no phati',
+        f'Olá, {pessoa.nome}.\n\nA empresa {empresa_nome} convidou você para participar com o cargo {cargo_nome}. '
+        f'Entre no phati em {settings.URL_BASE} para aceitar ou recusar. O convite vale até {expira_em:%d/%m/%Y}. '
+        'Se você não conhece essa empresa, recuse o convite.',
     )

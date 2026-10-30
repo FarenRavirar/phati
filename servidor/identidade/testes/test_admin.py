@@ -29,9 +29,9 @@ def test_convite_sem_escopo_ou_de_cargo_que_a_pessoa_nao_alcanca_nao_cria_ningue
     sem_escopo = {'nome': 'A', 'email': 'a@exemplo.test', 'cpf': cpf_novo(), 'cargo': cenario.cargos_x['usuario'].pk}
     assert cliente.post('/painel/identidade/pessoa/add/', sem_escopo).status_code == 200
     mesmo_nivel = {**sem_escopo, 'cpf': cpf_novo(), 'cargo': cenario.cargos_x['curador'].pk, 'fazenda': cenario.f1.pk}
-    assert cliente.post('/painel/identidade/pessoa/add/', mesmo_nivel).status_code == 403
+    assert cliente.post('/painel/identidade/pessoa/add/', mesmo_nivel).status_code in (200, 403)
     outra_fazenda = {**sem_escopo, 'cpf': cpf_novo(), 'fazenda': cenario.f2.pk}
-    assert cliente.post('/painel/identidade/pessoa/add/', outra_fazenda).status_code == 403
+    assert cliente.post('/painel/identidade/pessoa/add/', outra_fazenda).status_code in (200, 403)
     assert Pessoa.objects.count() == total
 
 
@@ -66,3 +66,52 @@ def test_pessoa_do_painel_tem_nome_legivel_e_nao_expoe_o_indice_do_cpf(cenario, 
     pessoa = fabrica_pessoa('Ana Souza')
     assert (str(pessoa), pessoa.get_short_name()) == ('Ana Souza', 'Ana Souza')
     assert modulo_cpf.decifrar(pessoa.cpf_cifrado) not in str(pessoa)
+
+
+def test_formulario_de_convite_so_oferece_o_que_a_pessoa_alcanca(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.g1))
+    pagina = cliente.get('/painel/identidade/pessoa/add/').content.decode()
+    assert '>G1<' in pagina
+    assert '>G2<' not in pagina
+    assert '>FY<' not in pagina
+    assert 'Empresa Y' not in pagina
+
+
+def test_plataforma_redefine_a_senha_de_outro_administrador_da_plataforma(plataforma, fabrica_pessoa, entrar_no_painel):
+    outra = fabrica_pessoa('Outra plataforma')
+    outra.administrador_plataforma = True
+    outra.save(update_fields=['administrador_plataforma'])
+    entrar_no_painel(plataforma).post('/painel/identidade/pessoa/', {'action': 'redefinir_senha', '_selected_action': [outra.pk]})
+    assert PedidoRedefinicao.objects.filter(pessoa=outra, solicitado_por=plataforma).count() == 1
+
+
+def test_acao_de_redefinir_so_conta_o_pedido_criado(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    from django.contrib.messages import get_messages
+
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x, 'Admin')
+    alvo = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1, 'Alvo')
+    cliente = entrar_no_painel(admin)
+    pedido = {'action': 'redefinir_senha', '_selected_action': [alvo.pk]}
+    primeira = cliente.post('/painel/identidade/pessoa/', pedido, follow=True)
+    segunda = cliente.post('/painel/identidade/pessoa/', pedido, follow=True)  # dentro do intervalo de 1 minuto
+    assert any('1 de 1' in str(m) for m in get_messages(primeira.wsgi_request))
+    assert any('0 de 1' in str(m) for m in get_messages(segunda.wsgi_request))
+    assert PedidoRedefinicao.objects.filter(pessoa=alvo).count() == 1
+
+
+def test_convite_de_cpf_que_ja_existe_pelo_painel_vira_pendente_sem_dado_da_pessoa(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    from django.contrib.messages import get_messages
+
+    from permissao.models import Convite
+
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Moradora de Y')
+    total = Pessoa.objects.count()
+    corpo = {'nome': 'Qualquer', 'email': 'q@exemplo.test', 'cpf': modulo_cpf.decifrar(existente.cpf_cifrado), 'cargo': cenario.cargos_x['usuario'].pk, 'fazenda': cenario.f1.pk}
+    resposta = entrar_no_painel(admin).post('/painel/identidade/pessoa/add/', corpo, follow=True)
+    assert resposta.status_code == 200
+    assert any('Convite enviado' in str(m) for m in get_messages(resposta.wsgi_request))
+    assert 'Moradora de Y' not in resposta.content.decode()
+    assert Pessoa.objects.count() == total
+    assert Convite.objects.filter(pessoa=existente).count() == 1
+    assert not Concessao.objects.filter(pessoa=existente, empresa=cenario.x).exists()

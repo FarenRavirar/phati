@@ -318,6 +318,25 @@
         "title": "EntradaTrocarSenha",
         "type": "object"
       },
+      "ParametrosDaLista": {
+        "properties": {
+          "depois": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Depois",
+            "type": "integer"
+          },
+          "limite": {
+            "default": 30,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limite",
+            "type": "integer"
+          }
+        },
+        "title": "ParametrosDaLista",
+        "type": "object"
+      },
       "SaidaCargo": {
         "properties": {
           "base": {
@@ -426,26 +445,146 @@
         "type": "object"
       },
       "SaidaConvite": {
+        "description": "CPF novo: a pessoa, a concessão e a senha temporária (mostrada uma vez, R4). CPF que já existe: só `pendente`,\nsem identificador nem dado da pessoa (R24).",
         "properties": {
           "concessao_id": {
-            "title": "Concessao Id",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concessao Id"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "pendente": {
+            "title": "Pendente",
+            "type": "boolean"
+          },
+          "senha_temporaria": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senha Temporaria"
+          }
+        },
+        "required": [
+          "pendente"
+        ],
+        "title": "SaidaConvite",
+        "type": "object"
+      },
+      "SaidaConviteEnviado": {
+        "description": "Sem dado da pessoa convidada: quem convida não vê quem já existe (R24).",
+        "properties": {
+          "cargo_nome": {
+            "title": "Cargo Nome",
+            "type": "string"
+          },
+          "criado_em": {
+            "format": "date-time",
+            "title": "Criado Em",
+            "type": "string"
+          },
+          "empresa_nome": {
+            "title": "Empresa Nome",
+            "type": "string"
+          },
+          "expira_em": {
+            "format": "date-time",
+            "title": "Expira Em",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
             "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "cargo_nome",
+          "empresa_nome",
+          "criado_em",
+          "expira_em"
+        ],
+        "title": "SaidaConviteEnviado",
+        "type": "object"
+      },
+      "SaidaConviteRecebido": {
+        "properties": {
+          "cargo_nome": {
+            "title": "Cargo Nome",
+            "type": "string"
+          },
+          "convidado_por_nome": {
+            "title": "Convidado Por Nome",
+            "type": "string"
+          },
+          "empresa_nome": {
+            "title": "Empresa Nome",
+            "type": "string"
+          },
+          "expira_em": {
+            "format": "date-time",
+            "title": "Expira Em",
+            "type": "string"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
           },
           "id": {
             "title": "Id",
             "type": "integer"
           },
-          "senha_temporaria": {
-            "title": "Senha Temporaria",
-            "type": "string"
+          "inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inicio"
           }
         },
         "required": [
           "id",
-          "concessao_id",
-          "senha_temporaria"
+          "empresa_nome",
+          "cargo_nome",
+          "convidado_por_nome",
+          "inicio",
+          "fim",
+          "expira_em"
         ],
-        "title": "SaidaConvite",
+        "title": "SaidaConviteRecebido",
         "type": "object"
       },
       "SaidaEmpresa": {
@@ -736,6 +875,206 @@
         ]
       }
     },
+    "/api/v1/convites": {
+      "get": {
+        "operationId": "permissao_api_listar_convites",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaConviteRecebido"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Convites",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites-enviados": {
+      "get": {
+        "operationId": "permissao_api_listar_convites_enviados",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaConviteEnviado"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Convites Enviados",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites-enviados/{convite_id}": {
+      "delete": {
+        "operationId": "permissao_api_cancelar_convite_enviado",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Cancelar Convite Enviado",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites-enviados/{convite_id}/reenviar": {
+      "post": {
+        "operationId": "permissao_api_reenviar_convite_enviado",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Reenviar Convite Enviado",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites/{convite_id}/aceitar": {
+      "post": {
+        "operationId": "permissao_api_aceitar_convite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Aceitar Convite",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites/{convite_id}/recusar": {
+      "post": {
+        "operationId": "permissao_api_recusar_convite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Recusar Convite",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
     "/api/v1/empresas": {
       "post": {
         "operationId": "territorio_api_criar_empresa",
@@ -989,7 +1328,31 @@
     "/api/v1/pessoas": {
       "get": {
         "operationId": "permissao_api_listar_pessoas",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depois",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Depois",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
