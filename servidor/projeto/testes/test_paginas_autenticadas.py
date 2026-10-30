@@ -36,7 +36,8 @@ def test_sessao_vencida_vai_a_entrada_com_o_aviso_e_perde_a_sessao(db, fabrica_p
     requisicao = _requisicao(fabrica_pessoa('Pessoa'), vigente=False)
     resposta = _visao(requisicao)
     assert resposta.status_code == 302
-    assert resposta['Location'].startswith('/entrar?') and 'expirou=1' in resposta['Location']
+    assert resposta['Location'].startswith('/entrar?')
+    assert 'expirou=1' in resposta['Location']
     assert 'entrada_em' not in requisicao.session  # sessão esvaziada, não só ignorada
 
 
@@ -77,10 +78,15 @@ def test_casca_tem_faixa_menu_conteudo_e_escopo(cenario, fabrica_pessoa, concede
     conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)
     html = renderizar_na_casca(_requisicao(pessoa, '/empresas/'), 'casca.html', empresa=cenario.x, fazenda=cenario.f1).content.decode()
     assert '<html lang="pt-BR">' in html
-    assert '<header class="faixa">' in html and '<nav class="menu"' in html and '<main class="conteudo">' in html
+    assert '<header class="faixa">' in html
+    assert '<nav class="menu"' in html
+    assert '<main class="conteudo">' in html
     assert 'Empresa X › F1' in html  # faixa com o escopo atual
-    assert 'Fulana Sintetica' in html and 'action="/sair"' in html and 'csrfmiddlewaretoken' in html
-    assert 'href="/empresas/" aria-current="page"' in html and 'Início' in html
+    assert 'Fulana Sintetica' in html
+    assert 'action="/sair"' in html
+    assert 'csrfmiddlewaretoken' in html
+    assert 'href="/empresas/" aria-current="page"' in html
+    assert 'Início' in html
     assert 'Gestão' not in html  # Usuário não vê a ponte
 
 

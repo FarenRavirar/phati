@@ -48,3 +48,16 @@ test('par abaixo do mínimo e par com token ausente reprovam', () => {
   const ausente = ':root { --cor-a: #000000; /* contraste: --cor-a sobre --cor-z >= 3 */ }';
   assert.match(analisar(ausente).erros[0], /token ausente/);
 });
+
+test('token com dígito ou maiúscula também é medido e cobrado', () => {
+  const css = ':root { --cor-a: #000000; --cor-b: #FFFFFF; /* contraste: --cor-a sobre --cor-b >= 4.5 */ --cor-cinza-100: #EEEEEE; --cor-Azul2: #123456; }';
+  assert.deepEqual(analisar(css).erros, ['--cor-cinza-100: fora de qualquer par e sem isenção', '--cor-Azul2: fora de qualquer par e sem isenção']);
+  const abaixo = ':root { --cor-cinza-100: #EEEEEE; --cor-b: #FFFFFF; /* contraste: --cor-cinza-100 sobre --cor-b >= 3 */ }';
+  assert.match(analisar(abaixo).erros[0], /^--cor-cinza-100 sobre --cor-b: 1\.\d\d:1, mínimo 3:1$/);
+});
+
+test('comentário de contraste malformado reprova em vez de ser ignorado', () => {
+  const base = ':root { --cor-a: #000000; --cor-b: #FFFFFF; /* contraste: --cor-a sobre --cor-b >= 4.5 */';
+  assert.ok(analisar(`${base} /* contraste: --cor-a sobre --cor-b >= 4..5 */ }`).erros.some((e) => e.includes('fora do formato')));
+  assert.ok(analisar(`${base} /* isento: --cor-a motivo sem parênteses */ }`).erros.some((e) => e.includes('fora do formato')));
+});

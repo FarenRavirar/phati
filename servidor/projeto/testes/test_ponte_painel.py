@@ -30,4 +30,5 @@ def test_quem_nao_gere_nao_ve_a_ponte_e_o_painel_o_redireciona(cenario, fabrica_
 
 def test_anonimo_pedindo_o_painel_vai_a_entrada_dele(db):
     resposta = Client().get('/painel/')
-    assert resposta.status_code == 302 and resposta['Location'].startswith('/painel/login/')
+    assert resposta.status_code == 302
+    assert resposta['Location'].startswith('/painel/login/')

@@ -138,4 +138,5 @@ def test_o_site_do_admin_e_o_painel_e_o_grupo_do_django_fica_fora():
 def test_painel_tem_o_link_de_volta_ao_phati(cenario, plataforma, entrar_no_painel):
     # R24: "Ver o site" leva a `/` (ponte provisória; a 003 a remove).
     pagina = entrar_no_painel(plataforma).get('/painel/').content.decode()
-    assert 'href="/"' in pagina and 'Ver o site' in pagina
+    assert 'href="/"' in pagina
+    assert 'Ver o site' in pagina

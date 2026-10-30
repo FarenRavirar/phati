@@ -12,7 +12,8 @@ def redefinir_senha(requisicao):
     return render(requisicao, 'redefinir_senha.html')
 
 
-def falha_csrf(requisicao, reason=''):
+# O Django chama a visão de falha com `reason=` por nome; a página não mostra o motivo, para não revelar o que a checagem mediu.
+def falha_csrf(requisicao, **_motivo):
     return render(requisicao, '403_csrf.html', status=403)
 
 

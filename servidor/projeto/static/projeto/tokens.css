@@ -47,7 +47,7 @@
   /* contraste: --cor-aviso sobre --cor-aviso-fundo >= 4.5 */
   /* contraste: --cor-info sobre --cor-info-fundo >= 4.5 */
   /* contraste: --cor-sucesso sobre --cor-sucesso-fundo >= 4.5 */
-  /* isento: --cor-borda (separador decorativo; o contorno que identifica um campo é --cor-borda-campo) */
+  /* isento: --cor-borda (separador decorativo, o contorno que identifica um campo é --cor-borda-campo) */
 
   --espaco-1: 4px;
   --espaco-2: 8px;

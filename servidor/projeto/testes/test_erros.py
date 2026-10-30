@@ -14,9 +14,12 @@ handler500 = 'projeto.paginas.erro_500'
 
 
 def _confere(html, titulo):
-    assert '<html lang="pt-BR">' in html and f'<h1>{titulo}</h1>' in html
-    assert 'href="/"' in html and 'Voltar ao início' in html
-    assert 'Traceback' not in html and 'detalhe-interno-secreto' not in html
+    assert '<html lang="pt-BR">' in html
+    assert f'<h1>{titulo}</h1>' in html
+    assert 'href="/"' in html
+    assert 'Voltar ao início' in html
+    assert 'Traceback' not in html
+    assert 'detalhe-interno-secreto' not in html
 
 
 def test_404(db):

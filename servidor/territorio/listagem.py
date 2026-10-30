@@ -6,8 +6,10 @@ from permissao.pode import com_permissao, escopos_da_acao
 from territorio.models import Empresa, Fazenda, SubArea
 
 
-def fazendas_autorizadas(pessoa):
-    """Fazendas da empresa inteira, da fazenda concedida ou da fazenda que contém a sub-área concedida."""
+def fazendas_autorizadas(pessoa, pk=None):
+    """Fazendas da empresa inteira, da fazenda concedida ou da fazenda que contém a sub-área concedida.
+
+    Com `pk`, só a fazenda pedida (se autorizada): a URL de escopo não carrega a lista inteira (Qodo e Sourcery, PR #19)."""
     escopos = escopos_da_acao(pessoa, 'ver')
     if escopos.plataforma:
         consulta = Fazenda.objects.all()
@@ -17,17 +19,23 @@ def fazendas_autorizadas(pessoa):
         )
     # Avaliada dentro de `com_permissao`: o papel `app` não vê fazenda sem as variáveis, e a lista preguiçosa
     # só consultaria o banco depois de o bloco terminar.
+    if pk is not None:
+        consulta = consulta.filter(pk=pk)
     with com_permissao(pessoa, 'ver'):
         return list(consulta.order_by('nome', 'pk'))
 
 
-def empresas_autorizadas(pessoa):
-    """Empresas em que a pessoa tem acesso de leitura, inclusive as que só contêm uma fazenda ou sub-área concedida."""
+def empresas_autorizadas(pessoa, pk=None):
+    """Empresas em que a pessoa tem acesso de leitura, inclusive as que só contêm uma fazenda ou sub-área concedida.
+
+    Com `pk`, só a empresa pedida (se autorizada)."""
     escopos = escopos_da_acao(pessoa, 'ver')
     if escopos.plataforma:
         consulta = Empresa.objects.all()
     else:
         consulta = Empresa.objects.filter(pk__in=escopos.empresas | escopos.empresas_das_fazendas)
+    if pk is not None:
+        consulta = consulta.filter(pk=pk)
     with com_permissao(pessoa, 'ver'):
         return list(consulta.order_by('nome', 'pk'))
 

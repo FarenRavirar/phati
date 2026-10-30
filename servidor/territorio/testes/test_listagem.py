@@ -168,3 +168,15 @@ def test_sub_areas_de_fazenda_de_outra_empresa_voltam_vazias(cenario, fabrica_pe
 
 def test_plataforma_lista_as_sub_areas_de_qualquer_fazenda(cenario, plataforma):
     assert _sub_areas(plataforma, cenario.f1) == ['G1', 'G2', 'T1']
+
+
+def test_filtro_por_pk_devolve_so_o_pedido_e_nunca_o_nao_autorizado(cenario, fabrica_pessoa, conceder_direto, plataforma):
+    # PR #19: a URL de escopo pede uma linha, não a lista inteira; o filtro não amplia o acesso.
+    admin = fabrica_pessoa('Admin X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    assert [e.pk for e in empresas_autorizadas(admin, pk=cenario.x.pk)] == [cenario.x.pk]
+    assert empresas_autorizadas(admin, pk=cenario.y.pk) == []
+    assert [f.pk for f in fazendas_autorizadas(admin, pk=cenario.f1.pk)] == [cenario.f1.pk]
+    assert fazendas_autorizadas(admin, pk=cenario.fy.pk) == []
+    assert [f.pk for f in fazendas_autorizadas(plataforma, pk=cenario.fy.pk)] == [cenario.fy.pk]
+    assert fazendas_autorizadas(plataforma, pk=999_999) == []

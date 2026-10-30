@@ -25,16 +25,22 @@ def test_botao():
 def test_campo_liga_rotulo_e_erro_ao_controle():
     html = _renderizar('componentes/campo.html', id='cpf', nome='cpf', rotulo='CPF', erro='CPF ou senha incorretos.')
     assert '<label class="campo-rotulo" for="cpf">CPF</label>' in html
-    assert 'aria-invalid="true"' in html and 'aria-describedby="cpf-descricao"' in html
-    assert 'id="cpf-descricao"' in html and 'CPF ou senha incorretos.' in html
+    assert 'aria-invalid="true"' in html
+    assert 'aria-describedby="cpf-descricao"' in html
+    assert 'id="cpf-descricao"' in html
+    assert 'CPF ou senha incorretos.' in html
     sem_erro = _renderizar('componentes/campo.html', id='cpf', nome='cpf', rotulo='CPF')
-    assert 'aria-invalid' not in sem_erro and 'aria-describedby' not in sem_erro
+    assert 'aria-invalid' not in sem_erro
+    assert 'aria-describedby' not in sem_erro
 
 
 @pytest.mark.parametrize('tipo', ['erro', 'aviso', 'info', 'sucesso'])
 def test_aviso_tem_cor_icone_e_texto(tipo):
     html = _renderizar('componentes/aviso.html', tipo=tipo, texto='Texto do aviso')
-    assert f'aviso-{tipo}' in html and '<svg' in html and 'aria-hidden="true"' in html and 'Texto do aviso' in html
+    assert f'aviso-{tipo}' in html
+    assert '<svg' in html
+    assert 'aria-hidden="true"' in html
+    assert 'Texto do aviso' in html
 
 
 def test_aviso_de_erro_e_anunciado_na_hora():
@@ -42,11 +48,20 @@ def test_aviso_de_erro_e_anunciado_na_hora():
     assert 'role="alert"' not in _renderizar('componentes/aviso.html', tipo='info', texto='x')
 
 
+def test_campo_preserva_zero_e_nao_inventa_valor_ausente():
+    # Dado ausente é diferente de zero (AGENTS.md §Código; Codex, Sourcery e Greptile, PR #19).
+    assert 'value="0"' in _renderizar('componentes/campo.html', id='n', nome='n', rotulo='N', valor=0)
+    assert 'value=' not in _renderizar('componentes/campo.html', id='n', nome='n', rotulo='N')
+    assert 'value=' not in _renderizar('componentes/campo.html', id='n', nome='n', rotulo='N', valor=None)
+
+
 def test_vazio_e_cabecalho_e_tabela():
     assert 'Sem camadas ainda.' in _renderizar('componentes/vazio.html', texto='Sem camadas ainda.')
     assert '<h1>Fazendas</h1>' in _renderizar('componentes/cabecalho_pagina.html', titulo='Fazendas')
     html = _renderizar('componentes/tabela.html', legenda='Fazendas', colunas=['Nome'], linhas=[['F1'], ['F2']])
-    assert 'class="tabela-rolavel"' in html and '<th scope="col">Nome</th>' in html and '<td>F2</td>' in html
+    assert 'class="tabela-rolavel"' in html
+    assert '<th scope="col">Nome</th>' in html
+    assert '<td>F2</td>' in html
 
 
 def test_lista_de_convites_tem_aceitar_e_recusar_com_csrf_e_data_brasileira():
@@ -54,7 +69,8 @@ def test_lista_de_convites_tem_aceitar_e_recusar_com_csrf_e_data_brasileira():
 
     convites = [{'id': 7, 'empresa_nome': 'Empresa X', 'cargo_nome': 'Técnico', 'expira_em': datetime(2026, 11, 5, 15, tzinfo=timezone.utc)}]
     html = render_to_string('componentes/lista_convites.html', {'convites': convites}, request=_requisicao())
-    assert 'action="/convites/7/aceitar"' in html and 'action="/convites/7/recusar"' in html
+    assert 'action="/convites/7/aceitar"' in html
+    assert 'action="/convites/7/recusar"' in html
     assert html.count('csrfmiddlewaretoken') == 2
     assert '05/11/2026' in html  # A21: dd/mm/aaaa no fuso local
 
@@ -80,7 +96,7 @@ def test_template_nao_tem_script_inline_nem_estilo_inline():
     for arquivo in TEMPLATES.rglob('*.html'):
         texto = arquivo.read_text(encoding='utf-8')
         if arquivo.name not in transitorios:
-            assert not re.search(r'<script\b(?![^>]*\bsrc=)', texto), arquivo.name
+            assert not re.search(r'<script\b(?![^>]*\bsrc=)', texto, re.IGNORECASE), arquivo.name
         assert not re.search(r'<style\b|\sstyle=', texto), arquivo.name
 
 
@@ -97,3 +113,31 @@ def test_outline_none_so_com_substituto():
         if re.search(r'outline:\s*(none|0)\b', texto):
             assert ':focus-visible' in texto, arquivo.name
     assert ':focus-visible' in (ESTATICOS / 'base.css').read_text(encoding='utf-8')
+
+
+def test_movimento_so_dentro_da_preferencia_por_movimento():
+    # WCAG 2.3.3: `transition` e `animation` ficam em `@media (prefers-reduced-motion: no-preference)`.
+    for arquivo in ESTATICOS.glob('*.css'):
+        texto = arquivo.read_text(encoding='utf-8')
+        if re.search(r'(transition|animation)\s*:', texto):
+            assert 'prefers-reduced-motion: no-preference' in texto, arquivo.name
+
+
+def test_nenhum_important_no_css():
+    for arquivo in ESTATICOS.glob('*.css'):
+        assert '!important' not in arquivo.read_text(encoding='utf-8'), arquivo.name
+
+
+def test_atributo_hidden_vence_o_display_de_qualquer_componente():
+    # O botão do menu nasce `hidden` e o `.botao` é `inline-flex`: sem a regra, o botão apareceria em tela larga.
+    assert 'html [hidden] { display: none; }' in (ESTATICOS / 'base.css').read_text(encoding='utf-8')
+
+
+def test_nenhum_componente_tem_especificidade_maior_que_a_regra_de_hidden():
+    # `html [hidden]` vale (0,1,1): regra com `display` em seletor mais específico a venceria e reabriria o risco.
+    for arquivo in ESTATICOS.glob('*.css'):
+        for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', arquivo.read_text(encoding='utf-8'), flags=re.S)):
+            if re.search(r'(^|;|\s)display\s*:', corpo) and 'html [hidden]' not in seletor:
+                for parte in seletor.split(','):
+                    ids_classes = len(re.findall(r'[.#\[:]', re.sub(r'::?(where|is)\(', '', parte)))
+                    assert ids_classes <= 1, (arquivo.name, parte.strip())

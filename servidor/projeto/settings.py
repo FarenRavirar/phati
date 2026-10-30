@@ -22,7 +22,7 @@ INSTALLED_APPS = [
     # Painel (T5.2): `ConfiguracaoDoPainel` no lugar de `django.contrib.admin`, para o site ser o `PainelSite`.
     'projeto.apps.ConfiguracaoDoPainel',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
+    'projeto.apps.ConfiguracaoDosEstaticos',  # `django.contrib.staticfiles` sem publicar os testes de JS
     # API JSON `/api/v1/` (T5.1); precisa estar aqui para o comando `export_openapi_schema` existir.
     'ninja',
     'identidade',

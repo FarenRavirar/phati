@@ -21,7 +21,8 @@ img, svg { max-width: 100%; }
 
 a, button, input { touch-action: manipulation; }
 
-[hidden] { display: none !important; }
+/* O `display` de uma classe de componente venceria o atributo `hidden`; `html [hidden]` (0,1,1) vence toda regra de uma classe. */
+html [hidden] { display: none; }
 
 a { color: var(--cor-primaria); text-decoration: underline; text-underline-offset: 0.2em; }
 a:hover { color: var(--cor-primaria-forte); }
@@ -34,7 +35,5 @@ a:hover { color: var(--cor-primaria-forte); }
   clip-path: inset(50%); white-space: nowrap; border: 0;
 }
 
-/* Quem pede menos movimento não recebe transição (WCAG 2.3.3). */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition: none !important; animation: none !important; }
-}
+/* Movimento (WCAG 2.3.3): toda `transition` ou `animation` entra dentro de `@media (prefers-reduced-motion: no-preference)`.
+   A fase não tem nenhuma; test_componentes.py cobra a regra. */

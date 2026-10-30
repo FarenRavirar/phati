@@ -1,5 +1,5 @@
 {% comment %}Parâmetros: id, nome, rotulo, tipo (padrão text), valor, erro, ajuda, autocomplete, obrigatorio. Rótulo e erro ligados ao controle.{% endcomment %}<div class="campo{% if erro %} campo-invalido{% endif %}">
 <label class="campo-rotulo" for="{{ id }}">{{ rotulo }}</label>
-<input class="campo-controle" id="{{ id }}" name="{{ nome }}" type="{{ tipo|default:'text' }}"{% if valor %} value="{{ valor }}"{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if obrigatorio %} required{% endif %}{% if erro %} aria-invalid="true"{% endif %}{% if erro or ajuda %} aria-describedby="{{ id }}-descricao"{% endif %}>
+<input class="campo-controle" id="{{ id }}" name="{{ nome }}" type="{{ tipo|default:'text' }}"{% if valor is not None %} value="{{ valor }}"{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if obrigatorio %} required{% endif %}{% if erro %} aria-invalid="true"{% endif %}{% if erro or ajuda %} aria-describedby="{{ id }}-descricao"{% endif %}>
 {% if erro or ajuda %}<p class="{% if erro %}campo-erro{% else %}campo-ajuda{% endif %}" id="{{ id }}-descricao">{% if erro %}{{ erro }}{% else %}{{ ajuda }}{% endif %}</p>{% endif %}
 </div>

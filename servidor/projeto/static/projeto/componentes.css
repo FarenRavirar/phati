@@ -1,4 +1,5 @@
 /* Componentes base (R15): botão, campo, aviso, estado vazio, cabeçalho de página, tabela e lista de convites. */
+
 .botao {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--espaco-2);
   min-height: var(--altura-controle); padding: 0 var(--espaco-4);

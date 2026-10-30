@@ -25,8 +25,10 @@ def _diretiva(politica, nome):
 def _confere(resposta):
     politica = _politica(resposta)
     assert re.search(r"script-src 'self' 'nonce-[\w-]+'", politica), politica
-    assert "object-src 'none'" in politica and "frame-ancestors 'none'" in politica
-    assert 'unsafe-inline' not in politica and 'unsafe-eval' not in politica
+    assert "object-src 'none'" in politica
+    assert "frame-ancestors 'none'" in politica
+    assert 'unsafe-inline' not in politica
+    assert 'unsafe-eval' not in politica
     return re.findall(r"'nonce-([\w-]+)'", _diretiva(politica, 'script-src'))[0]
 
 
