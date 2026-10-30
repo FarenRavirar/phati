@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.csp import CSP
 
 DIRETORIO_BASE = Path(__file__).resolve().parent.parent
 
@@ -32,6 +33,7 @@ INSTALLED_APPS = [
 # Sessão e CSRF só para a API (cookie de navegador); a ordem é a que o Django exige: sessão antes de autenticação.
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'django.middleware.csp.ContentSecurityPolicyMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -54,11 +56,30 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.csp',
             ],
         },
     },
 ]
 STATIC_URL = 'static/'  # `collectstatic` e o servidor dos arquivos entram no deploy (T6.5)
+# `projeto` não é app instalado (o app do painel é o do admin): o `AppDirectoriesFinder` não acharia `static/projeto/`.
+STATICFILES_DIRS = [Path(__file__).resolve().parent / 'static']
+
+# Política de conteúdo (R14): script só do próprio site ou com nonce, sem `unsafe-inline`. O nonce é preguiçoso: só sai
+# no cabeçalho se um template o toca, e os moldes o tocam em `{% csp_nonce_attr %}`. `style-src` leva o nonce porque o
+# `change_list.html` do admin do Django 6.1 tem um `<style>` com nonce; as páginas do phati não usam estilo inline.
+SECURE_CSP = {
+    'default-src': [CSP.SELF],
+    'script-src': [CSP.SELF, CSP.NONCE],
+    'style-src': [CSP.SELF, CSP.NONCE],
+    'img-src': [CSP.SELF, 'data:'],
+    'object-src': [CSP.NONE],
+    'form-action': [CSP.SELF],
+    'frame-ancestors': [CSP.NONE],
+    'base-uri': [CSP.SELF],
+}
+# As páginas de erro e de falha de CSRF recebem a requisição (o padrão do Django não a passa), para levar o nonce.
+CSRF_FAILURE_VIEW = 'projeto.paginas.falha_csrf'
 
 # O segredo do link de redefinição vai no fragmento da URL (nunca chega ao servidor) e, por garantia, nenhuma
 # resposta deixa o navegador mandar a URL de origem a terceiros (T5.5a item 1; OWASP Forgot Password Cheat Sheet).

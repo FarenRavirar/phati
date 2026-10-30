@@ -1,0 +1,7 @@
+{% extends "publica.html" %}
+{% block titulo %}Acesso negado{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Acesso negado" %}
+{% include "componentes/aviso.html" with tipo="erro" texto="Você não tem permissão para fazer isto." %}
+<a class="botao" href="/">Voltar ao início</a>
+{% endblock %}

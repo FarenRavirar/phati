@@ -54,7 +54,7 @@ jobs:
       - run: pyright
       - name: Hooks do git
         working-directory: .
-        run: node --test .githooks/*.test.js scripts/*.test.js
+        run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js
       - name: Par arquivo–teste
         if: github.event_name == 'pull_request'
         working-directory: .

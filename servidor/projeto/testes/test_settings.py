@@ -138,3 +138,24 @@ def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
     assert opcoes['username'] == 'usuario-de-teste'
     assert opcoes['password'] == 'valor-de-teste'
     assert configuracao['DEFAULT_FROM_EMAIL'] == 'remetente@exemplo.test'
+
+
+def test_politica_de_conteudo_so_aceita_script_do_proprio_site_ou_com_nonce():
+    politica = runpy.run_path(str(CAMINHO))['SECURE_CSP']
+    todos = [valor for valores in politica.values() for valor in valores]
+    assert "'unsafe-inline'" not in todos and "'unsafe-eval'" not in todos
+    assert politica['script-src'] == ["'self'", '<CSP_NONCE_SENTINEL>']
+    assert politica['object-src'] == ["'none'"] and politica['frame-ancestors'] == ["'none'"]
+
+
+def test_middleware_e_processador_da_politica_estao_ligados_e_na_ordem():
+    antes_do_resto = settings.MIDDLEWARE.index('django.middleware.csp.ContentSecurityPolicyMiddleware')
+    assert antes_do_resto == settings.MIDDLEWARE.index('django.middleware.security.SecurityMiddleware') + 1
+    assert 'django.template.context_processors.csp' in settings.TEMPLATES[0]['OPTIONS']['context_processors']
+    assert settings.CSRF_FAILURE_VIEW == 'projeto.paginas.falha_csrf'
+
+
+def test_estaticos_do_projeto_sao_achados_sem_ser_app_instalado():
+    from django.contrib.staticfiles import finders
+
+    assert finders.find('projeto/tokens.css')

@@ -1,0 +1,1 @@
+{% comment %}Parâmetros: texto, tipo (button, submit; padrão button), secundario (opcional), desabilitado (opcional).{% endcomment %}<button class="botao{% if secundario %} botao-secundario{% endif %}" type="{{ tipo|default:'button' }}"{% if desabilitado %} disabled{% endif %}>{{ texto }}</button>

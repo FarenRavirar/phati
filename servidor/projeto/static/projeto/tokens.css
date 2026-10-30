@@ -1,0 +1,69 @@
+/* Tokens do phati (R13). Único arquivo com valor de cor, espaçamento, tipografia e raio.
+   Cada par de cor usado em texto ou contorno tem um comentário `contraste:` que scripts/contraste-tokens.test.js mede
+   (4,5:1 para texto normal, 3:1 para texto grande e contorno de campo, WCAG 1.4.3 e 1.4.11). Token `--cor-*` fora de
+   par precisa de `isento:` com o motivo. Cor de camada do mapa e cor de situação de governança são sistemas separados:
+   esta lista só tem a segunda e a interface. */
+:root {
+  --cor-fundo: #F5F7F4;
+  --cor-superficie: #FFFFFF;
+  --cor-texto: #24332A;
+  --cor-texto-suave: #55645A;
+  --cor-primaria: #295D46;
+  --cor-primaria-forte: #1F4A37;
+  --cor-sobre-primaria: #FFFFFF;
+  --cor-item-ativo: #E1ECE5;
+  --cor-borda: #D8E0D8;
+  --cor-borda-campo: #7B8A80;
+  --cor-foco: #1A56B0;
+  --cor-erro: #A32020;
+  --cor-erro-fundo: #FBECEC;
+  --cor-aviso: #6B4200;
+  --cor-aviso-fundo: #FFF4DC;
+  --cor-info: #1B4F7A;
+  --cor-info-fundo: #E8F0F8;
+  --cor-sucesso: #1D5E33;
+  --cor-sucesso-fundo: #E6F3EA;
+
+  /* contraste: --cor-texto sobre --cor-fundo >= 4.5 */
+  /* contraste: --cor-texto sobre --cor-superficie >= 4.5 */
+  /* contraste: --cor-texto sobre --cor-item-ativo >= 4.5 */
+  /* contraste: --cor-texto-suave sobre --cor-fundo >= 4.5 */
+  /* contraste: --cor-texto-suave sobre --cor-superficie >= 4.5 */
+  /* contraste: --cor-primaria sobre --cor-fundo >= 4.5 */
+  /* contraste: --cor-primaria sobre --cor-superficie >= 4.5 */
+  /* contraste: --cor-primaria sobre --cor-item-ativo >= 4.5 */
+  /* contraste: --cor-sobre-primaria sobre --cor-primaria >= 4.5 */
+  /* contraste: --cor-sobre-primaria sobre --cor-primaria-forte >= 4.5 */
+  /* contraste: --cor-borda-campo sobre --cor-superficie >= 3 */
+  /* contraste: --cor-borda-campo sobre --cor-fundo >= 3 */
+  /* contraste: --cor-foco sobre --cor-superficie >= 3 */
+  /* contraste: --cor-foco sobre --cor-fundo >= 3 */
+  /* contraste: --cor-erro sobre --cor-erro-fundo >= 4.5 */
+  /* contraste: --cor-erro sobre --cor-superficie >= 4.5 */
+  /* contraste: --cor-texto sobre --cor-erro-fundo >= 4.5 */
+  /* contraste: --cor-texto sobre --cor-aviso-fundo >= 4.5 */
+  /* contraste: --cor-texto sobre --cor-info-fundo >= 4.5 */
+  /* contraste: --cor-texto sobre --cor-sucesso-fundo >= 4.5 */
+  /* contraste: --cor-aviso sobre --cor-aviso-fundo >= 4.5 */
+  /* contraste: --cor-info sobre --cor-info-fundo >= 4.5 */
+  /* contraste: --cor-sucesso sobre --cor-sucesso-fundo >= 4.5 */
+  /* isento: --cor-borda (separador decorativo; o contorno que identifica um campo é --cor-borda-campo) */
+
+  --espaco-1: 4px;
+  --espaco-2: 8px;
+  --espaco-3: 12px;
+  --espaco-4: 16px;
+  --espaco-5: 24px;
+  --espaco-6: 32px;
+
+  --raio-1: 4px;
+  --raio-2: 8px;
+
+  --fonte: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --fonte-pequena: 0.875rem;
+  --fonte-base: 1rem;
+  --fonte-titulo-2: 1.25rem;
+  --fonte-titulo-1: 1.5rem;
+  --altura-controle: 44px; /* alvo de toque: WCAG 2.5.8 pede 24 px; 44 px é o piso da maioria das plataformas móveis */
+  --largura-menu: 15rem;
+}

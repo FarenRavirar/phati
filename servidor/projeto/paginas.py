@@ -10,3 +10,11 @@ from django.views.decorators.http import require_GET
 @never_cache
 def redefinir_senha(requisicao):
     return render(requisicao, 'redefinir_senha.html')
+
+
+def falha_csrf(requisicao, reason=''):
+    return render(requisicao, '403_csrf.html', status=403)
+
+
+def erro_500(requisicao):
+    return render(requisicao, '500.html', status=500)

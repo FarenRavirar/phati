@@ -1,0 +1,7 @@
+{% extends "publica.html" %}
+{% block titulo %}Página não encontrada{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Página não encontrada" %}
+{% include "componentes/aviso.html" with tipo="erro" texto="Esta página não existe ou você não tem acesso a ela." %}
+<a class="botao" href="/">Voltar ao início</a>
+{% endblock %}

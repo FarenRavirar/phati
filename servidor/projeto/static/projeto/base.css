@@ -1,0 +1,40 @@
+/* Reset mínimo, tipografia e grade (R13, R15). Só variáveis de tokens.css. */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { font-size: 100%; -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--cor-fundo);
+  color: var(--cor-texto);
+  font: var(--fonte-base) / 1.5 var(--fonte);
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3 { margin: 0 0 var(--espaco-3); line-height: 1.25; font-weight: 600; }
+h1, h2 { text-wrap: balance; }
+h1 { font-size: var(--fonte-titulo-1); }
+h2 { font-size: var(--fonte-titulo-2); }
+p { margin: 0 0 var(--espaco-3); }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+img, svg { max-width: 100%; }
+
+a, button, input { touch-action: manipulation; }
+
+[hidden] { display: none !important; }
+
+a { color: var(--cor-primaria); text-decoration: underline; text-underline-offset: 0.2em; }
+a:hover { color: var(--cor-primaria-forte); }
+
+/* Foco visível em todo controle (R15). Nenhum `outline: none` sem substituto. */
+:focus-visible { outline: 3px solid var(--cor-foco); outline-offset: 2px; }
+
+.so-leitor {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* Quem pede menos movimento não recebe transição (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
