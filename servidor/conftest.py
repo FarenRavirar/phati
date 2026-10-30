@@ -3,6 +3,8 @@ from itertools import count
 import pytest
 from django.db import connections
 
+from comum.sintetico import cpf_sintetico
+
 
 @pytest.fixture(autouse=True)
 def _fechar_conexao_app():
@@ -55,23 +57,11 @@ def smtp_lento(monkeypatch):
     esvaziar()
 
 
-def _digito_verificador(digitos):
-    soma = sum(digito * peso for digito, peso in zip(digitos, range(len(digitos) + 1, 1, -1)))
-    return soma * 10 % 11 % 10
-
-
 @pytest.fixture
 def cpf_novo():
     """Gera CPFs sintéticos válidos e distintos (dado de teste, nunca de cliente: AGENTS.md §Testes)."""
     contador = count(1)
-
-    def gerar():
-        base = [int(letra) for letra in f'{next(contador) * 987654321 % 10**9:09d}']
-        base.append(_digito_verificador(base))
-        base.append(_digito_verificador(base))
-        return ''.join(map(str, base))
-
-    return gerar
+    return lambda: cpf_sintetico(next(contador))
 
 
 @pytest.fixture

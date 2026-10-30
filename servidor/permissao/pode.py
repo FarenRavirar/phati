@@ -245,6 +245,17 @@ def age_em_algum_escopo(pessoa, *acoes):
     return False
 
 
+def permissoes_efetivas(pessoa, escopo=None):
+    """Códigos de ação que a pessoa exerce em `escopo` (Empresa, Fazenda ou SubArea): o que o menu pode mostrar (R2).
+
+    Delega a `pode()`, a única decisão de acesso. Sem `escopo` só a plataforma tem ação; fora do escopo, vazio.
+    """
+    if not _identificada(pessoa):
+        return frozenset()
+    with com_permissao(pessoa):
+        return frozenset(codigo for codigo in memoria_de(pessoa).catalogo if pode(pessoa, codigo, escopo))
+
+
 @contextmanager
 def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
     """Abre a transação com as variáveis de RLS da `pessoa` (R12): a união dos escopos das `acoes` (padrão `ver`).

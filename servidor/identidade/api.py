@@ -1,11 +1,9 @@
 """Rotas de identidade da API: entrar, sair, trocar senha, redefinir senha e renovar o acesso do aplicativo (R2 a R6, R15)."""
 
 from django.contrib.auth import logout
-from django.db import transaction
-from django.middleware.csrf import get_token
 from ninja import Field, Router, Schema
 
-from identidade import login, redefinicao, senha, sessao
+from identidade import acesso, redefinicao, senha, sessao
 
 roteador = Router(tags=['identidade'])
 
@@ -50,19 +48,10 @@ class SaidaErro(Schema):
 @roteador.post('entrar', auth=None, url_name='entrar', response={200: SaidaEntrar, 401: SaidaErro})
 def entrar(request, dados: EntradaEntrar):
     # CPF inexistente, senha errada, conta bloqueada e senha temporária vencida: o mesmo 401 (A2).
-    segredo = None
-    # Autenticar e emitir na mesma transação: a trava da pessoa segue até o fim, então senha temporária consumida
-    # não se perde se a emissão falhar, e troca de senha no meio não deixa a senha antiga gerar acesso (Sourcery, PR #14).
-    with transaction.atomic():
-        pessoa = login.autenticar(dados.cpf, dados.senha)
-        if pessoa is None:
-            return 401, {'detalhe': 'credenciais_invalidas'}
-        if dados.dispositivo:
-            segredo = sessao.emitir_acesso(pessoa, dados.dispositivo)
-        else:
-            sessao.iniciar_sessao(request, pessoa)
-    if segredo is None:
-        get_token(request)  # o CsrfViewMiddleware grava o cookie `csrftoken` na resposta
+    entrada = acesso.entrar(request, dados.cpf, dados.senha, dados.dispositivo)
+    if entrada is None:
+        return 401, {'detalhe': 'credenciais_invalidas'}
+    pessoa, segredo = entrada
     return 200, {'deve_trocar_senha': pessoa.deve_trocar_senha, 'segredo': segredo}
 
 

@@ -54,6 +54,14 @@ def test_primeiro_acesso_com_senha_temporaria_avisa_que_deve_trocar_e_usa_uma_ve
     assert _entrar(Client(), senha_digitada=temporaria).status_code == 401
 
 
+def test_entrada_mantem_corpo_e_codigos_do_contrato(pessoa):
+    # T1.3: o contrato do aplicativo não muda com a extração para `acesso.entrar`.
+    assert _entrar(Client(), senha_digitada='senha errada qualquer').json() == {'detalhe': 'credenciais_invalidas'}
+    app = _entrar(Client(), dispositivo='celular')
+    assert (app.status_code, set(app.json())) == (200, {'deve_trocar_senha', 'segredo'})
+    assert app.json()['deve_trocar_senha'] is False
+
+
 def test_entrada_invalida_devolve_422_sem_ecoar_o_valor_recebido(pessoa):
     resposta = _enviar(Client(), 'entrar', {'cpf': CPF, 'senha': ['marcador-secreto-9137']})
     assert resposta.status_code == 422
