@@ -7,6 +7,7 @@ from permissao import delegacao
 from permissao.api import pessoas_do_escopo
 from permissao.cargo import gerenciar_cargo
 from permissao.models import Cargo, Concessao, Permissao
+from territorio.models import Empresa, Fazenda
 from projeto.painel import ACOES_DE_PESSOAS, EMPRESAS, FAZENDAS, SUB_AREAS, AdministracaoPorServico, do_escopo, escolher_escopo
 
 
@@ -25,6 +26,13 @@ class FormularioConcessao(forms.ModelForm):
         dados = super().clean() or {}
         if not self.errors:
             dados['escopo'] = escolher_escopo(dados.get('empresa'), dados.get('fazenda'), dados.get('sub_area'))
+            # Quem só escolhe a sub-área (ou a fazenda) deixa os de cima vazios, e a validação do modelo recusaria
+            # `concessao_sub_area_exige_fazenda` antes do serviço, que os deriva (Codex, PR #16).
+            escopo = dados['escopo']
+            if dados.get('sub_area') is not None:
+                dados['fazenda'] = Fazenda.objects.get(pk=escopo.fazenda_id)
+            if dados.get('fazenda') is not None or dados.get('sub_area') is not None:
+                dados['empresa'] = Empresa.objects.get(pk=escopo.empresa_id)
         return dados
 
 

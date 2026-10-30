@@ -12,6 +12,7 @@ from functools import wraps
 
 from django.core.exceptions import PermissionDenied
 from django.db import DEFAULT_DB_ALIAS, connection, connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from permissao.contexto import fixar_contexto, fixar_identidade, ler_contexto, limpar_identidade, restaurar_contexto
@@ -211,6 +212,18 @@ def unir_escopos(pessoa, *acoes):
         empresas=uniao('empresas'), fazendas=uniao('fazendas'), sub_areas=uniao('sub_areas'),
         fazendas_das_sub_areas=uniao('fazendas_das_sub_areas'), empresas_das_fazendas=uniao('empresas_das_fazendas'),
     )
+
+
+def filtro_do_escopo(escopos):
+    """`Q` das linhas com colunas `empresa_id`, `fazenda_id` e `sub_area` (concessão, convite) que `escopos` alcança.
+
+    Fazenda inteira cobre as sub-áreas dela; quem tem só uma sub-área alcança ela e as descendentes (o `caminho` guarda
+    os ancestrais). Um filtro só, sem `pode()` por linha. Plataforma: o chamador não filtra.
+    """
+    filtro = Q(empresa_id__in=escopos.empresas) | Q(fazenda_id__in=escopos.fazendas) | Q(sub_area_id__in=escopos.sub_areas)
+    for sub_area_id in escopos.sub_areas:
+        filtro |= Q(sub_area__caminho__contains=f'/{sub_area_id}/')
+    return filtro
 
 
 def age_em_algum_escopo(pessoa, *acoes):

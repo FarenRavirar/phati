@@ -345,6 +345,7 @@ def test_convite_repetido_com_outro_periodo_substitui_o_anterior(cenario, fabric
     curto = (timezone.now() + timedelta(days=1)).isoformat()
     base = {'nome': 'Q', 'email': 'q@exemplo.test', 'cpf': _cpf_de(existente), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
     assert _enviar(admin, 'pessoas', {**base, 'fim': longo}).status_code == 201
+    Convite.objects.update(enviado_em=timezone.now() - timedelta(minutes=2))
     assert _enviar(admin, 'pessoas', {**base, 'fim': curto}).status_code == 201
     assert Convite.objects.filter(cancelado_em__isnull=True).count() == 1
     assert Convite.objects.filter(cancelado_em__isnull=False).count() == 1
@@ -360,6 +361,7 @@ def test_convite_repetido_com_outras_categorias_substitui_o_anterior(cenario, fa
     categoria = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
     base = {'nome': 'Q', 'email': 'q@exemplo.test', 'cpf': _cpf_de(existente), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
     assert _enviar(admin, 'pessoas', base).status_code == 201
+    Convite.objects.update(enviado_em=timezone.now() - timedelta(minutes=2))
     assert _enviar(admin, 'pessoas', {**base, 'categoria_ids': [categoria.pk]}).status_code == 201
     aberto = Convite.objects.get(cancelado_em__isnull=True)
     assert list(aberto.categorias.all()) == [categoria]
@@ -480,3 +482,34 @@ def test_convite_com_fim_ja_passado_sai_das_listas_e_nao_se_reenvia(cenario, fab
     assert _enviar(admin, 'convites-enviados', metodo='get').json() == []
     resposta = _enviar(admin, f'convites-enviados/{convite_id}/reenviar')
     assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'convite_vencido'})
+
+
+def test_substituir_o_convite_herda_o_intervalo_e_o_teto_de_envios(cenario, fabrica_pessoa, conceder_direto, mailoutbox):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    base = {'nome': 'Q', 'email': 'q@exemplo.test', 'cpf': _cpf_de(existente), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    dia = lambda numero: (timezone.now() + timedelta(days=numero)).isoformat()
+    assert _enviar(admin, 'pessoas', {**base, 'fim': dia(10)}).status_code == 201
+    cedo = _enviar(admin, 'pessoas', {**base, 'fim': dia(11)})
+    assert (cedo.status_code, cedo.json()) == (400, {'detalhe': 'reenvio_cedo'})
+    assert Convite.objects.filter(cancelado_em__isnull=True).count() == 1
+    assert len(mailoutbox) == 1
+    for numero in (12, 13, 14):  # a 2ª, a 3ª e a 4ª mensagem
+        Convite.objects.update(enviado_em=timezone.now() - timedelta(minutes=2))
+        assert _enviar(admin, 'pessoas', {**base, 'fim': dia(numero)}).status_code == 201
+    assert Convite.objects.get(cancelado_em__isnull=True).envios == 4
+    Convite.objects.update(enviado_em=timezone.now() - timedelta(minutes=2))
+    esgotado = _enviar(admin, 'pessoas', {**base, 'fim': dia(15)})
+    assert (esgotado.status_code, esgotado.json()) == (400, {'detalhe': 'reenvio_esgotado'})
+    assert len(mailoutbox) == 4
+
+
+def test_convites_enviados_de_empresa_que_a_pessoa_perdeu_nao_aparecem(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Administradora')
+    concessao_de_x = conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    _convidar(admin, cenario, fabrica_pessoa('Existente'))
+    assert len(_enviar(admin, 'convites-enviados', metodo='get').json()) == 1
+    concessao_de_x.revogada_em, concessao_de_x.revogada_por = timezone.now(), admin
+    concessao_de_x.save(update_fields=['revogada_em', 'revogada_por'])
+    conceder_direto(admin, cenario.cargos_y['administrador'], cenario.y)  # ainda convida, mas só em Y
+    assert _enviar(admin, 'convites-enviados', metodo='get').json() == []

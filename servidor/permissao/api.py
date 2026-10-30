@@ -16,7 +16,7 @@ from identidade import redefinicao
 from identidade.models import Pessoa
 from permissao import convite, delegacao
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, Permissao, concessoes_ativas
-from permissao.pode import age_em_algum_escopo, escopos_da_acao, exige_permissao, pode, unir_escopos
+from permissao.pode import age_em_algum_escopo, escopos_da_acao, exige_permissao, filtro_do_escopo, pode, unir_escopos
 from territorio.models import Empresa, Fazenda, SubArea
 
 roteador = Router(tags=['permissao'])
@@ -197,12 +197,8 @@ def pessoas_do_escopo(quem, acoes=('convidar_pessoa',)):
     escopos = unir_escopos(quem, *acoes)
     if escopos.plataforma:
         return Pessoa.objects.order_by('pk')
-    # Um filtro só, sem `pode()` por concessão (era uma consulta ou duas por linha; Qodo, PR #16): fazenda inteira cobre
-    # as sub-áreas dela, e quem tem só uma sub-área alcança ela e as descendentes (o `caminho` guarda os ancestrais).
-    filtro = Q(empresa_id__in=escopos.empresas) | Q(fazenda_id__in=escopos.fazendas) | Q(sub_area_id__in=escopos.sub_areas)
-    for sub_area_id in escopos.sub_areas:
-        filtro |= Q(sub_area__caminho__contains=f'/{sub_area_id}/')
-    ids = concessoes_ativas().filter(filtro).values_list('pessoa_id', flat=True)
+    # Um filtro só, sem `pode()` por concessão (era uma consulta ou duas por linha; Qodo, PR #16).
+    ids = concessoes_ativas().filter(filtro_do_escopo(escopos)).values_list('pessoa_id', flat=True)
     return Pessoa.objects.filter(Q(pk__in=ids) | Q(empresa_origem_id__in=escopos.empresas)).order_by('pk')
 
 

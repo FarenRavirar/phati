@@ -200,3 +200,21 @@ def test_formulario_do_cargo_leva_a_versao_e_o_segundo_salvamento_velho_e_recusa
     assert any('Outra pessoa' in m for m in _mensagens(segunda))
     cargo.refresh_from_db()
     assert (cargo.nome, cargo.versao) == ('Primeiro', lida + 1)
+
+
+def test_concessao_pelo_painel_escolhendo_so_a_sub_area_deriva_fazenda_e_empresa(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    alvo = fabrica_pessoa('Alvo', empresa_origem=cenario.x)
+    corpo = {'pessoa': alvo.pk, 'cargo': cenario.cargos_x['usuario'].pk, 'sub_area': cenario.g1.pk, 'inicio_0': '2026-01-01', 'inicio_1': '00:00:00'}
+    assert entrar_no_painel(admin).post('/painel/permissao/concessao/add/', corpo).status_code == 302
+    concessao = Concessao.objects.get(pessoa=alvo)
+    assert (concessao.empresa_id, concessao.fazenda_id, concessao.sub_area_id) == (cenario.x.pk, cenario.f1.pk, cenario.g1.pk)
+
+
+def test_curador_de_sub_area_concede_pelo_painel_escolhendo_so_a_sub_area(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+    curador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.g1, 'Curador de G1')
+    alvo = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.t1, 'Alvo')
+    corpo = {'pessoa': alvo.pk, 'cargo': cenario.cargos_x['tecnico'].pk, 'sub_area': cenario.t1.pk, 'inicio_0': '2026-01-01', 'inicio_1': '00:00:00'}
+    resposta = entrar_no_painel(curador).post('/painel/permissao/concessao/add/', corpo)
+    assert resposta.status_code == 302
+    assert Concessao.objects.filter(pessoa=alvo, cargo=cenario.cargos_x['tecnico'], sub_area=cenario.t1).count() == 1

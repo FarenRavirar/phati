@@ -38,6 +38,43 @@ def _codigos_validos(codigos):
     return codigos
 
 
+def _cargo_travado_e_base(empresa, base, cargo):
+    """Na alteração, o cargo relido sob a trava de linha e a base dele; na criação, `base` conferida."""
+    if cargo is None:
+        if base not in NIVEL_DA_BASE:
+            raise ValidationError('Base do cargo inválida.', code='base_invalida')
+        return None, base
+    travado = Cargo.objects.select_for_update().get(pk=cargo.pk)
+    if travado.empresa_id != empresa.pk:
+        raise PermissionDenied
+    return travado, travado.base
+
+
+def _exigir_nome_livre(empresa, nome, cargo):
+    # `(empresa, nome)` é único no banco; sem isto o conflito virava IntegrityError e erro 500 (Qodo, PR #16).
+    repetido = Cargo.objects.filter(empresa=empresa, nome=nome)
+    if cargo is not None:
+        repetido = repetido.exclude(pk=cargo.pk)
+    if repetido.exists():
+        raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado')
+
+
+def _gravar_cargo(empresa, nome, base, cargo):
+    try:
+        with transaction.atomic():  # ponto de salvamento: o erro de integridade aborta a transação inteira
+            if cargo is None:
+                return Cargo.objects.create(empresa=empresa, nome=nome, base=base)
+            cargo.nome, cargo.versao = nome, cargo.versao + 1
+            cargo.save(update_fields=['nome', 'versao'])  # sob a trava de linha: ninguém soma ao mesmo tempo
+            return cargo
+    except IntegrityError as erro:
+        # A pré-checagem não vê a corrida: dois pedidos passam por ela e o segundo bate na restrição única.
+        # Só essa restrição vira erro de regra; outra falha de integridade continua visível (Qodo, PR #16).
+        if getattr(getattr(erro.__cause__, 'diag', None), 'constraint_name', None) != 'cargo_nome_unico_por_empresa':
+            raise
+        raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado') from None
+
+
 def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=None):
     """Cria (`base` obrigatória) ou altera (`cargo`) o cargo de `empresa` e grava o conjunto exato de `codigos`.
 
@@ -49,37 +86,14 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=
         raise ValidationError('Nome do cargo inválido.', code='nome_invalido')
     codigos = _codigos_validos(codigos)
     with transaction.atomic():
-        if cargo is not None:
-            cargo = Cargo.objects.select_for_update().get(pk=cargo.pk)
-            if cargo.empresa_id != empresa.pk:
-                raise PermissionDenied
-            base = cargo.base
-        elif base not in NIVEL_DA_BASE:
-            raise ValidationError('Base do cargo inválida.', code='base_invalida')
+        cargo, base = _cargo_travado_e_base(empresa, base, cargo)
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied
         # Depois da autorização: quem não pode gerenciar o cargo não descobre a versão dele.
         if cargo is not None and versao != cargo.versao:
             raise ValidationError('Outra pessoa alterou este cargo. Recarregue a página e edite de novo.', code='cargo_alterado_por_outra_pessoa')
-        # `(empresa, nome)` é único no banco; sem isto o conflito virava IntegrityError e erro 500 (Qodo, PR #16).
-        repetido = Cargo.objects.filter(empresa=empresa, nome=nome)
-        if cargo is not None:
-            repetido = repetido.exclude(pk=cargo.pk)
-        if repetido.exists():
-            raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado')
-        try:
-            with transaction.atomic():  # ponto de salvamento: o erro de integridade aborta a transação inteira
-                if cargo is None:
-                    cargo = Cargo.objects.create(empresa=empresa, nome=nome, base=base)
-                else:
-                    cargo.nome, cargo.versao = nome, cargo.versao + 1
-                    cargo.save(update_fields=['nome', 'versao'])  # sob a trava de linha acima: ninguém soma ao mesmo tempo
-        except IntegrityError as erro:
-            # A pré-checagem acima não vê a corrida: dois pedidos passam por ela e o segundo bate na restrição única.
-            # Só essa restrição vira erro de regra; outra falha de integridade continua visível (Qodo, PR #16).
-            if getattr(getattr(erro.__cause__, 'diag', None), 'constraint_name', None) != 'cargo_nome_unico_por_empresa':
-                raise
-            raise ValidationError('Já existe cargo com esse nome na empresa.', code='nome_duplicado') from None
+        _exigir_nome_livre(empresa, nome, cargo)
+        cargo = _gravar_cargo(empresa, nome, base, cargo)
         CargoPermissao.objects.filter(cargo=cargo).delete()  # cargo novo não tem linhas: nada a apagar
         CargoPermissao.objects.bulk_create(CargoPermissao(cargo=cargo, permissao_id=c) for c in sorted(codigos))
         auditar('cargo_alterado', quem, cargo, empresa.pk, {'nome': nome, 'base': base, 'permissoes': sorted(codigos)})

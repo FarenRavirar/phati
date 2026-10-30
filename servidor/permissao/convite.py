@@ -21,7 +21,7 @@ from identidade.models import Pessoa
 from permissao import delegacao
 from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder
 from permissao.models import Cargo, Convite, ConviteCategoria
-from permissao.pode import com_permissao
+from permissao.pode import com_permissao, filtro_do_escopo, unir_escopos
 from territorio.models import Empresa, Fazenda, SubArea
 
 # Confirmada pelo mantenedor (D053): 7 dias; o MateCat usa 3.
@@ -66,6 +66,14 @@ def _avisar(convite, pessoa):
     email.enviar_aviso_de_convite(pessoa, convite.empresa_nome, convite.cargo_nome, convite.expira_em)
 
 
+def _exigir_pode_enviar(convite):
+    """Teto de e-mails por convite e intervalo entre envios: vale para reenviar e para substituir o convite."""
+    if convite.envios >= MAXIMO_DE_ENVIOS_POR_CONVITE:
+        raise ValidationError('Limite de reenvios do convite.', code='reenvio_esgotado')
+    if timezone.now() - convite.enviado_em < INTERVALO_ENTRE_ENVIOS:
+        raise ValidationError('Aguarde antes de reenviar.', code='reenvio_cedo')
+
+
 def _exigir_cota(quem):
     """Trava e confere a cota por hora de quem convida, para os dois caminhos (CPF novo e existente). A trava
     consultiva é por remetente: pedidos para pessoas diferentes não disputam a trava da pessoa, e sem ela dois
@@ -83,6 +91,7 @@ def _exigir_cota(quem):
 def _registrar(quem, pessoa, proposta, categorias, inicio):
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
+        envios_anteriores = 0
         for igual in _pendentes(pessoa).filter(
             convidado_por=quem, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id,
             fazenda_id=proposta.fazenda_id, sub_area_id=proposta.sub_area_id,
@@ -91,7 +100,10 @@ def _registrar(quem, pessoa, proposta, categorias, inicio):
             if (igual.inicio, igual.fim, ids_antigos) == (inicio, proposta.fim, {c.pk for c in categorias}):
                 return  # o mesmo convite repetido não empilha linhas nem renova a validade
             # Mesmo lugar e cargo com outro período ou outras categorias: o novo vale e o antigo sai, senão o aceite
-            # criaria o acesso antigo (Greptile, PR #16).
+            # criaria o acesso antigo (Greptile, PR #16). Substituir manda outro e-mail, então herda o intervalo e o
+            # teto de envios do reenvio: sem isso 50 substituições seguidas encheriam a caixa da pessoa.
+            _exigir_pode_enviar(igual)
+            envios_anteriores = igual.envios
             igual.cancelado_em = timezone.now()
             igual.save(update_fields=['cancelado_em'])
             auditar('convite_cancelado', quem, igual, igual.empresa_id, {'substituido': True})
@@ -99,7 +111,7 @@ def _registrar(quem, pessoa, proposta, categorias, inicio):
             pessoa=pessoa, convidado_por=quem, cargo=proposta.cargo, empresa_id=proposta.empresa_id,
             fazenda_id=proposta.fazenda_id, sub_area_id=proposta.sub_area_id, inicio=inicio, fim=proposta.fim,
             empresa_nome=Empresa.objects.get(pk=proposta.empresa_id).nome, cargo_nome=proposta.cargo.nome,
-            expira_em=timezone.now() + VALIDADE,
+            expira_em=timezone.now() + VALIDADE, envios=envios_anteriores + 1,
         )
         ConviteCategoria.objects.bulk_create(ConviteCategoria(convite=convite, categoria=c) for c in categorias)
         auditar('convite_criado', quem, convite, proposta.empresa_id, {'pessoa_id': pessoa.pk, 'cargo_id': proposta.cargo_id})
@@ -181,9 +193,12 @@ def recusar(pessoa, convite_id):
 
 
 def convites_enviados(quem):
-    """Convites sem resposta de `quem`, vencidos recentes inclusive. Não carrega a pessoa: quem convida não vê dado de quem já existe (R24)."""
+    """Convites sem resposta de `quem`, vencidos recentes inclusive, só dos lugares onde ele ainda convida: quem perdeu
+    o acesso a uma empresa não vê mais o nome dela nem o cargo que ofereceu (Sourcery, PR #16). Não carrega a pessoa: quem convida não vê dado de quem já existe (R24)."""
+    escopos = unir_escopos(quem, 'convidar_pessoa')
+    consulta = Convite.objects.all() if escopos.plataforma else Convite.objects.filter(filtro_do_escopo(escopos))
     return list(
-        Convite.objects.filter(
+        consulta.filter(
             _com_fim_no_futuro(), convidado_por=quem, aceito_em__isnull=True, recusado_em__isnull=True, cancelado_em__isnull=True,
             expira_em__gt=timezone.now() - RETENCAO_DE_VENCIDOS,  # o vencido aparece, marcado, para poder ser reenviado
         ).order_by('pk')
@@ -212,10 +227,7 @@ def reenviar(quem, convite_id):
         agora = timezone.now()
         if convite.fim is not None and convite.fim <= agora:
             raise ValidationError('O período do convite já terminou.', code='convite_vencido')
-        if convite.envios >= MAXIMO_DE_ENVIOS_POR_CONVITE:
-            raise ValidationError('Limite de reenvios do convite.', code='reenvio_esgotado')
-        if agora - convite.enviado_em < INTERVALO_ENTRE_ENVIOS:
-            raise ValidationError('Aguarde antes de reenviar.', code='reenvio_cedo')
+        _exigir_pode_enviar(convite)
         convite.expira_em, convite.enviado_em, convite.envios = agora + VALIDADE, agora, convite.envios + 1
         convite.save(update_fields=['expira_em', 'enviado_em', 'envios'])
         auditar('convite_criado', quem, convite, convite.empresa_id, {'pessoa_id': convite.pessoa_id, 'reenvio': True})
