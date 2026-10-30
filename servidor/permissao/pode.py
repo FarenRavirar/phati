@@ -245,6 +245,29 @@ def age_em_algum_escopo(pessoa, *acoes):
     return False
 
 
+def permissoes_efetivas(pessoa, escopo=None):
+    """Códigos de ação que a pessoa exerce em `escopo` (Empresa, Fazenda ou SubArea): o que o menu pode mostrar (R2).
+
+    Delega a `pode()`, a única decisão de acesso. Sem `escopo` só a plataforma tem ação; fora do escopo, vazio.
+    """
+    if not _identificada(pessoa):
+        return frozenset()
+    with com_permissao(pessoa):
+        efetivas = {codigo for codigo in memoria_de(pessoa).catalogo if pode(pessoa, codigo, escopo)}
+        alvo = alvo_de(escopo)
+        if alvo is not None:
+            # `gerenciar_cargo` não passa por `pode()`: `cargo._pode_gerenciar` vale pelo nível do Administrador
+            # (`Vinculo.tem`, D043) e exige vínculo na empresa inteira. Convidar e revogar passam por `exige_permissao`
+            # → `pode()` e ficam só no que o cargo lista: o menu espelha o portão real (CodeRabbit, PR #18).
+            if any(vinculo.tem('gerenciar_cargo') and vinculo.cobre(Alvo(alvo.empresa_id)) for vinculo in memoria_de(pessoa).vinculos):
+                efetivas.add('gerenciar_cargo')
+        # `redefinir_senha` só vale a quem a rota aceita: a plataforma ou o Administrador da empresa (R5); cargo
+        # personalizado de Curador ou Técnico com a ação passa em `pode()` e a rota recusa (Sourcery, PR #18).
+        if 'redefinir_senha' in efetivas and not (pessoa.administrador_plataforma or (alvo is not None and administrador_da_empresa(pessoa, alvo.empresa_id))):
+            efetivas.discard('redefinir_senha')
+        return frozenset(efetivas)
+
+
 @contextmanager
 def com_permissao(pessoa, *acoes, usando=DEFAULT_DB_ALIAS):
     """Abre a transação com as variáveis de RLS da `pessoa` (R12): a união dos escopos das `acoes` (padrão `ver`).

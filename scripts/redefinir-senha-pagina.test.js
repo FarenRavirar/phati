@@ -7,14 +7,23 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'servidor', 'projeto', 'templates', 'redefinir_senha.html'), 'utf8');
-const SCRIPT = HTML.match(/<script>([\s\S]*?)<\/script>/)[1];
+// CodeQL, PR #17 e #18: aceita <SCRIPT>, atributos na abertura e fechamento tolerante.
+const extrairScript = (html) => html.match(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i)[1];
+const CODIGO_DA_PAGINA = extrairScript(HTML);
 
-function elemento(hidden = false) {
+test('extrairScript aceita maiúscula, atributos na abertura e no fechamento', () => {
+  assert.equal(extrairScript('<script>a()</script>'), 'a()');
+  assert.equal(extrairScript('<SCRIPT>a()</SCRIPT>'), 'a()');
+  assert.equal(extrairScript('<script nonce="x">a()</script>'), 'a()');
+  assert.equal(extrairScript('<script>a()</script\t\n bar>'), 'a()');
+});
+
+function elemento(oculto = false) {
   const ouvintes = {};
-  return { hidden, textContent: '', value: '', disabled: false, ouvintes, addEventListener(nome, funcao) { ouvintes[nome] = funcao; } };
+  return { hidden: oculto, textContent: '', value: '', disabled: false, ouvintes, addEventListener(nome, funcao) { ouvintes[nome] = funcao; } };
 }
 
-function abrir(hash, respostas) {
+function abrir(fragmento, respostas) {
   const el = {
     mensagem: elemento(true), formulario: elemento(true), senha_nova: elemento(), repeticao: elemento(), salvar: elemento(),
   };
@@ -24,14 +33,14 @@ function abrir(hash, respostas) {
   const contexto = {
     URLSearchParams, JSON, Promise,
     document: { getElementById: (id) => el[id] },
-    location: { hash, pathname: '/redefinir-senha' },
+    location: { hash: fragmento, pathname: '/redefinir-senha' },
     history: { replaceState: (...argumentos) => substituicoes.push(argumentos) },
     fetch: (url, opcoes) => {
       chamadas.push({ url, corpo: JSON.parse(opcoes.body), cabecalhos: opcoes.headers });
       return fila.shift()();
     },
   };
-  vm.runInNewContext(SCRIPT, contexto);
+  vm.runInNewContext(CODIGO_DA_PAGINA, contexto);
   const enviar = async (senha = 'uma frase longa e incomum', repeticao = senha) => {
     el.senha_nova.value = senha;
     el.repeticao.value = repeticao;

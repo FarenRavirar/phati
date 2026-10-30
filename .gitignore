@@ -93,3 +93,12 @@ __pycache__/
 .coverage
 .venv/
 secret.txt
+
+# --- Skill de terceiros instalada localmente (D058): binário de ~22 MB, não vai ao Git ---
+.claude/skills/impeccable/
+.claude/agents/impeccable-*.md
+.impeccable/
+.temp/
+
+# Gerado pelo impeccable na raiz (pode conter descrição de produto); fica local
+PRODUCT.md

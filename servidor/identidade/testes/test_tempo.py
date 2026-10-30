@@ -1,8 +1,8 @@
 """Tempo uniforme (R2, R5, A2; T5.5c): CPF existente e inexistente não se distinguem pelo tempo da resposta.
 
 Medido em 2026-10-29, 15 rodadas por caso, banco local: a diferença de medianas fica em poucos ms (UPDATE do contador
-em `entrar`; consulta e gravação do pedido em `solicitar`). `FOLGA` é bem maior que isso e bem menor que o `ATRASO`
-do SMTP simulado, então o teste falha se o envio voltar ao caminho da resposta e não falha por ruído da máquina.
+em `entrar`; consulta e gravação do pedido em `solicitar`). `FOLGA` é bem maior que isso e bem menor que o atraso
+do SMTP simulado (`smtp_lento`, 200 ms), então o teste falha se o envio voltar ao caminho da resposta e não falha por ruído da máquina.
 """
 
 import json
@@ -11,16 +11,12 @@ import time
 
 from django.test import Client
 
-from identidade import email
 from identidade.models import PedidoRedefinicao, Pessoa
 from identidade.testes.conftest import CPF
 
-# Guardado na importação, antes de a fixture automática do conftest trocar `_despachar` pela chamada direta.
-_DESPACHO_REAL = email._despachar
-
 RODADAS = 15
-ATRASO = 0.3  # SMTP lento simulado, em segundos
 FOLGA = 0.05  # diferença máxima aceita entre as medianas, em segundos
+TETO = 0.15  # mediana máxima do pedido de redefinição, abaixo do atraso do SMTP simulado (200 ms)
 
 
 def _mediana(cliente, rota, corpo, esperado, antes=lambda: None):
@@ -35,19 +31,19 @@ def _mediana(cliente, rota, corpo, esperado, antes=lambda: None):
     return statistics.median(tempos)
 
 
-def _smtp_lento(monkeypatch):
-    monkeypatch.setattr(email, '_despachar', _DESPACHO_REAL)
-    monkeypatch.setattr(email.EmailMessage, 'send', lambda self: time.sleep(ATRASO))
-
-
-def test_pedido_de_redefinicao_com_smtp_lento_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo, monkeypatch):
-    _smtp_lento(monkeypatch)
+def test_pedido_de_redefinicao_com_smtp_lento_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo, smtp_lento):
     rota = '/api/v1/redefinir-senha/solicitar'
     cliente = Client()
     # Pedido recente segura o novo: sem apagar, só a primeira rodada pagaria o caminho inteiro.
     existente = _mediana(cliente, rota, {'cpf': CPF}, 204, antes=PedidoRedefinicao.objects.all().delete)
     inexistente = _mediana(cliente, rota, {'cpf': cpf_novo()}, 204)
     assert abs(existente - inexistente) < FOLGA
+    # Envio síncrono nos dois caminhos soma o mesmo atraso às duas medianas e passaria acima; o teto prova que o
+    # SMTP lento (200 ms) ficou fora da resposta (Sourcery, PR #18).
+    assert max(existente, inexistente) < TETO
+    # O teto só prova algo se o SMTP lento foi exercitado: os 15 pedidos do CPF existente chegam à fila (CodeRabbit, PR #18).
+    smtp_lento.esvaziar()
+    assert len(smtp_lento.enviados) == RODADAS
 
 
 def test_entrada_com_senha_errada_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo):
