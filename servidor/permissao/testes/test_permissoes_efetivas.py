@@ -53,14 +53,17 @@ def test_concordancia_com_pode_em_cada_acao(cenario, fabrica_pessoa, conceder_di
     assert 'criar_empresa' not in efetivas
 
 
-def test_administrador_com_cargo_sem_delegacao_ainda_exerce_delegacao_e_gerencia_de_cargo(cenario, fabrica_pessoa, conceder_direto):
-    # Qodo, PR #18: delegação e `gerenciar_cargo` valem pelo nível do Administrador (D043), não pela lista do cargo.
+def test_administrador_com_cargo_enxuto_gerencia_cargo_mas_nao_convida(cenario, fabrica_pessoa, conceder_direto):
+    # `gerenciar_cargo` vale pelo nível do Administrador (D043, `cargo._pode_gerenciar`); convidar passa por `pode()`,
+    # que nega: o menu espelha o portão real (a rota devolve 403, medido; CodeRabbit, PR #18).
     cargo = Cargo.objects.create(empresa=cenario.x, nome='Admin enxuto', base='administrador')
     CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
     admin = fabrica_pessoa('Admin enxuto')
     conceder_direto(admin, cargo, cenario.x)
     efetivas = permissoes_efetivas(admin, cenario.x)
-    assert {'convidar_pessoa', 'revogar_acesso', 'gerenciar_cargo'} <= efetivas
+    assert 'gerenciar_cargo' in efetivas
+    assert 'convidar_pessoa' not in efetivas
+    assert not pode(admin, 'convidar_pessoa', cenario.x)
     assert permissoes_efetivas(admin, cenario.y) == frozenset()
 
 
@@ -83,12 +86,10 @@ def test_redefinir_senha_so_aparece_para_o_administrador_da_empresa(cenario, fab
     assert 'redefinir_senha' in permissoes_efetivas(admin, cenario.x)
 
 
-def test_administrador_so_de_fazenda_nao_gerencia_cargo_mas_convida(cenario, fabrica_pessoa, conceder_direto):
-    # Greptile, PR #18: cargo é da empresa; a rota exige vínculo na empresa inteira.
+def test_administrador_so_de_fazenda_nao_gerencia_cargo(cenario, fabrica_pessoa, conceder_direto):
+    # Greptile, PR #18: cargo é da empresa; a regra exige vínculo na empresa inteira.
     cargo = Cargo.objects.create(empresa=cenario.x, nome='Admin de fazenda enxuto', base='administrador')
     CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
     admin = fabrica_pessoa('Admin da F1')
     conceder_direto(admin, cargo, cenario.f1)
-    efetivas = permissoes_efetivas(admin, cenario.f1)
-    assert 'convidar_pessoa' in efetivas
-    assert 'gerenciar_cargo' not in efetivas
+    assert 'gerenciar_cargo' not in permissoes_efetivas(admin, cenario.f1)

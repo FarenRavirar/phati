@@ -7,7 +7,16 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'servidor', 'projeto', 'templates', 'redefinir_senha.html'), 'utf8');
-const CODIGO_DA_PAGINA = HTML.match(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i)[1];  // CodeQL, PR #17 e #18: aceita <SCRIPT>, atributos e fechamento tolerante
+// CodeQL, PR #17 e #18: aceita <SCRIPT>, atributos na abertura e fechamento tolerante.
+const extrairScript = (html) => html.match(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i)[1];
+const CODIGO_DA_PAGINA = extrairScript(HTML);
+
+test('extrairScript aceita maiúscula, atributos na abertura e no fechamento', () => {
+  assert.equal(extrairScript('<script>a()</script>'), 'a()');
+  assert.equal(extrairScript('<SCRIPT>a()</SCRIPT>'), 'a()');
+  assert.equal(extrairScript('<script nonce="x">a()</script>'), 'a()');
+  assert.equal(extrairScript('<script>a()</script\t\n bar>'), 'a()');
+});
 
 function elemento(oculto = false) {
   const ouvintes = {};

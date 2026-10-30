@@ -41,6 +41,9 @@ def test_pedido_de_redefinicao_com_smtp_lento_leva_o_mesmo_tempo_para_cpf_existe
     # Envio síncrono nos dois caminhos soma o mesmo atraso às duas medianas e passaria acima; o teto prova que o
     # SMTP lento (200 ms) ficou fora da resposta (Sourcery, PR #18).
     assert max(existente, inexistente) < TETO
+    # O teto só prova algo se o SMTP lento foi exercitado: os 15 pedidos do CPF existente chegam à fila (CodeRabbit, PR #18).
+    smtp_lento.esvaziar()
+    assert len(smtp_lento.enviados) == RODADAS
 
 
 def test_entrada_com_senha_errada_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo):

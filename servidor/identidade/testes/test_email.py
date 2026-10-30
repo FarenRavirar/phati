@@ -172,12 +172,12 @@ def test_despacho_real_roda_o_envio_noutra_thread(monkeypatch):
 
 def test_despacho_real_entrega_na_ordem_e_com_uma_thread_so():
     # Sourcery e Greptile, PR #17: uma thread por e-mail acumula sob SMTP lento e deixa a ordem do commit se perder.
-    ordem, identificadores_de_threads, terminou = [], set(), threading.Event()
+    ordem, identificadores_de_fios, terminou = [], set(), threading.Event()
 
     def envio(numero):
         time.sleep(0.01 * (5 - numero))  # o primeiro é o mais lento: com threads soltas, chegaria por último
         ordem.append(numero)
-        identificadores_de_threads.add(threading.get_ident())
+        identificadores_de_fios.add(threading.get_ident())
         if numero == 4:
             terminou.set()
 
@@ -185,7 +185,7 @@ def test_despacho_real_entrega_na_ordem_e_com_uma_thread_so():
         _DESPACHO_REAL(lambda n=numero: envio(n))
     assert terminou.wait(5)
     assert ordem == [0, 1, 2, 3, 4]
-    assert len(identificadores_de_threads) == 1
+    assert len(identificadores_de_fios) == 1
 
 
 def test_falha_ao_enfileirar_nao_chega_a_quem_chamou(monkeypatch, caplog):

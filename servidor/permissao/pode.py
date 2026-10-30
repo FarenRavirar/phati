@@ -256,17 +256,11 @@ def permissoes_efetivas(pessoa, escopo=None):
         efetivas = {codigo for codigo in memoria_de(pessoa).catalogo if pode(pessoa, codigo, escopo)}
         alvo = alvo_de(escopo)
         if alvo is not None:
-            # Delegação e gerência de cargo valem pelo nível do Administrador (`Vinculo.tem`, D043), não pela lista
-            # do cargo: sem isto o menu esconderia o que ele exerce (Qodo, PR #18).
-            efetivas |= {
-                acao
-                for acao in ACOES_DE_DELEGACAO | {'gerenciar_cargo'}
-                # Cargo é da empresa: `gerenciar_cargo` exige vínculo na empresa inteira (`cargo._pode_gerenciar`).
-                if any(
-                    vinculo.tem(acao) and vinculo.cobre(Alvo(alvo.empresa_id) if acao == 'gerenciar_cargo' else alvo)
-                    for vinculo in memoria_de(pessoa).vinculos
-                )
-            }
+            # `gerenciar_cargo` não passa por `pode()`: `cargo._pode_gerenciar` vale pelo nível do Administrador
+            # (`Vinculo.tem`, D043) e exige vínculo na empresa inteira. Convidar e revogar passam por `exige_permissao`
+            # → `pode()` e ficam só no que o cargo lista: o menu espelha o portão real (CodeRabbit, PR #18).
+            if any(vinculo.tem('gerenciar_cargo') and vinculo.cobre(Alvo(alvo.empresa_id)) for vinculo in memoria_de(pessoa).vinculos):
+                efetivas.add('gerenciar_cargo')
         # `redefinir_senha` só vale a quem a rota aceita: a plataforma ou o Administrador da empresa (R5); cargo
         # personalizado de Curador ou Técnico com a ação passa em `pode()` e a rota recusa (Sourcery, PR #18).
         if 'redefinir_senha' in efetivas and not (pessoa.administrador_plataforma or (alvo is not None and administrador_da_empresa(pessoa, alvo.empresa_id))):
