@@ -37,11 +37,11 @@ def test_senha_errada_ou_cpf_inexistente_devolve_none_sem_erro_do_gerente(fabric
 def test_timeout_do_smtp_vem_do_ambiente(monkeypatch):
     import projeto.settings as configuracao
 
-    monkeypatch.setenv('PHATI_EMAIL_TIMEOUT', '3')
+    monkeypatch.setenv('PHATI_EMAIL_PRAZO', '3')
     try:
         assert reload(configuracao).MAILERS['default']['OPTIONS']['timeout'] == 3
-        monkeypatch.delenv('PHATI_EMAIL_TIMEOUT')
+        monkeypatch.delenv('PHATI_EMAIL_PRAZO')
         assert reload(configuracao).MAILERS['default']['OPTIONS']['timeout'] == 10
     finally:
-        monkeypatch.delenv('PHATI_EMAIL_TIMEOUT', raising=False)
+        monkeypatch.delenv('PHATI_EMAIL_PRAZO', raising=False)
         reload(configuracao)

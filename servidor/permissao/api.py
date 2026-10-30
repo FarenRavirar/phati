@@ -16,8 +16,8 @@ from identidade import redefinicao
 from identidade.models import Pessoa
 from permissao import convite, delegacao
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, Permissao, concessoes_ativas
-from permissao.pode import age_em_algum_escopo, escopos_da_acao, exige_permissao, filtro_do_escopo, pode, unir_escopos
-from territorio.models import Empresa, Fazenda, SubArea
+from permissao.pode import age_em_algum_escopo, escopo_de, escopos_da_acao, exige_permissao, filtro_do_escopo, unir_escopos
+from territorio.models import Empresa
 
 roteador = Router(tags=['permissao'])
 
@@ -136,32 +136,16 @@ class SaidaPermissao(Schema):
     delegavel: bool
 
 
-def _escopo(escopo):
-    if escopo.sub_area_id is not None:
-        return SubArea.objects.get(pk=escopo.sub_area_id)
-    if escopo.fazenda_id is not None:
-        return Fazenda.objects.get(pk=escopo.fazenda_id)
-    return Empresa.objects.get(pk=escopo.empresa_id)
-
-
-def escopo_da_concessao(concessao):
-    if concessao.sub_area_id is not None:
-        return SubArea.objects.get(pk=concessao.sub_area_id)
-    if concessao.fazenda_id is not None:
-        return Fazenda.objects.get(pk=concessao.fazenda_id)
-    return Empresa.objects.get(pk=concessao.empresa_id)
-
-
 def _alvo_do_corpo(*_, dados, **__):
-    return _escopo(dados.escopo)
+    return escopo_de(dados.escopo)
 
 
 def _alvo_do_convite_enviado(requisicao, *_, convite_id, **__):
-    return escopo_da_concessao(Convite.objects.get(pk=convite_id, convidado_por=requisicao.user))
+    return escopo_de(Convite.objects.get(pk=convite_id, convidado_por=requisicao.user))
 
 
 def _alvo_da_revogacao(*_, pessoa_id, concessao_id, **__):
-    return escopo_da_concessao(Concessao.objects.get(pk=concessao_id, pessoa_id=pessoa_id))
+    return escopo_de(Concessao.objects.get(pk=concessao_id, pessoa_id=pessoa_id))
 
 
 def _alvo_da_redefinicao(requisicao, *_, pessoa_id, **__):
@@ -217,7 +201,7 @@ def listar_pessoas(request, filtros: Query[ParametrosDaLista]):
 @roteador.post('pessoas', url_name='pessoas_convidar', response={201: SaidaConvite})
 @exige_permissao('convidar_pessoa', _alvo_do_corpo)
 def convidar_pessoa(request, dados: EntradaConvite):
-    escopo = _escopo(dados.escopo)
+    escopo = escopo_de(dados.escopo)
     pessoa, temporaria = convite.convidar_por_cpf(
         request.user, dados.nome, dados.email, dados.cpf, Cargo.objects.get(pk=dados.cargo_id), escopo,
         _categorias(dados, escopo), dados.inicio, dados.fim,
@@ -231,7 +215,7 @@ def convidar_pessoa(request, dados: EntradaConvite):
 @roteador.post('pessoas/{pessoa_id}/concessoes', url_name='concessoes_criar', response={201: SaidaConcessao})
 @exige_permissao('convidar_pessoa', _alvo_do_corpo)
 def conceder(request, pessoa_id: int, dados: EntradaConcessao):
-    escopo = _escopo(dados.escopo)
+    escopo = escopo_de(dados.escopo)
     # `pessoa` não tem RLS e o id é sequencial: só quem está no alcance de quem concede. Fora dele, 404 igual ao de
     # id inexistente, senão a rota enumera pessoas de outras empresas e as puxa para esta (Qodo, PR #16).
     pessoa = pessoas_do_escopo(request.user).get(pk=pessoa_id)

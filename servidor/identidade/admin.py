@@ -38,6 +38,7 @@ class FormularioConvite(forms.ModelForm):
 class PessoaAdmin(AdministracaoPorServico):
     form = FormularioConvite
     list_display = ('nome', 'email', 'empresa_origem')
+    list_select_related = ('empresa_origem',)
     search_fields = ('nome', 'email')
     actions = ['redefinir_senha']
     acao_de_leitura = ACOES_DE_PESSOAS

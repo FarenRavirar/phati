@@ -218,3 +218,14 @@ def test_curador_de_sub_area_concede_pelo_painel_escolhendo_so_a_sub_area(cenari
     resposta = entrar_no_painel(curador).post('/painel/permissao/concessao/add/', corpo)
     assert resposta.status_code == 302
     assert Concessao.objects.filter(pessoa=alvo, cargo=cenario.cargos_x['tecnico'], sub_area=cenario.t1).count() == 1
+
+
+@pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+def test_formulario_de_concessao_sob_app_renderiza_as_opcoes_dentro_do_contexto_da_rls(cenario, pessoas_do_painel, entrar_no_painel, como_app):
+    # As opções do `ModelChoiceField` são avaliadas na renderização: fora de `com_permissao` o papel `app` não vê
+    # linha alguma e o select sairia vazio (CodeRabbit, PR #16).
+    admin, admin_y, _ = pessoas_do_painel
+    pagina = entrar_no_painel(admin).get('/painel/permissao/concessao/add/').content.decode()
+    assert '>F1<' in pagina
+    assert '>FY<' not in pagina
+    assert '>FY<' in entrar_no_painel(admin_y).get('/painel/permissao/concessao/add/').content.decode()

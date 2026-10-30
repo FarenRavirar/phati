@@ -21,8 +21,8 @@ from identidade.models import Pessoa
 from permissao import delegacao
 from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder
 from permissao.models import Cargo, Convite, ConviteCategoria
-from permissao.pode import com_permissao, filtro_do_escopo, unir_escopos
-from territorio.models import Empresa, Fazenda, SubArea
+from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, unir_escopos
+from territorio.models import Empresa
 
 # Confirmada pelo mantenedor (D053): 7 dias; o MateCat usa 3.
 VALIDADE = timedelta(days=7)
@@ -34,14 +34,6 @@ MAXIMO_DE_ENVIOS_POR_CONVITE = 4  # o primeiro e três reenvios
 MAXIMO_DE_CONVITES_POR_HORA = 50  # por quem convida; conta convite de CPF existente e pessoa nova criada pelo convite
 RETENCAO_DE_VENCIDOS = timedelta(days=30)  # convite vencido sem resposta continua na lista de quem convidou por este tempo
 _TRAVA_DA_COTA = 5301  # primeiro número do par da trava consultiva (o segundo é o id de quem convida)
-
-
-def _escopo_do_convite(convite):
-    if convite.sub_area_id is not None:
-        return SubArea.objects.get(pk=convite.sub_area_id)
-    if convite.fazenda_id is not None:
-        return Fazenda.objects.get(pk=convite.fazenda_id)
-    return Empresa.objects.get(pk=convite.empresa_id)
 
 
 def _exigir_em_aberto(convite):
@@ -169,7 +161,7 @@ def aceitar(pessoa, convite_id):
         # A pessoa que aceita não tem escopo na empresa: a gravação e as checagens rodam com o contexto de quem convidou.
         with com_permissao(convidador, 'convidar_pessoa'):
             proposta = _proposta(
-                convidador, Cargo.objects.get(pk=convite.cargo_id), _escopo_do_convite(convite), convite.inicio, convite.fim
+                convidador, Cargo.objects.get(pk=convite.cargo_id), escopo_de(convite), convite.inicio, convite.fim
             )
             categorias = tuple(convite.categorias.all())
             if not pode_conceder(convidador, proposta, categorias):

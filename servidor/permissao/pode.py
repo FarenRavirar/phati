@@ -214,6 +214,16 @@ def unir_escopos(pessoa, *acoes):
     )
 
 
+def escopo_de(linha):
+    """Sub-área, fazenda ou empresa de uma linha com `sub_area_id`, `fazenda_id` e `empresa_id` (concessão, convite,
+    escopo da entrada da API), o mais específico primeiro."""
+    if linha.sub_area_id is not None:
+        return SubArea.objects.get(pk=linha.sub_area_id)
+    if linha.fazenda_id is not None:
+        return Fazenda.objects.get(pk=linha.fazenda_id)
+    return Empresa.objects.get(pk=linha.empresa_id)
+
+
 def filtro_do_escopo(escopos):
     """`Q` das linhas com colunas `empresa_id`, `fazenda_id` e `sub_area` (concessão, convite) que `escopos` alcança.
 

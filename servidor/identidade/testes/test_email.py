@@ -139,3 +139,13 @@ def test_aviso_de_convite_nao_leva_segredo_nem_link_de_acao(pessoa, mailoutbox):
     assert 'aceitar' in corpo.lower()
     # Nenhum endereço além da página inicial: um link de ação (qualquer formato) faria do e-mail um atalho reencaminhável.
     assert set(re.findall(r'https?://\S+?(?=[\s.,;]*(?:\s|$))', corpo)) <= {settings.URL_BASE}
+
+
+def test_aviso_de_convite_mostra_a_data_no_fuso_de_sao_paulo(pessoa, mailoutbox):
+    from datetime import datetime
+    from datetime import timezone as fuso
+
+    # 01:00 UTC do dia 6 é 22:00 do dia 5 em São Paulo: a pessoa lê o calendário dela (CodeRabbit, PR #16).
+    email.enviar_aviso_de_convite(pessoa, 'Empresa X', 'Usuário', datetime(2026, 11, 6, 1, 0, tzinfo=fuso.utc))
+    assert 'até 05/11/2026' in mailoutbox[0].body
+    assert '06/11/2026' not in mailoutbox[0].body

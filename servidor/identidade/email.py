@@ -15,6 +15,7 @@ from functools import partial
 from django.conf import settings
 from django.core.mail import BadHeaderError, EmailMessage
 from django.db import transaction
+from django.utils import timezone
 
 registro = logging.getLogger(__name__)
 
@@ -75,6 +76,6 @@ def enviar_aviso_de_convite(pessoa, empresa_nome, cargo_nome, expira_em):
         'convite',
         'Você recebeu um convite no phati',
         f'Olá, {pessoa.nome}.\n\nA empresa {empresa_nome} convidou você para participar com o cargo {cargo_nome}. '
-        f'Entre no phati em {settings.URL_BASE} para aceitar ou recusar. O convite vale até {expira_em:%d/%m/%Y}. '
+        f'Entre no phati em {settings.URL_BASE} para aceitar ou recusar. O convite vale até {timezone.localtime(expira_em):%d/%m/%Y}. '
         'Se você não conhece essa empresa, recuse o convite.',
     )

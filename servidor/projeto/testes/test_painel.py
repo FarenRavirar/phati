@@ -123,3 +123,13 @@ def test_senha_temporaria_criada_no_painel_nao_viaja_em_cookie(plataforma, entra
     resposta = cliente.post('/painel/territorio/empresa/add/', corpo)
     assert resposta.status_code == 302
     assert 'messages' not in resposta.cookies  # a mensagem fica na sessão do servidor, não num cookie legível pelo navegador
+
+
+def test_o_site_do_admin_e_o_painel_e_o_grupo_do_django_fica_fora():
+    from django.contrib import admin
+    from django.contrib.auth.models import Group
+
+    from projeto.painel import PainelSite
+
+    assert isinstance(admin.site, PainelSite)
+    assert not admin.site.is_registered(Group)

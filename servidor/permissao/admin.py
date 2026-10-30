@@ -40,6 +40,7 @@ class FormularioConcessao(forms.ModelForm):
 class ConcessaoAdmin(AdministracaoPorServico):
     form = FormularioConcessao
     list_display = ('pessoa', 'cargo', 'empresa', 'fazenda', 'sub_area', 'inicio', 'fim', 'revogada_em')
+    list_select_related = ('pessoa', 'cargo', 'empresa', 'fazenda', 'sub_area')
     autocomplete_fields = ('pessoa',)
     acao_de_leitura = ACOES_DE_PESSOAS
     acao_de_criacao = 'convidar_pessoa'

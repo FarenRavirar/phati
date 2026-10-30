@@ -148,7 +148,7 @@ MAILERS = {
             'username': os.environ.get('PHATI_EMAIL_USUARIO', ''),
             'password': os.environ.get('PHATI_EMAIL_SENHA', ''),
             'use_tls': True,
-            'timeout': int(os.environ.get('PHATI_EMAIL_TIMEOUT', '10')),  # sem prazo, SMTP mudo prenderia o processo (achado do Qodo, PR #9)
+            'timeout': int(os.environ.get('PHATI_EMAIL_PRAZO', '10')),  # sem prazo, SMTP mudo prenderia o processo (achado do Qodo, PR #9)
         },
     },
 }
