@@ -347,9 +347,9 @@ def test_pagina_padrao_tem_no_maximo_trinta_pessoas(cenario, fabrica_pessoa, con
     assert len(_enviar(admin, 'pessoas', metodo='get').json()) == 30
 
 
-def test_convite_leva_o_mesmo_tempo_para_cpf_novo_e_existente(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+def test_convite_leva_o_mesmo_tempo_para_cpf_novo_e_existente(cenario, fabrica_pessoa, conceder_direto, cpf_novo, smtp_lento):
     # T5.5c, R24, A2: 15 rodadas de cada caso (30 convites, abaixo da cota de 50 por hora).
-    # Folga de 20 ms contra o resíduo medido em 2026-10-29 (5 a 7 ms; sem o Argon2 equivalente a diferença é de 35 ms); o e-mail sai em thread (`identidade.email._despachar`).
+    # Folga de 20 ms contra o resíduo medido em 2026-10-29 (5 a 7 ms; sem o Argon2 equivalente a diferença é de 35 ms); o e-mail sai pela fila real (`smtp_lento`, 200 ms por envio): a resposta tem de voltar antes dele.
     import statistics
     import time
 
@@ -371,4 +371,7 @@ def test_convite_leva_o_mesmo_tempo_para_cpf_novo_e_existente(cenario, fabrica_p
         Pessoa.objects.criar(nome='Existente', email='existente@exemplo.test', cpf=cpf)
     novos = medir([cpf_novo() for _ in range(15)])
     existente = medir(cpfs_existentes)
+    smtp_lento.esvaziar()
+    assert len(smtp_lento.enviados) == 30  # o callback rodou nos dois caminhos (CodeRabbit, PR #17)
+    assert max(novos, existente) < smtp_lento.atraso * 0.75  # envio síncrono somaria 200 ms aos dois
     assert abs(novos - existente) < 0.02

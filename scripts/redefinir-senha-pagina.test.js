@@ -7,14 +7,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'servidor', 'projeto', 'templates', 'redefinir_senha.html'), 'utf8');
-const SCRIPT = HTML.match(/<script>([\s\S]*?)<\/script>/)[1];
+const CODIGO_DA_PAGINA = HTML.match(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/i)[1];  // CodeQL, PR #17: aceita <SCRIPT> e atributos
 
-function elemento(hidden = false) {
+function elemento(oculto = false) {
   const ouvintes = {};
-  return { hidden, textContent: '', value: '', disabled: false, ouvintes, addEventListener(nome, funcao) { ouvintes[nome] = funcao; } };
+  return { hidden: oculto, textContent: '', value: '', disabled: false, ouvintes, addEventListener(nome, funcao) { ouvintes[nome] = funcao; } };
 }
 
-function abrir(hash, respostas) {
+function abrir(fragmento, respostas) {
   const el = {
     mensagem: elemento(true), formulario: elemento(true), senha_nova: elemento(), repeticao: elemento(), salvar: elemento(),
   };
@@ -24,14 +24,14 @@ function abrir(hash, respostas) {
   const contexto = {
     URLSearchParams, JSON, Promise,
     document: { getElementById: (id) => el[id] },
-    location: { hash, pathname: '/redefinir-senha' },
+    location: { hash: fragmento, pathname: '/redefinir-senha' },
     history: { replaceState: (...argumentos) => substituicoes.push(argumentos) },
     fetch: (url, opcoes) => {
       chamadas.push({ url, corpo: JSON.parse(opcoes.body), cabecalhos: opcoes.headers });
       return fila.shift()();
     },
   };
-  vm.runInNewContext(SCRIPT, contexto);
+  vm.runInNewContext(CODIGO_DA_PAGINA, contexto);
   const enviar = async (senha = 'uma frase longa e incomum', repeticao = senha) => {
     el.senha_nova.value = senha;
     el.repeticao.value = repeticao;

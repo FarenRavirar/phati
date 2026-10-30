@@ -11,16 +11,48 @@ def _fechar_conexao_app():
     connections['app'].close()
 
 
+_ORIGINAIS = {}
+ATRASO_DO_SMTP = 0.2  # segundos
+
+
 @pytest.fixture(autouse=True)
 def _email_na_hora(request, monkeypatch):
-    """`_despachar` (thread em produção) vira chamada direta: o teste lê `mailoutbox` sem corrida. O teste comum roda numa transação que nunca faz commit, então `on_commit` não dispararia e `mailoutbox`
-    ficaria vazia: aqui o envio sai na hora. Teste que exercita o commit pede `django_capture_on_commit_callbacks`
-    e fica com o `on_commit` verdadeiro."""
-    monkeypatch.setattr('identidade.email._despachar', lambda funcao: funcao())
+    """O teste comum roda numa transação que nunca faz commit, então `on_commit` não dispararia e `mailoutbox`
+    ficaria vazia: aqui o envio sai na hora, e `_despachar` (fila de uma thread em produção) vira chamada direta, para
+    o teste ler `mailoutbox` sem corrida. Teste que exercita o commit pede `django_capture_on_commit_callbacks`
+    e fica com o `on_commit` verdadeiro; teste do despacho real usa `smtp_lento`."""
+    from identidade import email
+
+    _ORIGINAIS.setdefault('despachar', email._despachar)  # antes do patch abaixo: é o despacho de produção
+    monkeypatch.setattr(email, '_despachar', lambda funcao: funcao())
     if 'django_capture_on_commit_callbacks' not in request.fixturenames:
         from types import SimpleNamespace
 
         monkeypatch.setattr('identidade.email.transaction', SimpleNamespace(on_commit=lambda funcao: funcao()))
+
+
+@pytest.fixture
+def smtp_lento(monkeypatch):
+    """Despacho real (fila de uma thread) com SMTP simulado de 200 ms. A fila é esvaziada antes de o `monkeypatch` voltar
+    o `send` original, senão envios enfileirados rodariam fora do teste (CodeRabbit, PR #17)."""
+    import time
+    from types import SimpleNamespace
+
+    from identidade import email
+
+    enviados = []
+
+    def enviar(self, mensagens):
+        time.sleep(ATRASO_DO_SMTP)
+        enviados.extend(mensagem.to for mensagem in mensagens)
+        return len(mensagens)
+
+    monkeypatch.setattr(email, '_despachar', _ORIGINAIS['despachar'])
+    # No backend de teste do Django: só `identidade/email.py` pode citar a classe de mensagem (A6).
+    monkeypatch.setattr('django.core.mail.backends.locmem.EmailBackend.send_messages', enviar)
+    esvaziar = lambda: email._FILA.submit(lambda: None).result(timeout=60)  # noqa: E731  fila de uma thread: ordem FIFO
+    yield SimpleNamespace(atraso=ATRASO_DO_SMTP, enviados=enviados, esvaziar=esvaziar)
+    esvaziar()
 
 
 def _digito_verificador(digitos):
