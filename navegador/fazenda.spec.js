@@ -13,7 +13,7 @@ test('mostra nome, empresa, árvore de três níveis e "Sem camadas ainda."', as
   for (const nome of ['Talhao 1', 'Gleba 1', 'Lote 1']) await expect(page.getByText(nome)).toBeVisible();
   await expect(page.getByText('Sem camadas ainda.')).toBeVisible();
   await abrirMenu(page);
-  await expect(page.getByRole('link', { name: 'Fazendas', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Fazendas', exact: true })).toHaveAttribute('aria-current', 'true');
   await semRolagemHorizontal(page);
   await acessivel(page);
 });

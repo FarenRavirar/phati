@@ -10,8 +10,8 @@ test('sem convite nem fazenda mostra "Sem pendências."', async ({ page }) => {
   await acessivel(page);
 });
 
-test('convites e fazendas aparecem; aceitar libera a fazenda e recusar não', async ({ page }, testInfo) => {
-  await entrar(page, turmaDe(testInfo).usuaria.cpf);
+test('convites e fazendas aparecem; aceitar libera a fazenda e recusar não', async ({ page }, informacoesDoTeste) => {
+  await entrar(page, turmaDe(informacoesDoTeste).usuaria.cpf);
   await expect(page.getByRole('heading', { name: 'Convites' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Fazenda Inventada A1' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Fazenda Inventada B1' })).toHaveCount(0);

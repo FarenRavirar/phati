@@ -44,10 +44,20 @@ def test_pessoa_de_troca_entra_so_com_a_senha_temporaria_e_deve_trocar(dados):
 
 
 def test_cada_turma_tem_pessoas_proprias(dados):
-    cpfs = [cpf for turma in dados['turmas'].values() for cpf in (turma['usuaria']['cpf'], turma['troca']['cpf'])]
+    cpfs = [turma[papel]['cpf'] for turma in dados['turmas'].values() for papel in ('usuaria', 'troca', 'errada')]
     assert len(set(cpfs)) == len(cpfs)
-    assert len(cpfs) == 4
+    assert len(cpfs) == 6
     assert Pessoa.objects.count() == 4 + len(cpfs)
+
+
+def test_conta_errada_existe_e_so_entra_com_a_senha_certa(dados):
+    for turma in dados['turmas'].values():
+        assert _pessoa(dados, turma['errada']['cpf']) is not None
+        assert login.autenticar(turma['errada']['cpf'], 'senha-qualquer-errada') is None
+
+
+def test_senha_e_sorteada_e_nao_e_um_valor_fixo_do_repositorio(dados):
+    assert len(dados['senha']) >= 24
 
 
 def test_usuaria_ve_so_a_fazenda_a1_e_tem_dois_convites_pendentes(dados):

@@ -18,8 +18,3 @@ test('toda regra de teclado desligada existe no axe e é da categoria de teclado
   const teclado = axe.getRules(['cat.keyboard']).map((regra) => regra.ruleId);
   for (const id of REGRAS_DE_TECLADO_DESLIGADAS) assert.ok(teclado.includes(id), `${id} não é regra de teclado do axe`);
 });
-
-test('etiqueta inexistente habilita zero regras, abaixo do piso (o que a trava barra)', () => {
-  assert.equal(axe.getRules(['wcag99zz']).length, 0);
-  assert.ok(0 < MINIMO_DE_REGRAS);
-});

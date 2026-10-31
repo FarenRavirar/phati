@@ -4,12 +4,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { turmaDe, semRolagemHorizontal, abrirMenu } = require('./apoio.js');
 
-const dados = { turmas: { desktop: { nome: 'd' }, celular: { nome: 'c' } } };
+const dados = { turmas: { computador: { nome: 'p' }, celular: { nome: 'c' } } };
 const projeto = (nome) => ({ project: { name: nome } });
 
 test('cada projeto recebe a própria turma', () => {
-  assert.equal(turmaDe(projeto('desktop-1280x720'), dados).nome, 'd');
+  assert.equal(turmaDe(projeto('computador-1280x720'), dados).nome, 'p');
   assert.equal(turmaDe(projeto('celular-320x568'), dados).nome, 'c');
+});
+
+test('projeto sem turma levanta erro em vez de cair numa turma por padrão', () => {
+  assert.throws(() => turmaDe(projeto('tablet-768x1024'), dados), /sem turma/);
 });
 
 test('semRolagemHorizontal reprova quando a página rola na horizontal', async () => {

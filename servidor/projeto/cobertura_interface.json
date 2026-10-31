@@ -1,5 +1,5 @@
 {
-  "fonte": "Medida em 2026-10-30 por busca nos api.py, nas funções públicas dos módulos de serviço e no catálogo de ações (permissao/migrations/0001_initial.py). Cada linha tem tela (spec e requisito) ou justificativa escrita (D066). A D068 é leitura do agente, a confirmar. Fonte única da matriz backend e frontend; o teste test_cobertura_front.py (R21) lê este arquivo.",
+  "fonte": "Medida em 2026-10-30 por busca nos api.py, nas funções públicas dos módulos de serviço e no catálogo de ações (permissao/migrations/0001_initial.py). Cada linha tem tela (spec e requisito) ou justificativa escrita (D066). A D068 é leitura do agente, a confirmar. Fonte única da matriz backend e frontend; o teste test_cobertura_interface.py (R21) lê este arquivo.",
   "rotas": {
     "entrar": "Login — 002 R4",
     "sair": "Botão Sair — 002 R7",
@@ -88,7 +88,17 @@
     "identidade.login.registrar_falha": "Sem tela: contagem de falha de login chamada por autenticar — 002 R4",
     "territorio.cadastro.criar_empresa": "Criar empresa — 003; hoje só pela API e pelo popular_sintetico",
     "territorio.cadastro.criar_fazenda": "Criar fazenda — 003; hoje só pela API e pelo popular_sintetico",
-    "territorio.cadastro.criar_sub_area": "Criar sub-área — 003; hoje só pela API e pelo popular_sintetico"
+    "territorio.cadastro.criar_sub_area": "Criar sub-área — 003; hoje só pela API e pelo popular_sintetico",
+    "identidade.cpf.normalizar_cpf": "Sem tela: valida e normaliza o CPF digitado no login, no esqueci a senha e no convite — 002 R4, R6",
+    "identidade.cpf.chave_de_busca": "Sem tela: índice de busca do CPF (login, convite, redefinição)",
+    "identidade.cpf.cifrar": "Sem tela: grava o CPF cifrado no cadastro da pessoa",
+    "identidade.cpf.decifrar": "Sem tela: lê o CPF cifrado; nenhuma tela o mostra",
+    "permissao.cargos_base.criar_cargos_base": "Sem tela: chamada por criar_empresa; a tela de cargos é a 003",
+    "permissao.contexto.fixar_contexto": "Sem tela: assina o contexto da RLS dentro de com_permissao",
+    "permissao.contexto.fixar_identidade": "Sem tela: assina a identidade para a consulta de vínculos da pessoa",
+    "permissao.contexto.ler_contexto": "Sem tela: lê o contexto da RLS (teste e checagem de segredo)",
+    "permissao.contexto.limpar_identidade": "Sem tela: tira a assinatura de identidade depois da consulta",
+    "permissao.contexto.restaurar_contexto": "Sem tela: devolve o contexto anterior da RLS na mesma transação"
   },
   "acoes": {
     "ver": "002 (Início, seletor, página da fazenda)",
@@ -119,22 +129,6 @@
     "criar_sub_area": "003",
     "gerenciar_cargo": "003"
   },
-  "modulos": [
-    "comum.auditoria",
-    "comum.sintetico",
-    "identidade.acesso",
-    "identidade.email",
-    "identidade.login",
-    "identidade.redefinicao",
-    "identidade.senha",
-    "identidade.sessao",
-    "permissao.cargo",
-    "permissao.convite",
-    "permissao.delegacao",
-    "permissao.pode",
-    "territorio.cadastro",
-    "territorio.listagem"
-  ],
   "sem_acao": {
     "editar_renomear_arquivar_territorio": "Não há ação nem função; última spec do front (D067, specs/backlog.md)",
     "leitura_de_auditoria": "Não há ação de leitura; spec 004 (D060)"

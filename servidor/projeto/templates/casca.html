@@ -20,7 +20,7 @@
 </header>
 <nav class="menu" id="menu-lateral" aria-label="Menu principal">
 <ul class="menu-lista">
-{% for item in itens_menu %}<li><a class="menu-item" href="{{ item.caminho }}"{% if item.atual %} aria-current="page"{% endif %}>{{ item.nome }}</a></li>
+{% for item in itens_menu %}<li><a class="menu-item" href="{{ item.caminho }}"{% if item.atual %} aria-current="{{ item.atual }}"{% endif %}>{{ item.nome }}</a></li>
 {% endfor %}</ul>
 </nav>
 <main class="conteudo">

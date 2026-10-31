@@ -16,7 +16,7 @@ class ItemDoMenu:
     acoes: tuple[str, ...] = ()  # sem ação, o item é de toda pessoa autenticada
     em_algum_escopo: bool = False  # vale a ação em qualquer lugar, não só no escopo atual
     prefixos: tuple[str, ...] = ()  # páginas filhas que também marcam o item como atual
-    atual: bool = False  # preenchido por `itens_do_menu` a partir do caminho da requisição
+    atual: str = ''  # `aria-current` do link: 'page' na própria página, 'true' numa página filha; vazio fora disso
 
 
 ITENS = (
@@ -33,7 +33,10 @@ def itens_do_menu(pessoa, escopo=None, caminho=None):
 
 
 def _atual(item, caminho):
-    return caminho == item.caminho or (caminho is not None and caminho.startswith(item.prefixos))
+    if caminho == item.caminho:
+        return 'page'
+    # `startswith(())` é falso: item sem páginas filhas nunca cai aqui.
+    return 'true' if caminho is not None and caminho.startswith(item.prefixos) else ''
 
 
 def _visivel(item, pessoa, efetivas):

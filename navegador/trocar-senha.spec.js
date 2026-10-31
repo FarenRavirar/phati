@@ -5,11 +5,11 @@ const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel } = require('./a
 
 const CREDENCIAL_NOVA = 'Outra-Senha-Valida-2027';
 
-test('senha temporária leva à troca, recusa a senha curta e aceita a válida', async ({ page }, testInfo) => {
-  const { troca } = turmaDe(testInfo);
+test('senha temporária leva à troca, recusa a senha curta e aceita a válida', async ({ page }, informacoesDoTeste) => {
+  const { troca } = turmaDe(informacoesDoTeste);
   await entrar(page, troca.cpf, troca.senha_temporaria);
   await expect(page).toHaveURL(/\/trocar-senha/);
-  await expect(page.getByText('Sua senha é temporária.')).toBeVisible();
+  await expect(page.getByText('Sua senha é temporária. Escolha uma senha nova para continuar.', { exact: true })).toBeVisible();
   await semRolagemHorizontal(page);
   await acessivel(page);
 
@@ -24,7 +24,7 @@ test('senha temporária leva à troca, recusa a senha curta e aceita a válida',
 
   await preencher(CREDENCIAL_NOVA);
   await expect(page).toHaveURL(/\/entrar/);
-  await expect(page.getByText('Senha alterada.')).toBeVisible();
+  await expect(page.getByText('Senha alterada. Entre de novo com a senha nova.', { exact: true })).toBeVisible();
 
   await entrar(page, troca.cpf, CREDENCIAL_NOVA);
   await expect(page.getByRole('heading', { name: 'Início', level: 1 })).toBeVisible();

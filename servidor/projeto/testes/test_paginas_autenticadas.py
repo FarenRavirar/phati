@@ -90,6 +90,16 @@ def test_casca_tem_faixa_menu_conteudo_e_escopo(cenario, fabrica_pessoa, concede
     assert 'Gestão' not in html  # Usuário não vê a ponte
 
 
+def test_menu_marca_page_na_propria_pagina_e_true_na_pagina_filha(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Fulana Sintetica')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)
+    propria = renderizar_na_casca(_requisicao(pessoa, '/empresas/'), 'casca.html', empresa=cenario.x).content.decode()
+    filha = renderizar_na_casca(_requisicao(pessoa, f'/empresa/{cenario.x.pk}/'), 'casca.html', empresa=cenario.x).content.decode()
+    assert 'href="/empresas/" aria-current="page"' in propria
+    assert 'href="/empresas/" aria-current="true"' in filha
+    assert 'aria-current="page"' not in filha
+
+
 def test_casca_sem_escopo_deixa_a_faixa_vazia(cenario, fabrica_pessoa):
     html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'casca.html').content.decode()
     assert '<p class="faixa-escopo"></p>' in html

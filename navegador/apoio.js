@@ -13,9 +13,13 @@ function lerDados() {
   return memoria;
 }
 
-// Cada projeto (tamanho de tela) usa as próprias pessoas: os testes aceitam convite e trocam senha.
-function turmaDe(testInfo, dados = lerDados()) {
-  return testInfo.project.name.startsWith('desktop') ? dados.turmas.desktop : dados.turmas.celular;
+// Cada projeto (tamanho de tela) usa as próprias pessoas: os testes aceitam convite, trocam senha e erram a senha.
+// O nome do projeto começa pelo da turma; projeto sem turma é erro, não cai numa turma por padrão.
+function turmaDe(informacoesDoTeste, dados = lerDados()) {
+  const nomeDoProjeto = informacoesDoTeste.project.name;
+  const turma = Object.keys(dados.turmas).find((nome) => nomeDoProjeto.startsWith(nome));
+  if (turma === undefined) throw new Error(`projeto "${nomeDoProjeto}" sem turma em dados.json: ${Object.keys(dados.turmas)}`);
+  return dados.turmas[turma];
 }
 
 async function entrar(pagina, cpf, senha = lerDados().senha) {
@@ -44,7 +48,8 @@ module.exports = {
   get dados() {
     return lerDados();
   },
-  turmaDe, entrar,
+  turmaDe,
+  entrar,
   semRolagemHorizontal,
   acessivel,
   abrirMenu,

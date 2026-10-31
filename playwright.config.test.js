@@ -19,7 +19,7 @@ function carregar(url) {
 test('os dois projetos têm os tamanhos de tela do AGENTS.md', () => {
   const tamanhos = Object.fromEntries(carregar().projects.map((p) => [p.name, p.use.viewport]));
   assert.deepEqual(tamanhos, {
-    'desktop-1280x720': { width: 1280, height: 720 },
+    'computador-1280x720': { width: 1280, height: 720 },
     'celular-320x568': { width: 320, height: 568 },
   });
 });
@@ -29,9 +29,9 @@ test('o endereço padrão é o do nginx do compose e a variável de ambiente o t
   assert.equal(carregar('http://exemplo.test:9000').use.baseURL, 'http://exemplo.test:9000');
 });
 
-test('o zoom roda só no projeto desktop, sem skip', () => {
-  const [desktop, celular] = carregar().projects;
-  assert.equal(desktop.testIgnore, undefined);
+test('o zoom roda só no projeto computador, sem skip', () => {
+  const [computador, celular] = carregar().projects;
+  assert.equal(computador.testIgnore, undefined);
   assert.ok(celular.testIgnore.test('zoom.spec.js'));
   assert.equal(celular.testIgnore.test('entrar.spec.js'), false);
 });
