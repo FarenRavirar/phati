@@ -106,3 +106,4 @@ PRODUCT.md
 navegador/dados.json
 test-results/
 playwright-report/
+coverage.xml

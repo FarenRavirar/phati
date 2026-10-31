@@ -50,7 +50,13 @@ jobs:
           echo "PHATI_BANCO_APP_SENHA=$PHATI_BANCO_APP_SENHA" >> "$GITHUB_ENV"
           PGPASSWORD="${{ github.run_id }}-superusuario" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f banco/papeis.sql
       - run: python manage.py check
-      - run: python -m pytest -q
+      - run: python -m pytest -q --cov=. --cov-report=xml
+      # D076: piso nas linhas alteradas da PR, sem piso global.
+      - name: Cobertura das linhas alteradas
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: diff-cover coverage.xml --compare-branch="$BASE" --fail-under=90
       - run: pyright
       # `navegador/*.test.js` importa `axe-core`; o job de testes não tinha dependência de JavaScript (achado do Codex, PR #22).
       - name: Dependências de JavaScript
