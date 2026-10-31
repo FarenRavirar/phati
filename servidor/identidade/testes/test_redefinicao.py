@@ -486,7 +486,8 @@ def test_pedido_anonimo_so_enfileira_e_o_trabalho_roda_depois(pessoa, mailoutbox
     fila = []
     monkeypatch.setattr(email, '_despachar', fila.append)
     redefinicao.pedir_redefinicao_anonimo(CPF)
-    assert fila and not PedidoRedefinicao.objects.filter(pessoa=pessoa).exists()
+    assert fila
+    assert not PedidoRedefinicao.objects.filter(pessoa=pessoa).exists()
     assert mailoutbox == []
     fila.pop()()
     assert PedidoRedefinicao.objects.filter(pessoa=pessoa).count() == 1

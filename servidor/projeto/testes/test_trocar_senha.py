@@ -31,7 +31,7 @@ def test_limites_da_senha_vem_da_validacao(cliente_logado, tamanho, aceita):
     resposta = _trocar(cliente_logado, nova)
     assert (resposta.status_code == 302) is aceita
     if not aceita:
-        assert 'pelo menos' in resposta.content.decode() or 'no máximo' in resposta.content.decode()
+        assert ('pelo menos' if tamanho < 15 else 'no máximo') in resposta.content.decode()
 
 
 def test_senha_atual_errada_e_recusada(cliente_logado):
