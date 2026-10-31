@@ -11,7 +11,7 @@ roteador = Router(tags=['identidade'])
 class EntradaEntrar(Schema):
     cpf: str
     senha: str
-    dispositivo: str | None = Field(None, max_length=200)  # com dispositivo, o aplicativo recebe um segredo; sem, o navegador recebe o cookie
+    dispositivo: str | None = Field(None, min_length=1, max_length=200)  # com dispositivo, o aplicativo recebe um segredo; sem, o navegador recebe o cookie
 
 
 class SaidaEntrar(Schema):

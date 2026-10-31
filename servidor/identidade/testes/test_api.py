@@ -149,7 +149,7 @@ def test_primeiro_acesso_so_alcanca_trocar_senha_e_sair_ate_trocar(pessoa):
     assert _enviar(Client(), 'trocar-senha', {'senha_atual': temporaria, 'senha_nova': NOVA}, headers=cabecalho).status_code == 204
 
 
-@pytest.mark.parametrize('tamanho, status', [(200, 200), (201, 422)])
+@pytest.mark.parametrize('tamanho, status', [(0, 422), (1, 200), (200, 200), (201, 422)])
 def test_dispositivo_respeita_o_limite_da_coluna(pessoa, tamanho, status):
     assert _entrar(Client(), dispositivo='d' * tamanho).status_code == status
 
