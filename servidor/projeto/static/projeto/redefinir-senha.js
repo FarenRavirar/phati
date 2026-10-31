@@ -11,7 +11,13 @@ const TEXTOS = {
   senha_comum: 'Essa senha é comum demais. Escolha outra.',
   senha_contexto: 'A senha não pode conter seu nome, e-mail ou CPF.',
 };
-function avisar(texto) { mensagem.textContent = texto; mensagem.hidden = false; }
+// Sucesso usa a variante verde e `status`; erro, a vermelha e `alert` (o par de classes é o de `componentes/aviso.html`).
+function avisar(texto, sucesso = false) {
+  mensagem.className = sucesso ? 'aviso aviso-sucesso' : 'aviso aviso-erro';
+  mensagem.setAttribute('role', sucesso ? 'status' : 'alert');
+  mensagem.textContent = texto;
+  mensagem.hidden = false;
+}
 if (!segredo) {
   avisar(TEXTOS.link_invalido);
 } else {
@@ -34,7 +40,7 @@ if (!segredo) {
       if (resposta.status === 204) {
         definitivo = true;
         formulario.hidden = true;
-        avisar('Senha alterada. Entre no aplicativo com a senha nova.');
+        avisar('Senha alterada. Entre no aplicativo com a senha nova.', true);
         return;
       }
       const corpo = await resposta.json().catch(() => ({}));

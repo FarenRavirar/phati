@@ -27,7 +27,12 @@ test('extrairScript aceita maiúscula, atributos na abertura e no fechamento', (
 
 function elemento(oculto = false) {
   const ouvintes = {};
-  return { hidden: oculto, textContent: '', value: '', disabled: false, ouvintes, addEventListener(nome, funcao) { ouvintes[nome] = funcao; } };
+  const atributos = {};
+  return {
+    hidden: oculto, textContent: '', value: '', disabled: false, className: 'aviso aviso-erro', atributos, ouvintes,
+    setAttribute(nome, valor) { atributos[nome] = valor; },
+    addEventListener(nome, funcao) { ouvintes[nome] = funcao; },
+  };
 }
 
 function abrir(fragmento, respostas) {
@@ -90,6 +95,9 @@ test('sucesso envia segredo e senha em JSON, esconde o formulário e fica final'
   assert.equal(pagina.el.formulario.hidden, true);
   assert.match(pagina.el.mensagem.textContent, /Senha alterada/);
   assert.equal(pagina.el.salvar.disabled, true);
+  // Qodo e Greptile, PR #20: a confirmação não pode sair com a cor e o papel de erro.
+  assert.equal(pagina.el.mensagem.className, 'aviso aviso-sucesso');
+  assert.equal(pagina.el.mensagem.atributos.role, 'status');
 });
 
 test('link inválido esconde o formulário', async () => {
@@ -97,6 +105,8 @@ test('link inválido esconde o formulário', async () => {
   await pagina.enviar();
   assert.equal(pagina.el.formulario.hidden, true);
   assert.match(pagina.el.mensagem.textContent, /não vale mais/);
+  assert.equal(pagina.el.mensagem.className, 'aviso aviso-erro');
+  assert.equal(pagina.el.mensagem.atributos.role, 'alert');
 });
 
 test('senha recusada mostra o motivo e libera nova tentativa', async () => {

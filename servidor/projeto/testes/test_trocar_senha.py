@@ -31,7 +31,7 @@ def test_limites_da_senha_vem_da_validacao(cliente_logado, tamanho, aceita):
     resposta = _trocar(cliente_logado, nova)
     assert (resposta.status_code == 302) is aceita
     if not aceita:
-        assert 'Senha curta demais.' in resposta.content.decode() or 'Senha longa demais.' in resposta.content.decode()
+        assert 'pelo menos' in resposta.content.decode() or 'no máximo' in resposta.content.decode()
 
 
 def test_senha_atual_errada_e_recusada(cliente_logado):
@@ -68,3 +68,33 @@ def test_a_tela_nao_repete_a_regra_de_senha():
 def test_sem_csrf_a_troca_e_recusada(conta):
     cliente = Client(enforce_csrf_checks=True)
     assert cliente.post('/trocar-senha', {'senha_atual': conta.senha}).status_code == 403
+
+
+def test_a_pagina_pedida_atravessa_a_troca_obrigatoria_e_a_proxima_entrada(conta):
+    temporaria = senha.emitir_senha_temporaria(conta.pessoa)
+    cliente = Client()
+    entrada = cliente.post('/entrar', {'cpf': conta.cpf, 'senha': temporaria, 'proximo': '/empresa/1/fazenda/2/'})
+    troca = cliente.get(entrada['Location'])
+    assert 'name="proximo" value="/empresa/1/fazenda/2/"' in troca.content.decode()
+    resposta = cliente.post('/trocar-senha', {'senha_atual': temporaria, 'senha_nova': 'uma frase longa e incomum', 'repeticao': 'uma frase longa e incomum', 'proximo': '/empresa/1/fazenda/2/'})
+    assert resposta['Location'] == '/entrar?trocada=1&proximo=%2Fempresa%2F1%2Ffazenda%2F2%2F'
+    volta = Client().post('/entrar', {'cpf': conta.cpf, 'senha': 'uma frase longa e incomum', 'proximo': '/empresa/1/fazenda/2/'})
+    assert volta['Location'] == '/empresa/1/fazenda/2/'
+
+
+def test_proximo_externo_some_na_troca(conta):
+    temporaria = senha.emitir_senha_temporaria(conta.pessoa)
+    cliente = Client()
+    cliente.post('/entrar', {'cpf': conta.cpf, 'senha': temporaria})
+    resposta = cliente.post('/trocar-senha', {'senha_atual': temporaria, 'senha_nova': 'uma frase longa e incomum', 'repeticao': 'uma frase longa e incomum', 'proximo': 'https://externo.exemplo/'})
+    assert resposta['Location'] == '/entrar?trocada=1'
+
+
+@pytest.mark.parametrize(('nova', 'texto'), [
+    ('curta', 'pelo menos 15 caracteres'),
+    ('x' * 129, 'no máximo 128 caracteres'),
+    ('1q2w3e4r5t6y7u8i9o0p', 'comum demais'),
+    ('fulana sintetica 123', 'seu nome, e-mail ou CPF'),
+])
+def test_recusa_diz_a_regra_e_como_corrigir(cliente_logado, nova, texto):
+    assert texto in _trocar(cliente_logado, nova).content.decode()

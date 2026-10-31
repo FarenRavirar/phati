@@ -479,3 +479,24 @@ def test_pedido_do_administrador_nao_entra_no_teto_da_pessoa(pessoa, outra_pesso
     _agora_em(monkeypatch, t0 + timedelta(minutes=11))
     redefinicao.pedir_redefinicao(CPF, solicitante=outra_pessoa)
     assert len(mailoutbox) == redefinicao.TETO_POR_HORA + 1
+
+
+def test_pedido_anonimo_so_enfileira_e_o_trabalho_roda_depois(pessoa, mailoutbox, monkeypatch):
+    # OWASP Forgot Password: a resposta não pode esperar o trabalho que difere entre CPF existente e inexistente (PR #20).
+    fila = []
+    monkeypatch.setattr(email, '_despachar', fila.append)
+    redefinicao.pedir_redefinicao_anonimo(CPF)
+    assert fila and not PedidoRedefinicao.objects.filter(pessoa=pessoa).exists()
+    assert mailoutbox == []
+    fila.pop()()
+    assert PedidoRedefinicao.objects.filter(pessoa=pessoa).count() == 1
+
+
+def test_pedido_anonimo_com_falha_no_trabalho_vai_ao_log_sem_o_cpf(pessoa, monkeypatch, caplog):
+    def estoura(_cpf_texto, solicitante=None):
+        raise RuntimeError('banco fora')
+
+    monkeypatch.setattr(redefinicao, 'pedir_redefinicao', estoura)
+    redefinicao.pedir_redefinicao_anonimo(CPF)  # a fila de teste roda direto: a exceção não pode subir
+    assert 'falha ao registrar pedido de redefinição' in caplog.text
+    assert CPF not in caplog.text

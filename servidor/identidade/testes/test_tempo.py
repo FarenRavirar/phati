@@ -9,6 +9,7 @@ import json
 import statistics
 import time
 
+import pytest
 from django.test import Client
 
 from identidade.models import PedidoRedefinicao, Pessoa
@@ -31,17 +32,26 @@ def _mediana(cliente, rota, corpo, esperado, antes=lambda: None):
     return statistics.median(tempos)
 
 
+# O pedido anônimo roda na thread da fila, com conexão própria: precisa enxergar a pessoa já gravada (PR #20).
+@pytest.mark.django_db(transaction=True)
 def test_pedido_de_redefinicao_com_smtp_lento_leva_o_mesmo_tempo_para_cpf_existente_e_inexistente(pessoa, cpf_novo, smtp_lento):
     rota = '/api/v1/redefinir-senha/solicitar'
     cliente = Client()
-    # Pedido recente segura o novo: sem apagar, só a primeira rodada pagaria o caminho inteiro.
-    existente = _mediana(cliente, rota, {'cpf': CPF}, 204, antes=PedidoRedefinicao.objects.all().delete)
+    def zerar():
+        # O pedido roda na fila, depois da resposta: espera o pedido e o e-mail dele (dois esvaziamentos, o e-mail entra
+        # na fila só quando o pedido roda) antes de apagar. Pedido recente segura o novo.
+        smtp_lento.esvaziar()
+        smtp_lento.esvaziar()
+        PedidoRedefinicao.objects.all().delete()
+
+    existente = _mediana(cliente, rota, {'cpf': CPF}, 204, antes=zerar)
     inexistente = _mediana(cliente, rota, {'cpf': cpf_novo()}, 204)
     assert abs(existente - inexistente) < FOLGA
     # Envio síncrono nos dois caminhos soma o mesmo atraso às duas medianas e passaria acima; o teto prova que o
     # SMTP lento (200 ms) ficou fora da resposta (Sourcery, PR #18).
     assert max(existente, inexistente) < TETO
     # O teto só prova algo se o SMTP lento foi exercitado: os 15 pedidos do CPF existente chegam à fila (CodeRabbit, PR #18).
+    smtp_lento.esvaziar()
     smtp_lento.esvaziar()
     assert len(smtp_lento.enviados) == RODADAS
 

@@ -56,6 +56,10 @@ def test_proximo_interno_vale_e_externo_cai_em_barra(conta):
 def test_senha_temporaria_leva_a_troca(conta):
     temporaria = senha.emitir_senha_temporaria(conta.pessoa)
     assert _entrar(Client(), conta.cpf, temporaria)['Location'] == '/trocar-senha'
+    # Qodo e Sourcery, PR #20: a página pedida atravessa a troca obrigatória.
+    temporaria = senha.emitir_senha_temporaria(conta.pessoa)  # a anterior vale uma vez
+    com_proximo = _entrar(Client(), conta.cpf, temporaria, proximo='/empresa/1/fazenda/2/')
+    assert com_proximo['Location'] == '/trocar-senha?proximo=%2Fempresa%2F1%2Ffazenda%2F2%2F'
 
 
 def test_avisos_de_sessao_expirada_e_de_senha_trocada():

@@ -36,3 +36,16 @@ def test_consulta_mostra_o_formulario_sem_a_mensagem():
 def test_sem_csrf_o_pedido_e_recusado(conta, mailoutbox):
     assert Client(enforce_csrf_checks=True).post('/esqueci-senha', {'cpf': conta.cpf}).status_code == 403
     assert mailoutbox == []
+
+
+def test_a_resposta_sai_antes_do_pedido_ser_gravado(conta, monkeypatch):
+    # PR #20: o trabalho que difere entre CPF existente e inexistente roda na fila, depois da resposta.
+    from identidade import email
+    from identidade.models import PedidoRedefinicao
+
+    fila = []
+    monkeypatch.setattr(email, '_despachar', fila.append)
+    assert _pedir(conta.cpf).status_code == 200
+    assert not PedidoRedefinicao.objects.exists()
+    fila.pop()()
+    assert PedidoRedefinicao.objects.count() == 1
