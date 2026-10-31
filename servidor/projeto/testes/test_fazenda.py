@@ -42,8 +42,10 @@ def test_fazenda_sem_sub_areas_mostra_o_estado_vazio_e_nao_oferece_criar(cliente
 
 def test_acesso_so_a_uma_sub_area_mostra_ela_e_as_descendentes(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.t1)
+    SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f1, pai=cenario.t1, nivel=3, nome='Parcela P1')
     conteudo = _conteudo(cliente_logado.get(_caminho(cenario.x, cenario.f1)))
     assert 'T1' in conteudo
+    assert 'Parcela P1' in conteudo  # descendente da sub-área concedida (Sourcery, PR #21)
     assert 'G1' not in conteudo
     assert 'G2' not in conteudo
 

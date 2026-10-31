@@ -15,7 +15,7 @@
 {% for item in fazendas %}<li data-fazenda><a href="/empresa/{{ empresa.pk }}/fazenda/{{ item.pk }}/">{{ item.nome }}</a></li>
 {% endfor %}</ul>
 </section>
-{% endfor %}<p class="busca-vazia" role="status" data-busca-vazia hidden>Nenhuma fazenda encontrada.</p>
+{% endfor %}<output class="busca-vazia" data-busca-vazia hidden>Nenhuma fazenda encontrada.</output>
 </div>
 {% else %}
 {% include "componentes/vazio.html" with texto="Nenhuma fazenda disponível." %}

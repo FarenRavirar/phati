@@ -7,7 +7,7 @@ from importlib import import_module
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import connection
+from django.db import connection, transaction
 from django.test import Client
 from django.utils import timezone
 
@@ -16,6 +16,7 @@ from identidade import cpf as modulo_cpf
 from identidade import sessao
 from identidade.models import Pessoa
 from permissao import convite as servico
+from permissao import delegacao
 from permissao.models import CategoriaDado, Convite, Concessao, Permissao
 
 
@@ -513,3 +514,47 @@ def test_convites_enviados_de_empresa_que_a_pessoa_perdeu_nao_aparecem(cenario, 
     concessao_de_x.save(update_fields=['revogada_em', 'revogada_por'])
     conceder_direto(admin, cenario.cargos_y['administrador'], cenario.y)  # ainda convida, mas só em Y
     assert _enviar(admin, 'convites-enviados', metodo='get').json() == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aceite_espera_a_revogacao_em_andamento_de_quem_convidou(cenario, fabrica_pessoa, conceder_direto):
+    # Sem a trava de quem convidou, o aceite não via a revogação ainda sem commit e criava a concessão (Sourcery, PR #21).
+    admin = fabrica_pessoa('Administradora')
+    concessao = conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    _convidar(admin, cenario, existente)
+    convite = Convite.objects.get()
+    travada, liberar, resultado = threading.Event(), threading.Event(), []
+
+    def revogar():
+        try:
+            with transaction.atomic():
+                delegacao._travar_pessoa(admin.pk)
+                Concessao.objects.filter(pk=concessao.pk).update(revogada_em=timezone.now(), revogada_por=admin)
+                travada.set()
+                liberar.wait(10)
+        finally:
+            connection.close()
+
+    def aceitar():
+        try:
+            servico.aceitar(existente, convite.pk)
+            resultado.append('ok')
+        except ValidationError as erro:
+            resultado.append(erro.code)
+        finally:
+            connection.close()
+
+    fio_revogacao = threading.Thread(target=revogar)
+    fio_revogacao.start()
+    assert travada.wait(10)
+    fio_aceite = threading.Thread(target=aceitar)
+    fio_aceite.start()
+    fio_aceite.join(1)
+    preso = fio_aceite.is_alive()
+    liberar.set()
+    fio_revogacao.join()
+    fio_aceite.join(10)
+    assert preso  # esperou a transação de quem convidou
+    assert resultado == ['convite_sem_autoridade']
+    assert not Concessao.objects.filter(pessoa=existente, empresa=cenario.x).exists()

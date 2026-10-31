@@ -93,3 +93,20 @@ def test_casca_tem_faixa_menu_conteudo_e_escopo(cenario, fabrica_pessoa, concede
 def test_casca_sem_escopo_deixa_a_faixa_vazia(cenario, fabrica_pessoa):
     html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'casca.html').content.decode()
     assert '<p class="faixa-escopo"></p>' in html
+
+
+def test_post_sem_sessao_nao_leva_proximo_porque_o_endereco_so_aceita_post(db):
+    requisicao = RequestFactory().post('/convites/1/aceitar')
+    requisicao.session = SessionStore()
+    requisicao.user = AnonymousUser()
+    assert _visao(requisicao)['Location'] == '/entrar'
+
+
+def test_post_com_senha_temporaria_vai_a_troca_sem_proximo(db, fabrica_pessoa):
+    pessoa = fabrica_pessoa('Pessoa')
+    pessoa.deve_trocar_senha = True
+    requisicao = RequestFactory().post('/convites/1/aceitar')
+    requisicao.session = SessionStore()
+    requisicao.user = pessoa
+    sessao.carimbar(requisicao)
+    assert _visao(requisicao)['Location'] == '/trocar-senha'

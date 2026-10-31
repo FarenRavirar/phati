@@ -180,3 +180,12 @@ def test_filtro_por_pk_devolve_so_o_pedido_e_nunca_o_nao_autorizado(cenario, fab
     assert fazendas_autorizadas(admin, pk=cenario.fy.pk) == []
     assert [f.pk for f in fazendas_autorizadas(plataforma, pk=cenario.fy.pk)] == [cenario.fy.pk]
     assert fazendas_autorizadas(plataforma, pk=999_999) == []
+
+
+def test_empresa_id_filtra_na_consulta_e_nao_abre_empresa_sem_acesso(cenario, fabrica_pessoa, conceder_direto, plataforma):
+    admin = fabrica_pessoa('Admin da X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    assert {f.empresa_id for f in fazendas_autorizadas(plataforma)} == {cenario.x.pk, cenario.y.pk}
+    assert [f.pk for f in fazendas_autorizadas(plataforma, empresa_id=cenario.y.pk)] == [cenario.fy.pk]
+    assert {f.empresa_id for f in fazendas_autorizadas(admin, empresa_id=cenario.x.pk)} == {cenario.x.pk}
+    assert fazendas_autorizadas(admin, empresa_id=cenario.y.pk) == []  # o filtro não amplia o acesso

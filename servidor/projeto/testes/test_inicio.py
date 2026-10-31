@@ -3,6 +3,7 @@
 import re
 
 from django.test import Client
+from django.utils import timezone
 
 from permissao.models import Concessao, Convite
 from projeto.testes.conftest import SENHA
@@ -86,12 +87,34 @@ def test_convite_de_outra_pessoa_e_convite_inexistente_dao_o_mesmo_404(cliente_l
     assert not Concessao.objects.filter(pessoa=outra).exists()
 
 
-def test_convite_ja_respondido_mostra_o_motivo_sem_segunda_concessao(cliente_logado, convite_pendente, conta):
+def test_convite_ja_respondido_volta_ao_inicio_com_o_motivo_sem_segunda_concessao(cliente_logado, convite_pendente, conta):
     cliente_logado.post(f'/convites/{convite_pendente.pk}/recusar')
     resposta = cliente_logado.post(f'/convites/{convite_pendente.pk}/aceitar')
-    assert resposta.status_code == 200
-    assert 'Convite já respondido.' in resposta.content.decode()
+    assert (resposta.status_code, resposta['Location']) == (302, '/?erro=convite_encerrado')  # recarregar não repete o POST
+    assert 'Convite já respondido.' in cliente_logado.get(resposta['Location']).content.decode()
     assert not Concessao.objects.filter(pessoa=conta.pessoa).exists()
+
+
+def test_quem_convidou_sem_autoridade_nao_revela_o_motivo_a_convidada(cliente_logado, convite_pendente, conta):
+    quem = convite_pendente.convidado_por
+    Concessao.objects.filter(pessoa=quem).update(revogada_em=timezone.now(), revogada_por=quem)
+    resposta = cliente_logado.post(f'/convites/{convite_pendente.pk}/aceitar')
+    assert resposta['Location'] == '/?erro=convite_indisponivel'
+    html = cliente_logado.get(resposta['Location']).content.decode()
+    assert 'Não foi possível responder ao convite.' in html
+    assert 'Quem convidou' not in html
+    assert not Concessao.objects.filter(pessoa=conta.pessoa).exists()
+
+
+def test_o_texto_do_erro_vem_da_tabela_e_nunca_do_endereco(cliente_logado):
+    html = cliente_logado.get('/?erro=<script>alert(1)</script>').content.decode()
+    assert 'alert(1)' not in html
+    assert 'aviso-erro' not in html
+
+
+def test_sessao_vencida_no_post_volta_ao_inicio_e_nao_a_um_endereco_que_so_aceita_post(conta, convite_pendente):
+    resposta = Client().post(f'/convites/{convite_pendente.pk}/aceitar')
+    assert resposta['Location'] == '/entrar'  # sem `proximo`: GET no endereço do POST daria 405
 
 
 def test_deslogado_vai_a_entrada_com_a_pagina_pedida():

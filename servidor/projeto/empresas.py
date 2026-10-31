@@ -30,5 +30,5 @@ def empresas(requisicao):
 @exige_acao('ver')
 def empresa(requisicao, empresa_id):
     escopo, _ = resolver_escopo(requisicao.user, empresa_id)
-    fazendas = [f for f in fazendas_autorizadas(requisicao.user) if f.empresa_id == escopo.pk]
+    fazendas = fazendas_autorizadas(requisicao.user, empresa_id=escopo.pk)
     return renderizar_na_casca(requisicao, 'empresas.html', {'grupos': [(escopo, fazendas)] if fazendas else []}, empresa=escopo)

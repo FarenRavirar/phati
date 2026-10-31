@@ -75,7 +75,7 @@ Livre: editar arquivo local, criar e subir branch de trabalho, abrir PR, rodar t
 **Pausa 2 — decisão de produto.** Do mantenedor: o que o produto faz, o que o usuário vê, prioridade, prazo, escopo (o que entra em qual commit ou PR; se o pedido não deixa claro, listar antes de executar), risco de negócio, custo. Regra cartográfica ou de vigência é do Administrador; nunca inferir. Ordem: produto, arquitetura e stack, spec, código.
 
 **Não é pausa:**
-- O já decidido (resposta do mantenedor, `.specify/memory/decisions.md`, este arquivo, autorização da conversa): não se reconfirma.
+- O já decidido (resposta do mantenedor, `.specify/memory/decisions.md`, este arquivo): não se reconfirma. Item da Pausa 1 nunca entra aqui.
 - Dúvida técnica (implementação, padrão, nome, teste, ferramenta, doc interna): medir ou pesquisar; o resto é do agente.
 - Escolha que o critério escalável, robusto e dinâmico decide: o agente aplica e relata em uma linha. Opção mais barata que quebra um dos três só entra por ordem do mantenedor.
 - Ordem entre passos do agente: é do agente.
