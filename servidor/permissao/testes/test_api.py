@@ -106,6 +106,8 @@ def test_administrador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_
     assert convite.status_code == 201
     revogada = _enviar(admin, f"pessoas/{convite.json()['id']}/concessoes/{convite.json()['concessao_id']}", metodo='delete')
     assert revogada.status_code == 204
+    gravada = Concessao.objects.get(pk=convite.json()['concessao_id'])
+    assert (gravada.revogada_em is not None, gravada.revogada_por) == (True, admin)
 
 
 def test_curador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_e_revoga_so_na_fazenda_dele(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
@@ -121,6 +123,8 @@ def test_curador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_e_revo
     assert convite.status_code == 201
     revogada = _enviar(curador, f"pessoas/{convite.json()['id']}/concessoes/{convite.json()['concessao_id']}", metodo='delete')
     assert revogada.status_code == 204
+    gravada = Concessao.objects.get(pk=convite.json()['concessao_id'])
+    assert (gravada.revogada_em is not None, gravada.revogada_por) == (True, curador)
     total = Pessoa.objects.count()
     assert _enviar(curador, 'pessoas', _convite(usuario, {'fazenda_id': cenario.f2.pk}, cpf_novo())).status_code in (403, 404)
     assert _enviar(curador, 'pessoas', _convite(cenario.cargos_x['administrador'], {'fazenda_id': cenario.f1.pk}, cpf_novo())).status_code == 403
