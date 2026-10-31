@@ -103,6 +103,12 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/rota-inexistente)" = 404
           # nginx serve os estáticos (D070): sem o `collectstatic` publicado, o CSS dá 404.
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/static/projeto/casca.css)" = 200
+          # Limite de taxa (T5.5d): 40 POST seguidos em /entrar passam de 5 r/s com rajada de 20, então algum volta 429;
+          # o estático, fora da zona, segue 200 logo depois.
+          codigos="$(for _ in $(seq 40); do curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/entrar; done)"
+          echo "$codigos" | sort | uniq -c
+          echo "$codigos" | grep -q '^429$'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/static/projeto/casca.css)" = 200
       - if: failure()
         run: docker compose logs
       - if: always()
