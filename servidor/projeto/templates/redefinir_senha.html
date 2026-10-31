@@ -15,7 +15,7 @@
 <button id="salvar" type="submit">Salvar senha</button>
 </form>
 </main>
-<script>
+<script {% csp_nonce_attr %}>
 // O segredo vem no fragmento (`#segredo=`): não chega ao servidor nem aos logs. Sai da barra de endereço e do histórico
 // antes de qualquer coisa, e só vai adiante no corpo do POST (T5.5g, R5).
 const segredo = new URLSearchParams(location.hash.slice(1)).get('segredo');

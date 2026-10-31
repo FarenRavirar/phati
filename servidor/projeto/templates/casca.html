@@ -1,0 +1,33 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Phati{% endblock %} · phati</title>
+<link rel="stylesheet" href="{% static 'projeto/tokens.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/base.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/componentes.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/casca.css' %}" {% csp_nonce_attr %}>
+</head>
+<body>
+<div class="casca">
+<header class="faixa">
+<a class="faixa-produto" href="/" translate="no">phati</a>
+<p class="faixa-escopo">{% if empresa %}{{ empresa.nome }}{% if fazenda %} › {{ fazenda.nome }}{% endif %}{% endif %}</p>
+<p class="faixa-pessoa">{{ request.user.nome }}</p>
+<form class="faixa-sair" method="post" action="/sair">{% csrf_token %}<button class="botao botao-secundario" type="submit">Sair</button></form>
+<button class="botao botao-secundario" id="menu-alternar" type="button" aria-controls="menu-lateral" aria-expanded="true" hidden>{% include 'icones/menu.html' with classe='menu-icone' %} Menu</button>
+</header>
+<nav class="menu" id="menu-lateral" aria-label="Menu principal">
+<ul class="menu-lista">
+{% for item in itens_menu %}<li><a class="menu-item" href="{{ item.caminho }}"{% if item.caminho == request.path %} aria-current="page"{% endif %}>{{ item.nome }}</a></li>
+{% endfor %}</ul>
+</nav>
+<main class="conteudo">
+{% block conteudo %}{% endblock %}
+</main>
+</div>
+<script src="{% static 'projeto/menu.js' %}" defer {% csp_nonce_attr %}></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

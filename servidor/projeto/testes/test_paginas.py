@@ -47,3 +47,13 @@ def test_confirmar_aceita_o_post_da_pagina_sem_cookie_nem_csrf(db, cpf_novo, mai
     )
     assert resposta.status_code == 204
     assert PedidoRedefinicao.objects.filter(pessoa=pessoa, usado_em__isnull=False).exists()
+
+
+def test_falha_csrf_e_erro_500_renderizam_com_a_requisicao(db):
+    from django.test import RequestFactory
+
+    from projeto import paginas
+
+    requisicao = RequestFactory().get('/')
+    assert paginas.falha_csrf(requisicao, reason='x').status_code == 403
+    assert paginas.erro_500(requisicao).status_code == 500

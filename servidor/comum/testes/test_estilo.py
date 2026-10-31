@@ -36,6 +36,8 @@ PERMITIDOS = {
     'has_view_permission', 'has_permission', 'has_redefinir_permission', 'login', 'login_form', 'password_change',
     'confirm_login_allowed', 'error_messages', 'get_short_name', 'get_form', 'MESSAGE_STORAGE', 'response_add',
     'list_select_related',
+    # Contrato do Django: o URLconf raiz declara o tratador do 500 com este nome (projeto/urls.py).
+    'handler500',
 }
 
 # Palavras inglesas comuns em nome de código. Cresce quando um nome em inglês escapar.

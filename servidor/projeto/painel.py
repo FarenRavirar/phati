@@ -45,6 +45,8 @@ class PainelSite(AdminSite):
     site_title = 'phati'
     index_title = 'Administração'
     login_form = FormularioEntrada
+    # Ponte provisória (R24): "Ver o site" leva de volta ao phati; a 003 a remove quando a última tela de gestão sair do painel.
+    site_url = '/'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

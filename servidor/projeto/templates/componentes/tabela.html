@@ -1,0 +1,9 @@
+{% comment %}Parâmetros: legenda, colunas (lista de títulos), linhas (lista de listas de células). A tabela rola dentro do contêiner, não a página.{% endcomment %}<div class="tabela-rolavel">
+<table class="tabela">
+<caption>{{ legenda }}</caption>
+<thead><tr>{% for coluna in colunas %}<th scope="col">{{ coluna }}</th>{% endfor %}</tr></thead>
+<tbody>
+{% for linha in linhas %}<tr>{% for celula in linha %}<td>{{ celula }}</td>{% endfor %}</tr>
+{% endfor %}</tbody>
+</table>
+</div>

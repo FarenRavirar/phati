@@ -1,0 +1,12 @@
+{% comment %}Parâmetros: convites (empresa_nome, cargo_nome, expira_em, id). Aceitar e Recusar são POST com CSRF; as rotas chegam na Fase 4.{% endcomment %}<ul class="lista-convites">
+{% for convite in convites %}<li class="convite">
+<div>
+<p class="convite-titulo">{{ convite.empresa_nome }}</p>
+<p class="convite-detalhe">Cargo: {{ convite.cargo_nome }} · válido até {{ convite.expira_em|date:'d/m/Y' }}</p>
+</div>
+<div class="convite-acoes">
+<form method="post" action="/convites/{{ convite.id }}/aceitar">{% csrf_token %}<button class="botao" type="submit">Aceitar</button></form>
+<form method="post" action="/convites/{{ convite.id }}/recusar">{% csrf_token %}<button class="botao botao-secundario" type="submit">Recusar</button></form>
+</div>
+</li>
+{% endfor %}</ul>

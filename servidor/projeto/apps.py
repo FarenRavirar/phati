@@ -1,4 +1,5 @@
 from django.contrib.admin.apps import AdminConfig
+from django.contrib.staticfiles.apps import StaticFilesConfig
 
 
 class ConfiguracaoDoPainel(AdminConfig):
@@ -12,3 +13,8 @@ class ConfiguracaoDoPainel(AdminConfig):
         from django.contrib.auth.models import Group
 
         admin.site.unregister(Group)
+
+
+class ConfiguracaoDosEstaticos(StaticFilesConfig):
+    # O teste de JS mora ao lado do script (par arquivo–teste); o `collectstatic` não o publica (Qodo, PR #19).
+    ignore_patterns = [*StaticFilesConfig.ignore_patterns, '*.test.js']

@@ -1,0 +1,37 @@
+/* Faixa de topo, menu lateral e conteúdo (R1, R17). Largura estreita: o menu vira painel recolhível (menu.js). */
+.casca { display: grid; min-height: 100vh; grid-template-rows: auto 1fr; grid-template-columns: var(--largura-menu) minmax(0, 1fr); }
+
+.faixa {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-3); grid-column: 1 / -1;
+  padding: var(--espaco-2) var(--espaco-4); border-bottom: 1px solid var(--cor-borda); background: var(--cor-superficie);
+}
+.faixa-produto { font-weight: 700; color: var(--cor-primaria); text-decoration: none; }
+/* Escopo em linha própria, abaixo de marca, pessoa e Sair: nome longo de empresa e fazenda cabe inteiro, sem coluna espremida. */
+.faixa-escopo { order: 1; flex: 1 1 100%; margin: 0; color: var(--cor-texto-suave); }
+.faixa-pessoa { margin: 0 0 0 auto; }
+.faixa-sair { margin: 0; }
+
+.menu { padding: var(--espaco-4); border-right: 1px solid var(--cor-borda); background: var(--cor-superficie); }
+.menu-lista { display: grid; gap: var(--espaco-1); }
+.menu-item {
+  display: flex; align-items: center; min-height: var(--altura-controle); padding: 0 var(--espaco-3);
+  border-radius: var(--raio-1); color: var(--cor-texto); text-decoration: none;
+}
+.menu-item:hover { background: var(--cor-item-ativo); color: var(--cor-texto); }
+/* A página atual leva barra e negrito além da cor: a cor sozinha não é sinal (R15). */
+.menu-item[aria-current="page"] { background: var(--cor-item-ativo); color: var(--cor-primaria); font-weight: 700; box-shadow: inset 4px 0 0 var(--cor-primaria); }
+
+.conteudo { padding: var(--espaco-5); min-width: 0; }
+.conteudo h2 { margin-top: var(--espaco-5); }
+
+@media (max-width: 48rem) {
+  /* Menu aberto ocupa só a altura dele; a linha que estica é a do conteúdo (CodeRabbit, PR #19). */
+  .casca { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+  .menu { grid-column: 1; border-right: 0; border-bottom: 1px solid var(--cor-borda); }
+  .conteudo { padding: var(--espaco-4); }
+}
+
+/* Molde público (login, esqueci a senha, redefinição, erros). */
+.publica { display: grid; min-height: 100vh; place-items: start center; padding: var(--espaco-6) var(--espaco-4); }
+.publica-caixa { width: 100%; max-width: 28rem; padding: var(--espaco-5); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.publica-produto { margin-bottom: var(--espaco-4); font-weight: 700; color: var(--cor-primaria); }
