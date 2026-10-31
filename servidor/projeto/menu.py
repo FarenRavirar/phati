@@ -3,7 +3,7 @@
 Esconder o item não protege a rota: ela responde 404 a quem não pode (R3). A 003 acrescenta itens a `ITENS`.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from permissao.pode import age_em_algum_escopo, permissoes_efetivas
 from projeto.painel import ACOES_DE_GESTAO
@@ -15,19 +15,25 @@ class ItemDoMenu:
     caminho: str
     acoes: tuple[str, ...] = ()  # sem ação, o item é de toda pessoa autenticada
     em_algum_escopo: bool = False  # vale a ação em qualquer lugar, não só no escopo atual
+    prefixos: tuple[str, ...] = ()  # páginas filhas que também marcam o item como atual
+    atual: bool = False  # preenchido por `itens_do_menu` a partir do caminho da requisição
 
 
 ITENS = (
     ItemDoMenu('Início', '/'),
-    ItemDoMenu('Fazendas', '/empresas/'),
+    ItemDoMenu('Fazendas', '/empresas/', prefixos=('/empresa/',)),
     # Ponte provisória (R24): a mesma condição de `PainelSite.has_permission`. A 003 a remove com `site_url` do painel.
     ItemDoMenu('Gestão ↗', '/painel/', ACOES_DE_GESTAO, em_algum_escopo=True),
 )
 
 
-def itens_do_menu(pessoa, escopo=None):
+def itens_do_menu(pessoa, escopo=None, caminho=None):
     efetivas = permissoes_efetivas(pessoa, escopo)
-    return [item for item in ITENS if _visivel(item, pessoa, efetivas)]
+    return [replace(item, atual=_atual(item, caminho)) for item in ITENS if _visivel(item, pessoa, efetivas)]
+
+
+def _atual(item, caminho):
+    return caminho == item.caminho or (caminho is not None and caminho.startswith(item.prefixos))
 
 
 def _visivel(item, pessoa, efetivas):

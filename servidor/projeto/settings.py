@@ -64,6 +64,7 @@ TEMPLATES = [
 STATIC_URL = 'static/'  # `collectstatic` e o servidor dos arquivos entram no deploy (T6.5)
 # `projeto` não é app instalado (o app do painel é o do admin): o `AppDirectoriesFinder` não acharia `static/projeto/`.
 STATICFILES_DIRS = [Path(__file__).resolve().parent / 'static']
+STATIC_ROOT = os.environ.get('PHATI_ESTATICOS', '/estaticos')  # volume que o nginx serve (D070)
 
 # Política de conteúdo (R14): script só do próprio site ou com nonce, sem `unsafe-inline`. O nonce é preguiçoso: só sai
 # no cabeçalho se um template o toca, e os moldes o tocam em `{% csp_nonce_attr %}`. `style-src` leva o nonce porque o

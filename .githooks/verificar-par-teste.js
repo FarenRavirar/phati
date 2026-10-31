@@ -33,6 +33,8 @@ function parEsperado(caminho) {
   if (/^servidor\/[^/]+\.py$/.test(c)) {
     return ISENTOS_PY.has(nome) ? null : `servidor/projeto/testes/test_${nome}`;
   }
+  // Testes de navegador (`navegador/*.spec.js`, auxiliares e config do Playwright) são o próprio teste (spec 002, T5.0).
+  if (c.startsWith('navegador/') || c === 'playwright.config.js') return null;
   if (EXTENSOES_JS.test(nome) && !/\.test\.[^.]+$/.test(nome) && !nome.endsWith('.d.ts')) {
     return c.replace(EXTENSOES_JS, (ext) => `.test${ext}`);
   }

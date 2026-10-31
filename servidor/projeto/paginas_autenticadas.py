@@ -67,5 +67,5 @@ def exige_entrada(visao):
 
 def renderizar_na_casca(requisicao, modelo, contexto=None, empresa=None, fazenda=None):
     """Renderiza `modelo` (que estende `casca.html`) com o menu da pessoa no escopo atual (a fazenda, ou a empresa)."""
-    itens = itens_do_menu(requisicao.user, fazenda or empresa)
+    itens = itens_do_menu(requisicao.user, fazenda or empresa, requisicao.path)
     return render(requisicao, modelo, {**(contexto or {}), 'itens_menu': itens, 'empresa': empresa, 'fazenda': fazenda})

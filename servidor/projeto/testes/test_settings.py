@@ -64,6 +64,16 @@ def test_compose_repassa_toda_variavel_que_o_settings_le():
     assert lidas - listadas == set()
 
 
+def test_estaticos_vao_para_o_volume_que_o_nginx_serve(monkeypatch):
+    # D070: `collectstatic` grava no volume `estaticos` do compose, que o nginx monta somente leitura.
+    monkeypatch.delenv('PHATI_ESTATICOS', raising=False)
+    assert runpy.run_path(str(CAMINHO))['STATIC_ROOT'] == '/estaticos'
+    monkeypatch.setenv('PHATI_ESTATICOS', '/outro')
+    assert runpy.run_path(str(CAMINHO))['STATIC_ROOT'] == '/outro'
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'estaticos:/estaticos:ro' in compose
+
+
 def test_healthcheck_do_banco_espera_o_servidor_tcp():
     # Achado do CodeRabbit (PR #1): sem `-h`, o pg_isready aceita o servidor temporário do initdb (só socket).
     compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')

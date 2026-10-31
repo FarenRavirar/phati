@@ -32,6 +32,14 @@ test('isentos da lista fixa não exigem par', () => {
   }
 });
 
+test('navegador/ e playwright.config.js não exigem par; JS fora deles segue exigindo', () => {
+  for (const c of ['navegador/inicio.spec.js', 'navegador/axe.js', 'playwright.config.js']) {
+    assert.equal(parEsperado(c), null, c);
+  }
+  assert.equal(parEsperado('outro/navegador/x.js'), 'outro/navegador/x.test.js');
+  assert.equal(parEsperado('playwright.config.mjs'), 'playwright.config.test.mjs');
+});
+
 test('conftest.py exige par, na raiz de servidor/ e dentro de app', () => {
   assert.equal(parEsperado('servidor/conftest.py'), 'servidor/projeto/testes/test_conftest.py');
   assert.equal(parEsperado('servidor/permissao/conftest.py'), 'servidor/permissao/testes/test_conftest.py');

@@ -42,3 +42,19 @@ def test_ponte_de_gestao_vale_em_qualquer_escopo_nao_so_no_atual(cenario, fabric
 
 def test_toda_pessoa_autenticada_tem_os_dois_primeiros_itens():
     assert [item.nome for item in ITENS if not item.acoes] == ['Início', 'Fazendas']
+
+
+@pytest.mark.parametrize(
+    ('caminho', 'atual'),
+    [
+        ('/', 'Início'),
+        ('/empresas/', 'Fazendas'),
+        ('/empresa/1/', 'Fazendas'),
+        ('/empresa/1/fazenda/2/', 'Fazendas'),
+        ('/convites/1/aceitar', None),
+        (None, None),
+    ],
+)
+def test_marca_o_item_atual_pelo_caminho_e_pelas_paginas_filhas(fabrica_pessoa, caminho, atual):
+    itens = itens_do_menu(fabrica_pessoa('Pessoa'), None, caminho)
+    assert [item.nome for item in itens if item.atual] == ([atual] if atual else [])
