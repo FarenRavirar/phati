@@ -25,7 +25,9 @@ def test_arvore_de_tres_niveis_aparece_aninhada(cliente_logado, conta, cenario, 
     html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
     assert '<h1>F1</h1>' in html
     assert 'Empresa X' in html
-    ordem = [html.index(nome) for nome in ('G1', 'T1', 'Parcela P1', 'G2')]
+    # Procura a partir da árvore: o `nonce` aleatório do `<head>` pode conter "G1" ou "T1" e quebrar a ordem às vezes.
+    arvore = html[html.index('<ul class="arvore">'):]
+    ordem = [arvore.index(nome) for nome in ('G1', 'T1', 'Parcela P1', 'G2')]
     assert ordem == sorted(ordem)
     assert html.count('<ul class="arvore">') == 3  # raiz, filhos de G1 e filhos de T1; G2 e a parcela não abrem lista
     assert 'Sem camadas ainda.' in html

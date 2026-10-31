@@ -63,8 +63,11 @@ class Vinculo:
     categorias: frozenset[int]
 
     def tem(self, acao):
-        """O Administrador conta como quem tem todo o catálogo no escopo (D043); os demais, só o que o cargo lista."""
-        return self.base == 'administrador' or acao in self.permissoes
+        """O Administrador conta como quem tem todo o catálogo no escopo (D043); o Curador, que administra a fazenda,
+        convida e revoga sempre (D073); os demais, só o que o cargo lista."""
+        if self.base == 'administrador' or acao in self.permissoes:
+            return True
+        return self.base == 'curador' and acao in ACOES_DE_DELEGACAO
 
     def cobre(self, alvo):
         """Empresa cobre tudo dela; fazenda cobre as sub-áreas; sub-área cobre os descendentes pelo `caminho`."""
