@@ -116,11 +116,21 @@ def test_outline_none_so_com_substituto():
 
 
 def test_movimento_so_dentro_da_preferencia_por_movimento():
-    # WCAG 2.3.3: `transition` e `animation` ficam em `@media (prefers-reduced-motion: no-preference)`.
+    # WCAG 2.3.3: `transition` e `animation` só existem dentro de `@media (prefers-reduced-motion: no-preference)`.
+    # Comentário não conta (o texto da regra aparece nele); o bloco permitido é removido e nada pode sobrar.
+    bloco = r'@media[^{]*prefers-reduced-motion:\s*no-preference[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}'
     for arquivo in ESTATICOS.glob('*.css'):
-        texto = arquivo.read_text(encoding='utf-8')
-        if re.search(r'(transition|animation)\s*:', texto):
-            assert 'prefers-reduced-motion: no-preference' in texto, arquivo.name
+        texto = re.sub(r'/\*.*?\*/', '', arquivo.read_text(encoding='utf-8'), flags=re.S)
+        fora_do_bloco = re.sub(bloco, '', texto)
+        assert not re.search(r'\b(transition|animation)\s*:', fora_do_bloco), arquivo.name
+
+
+def test_o_teste_de_movimento_detecta_movimento_sem_a_protecao():
+    bloco = r'@media[^{]*prefers-reduced-motion:\s*no-preference[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}'
+    sem = '.x { transition: all 1s; }'
+    com = '@media (prefers-reduced-motion: no-preference) { .x { transition: all 1s; } }'
+    assert re.search(r'\b(transition|animation)\s*:', re.sub(bloco, '', sem))
+    assert not re.search(r'\b(transition|animation)\s*:', re.sub(bloco, '', com))
 
 
 def test_nenhum_important_no_css():
