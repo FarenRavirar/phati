@@ -6,10 +6,11 @@ from permissao.pode import com_permissao, escopos_da_acao
 from territorio.models import Empresa, Fazenda, SubArea
 
 
-def fazendas_autorizadas(pessoa, pk=None):
+def fazendas_autorizadas(pessoa, pk=None, empresa_id=None):
     """Fazendas da empresa inteira, da fazenda concedida ou da fazenda que contém a sub-área concedida.
 
-    Com `pk`, só a fazenda pedida (se autorizada): a URL de escopo não carrega a lista inteira (Qodo e Sourcery, PR #19)."""
+    Com `pk`, só a fazenda pedida (se autorizada): a URL de escopo não carrega a lista inteira (Qodo e Sourcery, PR #19).
+    Com `empresa_id`, só as dela, filtradas na consulta e não depois de carregar tudo (Sourcery, PR #21)."""
     escopos = escopos_da_acao(pessoa, 'ver')
     if escopos.plataforma:
         consulta = Fazenda.objects.all()
@@ -21,6 +22,8 @@ def fazendas_autorizadas(pessoa, pk=None):
     # só consultaria o banco depois de o bloco terminar.
     if pk is not None:
         consulta = consulta.filter(pk=pk)
+    if empresa_id is not None:
+        consulta = consulta.filter(empresa_id=empresa_id)
     with com_permissao(pessoa, 'ver'):
         return list(consulta.order_by('nome', 'pk'))
 

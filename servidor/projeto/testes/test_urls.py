@@ -7,9 +7,9 @@ from projeto.wsgi import application
 
 # O ciclo de requisição do Django fecha conexões antigas, então o teste precisa liberar o banco.
 @pytest.mark.django_db
-def test_aplicacao_wsgi_responde_404_enquanto_nao_ha_rota():
-    # Sem ROOT_URLCONF a aplicação devolvia 500 (medido no contêiner); com `urlpatterns` vazio, 404.
-    ambiente = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/'}
+def test_aplicacao_wsgi_responde_404_para_rota_inexistente():
+    # Sem ROOT_URLCONF a aplicação devolvia 500 (medido no contêiner); com `urlpatterns`, rota inexistente dá 404.
+    ambiente = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/rota-inexistente'}
     setup_testing_defaults(ambiente)
     estados = []
 

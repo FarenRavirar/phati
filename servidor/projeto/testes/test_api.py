@@ -91,4 +91,4 @@ def test_toda_resposta_da_api_leva_referrer_policy_no_referrer(db):
 
     resposta = Client().get('/api/v1/fazendas')
     assert resposta.status_code == 401
-    assert resposta['Referrer-Policy'] == 'no-referrer'
+    assert resposta['Referrer-Policy'] == 'same-origin'

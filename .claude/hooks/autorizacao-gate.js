@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Camada 3 da trava de autorizacao do AGENTS.md §Autorizacao.
+// Camada 3 da trava de autorizacao do AGENTS.md §Decisao, pausa e duvida.
 //
 // Por que existe, em uma frase: as regras declarativas dos tres harnesses
 // (permissions.deny/ask no Claude Code, .codex/rules/governanca.rules no Codex,
@@ -86,7 +86,7 @@ const REGRAS = [
     porque: 'AGENTS.md: push que reescreve historico de branch em review exige aprovacao nominal do mantenedor, nunca por inercia.',
   },
 
-  // --- `ask`: exige autorizacao nominal por acao (§Autorizacao) ---
+  // --- `ask`: exige autorizacao nominal por acao (§Decisao, pausa e duvida) ---
   //
   // Estas PERGUNTAM ao mantenedor; nao bloqueiam. Emitiam `deny` ate 2026-09-10,
   // o que tornava a acao impossivel por este harness mesmo com a autorizacao ja
@@ -99,13 +99,13 @@ const REGRAS = [
     nome: 'commit-sem-autorizacao',
     decisao: 'ask',
     test: /\bgit\s+commit\b/,
-    porque: 'AGENTS.md §Autorizacao: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
+    porque: 'AGENTS.md §Decisao, pausa e duvida: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
   },
   {
     nome: 'worktree-sem-aprovacao',
     decisao: 'ask',
     test: /\bgit\s+worktree\s+(?:add|move|remove)\b/,
-    porque: 'AGENTS.md §Autorizacao: criar/mover/remover worktree exige aprovacao nominal PREVIA. Explique antes por que o cwd nao pode ser usado, o caminho exato, e como o trabalho volta. `git worktree list` e livre.',
+    porque: 'AGENTS.md §Decisao, pausa e duvida: criar/mover/remover worktree exige aprovacao nominal PREVIA. Explique antes por que o cwd nao pode ser usado, o caminho exato, e como o trabalho volta. `git worktree list` e livre.',
   },
   {
     nome: 'vm-escrita',
@@ -113,13 +113,13 @@ const REGRAS = [
     // `ssh maruko` com subcomando de mutacao. Read-only na VM e livre por regra
     // petrea e nao pode cair aqui — dai a lista fechada de verbos de escrita.
     test: /\bssh\s+maruko\b[^;&|]*\b(?:docker\s+(?:restart|stop|start|rm|kill|compose\s+(?:up|down))|systemctl\s+(?:start|stop|restart)|rm\s+-|mv\s|cp\s|tee\s|>\s*\/)/,
-    porque: 'AGENTS.md §Autorizacao: escrita na VM maruko exige aprovacao nominal a cada vez. Inspecao read-only (docker ps|logs|inspect, cat, ls) e SEMPRE permitida e nao passa por aqui.',
+    porque: 'AGENTS.md §Decisao, pausa e duvida: escrita na VM maruko exige aprovacao nominal a cada vez. Inspecao read-only (docker ps|logs|inspect, cat, ls) e SEMPRE permitida e nao passa por aqui.',
   },
   {
     nome: 'pacote-novo',
     decisao: 'ask',
     test: /(?:^|[\s;&|(`])(?:sudo\s+)?apt(?:-get)?\s+install\b/,
-    porque: 'AGENTS.md §Autorizacao: pacote apt novo exige PERGUNTAR antes — qual pacote, por que e necessario, alternativa ja existente no repo, e impacto. So instala depois da resposta.',
+    porque: 'AGENTS.md §Decisao, pausa e duvida: pacote apt novo exige PERGUNTAR antes — qual pacote, por que e necessario, alternativa ja existente no repo, e impacto. So instala depois da resposta.',
   },
 ];
 

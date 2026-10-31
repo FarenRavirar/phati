@@ -10,7 +10,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
 from identidade import acesso, redefinicao, senha
-from projeto.paginas_autenticadas import CAMINHO_ENTRAR, CAMINHO_TROCAR_SENHA, destino_seguro, exige_entrada
+from projeto.paginas_autenticadas import CAMINHO_ENTRAR, CAMINHO_TROCAR_SENHA, PROPRIA_PESSOA, destino_seguro, exige_acao, exige_entrada
 
 MENSAGEM_DE_FALHA = 'CPF ou senha incorretos.'
 # O que fazer em cada recusa da validação; o número do limite vem de `senha`, não é copiado aqui (T3.6 a).
@@ -52,6 +52,7 @@ def sair(requisicao):
 
 @require_http_methods(['GET', 'POST'])
 @exige_entrada
+@exige_acao(PROPRIA_PESSOA)
 def trocar_senha(requisicao):
     proximo = requisicao.POST.get('proximo') or requisicao.GET.get('proximo', '')
     contexto = {'obrigatoria': requisicao.user.deve_trocar_senha, 'proximo': proximo}

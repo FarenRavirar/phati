@@ -26,7 +26,7 @@ def test_o_caminho_do_link_do_email_abre_a_pagina(db, cpf_novo, mailoutbox):
 def test_pagina_nao_fica_em_cache_e_nao_vaza_referencia():
     resposta = Client().get('/redefinir-senha')
     assert 'no-store' in resposta['Cache-Control']
-    assert resposta['Referrer-Policy'] == 'no-referrer'
+    assert resposta['Referrer-Policy'] == 'same-origin'
     assert b'projeto/redefinir-senha.js' in resposta.content
     assert b'<script>' not in resposta.content  # sem script inline (R14); o código está no .js
     script = (Path(settings.STATICFILES_DIRS[0]) / 'projeto' / 'redefinir-senha.js').read_text(encoding='utf-8')

@@ -60,3 +60,9 @@
 .convite-titulo { margin: 0; font-weight: 600; }
 .convite-detalhe { margin: 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
 .convite-acoes { display: flex; flex-wrap: wrap; gap: var(--espaco-2); }
+
+/* Seletor de fazenda e árvore de sub-áreas (R10, R11). */
+.lista-fazendas, .arvore { display: grid; gap: var(--espaco-2); }
+.arvore .arvore { margin: var(--espaco-2) 0 0 var(--espaco-4); padding-left: var(--espaco-3); border-left: 1px solid var(--cor-borda); }
+.grupo-empresa { margin-top: var(--espaco-4); }
+.busca-vazia { color: var(--cor-texto-suave); }

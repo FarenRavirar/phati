@@ -159,7 +159,11 @@ def _convite_aberto(pessoa, convite_id):
 def aceitar(pessoa, convite_id):
     """Cria a concessão proposta, refazendo as regras de R10 com quem convidou. Devolve a concessão."""
     with transaction.atomic():
-        _travar_pessoa(pessoa.pk)
+        # Trava também quem convidou, na ordem do id (sem deadlock entre dois aceites cruzados): a revogação dele trava
+        # a mesma linha, então ela termina antes da checagem de autoridade ou espera o aceite acabar (Sourcery, PR #21).
+        dono = Convite.objects.filter(pk=convite_id, pessoa=pessoa).values_list('convidado_por_id', flat=True).first()
+        for pk in sorted({pessoa.pk, dono} - {None}):
+            _travar_pessoa(pk)
         convite = _convite_aberto(pessoa, convite_id)
         convidador = Pessoa.objects.get(pk=convite.convidado_por_id)
         # A pessoa que aceita não tem escopo na empresa: a gravação e as checagens rodam com o contexto de quem convidou.

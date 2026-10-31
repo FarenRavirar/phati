@@ -83,8 +83,9 @@ CSRF_FAILURE_VIEW = 'projeto.paginas.falha_csrf'
 
 # O segredo do link de redefinição vai no fragmento da URL (nunca chega ao servidor) e, por garantia, nenhuma
 # resposta deixa o navegador mandar a URL de origem a terceiros (T5.5a item 1; OWASP Forgot Password Cheat Sheet).
-# A tela `/redefinir-senha` ainda não existe: ela precisa ler o fragmento e enviá-lo a `redefinir-senha/confirmar`.
-SECURE_REFERRER_POLICY = 'no-referrer'
+# `same-origin`, não `no-referrer`: com `no-referrer` o navegador manda `Origin: null` no POST de formulário e o Django
+# recusa por CSRF (medido no Chromium em 2026-10-31: o login dava 403). `same-origin` não envia nada a terceiros.
+SECURE_REFERRER_POLICY = 'same-origin'
 
 ROOT_URLCONF = 'projeto.urls'
 
