@@ -98,17 +98,26 @@ jobs:
           test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
           test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migracao)")" = 0
           # `/` sem sessão redireciona ao login (302) e `/entrar` renderiza (200); rota inexistente segue 404.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = 302
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/entrar)" = 200
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/rota-inexistente)" = 404
+          codigo='%{http_code}'
+          http() { curl -s -o /dev/null -w "$codigo" "$@"; }
+          test "$(http http://127.0.0.1:8000/)" = 302
+          test "$(http http://127.0.0.1:8000/entrar)" = 200
+          test "$(http http://127.0.0.1:8000/rota-inexistente)" = 404
           # nginx serve os estáticos (D070): sem o `collectstatic` publicado, o CSS dá 404.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/static/projeto/casca.css)" = 200
-          # Limite de taxa (T5.5d): 40 POST seguidos em /entrar passam de 5 r/s com rajada de 20, então algum volta 429;
-          # o estático, fora da zona, segue 200 logo depois.
-          codigos="$(for _ in $(seq 40); do curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/entrar; done)"
-          echo "$codigos" | sort | uniq -c
-          echo "$codigos" | grep -q '^429$'
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/static/projeto/casca.css)" = 200
+          test "$(http http://127.0.0.1:8080/static/projeto/casca.css)" = 200
+          # Limite de taxa (T5.5d): rajada de 40 requisições simultâneas, que não depende da velocidade do runner. A zona é
+          # uma só por origem, então depois da primeira rajada o balde está vazio e toda rota da zona devolve 429; rota
+          # fora da zona nunca devolve. A saída vai para variável porque `grep -q` num pipe quebra o `pipefail`.
+          rajada() { seq 40 | xargs -P 40 -I{} curl -s -o /dev/null -w "$codigo\n" -X "$1" "http://127.0.0.1:8080$2"; }
+          for rota in /entrar /esqueci-senha /painel/login/ /api/v1/entrar /api/v1/redefinir-senha/solicitar /api/v1/redefinir-senha/confirmar /api/v1/acesso/renovar; do
+            saida="$(rajada POST "$rota")"
+            grep -q '^429$' <<<"$saida" || { echo "sem 429 em POST $rota"; exit 1; }
+          done
+          for par in "GET /entrar" "POST /rota-inexistente"; do
+            saida="$(rajada ${par% *} ${par#* })"
+            ! grep -q '^429$' <<<"$saida" || { echo "429 fora da zona em $par"; exit 1; }
+          done
+          test "$(http http://127.0.0.1:8080/static/projeto/casca.css)" = 200
       - if: failure()
         run: docker compose logs
       - if: always()
