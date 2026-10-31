@@ -462,11 +462,24 @@ def test_revogar_fora_do_escopo_e_negado(cenario, fabrica_pessoa, conceder_diret
 
 
 def test_revogar_sem_a_permissao_revogar_acesso_e_negado(cenario, fabrica_pessoa, conceder_direto):
-    sem_revogar = _cargo(cenario.x, 'Curador sem revogar', 'curador', 'ver', 'convidar_pessoa')
+    # Só Administrador e Curador revogam sem a ação no cargo (D043, D073); o Técnico depende de a ação estar no cargo.
+    sem_revogar = _cargo(cenario.x, 'Técnico sem revogar', 'tecnico', 'ver', 'convidar_pessoa')
     quem = _com(fabrica_pessoa, conceder_direto, sem_revogar, cenario.f1)
     _, concessao = _revogavel(cenario, fabrica_pessoa, conceder_direto)
     with pytest.raises(PermissionDenied):
         revogar_concessao(quem, concessao)
+    concessao.refresh_from_db()
+    assert concessao.revogada_em is None
+
+
+def test_curador_revoga_sem_ter_revogar_acesso_no_cargo(cenario, fabrica_pessoa, conceder_direto):
+    # D073: o Curador, que administra a fazenda, revoga sempre, no escopo dele.
+    sem_revogar = _cargo(cenario.x, 'Curador sem revogar', 'curador', 'ver', 'convidar_pessoa')
+    quem = _com(fabrica_pessoa, conceder_direto, sem_revogar, cenario.f1)
+    _, concessao = _revogavel(cenario, fabrica_pessoa, conceder_direto)
+    revogar_concessao(quem, concessao)
+    concessao.refresh_from_db()
+    assert concessao.revogada_em is not None
 
 
 def test_revogar_duas_vezes_levanta_concessao_ja_revogada(cenario, fabrica_pessoa, conceder_direto, plataforma):

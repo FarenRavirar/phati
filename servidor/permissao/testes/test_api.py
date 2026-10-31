@@ -106,6 +106,29 @@ def test_administrador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_
     assert convite.status_code == 201
     revogada = _enviar(admin, f"pessoas/{convite.json()['id']}/concessoes/{convite.json()['concessao_id']}", metodo='delete')
     assert revogada.status_code == 204
+    gravada = Concessao.objects.get(pk=convite.json()['concessao_id'])
+    assert (gravada.revogada_em is not None, gravada.revogada_por) == (True, admin)
+
+
+def test_curador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_e_revoga_so_na_fazenda_dele(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+    # D073 (mantenedor, 2026-10-31): o Curador, que administra a fazenda, convida e revoga sempre, no escopo dele e abaixo do nível dele.
+    usuario = cenario.cargos_x['usuario']
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Curador enxuto', base='curador')
+    # O Curador não concede permissão que não tem (D043): leva as do cargo que concede, sem as duas ações de delegação.
+    for codigo in CargoPermissao.objects.filter(cargo=usuario).values_list('permissao_id', flat=True):
+        CargoPermissao.objects.create(cargo=cargo, permissao_id=codigo)
+    assert not CargoPermissao.objects.filter(cargo=cargo, permissao_id__in=('convidar_pessoa', 'revogar_acesso')).exists()
+    curador = _com(fabrica_pessoa, conceder_direto, cargo, cenario.f1)
+    convite = _enviar(curador, 'pessoas', _convite(usuario, {'fazenda_id': cenario.f1.pk}, cpf_novo()))
+    assert convite.status_code == 201
+    revogada = _enviar(curador, f"pessoas/{convite.json()['id']}/concessoes/{convite.json()['concessao_id']}", metodo='delete')
+    assert revogada.status_code == 204
+    gravada = Concessao.objects.get(pk=convite.json()['concessao_id'])
+    assert (gravada.revogada_em is not None, gravada.revogada_por) == (True, curador)
+    total = Pessoa.objects.count()
+    assert _enviar(curador, 'pessoas', _convite(usuario, {'fazenda_id': cenario.f2.pk}, cpf_novo())).status_code in (403, 404)
+    assert _enviar(curador, 'pessoas', _convite(cenario.cargos_x['administrador'], {'fazenda_id': cenario.f1.pk}, cpf_novo())).status_code == 403
+    assert Pessoa.objects.count() == total
 
 
 def test_lista_de_pessoas_nao_expoe_cpf_nem_hash_de_senha(cenario, fabrica_pessoa, conceder_direto):
