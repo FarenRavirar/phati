@@ -25,7 +25,8 @@
 .conteudo h2 { margin-top: var(--espaco-5); }
 
 @media (max-width: 48rem) {
-  .casca { grid-template-columns: minmax(0, 1fr); }
+  /* Menu aberto ocupa só a altura dele; a linha que estica é a do conteúdo (CodeRabbit, PR #19). */
+  .casca { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
   .menu { grid-column: 1; border-right: 0; border-bottom: 1px solid var(--cor-borda); }
   .conteudo { padding: var(--espaco-4); }
 }

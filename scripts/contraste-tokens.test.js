@@ -61,3 +61,12 @@ test('comentário de contraste malformado reprova em vez de ser ignorado', () =>
   assert.ok(analisar(`${base} /* contraste: --cor-a sobre --cor-b >= 4..5 */ }`).erros.some((e) => e.includes('fora do formato')));
   assert.ok(analisar(`${base} /* isento: --cor-a motivo sem parênteses */ }`).erros.some((e) => e.includes('fora do formato')));
 });
+
+test('declaração de cor dentro de comentário não entra nem substitui a efetiva', () => {
+  const par = '/* contraste: --cor-a sobre --cor-b >= 4.5 */';
+  // Só existe comentada: o token está ausente para o navegador.
+  assert.match(analisar(`:root { --cor-b: #FFFFFF; /* --cor-a: #000000; */ ${par} }`).erros.join(' | '), /token ausente/);
+  // Comentada depois da efetiva: não troca a cor medida (#777777 sobre branco falha; #000000 comentada passaria).
+  const css = `:root { --cor-a: #777777; --cor-b: #FFFFFF; /* --cor-a: #000000; */ ${par} }`;
+  assert.match(analisar(css).erros.join(' | '), /--cor-a sobre --cor-b: 4\.\d\d:1/);
+});

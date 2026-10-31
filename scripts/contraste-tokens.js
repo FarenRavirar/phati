@@ -21,7 +21,10 @@ function razao(a, b) {
 
 function analisar(css) {
   const erros = [];
-  const tokens = new Map([...css.matchAll(TOKEN)].map((m) => [m[1], m[2].trim()]));
+  // Declaração dentro de comentário não vale para o navegador: fora do Map, para não aprovar par com cor que ele não usa
+  // (CodeRabbit, PR #19). Os pares e as isenções são comentários e saem do `css` original.
+  const semComentarios = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const tokens = new Map([...semComentarios.matchAll(TOKEN)].map((m) => [m[1], m[2].trim()]));
   const pares = [...css.matchAll(PAR)].map((m) => ({ a: m[1], b: m[2], minimo: Number(m[3]) }));
   const isentos = new Map([...css.matchAll(ISENTO)].map((m) => [m[1], m[2].trim()]));
   if (pares.length === 0) erros.push('nenhum par de contraste declarado');
