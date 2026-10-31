@@ -70,7 +70,7 @@ def test_a_propria_pessoa_pede_e_recebe_o_link_montado_com_url_base(pessoa, mail
     pedido = PedidoRedefinicao.objects.get()
     assert pedido.pessoa == pedido.solicitado_por == pessoa
     assert mailoutbox[0].to == [pessoa.email]
-    assert f'{settings.URL_BASE}/redefinir-senha?segredo=' in mailoutbox[0].body
+    assert f'{settings.URL_BASE}/redefinir-senha#segredo=' in mailoutbox[0].body
     segredo = _segredo(mailoutbox)
     assert pedido.hash_segredo == sessao.hash_do_segredo(segredo) != segredo
 
@@ -133,21 +133,14 @@ def test_pedido_trava_a_pessoa_para_nao_deixar_dois_links_validos(pessoa):
     assert any('FOR NO KEY UPDATE' in c['sql'] and '"pessoa"' in c['sql'] for c in consultas)
 
 
-def test_falha_do_smtp_desfaz_o_pedido_e_mantem_o_link_anterior(pessoa, mailoutbox, monkeypatch):
-    t0 = timezone.now()
-    _agora_em(monkeypatch, t0)
-    redefinicao.pedir_redefinicao(CPF)
-    anterior = _segredo(mailoutbox)
-    _agora_em(monkeypatch, t0 + timedelta(minutes=2))
-
+def test_falha_do_smtp_nao_aparece_na_resposta_do_pedido(pessoa, monkeypatch):
+    # Se a falha subisse, só CPF existente daria erro: oráculo de CPF cadastrado (T5.5a 4 e 5).
     def falha(*_):
         raise OSError('smtp fora')
 
-    monkeypatch.setattr(email, 'enviar_link_de_redefinicao', falha)
-    with pytest.raises(OSError):
-        redefinicao.pedir_redefinicao(CPF)
-    assert PedidoRedefinicao.objects.count() == 1
-    redefinicao.confirmar_redefinicao(anterior, NOVA)
+    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+    assert redefinicao.pedir_redefinicao(CPF) is None
+    assert redefinicao.pedir_redefinicao('00000000000') is None
 
 
 def test_apagar_pessoa_que_pediu_a_propria_redefinicao_funciona(pessoa):
@@ -280,7 +273,10 @@ def test_pedidos_vencidos_da_pessoa_sao_apagados_no_pedido_seguinte(pessoa, monk
     redefinicao.pedir_redefinicao(CPF)
     _agora_em(monkeypatch, t0 + timedelta(minutes=11))
     redefinicao.pedir_redefinicao(CPF)
-    assert PedidoRedefinicao.objects.count() == 1
+    assert PedidoRedefinicao.objects.count() == 2  # o vencido fica até sair da janela do teto
+    _agora_em(monkeypatch, t0 + timedelta(minutes=71))
+    redefinicao.pedir_redefinicao(CPF)
+    assert PedidoRedefinicao.objects.count() == 1  # os dois antigos saíram da janela; fica só o novo
 
 
 @pytest.mark.django_db(transaction=True)
@@ -459,3 +455,49 @@ def test_redefinicoes_cruzadas_entre_administradores_da_plataforma_nao_dao_deadl
             lambda: redefinicao.pedir_redefinicao(cpf_a, solicitante=Pessoa.objects.get(pk=b.pk)),
         )
     assert len(mailoutbox) == 20
+
+
+def test_teto_de_pedidos_por_hora_e_resposta_neutra(pessoa, mailoutbox, monkeypatch):
+    # T5.5f: quem sabe o CPF não derruba o link da pessoa a cada minuto.
+    t0 = timezone.now()
+    for minuto in range(0, 12, 2):
+        _agora_em(monkeypatch, t0 + timedelta(minutes=minuto))
+        assert redefinicao.pedir_redefinicao(CPF) is None
+    assert len(mailoutbox) == redefinicao.TETO_POR_HORA
+    _agora_em(monkeypatch, t0 + timedelta(minutes=62))
+    redefinicao.pedir_redefinicao(CPF)
+    assert len(mailoutbox) == redefinicao.TETO_POR_HORA + 1
+
+
+def test_pedido_do_administrador_nao_entra_no_teto_da_pessoa(pessoa, outra_pessoa, mailoutbox, monkeypatch):
+    t0 = timezone.now()
+    for minuto in range(0, 10, 2):
+        _agora_em(monkeypatch, t0 + timedelta(minutes=minuto))
+        redefinicao.pedir_redefinicao(CPF)
+    outra_pessoa.administrador_plataforma = True
+    outra_pessoa.save(update_fields=['administrador_plataforma'])
+    _agora_em(monkeypatch, t0 + timedelta(minutes=11))
+    redefinicao.pedir_redefinicao(CPF, solicitante=outra_pessoa)
+    assert len(mailoutbox) == redefinicao.TETO_POR_HORA + 1
+
+
+def test_pedido_anonimo_so_enfileira_e_o_trabalho_roda_depois(pessoa, mailoutbox, monkeypatch):
+    # OWASP Forgot Password: a resposta não pode esperar o trabalho que difere entre CPF existente e inexistente (PR #20).
+    fila = []
+    monkeypatch.setattr(email, '_despachar', fila.append)
+    redefinicao.pedir_redefinicao_anonimo(CPF)
+    assert fila
+    assert not PedidoRedefinicao.objects.filter(pessoa=pessoa).exists()
+    assert mailoutbox == []
+    fila.pop()()
+    assert PedidoRedefinicao.objects.filter(pessoa=pessoa).count() == 1
+
+
+def test_pedido_anonimo_com_falha_no_trabalho_vai_ao_log_sem_o_cpf(pessoa, monkeypatch, caplog):
+    def estoura(_cpf_texto, solicitante=None):
+        raise RuntimeError('banco fora')
+
+    monkeypatch.setattr(redefinicao, 'pedir_redefinicao', estoura)
+    redefinicao.pedir_redefinicao_anonimo(CPF)  # a fila de teste roda direto: a exceção não pode subir
+    assert 'falha ao registrar pedido de redefinição' in caplog.text
+    assert CPF not in caplog.text

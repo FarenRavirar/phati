@@ -1,0 +1,21 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Phati{% endblock %} · phati</title>
+<link rel="stylesheet" href="{% static 'projeto/tokens.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/base.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/componentes.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/casca.css' %}" {% csp_nonce_attr %}>
+</head>
+<body>
+<div class="publica">
+<main class="publica-caixa">
+<p class="publica-produto" translate="no">phati</p>
+{% block conteudo %}{% endblock %}
+</main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

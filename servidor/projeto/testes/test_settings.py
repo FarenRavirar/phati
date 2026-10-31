@@ -64,6 +64,16 @@ def test_compose_repassa_toda_variavel_que_o_settings_le():
     assert lidas - listadas == set()
 
 
+def test_estaticos_vao_para_o_volume_que_o_nginx_serve(monkeypatch):
+    # D070: `collectstatic` grava no volume `estaticos` do compose, que o nginx monta somente leitura.
+    monkeypatch.delenv('PHATI_ESTATICOS', raising=False)
+    assert runpy.run_path(str(CAMINHO))['STATIC_ROOT'] == '/estaticos'
+    monkeypatch.setenv('PHATI_ESTATICOS', '/outro')
+    assert runpy.run_path(str(CAMINHO))['STATIC_ROOT'] == '/outro'
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'estaticos:/estaticos:ro' in compose
+
+
 def test_healthcheck_do_banco_espera_o_servidor_tcp():
     # Achado do CodeRabbit (PR #1): sem `-h`, o pg_isready aceita o servidor temporário do initdb (só socket).
     compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
@@ -104,6 +114,26 @@ def test_chave_do_cpf_com_caractere_estranho_derruba_o_servidor(monkeypatch):
         runpy.run_path(str(CAMINHO))
 
 
+@pytest.mark.parametrize('invalido', ['', 'curta', 'AAAA' * 8, 'A' * 43])
+def test_segredo_da_rls_fora_do_formato_derruba_o_servidor(monkeypatch, invalido):
+    # Segredo errado trocaria a assinatura do contexto de RLS: o banco negaria todo acesso sem aviso.
+    monkeypatch.setenv('PHATI_SEGREDO_RLS', invalido)
+    with pytest.raises(ImproperlyConfigured, match='PHATI_SEGREDO_RLS'):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_segredo_da_rls_ausente_derruba_o_servidor(monkeypatch):
+    monkeypatch.delenv('PHATI_SEGREDO_RLS')
+    with pytest.raises(ImproperlyConfigured, match='PHATI_SEGREDO_RLS'):
+        runpy.run_path(str(CAMINHO))
+
+
+def test_segredo_da_rls_de_32_bytes_e_aceito(monkeypatch):
+    bruto = bytes(range(32, 64))
+    monkeypatch.setenv('PHATI_SEGREDO_RLS', base64.urlsafe_b64encode(bruto).decode())
+    assert runpy.run_path(str(CAMINHO))['SEGREDO_RLS'] == bruto
+
+
 def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
     # Achado do CodeRabbit (PR #9): nada provava que o ambiente configura o SMTP.
     monkeypatch.setenv('PHATI_EMAIL_HOST', 'smtp.exemplo.test')
@@ -118,3 +148,37 @@ def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
     assert opcoes['username'] == 'usuario-de-teste'
     assert opcoes['password'] == 'valor-de-teste'
     assert configuracao['DEFAULT_FROM_EMAIL'] == 'remetente@exemplo.test'
+
+
+def test_politica_de_conteudo_so_aceita_script_do_proprio_site_ou_com_nonce():
+    politica = runpy.run_path(str(CAMINHO))['SECURE_CSP']
+    todos = [valor for valores in politica.values() for valor in valores]
+    assert "'unsafe-inline'" not in todos
+    assert "'unsafe-eval'" not in todos
+    assert politica['script-src'] == ["'self'", '<CSP_NONCE_SENTINEL>']
+    assert politica['object-src'] == ["'none'"]
+    assert politica['frame-ancestors'] == ["'none'"]
+
+
+def test_middleware_e_processador_da_politica_estao_ligados_e_na_ordem():
+    antes_do_resto = settings.MIDDLEWARE.index('django.middleware.csp.ContentSecurityPolicyMiddleware')
+    assert antes_do_resto == settings.MIDDLEWARE.index('django.middleware.security.SecurityMiddleware') + 1
+    assert 'django.template.context_processors.csp' in settings.TEMPLATES[0]['OPTIONS']['context_processors']
+    assert settings.CSRF_FAILURE_VIEW == 'projeto.paginas.falha_csrf'
+
+
+def test_estaticos_do_projeto_sao_achados_sem_ser_app_instalado():
+    from django.contrib.staticfiles import finders
+
+    assert finders.find('projeto/tokens.css')
+
+
+def test_collectstatic_nao_publica_testes_de_js():
+    from django.apps import apps
+    from django.contrib.staticfiles import finders
+
+    ignorar = getattr(apps.get_app_config('staticfiles'), 'ignore_patterns')  # atributo do StaticFilesConfig, não do AppConfig
+    assert '*.test.js' in ignorar
+    publicados = [caminho.replace('\\', '/') for achador in finders.get_finders() for caminho, _ in achador.list(ignorar)]
+    assert 'projeto/menu.js' in publicados
+    assert 'projeto/menu.test.js' not in publicados

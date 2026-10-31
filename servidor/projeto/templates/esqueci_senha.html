@@ -1,0 +1,11 @@
+{% extends "publica.html" %}
+{% block titulo %}Esqueci a senha{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Esqueci a senha" %}
+{% if pedido %}{% include "componentes/aviso.html" with tipo="info" texto="Se o CPF estiver cadastrado, enviamos um link de redefinição para o e-mail da conta." %}{% endif %}
+<form method="post" action="/esqueci-senha">{% csrf_token %}
+{% include "componentes/campo.html" with id="cpf" nome="cpf" rotulo="CPF" autocomplete="username" teclado="numeric" obrigatorio=True %}
+{% include "componentes/botao.html" with texto="Enviar link" tipo="submit" %}
+</form>
+<p class="publica-links"><a href="/entrar">Voltar ao login</a></p>
+{% endblock %}

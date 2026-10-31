@@ -20,7 +20,7 @@ const CASES = [
   { cmd: `awk 'NR<50' x.ts`, deny: true, rule: 'leitura-parcial-crua' },
 
   // Filtro de pipe NÃO é leitura de arquivo — bloquear aqui quebraria o jeito
-  // canônico de filtrar segredo da saída da VM (AGENTS.md §Autorização).
+  // canônico de filtrar segredo da saída da VM (AGENTS.md §Decisão, pausa e dúvida).
   { cmd: `ssh maruko 'sed "s/=.*/=<omitido>/" /opt/phati/.env'`, deny: false },
   { cmd: `cat x.md | sed 's/a/b/'`, deny: false },
   { cmd: `git log | awk '{print $1}'`, deny: false },

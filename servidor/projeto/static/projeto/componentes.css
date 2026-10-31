@@ -1,0 +1,68 @@
+/* Componentes base (R15): botão, campo, aviso, estado vazio, cabeçalho de página, tabela e lista de convites. */
+
+.botao {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--espaco-2);
+  min-height: var(--altura-controle); padding: 0 var(--espaco-4);
+  border: 1px solid var(--cor-primaria); border-radius: var(--raio-1);
+  background: var(--cor-primaria); color: var(--cor-sobre-primaria);
+  font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+}
+.botao:hover { background: var(--cor-primaria-forte); color: var(--cor-sobre-primaria); }
+.botao[disabled] { opacity: 0.6; cursor: not-allowed; }
+.botao-secundario { background: var(--cor-superficie); color: var(--cor-primaria); }
+.botao-secundario:hover { background: var(--cor-item-ativo); color: var(--cor-primaria); }
+
+.campo { display: block; margin-bottom: var(--espaco-4); }
+.campo-rotulo { display: block; margin-bottom: var(--espaco-1); font-weight: 600; }
+.campo-controle {
+  display: block; width: 100%; min-height: var(--altura-controle); padding: 0 var(--espaco-3);
+  border: 1px solid var(--cor-borda-campo); border-radius: var(--raio-1);
+  background: var(--cor-superficie); color: var(--cor-texto); font: inherit;
+}
+.campo-ajuda { margin: var(--espaco-1) 0 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.campo-erro { margin: var(--espaco-1) 0 0; color: var(--cor-erro); font-size: var(--fonte-pequena); font-weight: 600; }
+.campo-invalido .campo-controle { border-color: var(--cor-erro); }
+
+/* Aviso: cor, ícone e texto juntos; a cor nunca é o único sinal (R15). */
+.aviso {
+  display: flex; gap: var(--espaco-3); align-items: flex-start; margin-bottom: var(--espaco-4);
+  padding: var(--espaco-3) var(--espaco-4); border: 1px solid currentColor; border-radius: var(--raio-1);
+}
+.aviso-icone { flex: none; width: 1.25rem; height: 1.25rem; margin-top: 0.125rem; }
+.aviso-texto { margin: 0; color: var(--cor-texto); }
+.aviso-erro { background: var(--cor-erro-fundo); color: var(--cor-erro); }
+.aviso-aviso { background: var(--cor-aviso-fundo); color: var(--cor-aviso); }
+.aviso-info { background: var(--cor-info-fundo); color: var(--cor-info); }
+.aviso-sucesso { background: var(--cor-sucesso-fundo); color: var(--cor-sucesso); }
+
+.vazio {
+  padding: var(--espaco-6) var(--espaco-4); border: 1px dashed var(--cor-borda-campo); border-radius: var(--raio-2);
+  background: var(--cor-superficie); color: var(--cor-texto-suave); text-align: center;
+}
+.vazio-texto { margin: 0; }
+
+.cabecalho-pagina { margin-bottom: var(--espaco-5); }
+.cabecalho-pagina p { margin: 0; color: var(--cor-texto-suave); }
+
+/* Tabela dentro de contêiner com rolagem própria: a página não rola na horizontal (R17). */
+.tabela-rolavel { overflow-x: auto; border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.tabela { width: 100%; border-collapse: collapse; }
+.tabela caption { padding: var(--espaco-3) var(--espaco-4); text-align: left; font-weight: 600; }
+.tabela td { font-variant-numeric: tabular-nums; }
+.tabela th, .tabela td { padding: var(--espaco-3) var(--espaco-4); border-top: 1px solid var(--cor-borda); text-align: left; }
+.tabela th { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); font-weight: 600; }
+
+.lista-convites { display: grid; gap: var(--espaco-3); }
+.convite {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--espaco-3);
+  padding: var(--espaco-4); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie);
+}
+.convite-titulo { margin: 0; font-weight: 600; }
+.convite-detalhe { margin: 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.convite-acoes { display: flex; flex-wrap: wrap; gap: var(--espaco-2); }
+
+/* Seletor de fazenda e árvore de sub-áreas (R10, R11). */
+.lista-fazendas, .arvore { display: grid; gap: var(--espaco-2); }
+.arvore .arvore { margin: var(--espaco-2) 0 0 var(--espaco-4); padding-left: var(--espaco-3); border-left: 1px solid var(--cor-borda); }
+.grupo-empresa { margin-top: var(--espaco-4); }
+.busca-vazia { color: var(--cor-texto-suave); }

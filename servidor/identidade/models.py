@@ -51,6 +51,12 @@ class Pessoa(AbstractBaseUser):
     objects = GerentePessoa()
     USERNAME_FIELD = 'cpf_busca'
 
+    def __str__(self):
+        return self.nome  # o padrão do Django mostraria `cpf_busca` (índice cego do CPF) no painel
+
+    def get_short_name(self):
+        return self.nome
+
     class Meta(AbstractBaseUser.Meta):
         db_table = 'pessoa'
 
@@ -79,6 +85,8 @@ class AcessoAplicativo(models.Model):
     entrada_em = models.DateTimeField()
     expira_em = models.DateTimeField()
     revogado_em = models.DateTimeField(null=True, blank=True)
+    # Preenchido quando a renovação troca este segredo por outro; sem ele, `revogado_em` veio de sair ou de troca de senha.
+    substituido_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'acesso_aplicativo'

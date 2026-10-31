@@ -73,14 +73,15 @@ def test_sessao_sem_marcas_nao_e_vigente():
     assert not sessao.sessao_vigente(_requisicao())
 
 
-def test_acesso_do_aplicativo_rotaciona_e_o_anterior_deixa_de_valer(pessoa):
+def test_acesso_do_aplicativo_rotaciona_e_o_anterior_deixa_de_autenticar(pessoa):
     primeiro = sessao.emitir_acesso(pessoa, 'celular')
     renovado = sessao.renovar_acesso(primeiro)
     assert renovado is not None
     dono, segundo = renovado
     assert dono == pessoa
     assert segundo != primeiro
-    assert sessao.renovar_acesso(primeiro) is None
+    assert sessao.pessoa_do_acesso(primeiro) is None
+    assert sessao.pessoa_do_acesso(segundo) is not None
     assert sessao.renovar_acesso(segundo) is not None
 
 
@@ -138,3 +139,93 @@ def test_acesso_revogado_nao_renova(pessoa):
     segredo = sessao.emitir_acesso(pessoa, 'celular')
     sessao.revogar_acessos(pessoa)
     assert sessao.renovar_acesso(segredo) is None
+
+
+def test_revogar_acesso_depois_da_renovacao_encerra_a_sequencia_inteira(pessoa):
+    # Achado do Greptile (PR #14): o `sair` autenticou o segredo antes de uma renovação; o UPDATE só do hash
+    # recebido não tocava nenhuma linha e o segredo novo seguia válido.
+    primeiro = sessao.emitir_acesso(pessoa, 'celular')
+    renovado = sessao.renovar_acesso(primeiro)
+    assert renovado is not None
+    sessao.revogar_acesso(primeiro)
+    assert sessao.pessoa_do_acesso(renovado[1]) is None
+
+
+def test_revogar_acesso_nao_encerra_outro_dispositivo_nem_outra_entrada_do_mesmo(pessoa, monkeypatch):
+    t0 = timezone.now()
+    _agora_em(monkeypatch, t0)
+    celular = sessao.emitir_acesso(pessoa, 'celular')
+    tablet = sessao.emitir_acesso(pessoa, 'tablet')
+    # A sequência é (pessoa, dispositivo, `entrada_em`): o relógio do Windows tem passo grosso e duas entradas no mesmo
+    # passo pareceriam uma só, então o teste separa os instantes.
+    _agora_em(monkeypatch, t0 + timedelta(seconds=1))
+    outra_entrada = sessao.emitir_acesso(pessoa, 'celular')
+    sessao.revogar_acesso(celular)
+    assert sessao.pessoa_do_acesso(celular) is None
+    assert sessao.pessoa_do_acesso(tablet) is not None
+    assert sessao.pessoa_do_acesso(outra_entrada) is not None
+
+
+def test_revogar_acesso_com_segredo_desconhecido_nao_faz_nada(pessoa):
+    segredo = sessao.emitir_acesso(pessoa, 'celular')
+    sessao.revogar_acesso('segredo-que-nao-existe')
+    assert sessao.pessoa_do_acesso(segredo) is not None
+
+
+def test_acesso_de_quem_ainda_deve_trocar_a_senha_nao_renova(pessoa):
+    # Achado do Sourcery (PR #14): o acesso da primeira entrada só serve para trocar a senha.
+    segredo = sessao.emitir_acesso(pessoa, 'celular')
+    pessoa.deve_trocar_senha = True
+    pessoa.save(update_fields=['deve_trocar_senha'])
+    assert sessao.renovar_acesso(segredo) is None
+    assert sessao.pessoa_do_acesso(segredo) is not None
+
+
+def _rotacionar(pessoa, monkeypatch):
+    t0 = timezone.now()
+    _agora_em(monkeypatch, t0)
+    primeiro = sessao.emitir_acesso(pessoa, 'celular')
+    renovado = sessao.renovar_acesso(primeiro)
+    assert renovado is not None
+    return t0, primeiro, renovado[1]
+
+
+def test_segredo_trocado_renova_de_novo_dentro_da_janela_e_os_dois_novos_valem(pessoa, monkeypatch):
+    # T5.5e: resposta perdida, o aplicativo repete o segredo antigo. Okta e Auth0 fazem igual.
+    t0, primeiro, segundo = _rotacionar(pessoa, monkeypatch)
+    _agora_em(monkeypatch, t0 + timedelta(seconds=10))
+    repetido = sessao.renovar_acesso(primeiro)
+    assert repetido is not None
+    assert repetido[1] not in (primeiro, segundo)
+    assert sessao.pessoa_do_acesso(segundo) is not None
+    assert sessao.pessoa_do_acesso(repetido[1]) is not None
+
+
+def test_reuso_depois_da_janela_revoga_a_sequencia_inteira_e_audita(pessoa, monkeypatch):
+    from comum.models import EventoAuditoria
+
+    t0, primeiro, segundo = _rotacionar(pessoa, monkeypatch)
+    _agora_em(monkeypatch, t0 + timedelta(seconds=settings.ACESSO_APLICATIVO_JANELA_SEGUNDOS))
+    assert sessao.renovar_acesso(primeiro) is None
+    assert sessao.pessoa_do_acesso(segundo) is None
+    assert list(EventoAuditoria.objects.values_list('acao', flat=True)) == ['acesso_reutilizado']
+
+
+def test_reuso_depois_de_sair_nao_ressuscita_a_sequencia_nem_audita(pessoa, monkeypatch):
+    from comum.models import EventoAuditoria
+
+    t0, primeiro, segundo = _rotacionar(pessoa, monkeypatch)
+    sessao.revogar_acesso(segundo)
+    _agora_em(monkeypatch, t0 + timedelta(seconds=5))
+    assert sessao.renovar_acesso(primeiro) is None
+    _agora_em(monkeypatch, t0 + timedelta(minutes=5))
+    assert sessao.renovar_acesso(primeiro) is None
+    assert EventoAuditoria.objects.count() == 0
+
+
+def test_reuso_depois_da_troca_de_senha_nao_ressuscita_a_sequencia(pessoa, monkeypatch):
+    t0, primeiro, segundo = _rotacionar(pessoa, monkeypatch)
+    sessao.revogar_acessos(pessoa)
+    _agora_em(monkeypatch, t0 + timedelta(seconds=5))
+    assert sessao.renovar_acesso(primeiro) is None
+    assert sessao.pessoa_do_acesso(segundo) is None

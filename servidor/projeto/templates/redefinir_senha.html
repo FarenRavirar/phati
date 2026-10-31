@@ -1,0 +1,13 @@
+{% extends "publica.html" %}
+{% load static %}
+{% block titulo %}Nova senha{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Escolher uma senha nova" %}
+<p class="aviso aviso-erro" id="mensagem" role="alert" hidden></p>
+<form id="formulario" hidden>
+{% include "componentes/campo.html" with id="senha_nova" nome="senha_nova" rotulo="Senha nova" tipo="password" autocomplete="new-password" obrigatorio=True %}
+{% include "componentes/campo.html" with id="repeticao" nome="repeticao" rotulo="Repita a senha" tipo="password" autocomplete="new-password" obrigatorio=True %}
+<button class="botao" id="salvar" type="submit">Salvar senha</button>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{% static 'projeto/redefinir-senha.js' %}" {% csp_nonce_attr %}></script>{% endblock %}

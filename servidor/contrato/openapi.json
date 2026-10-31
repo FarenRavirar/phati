@@ -1,0 +1,1662 @@
+{
+  "components": {
+    "schemas": {
+      "EntradaConcessao": {
+        "properties": {
+          "cargo_id": {
+            "title": "Cargo Id",
+            "type": "integer"
+          },
+          "categoria_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Categoria Ids",
+            "type": "array"
+          },
+          "escopo": {
+            "$ref": "#/components/schemas/EntradaEscopo"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inicio"
+          }
+        },
+        "required": [
+          "cargo_id",
+          "escopo"
+        ],
+        "title": "EntradaConcessao",
+        "type": "object"
+      },
+      "EntradaConfirmarRedefinicao": {
+        "properties": {
+          "segredo": {
+            "title": "Segredo",
+            "type": "string"
+          },
+          "senha_nova": {
+            "title": "Senha Nova",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segredo",
+          "senha_nova"
+        ],
+        "title": "EntradaConfirmarRedefinicao",
+        "type": "object"
+      },
+      "EntradaConvite": {
+        "properties": {
+          "cargo_id": {
+            "title": "Cargo Id",
+            "type": "integer"
+          },
+          "categoria_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100,
+            "title": "Categoria Ids",
+            "type": "array"
+          },
+          "cpf": {
+            "title": "Cpf",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
+          "escopo": {
+            "$ref": "#/components/schemas/EntradaEscopo"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inicio"
+          },
+          "nome": {
+            "maxLength": 200,
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cargo_id",
+          "escopo",
+          "nome",
+          "email",
+          "cpf"
+        ],
+        "title": "EntradaConvite",
+        "type": "object"
+      },
+      "EntradaEmpresa": {
+        "properties": {
+          "cpf_administrador": {
+            "title": "Cpf Administrador",
+            "type": "string"
+          },
+          "email_administrador": {
+            "maxLength": 254,
+            "title": "Email Administrador",
+            "type": "string"
+          },
+          "nome": {
+            "maxLength": 200,
+            "title": "Nome",
+            "type": "string"
+          },
+          "nome_administrador": {
+            "maxLength": 200,
+            "title": "Nome Administrador",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nome",
+          "nome_administrador",
+          "email_administrador",
+          "cpf_administrador"
+        ],
+        "title": "EntradaEmpresa",
+        "type": "object"
+      },
+      "EntradaEntrar": {
+        "properties": {
+          "cpf": {
+            "title": "Cpf",
+            "type": "string"
+          },
+          "dispositivo": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispositivo"
+          },
+          "senha": {
+            "title": "Senha",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpf",
+          "senha"
+        ],
+        "title": "EntradaEntrar",
+        "type": "object"
+      },
+      "EntradaEscopo": {
+        "description": "Exatamente um dos três: a concessão vale para a empresa inteira, uma fazenda ou uma sub-área.",
+        "properties": {
+          "empresa_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empresa Id"
+          },
+          "fazenda_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fazenda Id"
+          },
+          "sub_area_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Area Id"
+          }
+        },
+        "title": "EntradaEscopo",
+        "type": "object"
+      },
+      "EntradaNome": {
+        "properties": {
+          "nome": {
+            "maxLength": 200,
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nome"
+        ],
+        "title": "EntradaNome",
+        "type": "object"
+      },
+      "EntradaRenovar": {
+        "properties": {
+          "segredo": {
+            "title": "Segredo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segredo"
+        ],
+        "title": "EntradaRenovar",
+        "type": "object"
+      },
+      "EntradaSolicitarRedefinicao": {
+        "properties": {
+          "cpf": {
+            "title": "Cpf",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cpf"
+        ],
+        "title": "EntradaSolicitarRedefinicao",
+        "type": "object"
+      },
+      "EntradaSubArea": {
+        "properties": {
+          "nome": {
+            "maxLength": 200,
+            "title": "Nome",
+            "type": "string"
+          },
+          "pai_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pai Id"
+          }
+        },
+        "required": [
+          "nome"
+        ],
+        "title": "EntradaSubArea",
+        "type": "object"
+      },
+      "EntradaTrocarSenha": {
+        "properties": {
+          "senha_atual": {
+            "title": "Senha Atual",
+            "type": "string"
+          },
+          "senha_nova": {
+            "title": "Senha Nova",
+            "type": "string"
+          }
+        },
+        "required": [
+          "senha_atual",
+          "senha_nova"
+        ],
+        "title": "EntradaTrocarSenha",
+        "type": "object"
+      },
+      "ParametrosDaLista": {
+        "properties": {
+          "depois": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Depois",
+            "type": "integer"
+          },
+          "limite": {
+            "default": 30,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limite",
+            "type": "integer"
+          }
+        },
+        "title": "ParametrosDaLista",
+        "type": "object"
+      },
+      "SaidaCargo": {
+        "properties": {
+          "base": {
+            "title": "Base",
+            "type": "string"
+          },
+          "empresa_id": {
+            "title": "Empresa Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "permissoes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissoes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "empresa_id",
+          "nome",
+          "base",
+          "permissoes"
+        ],
+        "title": "SaidaCargo",
+        "type": "object"
+      },
+      "SaidaConcessao": {
+        "properties": {
+          "cargo_id": {
+            "title": "Cargo Id",
+            "type": "integer"
+          },
+          "empresa_id": {
+            "title": "Empresa Id",
+            "type": "integer"
+          },
+          "fazenda_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fazenda Id"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inicio": {
+            "format": "date-time",
+            "title": "Inicio",
+            "type": "string"
+          },
+          "pessoa_id": {
+            "title": "Pessoa Id",
+            "type": "integer"
+          },
+          "sub_area_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Area Id"
+          }
+        },
+        "required": [
+          "id",
+          "pessoa_id",
+          "cargo_id",
+          "empresa_id",
+          "fazenda_id",
+          "sub_area_id",
+          "inicio",
+          "fim"
+        ],
+        "title": "SaidaConcessao",
+        "type": "object"
+      },
+      "SaidaConvite": {
+        "description": "CPF novo: a pessoa, a concessão e a senha temporária (mostrada uma vez, R4). CPF que já existe: só `pendente`,\nsem identificador nem dado da pessoa (R24).",
+        "properties": {
+          "concessao_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concessao Id"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "pendente": {
+            "title": "Pendente",
+            "type": "boolean"
+          },
+          "senha_temporaria": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Senha Temporaria"
+          }
+        },
+        "required": [
+          "pendente"
+        ],
+        "title": "SaidaConvite",
+        "type": "object"
+      },
+      "SaidaConviteEnviado": {
+        "description": "Sem dado da pessoa convidada: quem convida não vê quem já existe (R24).",
+        "properties": {
+          "cargo_nome": {
+            "title": "Cargo Nome",
+            "type": "string"
+          },
+          "criado_em": {
+            "format": "date-time",
+            "title": "Criado Em",
+            "type": "string"
+          },
+          "empresa_nome": {
+            "title": "Empresa Nome",
+            "type": "string"
+          },
+          "expira_em": {
+            "format": "date-time",
+            "title": "Expira Em",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "vencido": {
+            "title": "Vencido",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "cargo_nome",
+          "empresa_nome",
+          "criado_em",
+          "expira_em",
+          "vencido"
+        ],
+        "title": "SaidaConviteEnviado",
+        "type": "object"
+      },
+      "SaidaConviteRecebido": {
+        "properties": {
+          "cargo_nome": {
+            "title": "Cargo Nome",
+            "type": "string"
+          },
+          "convidado_por_nome": {
+            "title": "Convidado Por Nome",
+            "type": "string"
+          },
+          "empresa_nome": {
+            "title": "Empresa Nome",
+            "type": "string"
+          },
+          "expira_em": {
+            "format": "date-time",
+            "title": "Expira Em",
+            "type": "string"
+          },
+          "fim": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fim"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inicio": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inicio"
+          }
+        },
+        "required": [
+          "id",
+          "empresa_nome",
+          "cargo_nome",
+          "convidado_por_nome",
+          "inicio",
+          "fim",
+          "expira_em"
+        ],
+        "title": "SaidaConviteRecebido",
+        "type": "object"
+      },
+      "SaidaEmpresa": {
+        "properties": {
+          "administrador_id": {
+            "title": "Administrador Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "senha_temporaria": {
+            "title": "Senha Temporaria",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "administrador_id",
+          "senha_temporaria"
+        ],
+        "title": "SaidaEmpresa",
+        "type": "object"
+      },
+      "SaidaEntrar": {
+        "properties": {
+          "deve_trocar_senha": {
+            "title": "Deve Trocar Senha",
+            "type": "boolean"
+          },
+          "segredo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segredo"
+          }
+        },
+        "required": [
+          "deve_trocar_senha"
+        ],
+        "title": "SaidaEntrar",
+        "type": "object"
+      },
+      "SaidaErro": {
+        "properties": {
+          "detalhe": {
+            "title": "Detalhe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detalhe"
+        ],
+        "title": "SaidaErro",
+        "type": "object"
+      },
+      "SaidaFazenda": {
+        "properties": {
+          "empresa_id": {
+            "title": "Empresa Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "empresa_id"
+        ],
+        "title": "SaidaFazenda",
+        "type": "object"
+      },
+      "SaidaPermissao": {
+        "properties": {
+          "codigo": {
+            "title": "Codigo",
+            "type": "string"
+          },
+          "delegavel": {
+            "title": "Delegavel",
+            "type": "boolean"
+          },
+          "descricao": {
+            "title": "Descricao",
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo",
+          "descricao",
+          "delegavel"
+        ],
+        "title": "SaidaPermissao",
+        "type": "object"
+      },
+      "SaidaPessoa": {
+        "properties": {
+          "deve_trocar_senha": {
+            "title": "Deve Trocar Senha",
+            "type": "boolean"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "empresa_origem_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empresa Origem Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "email",
+          "empresa_origem_id",
+          "deve_trocar_senha"
+        ],
+        "title": "SaidaPessoa",
+        "type": "object"
+      },
+      "SaidaRenovar": {
+        "properties": {
+          "segredo": {
+            "title": "Segredo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segredo"
+        ],
+        "title": "SaidaRenovar",
+        "type": "object"
+      },
+      "SaidaSubArea": {
+        "properties": {
+          "fazenda_id": {
+            "title": "Fazenda Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nivel": {
+            "title": "Nivel",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "nivel",
+          "fazenda_id"
+        ],
+        "title": "SaidaSubArea",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "AutenticacaoAplicativo": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "AutenticacaoNavegador": {
+        "in": "cookie",
+        "name": "sessionid",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "",
+    "title": "phati",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/acesso/renovar": {
+      "post": {
+        "operationId": "identidade_api_renovar_acesso",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRenovar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaRenovar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaErro"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Renovar Acesso",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/cargos": {
+      "get": {
+        "operationId": "permissao_api_listar_cargos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaCargo"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Cargos",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites": {
+      "get": {
+        "operationId": "permissao_api_listar_convites",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaConviteRecebido"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Convites",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites-enviados": {
+      "get": {
+        "operationId": "permissao_api_listar_convites_enviados",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaConviteEnviado"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Convites Enviados",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites-enviados/{convite_id}": {
+      "delete": {
+        "operationId": "permissao_api_cancelar_convite_enviado",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Cancelar Convite Enviado",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites-enviados/{convite_id}/reenviar": {
+      "post": {
+        "operationId": "permissao_api_reenviar_convite_enviado",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Reenviar Convite Enviado",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites/{convite_id}/aceitar": {
+      "post": {
+        "operationId": "permissao_api_aceitar_convite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Aceitar Convite",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/convites/{convite_id}/recusar": {
+      "post": {
+        "operationId": "permissao_api_recusar_convite",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "convite_id",
+            "required": true,
+            "schema": {
+              "title": "Convite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Recusar Convite",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/empresas": {
+      "post": {
+        "operationId": "territorio_api_criar_empresa",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEmpresa"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaEmpresa"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Criar Empresa",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/empresas/{empresa_id}/fazendas": {
+      "post": {
+        "operationId": "territorio_api_criar_fazenda",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "empresa_id",
+            "required": true,
+            "schema": {
+              "title": "Empresa Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaNome"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaFazenda"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Criar Fazenda",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/entrar": {
+      "post": {
+        "operationId": "identidade_api_entrar",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEntrar"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaEntrar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaErro"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "Entrar",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/fazendas": {
+      "get": {
+        "operationId": "territorio_api_listar_fazendas",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaFazenda"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Fazendas",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/fazendas/{fazenda_id}/sub-areas": {
+      "post": {
+        "operationId": "territorio_api_criar_sub_area",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fazenda_id",
+            "required": true,
+            "schema": {
+              "title": "Fazenda Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaSubArea"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaSubArea"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Criar Sub Area",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/permissoes": {
+      "get": {
+        "operationId": "permissao_api_listar_permissoes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaPermissao"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Permissoes",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas": {
+      "get": {
+        "operationId": "permissao_api_listar_pessoas",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depois",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Depois",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaPessoa"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Pessoas",
+        "tags": [
+          "permissao"
+        ]
+      },
+      "post": {
+        "operationId": "permissao_api_convidar_pessoa",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConvite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaConvite"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Convidar Pessoa",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas/{pessoa_id}/concessoes": {
+      "post": {
+        "operationId": "permissao_api_conceder",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pessoa_id",
+            "required": true,
+            "schema": {
+              "title": "Pessoa Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConcessao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaConcessao"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Conceder",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas/{pessoa_id}/concessoes/{concessao_id}": {
+      "delete": {
+        "operationId": "permissao_api_revogar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pessoa_id",
+            "required": true,
+            "schema": {
+              "title": "Pessoa Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "concessao_id",
+            "required": true,
+            "schema": {
+              "title": "Concessao Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Revogar",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/pessoas/{pessoa_id}/redefinir-senha": {
+      "post": {
+        "operationId": "permissao_api_redefinir_senha",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pessoa_id",
+            "required": true,
+            "schema": {
+              "title": "Pessoa Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Redefinir Senha",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/redefinir-senha/confirmar": {
+      "post": {
+        "operationId": "identidade_api_confirmar_redefinicao",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConfirmarRedefinicao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Confirmar Redefinicao",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/redefinir-senha/solicitar": {
+      "post": {
+        "operationId": "identidade_api_solicitar_redefinicao",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaSolicitarRedefinicao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "summary": "Solicitar Redefinicao",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/sair": {
+      "post": {
+        "operationId": "identidade_api_sair",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Sair",
+        "tags": [
+          "identidade"
+        ]
+      }
+    },
+    "/api/v1/trocar-senha": {
+      "post": {
+        "operationId": "identidade_api_trocar_senha",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaTrocarSenha"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Trocar Senha",
+        "tags": [
+          "identidade"
+        ]
+      }
+    }
+  },
+  "servers": []
+}

@@ -1,11 +1,11 @@
 ---
 name: pedir-aprovacao
-description: Procedimento para pedir aprovação ao mantenedor do phati — o formato do bloco "APROVAÇÃO NECESSÁRIA", o que cada campo precisa conter, e a mecânica de worktree e de pacote apt/lib nova. Use quando for pedir autorização para commit, merge, deploy, escrita na VM, SQL write, mudança de DNS/tunnel, criação de worktree ou instalação de pacote/biblioteca nova — ou quando um gate bloquear uma ação e mandar pedir aprovação. A LISTA do que exige aprovação fica no `AGENTS.md` §Autorização, não aqui; aqui está só o como pedir.
+description: Procedimento para pedir aprovação ao mantenedor do phati — o formato do bloco "APROVAÇÃO NECESSÁRIA", o que cada campo precisa conter, e a mecânica de worktree e de pacote apt/lib nova. Use quando for pedir autorização para commit, merge, deploy, escrita na VM, SQL write, mudança de DNS/tunnel, criação de worktree ou instalação de pacote/biblioteca nova — ou quando um gate bloquear uma ação e mandar pedir aprovação. A LISTA do que exige aprovação fica no `AGENTS.md` §Decisão, pausa e dúvida, não aqui; aqui está só o como pedir.
 ---
 
 # Pedir aprovação — procedimento
 
-O `AGENTS.md` §Autorização guarda **o que** exige aprovação e a regra de que ela
+O `AGENTS.md` §Decisão, pausa e dúvida guarda **o que** exige aprovação e a regra de que ela
 vale por ação (nunca por sessão nem por PR). Este documento guarda **como pedir**.
 
 Três camadas mecânicas já cobram isso sem depender de memória: as regras

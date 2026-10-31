@@ -1,0 +1,138 @@
+// Executa o script real de servidor/projeto/templates/redefinir_senha.html contra um DOM mínimo (Codex e Greptile, PR #17:
+// teste que procura texto no HTML passa mesmo com o script quebrado). Sem pacote novo: `node:vm` e `node:test`.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const PROJETO = path.join(__dirname, '..', '..');
+const HTML = fs.readFileSync(path.join(PROJETO, 'templates', 'redefinir_senha.html'), 'utf8');
+// T3.4: o script saiu do HTML (CSP sem inline) e mora em `redefinir-senha.js`; o teste executa esse arquivo.
+const CODIGO_DA_PAGINA = fs.readFileSync(path.join(PROJETO, 'static', 'projeto', 'redefinir-senha.js'), 'utf8');
+// CodeQL, PR #17 e #18: aceita <SCRIPT>, atributos na abertura e fechamento tolerante.
+const extrairScript = (html) => html.match(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i)[1];
+
+test('a página só carrega o script por src, com nonce, e não leva script inline', () => {
+  assert.equal(extrairScript(HTML), '');
+  assert.match(HTML, /<script src="\{% static 'projeto\/redefinir-senha\.js' %\}" \{% csp_nonce_attr %\}><\/script>/);
+});
+
+test('extrairScript aceita maiúscula, atributos na abertura e no fechamento', () => {
+  assert.equal(extrairScript('<script>a()</script>'), 'a()');
+  assert.equal(extrairScript('<SCRIPT>a()</SCRIPT>'), 'a()');
+  assert.equal(extrairScript('<script nonce="x">a()</script>'), 'a()');
+  assert.equal(extrairScript('<script>a()</script\t\n bar>'), 'a()');
+});
+
+function elemento(oculto = false) {
+  const ouvintes = {};
+  const atributos = {};
+  return {
+    hidden: oculto, textContent: '', value: '', disabled: false, className: 'aviso aviso-erro', atributos, ouvintes,
+    setAttribute(nome, valor) { atributos[nome] = valor; },
+    addEventListener(nome, funcao) { ouvintes[nome] = funcao; },
+  };
+}
+
+function abrir(fragmento, respostas) {
+  const el = {
+    mensagem: elemento(true), formulario: elemento(true), senha_nova: elemento(), repeticao: elemento(), salvar: elemento(),
+  };
+  const chamadas = [];
+  const substituicoes = [];
+  const fila = [...respostas];
+  const contexto = {
+    URLSearchParams, JSON, Promise,
+    document: { getElementById: (id) => el[id] },
+    location: { hash: fragmento, pathname: '/redefinir-senha' },
+    history: { replaceState: (...argumentos) => substituicoes.push(argumentos) },
+    fetch: (url, opcoes) => {
+      chamadas.push({ url, corpo: JSON.parse(opcoes.body), cabecalhos: opcoes.headers });
+      return fila.shift()();
+    },
+  };
+  vm.runInNewContext(CODIGO_DA_PAGINA, contexto);
+  const enviar = async (senha = 'uma frase longa e incomum', repeticao = senha) => {
+    el.senha_nova.value = senha;
+    el.repeticao.value = repeticao;
+    await el.formulario.ouvintes.submit({ preventDefault() {} });
+  };
+  return { el, chamadas, substituicoes, enviar };
+}
+
+const resposta = (status, corpo = {}) => () => Promise.resolve({ status, json: () => Promise.resolve(corpo) });
+
+test('lê o segredo do fragmento, apaga o fragmento do histórico e mostra o formulário', () => {
+  const pagina = abrir('#segredo=abc123', []);
+  assert.deepEqual(JSON.parse(JSON.stringify(pagina.substituicoes)), [[null, '', '/redefinir-senha']]);
+  assert.equal(pagina.el.formulario.hidden, false);
+  assert.equal(pagina.el.mensagem.hidden, true);
+});
+
+test('sem segredo no fragmento mostra link inválido e não mostra o formulário', () => {
+  const pagina = abrir('', []);
+  assert.equal(pagina.el.formulario.hidden, true);
+  assert.match(pagina.el.mensagem.textContent, /não vale mais/);
+});
+
+test('senhas diferentes não chamam a API', async () => {
+  const pagina = abrir('#segredo=abc123', []);
+  await pagina.enviar('uma frase longa e incomum', 'outra coisa');
+  assert.equal(pagina.chamadas.length, 0);
+  assert.match(pagina.el.mensagem.textContent, /não são iguais/);
+});
+
+test('sucesso envia segredo e senha em JSON, esconde o formulário e fica final', async () => {
+  const pagina = abrir('#segredo=abc123', [resposta(204)]);
+  await pagina.enviar();
+  // JSON na ida e na volta: objeto criado dentro do `vm` tem outro protótipo e o `deepEqual` estrito recusaria.
+  assert.deepEqual(JSON.parse(JSON.stringify(pagina.chamadas[0])), {
+    url: '/api/v1/redefinir-senha/confirmar',
+    corpo: { segredo: 'abc123', senha_nova: 'uma frase longa e incomum' },
+    cabecalhos: { 'Content-Type': 'application/json' },
+  });
+  assert.equal(pagina.el.formulario.hidden, true);
+  assert.match(pagina.el.mensagem.textContent, /Senha alterada/);
+  assert.equal(pagina.el.salvar.disabled, true);
+  // Qodo e Greptile, PR #20: a confirmação não pode sair com a cor e o papel de erro.
+  assert.equal(pagina.el.mensagem.className, 'aviso aviso-sucesso');
+  assert.equal(pagina.el.mensagem.atributos.role, 'status');
+});
+
+test('link inválido esconde o formulário', async () => {
+  const pagina = abrir('#segredo=velho', [resposta(400, { detalhe: 'link_invalido' })]);
+  await pagina.enviar();
+  assert.equal(pagina.el.formulario.hidden, true);
+  assert.match(pagina.el.mensagem.textContent, /não vale mais/);
+  assert.equal(pagina.el.mensagem.className, 'aviso aviso-erro');
+  assert.equal(pagina.el.mensagem.atributos.role, 'alert');
+});
+
+test('senha recusada mostra o motivo e libera nova tentativa', async () => {
+  const pagina = abrir('#segredo=abc123', [resposta(400, { detalhe: 'senha_curta' })]);
+  await pagina.enviar();
+  assert.match(pagina.el.mensagem.textContent, /curta demais/);
+  assert.equal(pagina.el.formulario.hidden, false);
+  assert.equal(pagina.el.salvar.disabled, false);
+});
+
+test('falha de conexão avisa, não deixa a página muda e libera nova tentativa (Qodo e Greptile, PR #17)', async () => {
+  const pagina = abrir('#segredo=abc123', [() => Promise.reject(new TypeError('Failed to fetch'))]);
+  await pagina.enviar();
+  assert.match(pagina.el.mensagem.textContent, /Sem conexão/);
+  assert.equal(pagina.el.formulario.hidden, false);
+  assert.equal(pagina.el.salvar.disabled, false);
+});
+
+test('segundo envio enquanto o primeiro corre não chama a API de novo e o sucesso não vira erro (Codex, PR #17)', async () => {
+  let liberar;
+  const lenta = () => new Promise((resolver) => { liberar = () => resolver({ status: 204, json: () => Promise.resolve({}) }); });
+  const pagina = abrir('#segredo=abc123', [lenta, resposta(400, { detalhe: 'link_invalido' })]);
+  const primeiro = pagina.enviar();
+  await pagina.enviar();
+  liberar();
+  await primeiro;
+  assert.equal(pagina.chamadas.length, 1);
+  assert.match(pagina.el.mensagem.textContent, /Senha alterada/);
+});
