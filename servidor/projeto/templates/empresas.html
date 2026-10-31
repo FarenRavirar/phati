@@ -1,0 +1,24 @@
+{% extends "casca.html" %}
+{% load static %}
+{% block titulo %}Fazendas{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Fazendas" %}
+{% if grupos %}
+<div class="busca-fazendas" data-busca-fazendas>
+<div class="campo">
+<label class="campo-rotulo" for="busca-fazendas">Buscar fazenda</label>
+<input class="campo-controle" id="busca-fazendas" type="search" autocomplete="off" spellcheck="false" data-busca-campo>
+</div>
+{% for empresa, fazendas in grupos %}<section class="grupo-empresa" data-grupo>
+<h2>{{ empresa.nome }}</h2>
+<ul class="lista-fazendas">
+{% for item in fazendas %}<li data-fazenda><a href="/empresa/{{ empresa.pk }}/fazenda/{{ item.pk }}/">{{ item.nome }}</a></li>
+{% endfor %}</ul>
+</section>
+{% endfor %}<p class="busca-vazia" role="status" data-busca-vazia hidden>Nenhuma fazenda encontrada.</p>
+</div>
+{% else %}
+{% include "componentes/vazio.html" with texto="Nenhuma fazenda disponível." %}
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if grupos %}<script src="{% static 'projeto/busca-fazendas.js' %}" defer {% csp_nonce_attr %}></script>{% endif %}{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "casca.html" %}
+{% block titulo %}Início{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Início" %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+{% if convites %}
+<h2>Convites</h2>
+{% include "componentes/lista_convites.html" %}
+{% endif %}
+{% if fazendas %}
+<h2>Suas fazendas</h2>
+<ul class="lista-fazendas">
+{% for item in fazendas %}<li><a href="/empresa/{{ item.empresa_id }}/fazenda/{{ item.pk }}/">{{ item.nome }}</a></li>
+{% endfor %}</ul>
+{% endif %}
+{% if not convites and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
+{% endblock %}

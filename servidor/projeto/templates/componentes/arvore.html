@@ -1,0 +1,3 @@
+{% comment %}Parâmetros: nos (lista de {nome, filhos}). Árvore em leitura, recursiva: o banco limita a 3 níveis.{% endcomment %}<ul class="arvore">
+{% for no in nos %}<li>{{ no.nome }}{% if no.filhos %}{% include "componentes/arvore.html" with nos=no.filhos %}{% endif %}</li>
+{% endfor %}</ul>

@@ -12,6 +12,8 @@ from projeto.menu import itens_do_menu
 
 CAMINHO_ENTRAR = '/entrar'
 CAMINHO_TROCAR_SENHA = '/trocar-senha'
+# Ação que só toca a própria pessoa (trocar a senha, responder ao convite dela): sem alvo de terceiro, sem `pode()`.
+PROPRIA_PESSOA = 'propria_pessoa'
 
 
 def destino_seguro(destino):
@@ -19,6 +21,17 @@ def destino_seguro(destino):
     if destino and url_has_allowed_host_and_scheme(destino, allowed_hosts=set()):
         return destino
     return '/'
+
+
+def exige_acao(acao):
+    """Declara a ação do catálogo que a página exige (R22); a varredura de views confere que toda página autenticada
+    declara uma. A checagem em si fica em `resolver_escopo`/listagens, a mesma da API."""
+
+    def declarar(visao):
+        visao.acao_exigida = acao
+        return visao
+
+    return declarar
 
 
 def exige_entrada(visao):
@@ -38,6 +51,7 @@ def exige_entrada(visao):
             return redirect(f'{CAMINHO_TROCAR_SENHA}?{urlencode({"proximo": requisicao.get_full_path()})}')
         return visao(requisicao, *args, **kwargs)
 
+    setattr(interna, 'exige_entrada', True)  # marca para a varredura de views (o pyright não admite atributo em função)
     return interna
 
 

@@ -1,4 +1,4 @@
-{% comment %}Parâmetros: convites (empresa_nome, cargo_nome, expira_em, id). Aceitar e Recusar são POST com CSRF; as rotas chegam na Fase 4.{% endcomment %}<ul class="lista-convites">
+{% comment %}Parâmetros: convites (empresa_nome, cargo_nome, expira_em, id). Aceitar e Recusar são POST com CSRF; as rotas estão em `projeto/inicio.py`.{% endcomment %}<ul class="lista-convites">
 {% for convite in convites %}<li class="convite">
 <div>
 <p class="convite-titulo">{{ convite.empresa_nome }}</p>

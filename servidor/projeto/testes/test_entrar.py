@@ -85,3 +85,10 @@ def _sem_variaveis(html):
     import re
 
     return re.sub(r' (?:value|nonce)="[^"]*"', '', html)
+
+
+def test_entrada_nao_usa_no_referrer_que_faz_o_navegador_mandar_origin_null():
+    # Regressão medida no Chromium: com `no-referrer` o POST do formulário leva `Origin: null` e o CSRF recusa (403).
+    politica = Client().get('/entrar')['Referrer-Policy']
+    assert politica == 'same-origin'
+    assert Client(enforce_csrf_checks=True).post('/entrar', {}, HTTP_ORIGIN='null').status_code == 403  # o que `no-referrer` causava
