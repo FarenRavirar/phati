@@ -98,11 +98,40 @@ jobs:
           test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
           test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migracao)")" = 0
           # `/` sem sessão redireciona ao login (302) e `/entrar` renderiza (200); rota inexistente segue 404.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = 302
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/entrar)" = 200
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/rota-inexistente)" = 404
+          codigo='%{http_code}'
+          http() { curl -s -o /dev/null -w "$codigo" "$@"; }
+          test "$(http http://127.0.0.1:8000/)" = 302
+          test "$(http http://127.0.0.1:8000/entrar)" = 200
+          test "$(http http://127.0.0.1:8000/rota-inexistente)" = 404
           # nginx serve os estáticos (D070): sem o `collectstatic` publicado, o CSS dá 404.
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/static/projeto/casca.css)" = 200
+          test "$(http http://127.0.0.1:8080/static/projeto/casca.css)" = 200
+          # Limite de taxa (T5.5d): rajada de 100 requisições simultâneas, que não depende da velocidade do runner. A zona é
+          # uma só por origem, então depois da primeira rajada o balde está vazio e toda rota da zona devolve 429; rota
+          # fora da zona nunca devolve. A saída vai para variável porque `grep -q` num pipe quebra o `pipefail`.
+          # Cada linha da saída é `status|tipo|retry-after|n`, e o corpo de cada resposta fica em `corpos/n`.
+          mkdir corpos
+          rajada() {
+            local metodo="$1" rota="$2"
+            seq 100 | xargs -P 50 -I{} curl -s -o "corpos/{}" -w "$codigo|%{content_type}|%header{retry-after}|{}\n" -X "$metodo" "http://127.0.0.1:8080$rota"
+          }
+          # O 429 da API é JSON no envelope `detalhe` e o da página é HTML em português, os dois com `Retry-After: 1`.
+          for rota in /entrar /esqueci-senha /painel/login/ /api/v1/entrar /api/v1/redefinir-senha/solicitar /api/v1/redefinir-senha/confirmar /api/v1/acesso/renovar; do
+            saida="$(rajada POST "$rota")"
+            linha="$(grep -m1 '^429|' <<<"$saida")" || { echo "sem 429 em POST $rota"; exit 1; }
+            case "$rota" in
+              /api/*) tipo='application/json'; texto='muitas_requisicoes' ;;
+              *) tipo='text/html; charset=utf-8'; texto='Muitas tentativas' ;;
+            esac
+            IFS='|' read -r _ tipo_recebido retry n <<<"$linha"
+            { [ "$tipo_recebido" = "$tipo" ] && [ "$retry" = 1 ] && grep -q "$texto" "corpos/$n"; } || { echo "429 de POST $rota fora do formato: $linha"; exit 1; }
+          done
+          # Fora da zona a resposta é a própria da rota, nunca 429.
+          for controle in "GET /entrar 200" "POST /rota-inexistente 404"; do
+            read -r metodo rota esperado <<<"$controle"
+            saida="$(rajada "$metodo" "$rota")"
+            test "$(cut -d'|' -f1 <<<"$saida" | sort -u)" = "$esperado" || { echo "$controle: status fora do esperado"; exit 1; }
+          done
+          test "$(http http://127.0.0.1:8080/static/projeto/casca.css)" = 200
       - if: failure()
         run: docker compose logs
       - if: always()
