@@ -1,4 +1,4 @@
-// Executa o menu.js real contra um DOM mínimo (mesmo molde de scripts/redefinir-senha-pagina.test.js): recolher e expandir.
+// Executa o menu.js real contra um DOM mínimo (mesmo molde de redefinir-senha.test.js): recolher e expandir.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

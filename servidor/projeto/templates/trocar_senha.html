@@ -1,0 +1,13 @@
+{% extends "publica.html" %}
+{% block titulo %}Trocar senha{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Trocar senha" %}
+{% if obrigatoria %}{% include "componentes/aviso.html" with tipo="info" texto="Sua senha é temporária. Escolha uma senha nova para continuar." %}{% endif %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+<form method="post" action="/trocar-senha">{% csrf_token %}
+{% include "componentes/campo.html" with id="senha_atual" nome="senha_atual" rotulo="Senha atual" tipo="password" autocomplete="current-password" obrigatorio=True %}
+{% include "componentes/campo.html" with id="senha_nova" nome="senha_nova" rotulo="Senha nova" tipo="password" autocomplete="new-password" obrigatorio=True %}
+{% include "componentes/campo.html" with id="repeticao" nome="repeticao" rotulo="Repita a senha nova" tipo="password" autocomplete="new-password" obrigatorio=True %}
+{% include "componentes/botao.html" with texto="Salvar senha" tipo="submit" %}
+</form>
+{% endblock %}

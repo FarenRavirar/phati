@@ -6,10 +6,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'servidor', 'projeto', 'templates', 'redefinir_senha.html'), 'utf8');
+const PROJETO = path.join(__dirname, '..', '..');
+const HTML = fs.readFileSync(path.join(PROJETO, 'templates', 'redefinir_senha.html'), 'utf8');
+// T3.4: o script saiu do HTML (CSP sem inline) e mora em `redefinir-senha.js`; o teste executa esse arquivo.
+const CODIGO_DA_PAGINA = fs.readFileSync(path.join(PROJETO, 'static', 'projeto', 'redefinir-senha.js'), 'utf8');
 // CodeQL, PR #17 e #18: aceita <SCRIPT>, atributos na abertura e fechamento tolerante.
 const extrairScript = (html) => html.match(/<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/i)[1];
-const CODIGO_DA_PAGINA = extrairScript(HTML);
+
+test('a página só carrega o script por src, com nonce, e não leva script inline', () => {
+  assert.equal(extrairScript(HTML), '');
+  assert.match(HTML, /<script src="\{% static 'projeto\/redefinir-senha\.js' %\}" \{% csp_nonce_attr %\}><\/script>/);
+});
 
 test('extrairScript aceita maiúscula, atributos na abertura e no fechamento', () => {
   assert.equal(extrairScript('<script>a()</script>'), 'a()');

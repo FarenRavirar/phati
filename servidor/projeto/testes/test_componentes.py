@@ -91,12 +91,9 @@ def test_cor_so_existe_no_arquivo_de_variaveis():
 
 
 def test_template_nao_tem_script_inline_nem_estilo_inline():
-    # `redefinir_senha.html` leva o script inline com nonce até a Fase 3 da 002 movê-lo para `redefinir-senha.js` (T3.4).
-    transitorios = {'redefinir_senha.html'}
     for arquivo in TEMPLATES.rglob('*.html'):
         texto = arquivo.read_text(encoding='utf-8')
-        if arquivo.name not in transitorios:
-            assert not re.search(r'<script\b(?![^>]*\bsrc=)', texto, re.IGNORECASE), arquivo.name
+        assert not re.search(r'<script\b(?![^>]*\bsrc=)', texto, re.IGNORECASE), arquivo.name
         assert not re.search(r'<style\b|\sstyle=', texto), arquivo.name
 
 
@@ -151,3 +148,9 @@ def test_nenhum_componente_tem_especificidade_maior_que_a_regra_de_hidden():
                 for parte in seletor.split(','):
                     ids_classes = len(re.findall(r'[.#\[:]', re.sub(r'::?(where|is)\(', '', parte)))
                     assert ids_classes <= 1, (arquivo.name, parte.strip())
+
+
+def test_campo_com_teclado_leva_inputmode_e_sem_corretor():
+    html = _renderizar('componentes/campo.html', id='cpf', nome='cpf', rotulo='CPF', teclado='numeric')
+    assert 'inputmode="numeric" spellcheck="false"' in html
+    assert 'inputmode' not in _renderizar('componentes/campo.html', id='cpf', nome='cpf', rotulo='CPF')
