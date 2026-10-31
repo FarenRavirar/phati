@@ -35,7 +35,7 @@ def exige_entrada(visao):
                 consulta['expirou'] = '1'  # a tela de login mostra "Sua sessão expirou." (R8)
             return redirect(f'{CAMINHO_ENTRAR}?{urlencode(consulta)}')
         if pessoa.deve_trocar_senha and requisicao.path != CAMINHO_TROCAR_SENHA:
-            return redirect(CAMINHO_TROCAR_SENHA)
+            return redirect(f'{CAMINHO_TROCAR_SENHA}?{urlencode({"proximo": requisicao.get_full_path()})}')
         return visao(requisicao, *args, **kwargs)
 
     return interna

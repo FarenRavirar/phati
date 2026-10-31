@@ -2,6 +2,7 @@
 
 import json
 import re
+from pathlib import Path
 
 from django.conf import settings
 from django.test import Client
@@ -26,8 +27,11 @@ def test_pagina_nao_fica_em_cache_e_nao_vaza_referencia():
     resposta = Client().get('/redefinir-senha')
     assert 'no-store' in resposta['Cache-Control']
     assert resposta['Referrer-Policy'] == 'no-referrer'
-    assert b'history.replaceState' in resposta.content
-    assert b'/api/v1/redefinir-senha/confirmar' in resposta.content
+    assert b'projeto/redefinir-senha.js' in resposta.content
+    assert b'<script>' not in resposta.content  # sem script inline (R14); o código está no .js
+    script = (Path(settings.STATICFILES_DIRS[0]) / 'projeto' / 'redefinir-senha.js').read_text(encoding='utf-8')
+    assert 'history.replaceState' in script
+    assert '/api/v1/redefinir-senha/confirmar' in script
 
 
 def test_pagina_so_aceita_consulta():

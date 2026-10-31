@@ -45,7 +45,7 @@ def test_senha_temporaria_so_ve_a_troca(db, fabrica_pessoa):
     pessoa = fabrica_pessoa('Pessoa')
     pessoa.deve_trocar_senha = True
     resposta = _visao(_requisicao(pessoa))
-    assert (resposta.status_code, resposta['Location']) == (302, '/trocar-senha')
+    assert (resposta.status_code, resposta['Location']) == (302, '/trocar-senha?proximo=%2Fempresa%2F1%2Ffazenda%2F2%2F%3Faba%3Da')  # a página pedida segue junto
     assert _visao(_requisicao(pessoa, '/trocar-senha')).status_code == 200  # a própria troca não entra em laço
 
 

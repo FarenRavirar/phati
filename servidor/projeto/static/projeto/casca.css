@@ -34,4 +34,5 @@
 /* Molde público (login, esqueci a senha, redefinição, erros). */
 .publica { display: grid; min-height: 100vh; place-items: start center; padding: var(--espaco-6) var(--espaco-4); }
 .publica-caixa { width: 100%; max-width: 28rem; padding: var(--espaco-5); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.publica-links { margin-top: var(--espaco-4); }
 .publica-produto { margin-bottom: var(--espaco-4); font-weight: 700; color: var(--cor-primaria); }

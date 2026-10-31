@@ -1,0 +1,100 @@
+"""Troca de senha (R5; A2): obrigatória e voluntária, regras vindas da exceção, sessão antiga invalida."""
+
+import re
+
+import pytest
+from django.test import Client
+
+from identidade import senha
+from projeto.testes.conftest import SENHA
+
+
+def _trocar(cliente, nova, atual=SENHA, repeticao=None):
+    return cliente.post('/trocar-senha', {'senha_atual': atual, 'senha_nova': nova, 'repeticao': nova if repeticao is None else repeticao})
+
+
+def test_sem_sessao_vai_a_entrada():
+    assert Client().get('/trocar-senha')['Location'].startswith('/entrar?')
+
+
+def test_senha_temporaria_pedindo_outra_pagina_cai_na_troca(conta):
+    temporaria = senha.emitir_senha_temporaria(conta.pessoa)
+    cliente = Client()
+    cliente.post('/entrar', {'cpf': conta.cpf, 'senha': temporaria})
+    assert cliente.get('/trocar-senha').status_code == 200
+    assert 'Sua senha é temporária' in cliente.get('/trocar-senha').content.decode()
+
+
+@pytest.mark.parametrize(('tamanho', 'aceita'), [(14, False), (15, True), (128, True), (129, False)])
+def test_limites_da_senha_vem_da_validacao(cliente_logado, tamanho, aceita):
+    nova = ('xk7' * 50)[:tamanho]
+    resposta = _trocar(cliente_logado, nova)
+    assert (resposta.status_code == 302) is aceita
+    if not aceita:
+        assert ('pelo menos' if tamanho < 15 else 'no máximo') in resposta.content.decode()
+
+
+def test_senha_atual_errada_e_recusada(cliente_logado):
+    resposta = _trocar(cliente_logado, 'uma frase longa e incomum', atual='errada')
+    assert 'Senha atual incorreta.' in resposta.content.decode()
+
+
+def test_repeticao_diferente_nao_troca(cliente_logado, conta):
+    resposta = _trocar(cliente_logado, 'uma frase longa e incomum', repeticao='outra')
+    assert 'As senhas não são iguais.' in resposta.content.decode()
+    conta.pessoa.refresh_from_db()
+    assert conta.pessoa.check_password(SENHA)
+
+
+def test_troca_encerra_a_sessao_e_a_antiga_nao_vale(conta, cliente_logado):
+    antigo = Client()
+    antigo.cookies = cliente_logado.cookies.copy()
+    resposta = _trocar(cliente_logado, 'uma frase longa e incomum')
+    assert resposta['Location'] == '/entrar?trocada=1'
+    assert antigo.get('/trocar-senha')['Location'].startswith('/entrar?')
+    conta.pessoa.refresh_from_db()
+    assert conta.pessoa.check_password('uma frase longa e incomum')
+
+
+def test_a_tela_nao_repete_a_regra_de_senha():
+    # As recusas vêm de `senha.validar_senha`; nenhum número da regra mora em `projeto/`.
+    from pathlib import Path
+
+    codigo = (Path(__file__).parent.parent / 'paginas_acesso.py').read_text(encoding='utf-8')
+    for limite in (senha.COMPRIMENTO_MINIMO, senha.COMPRIMENTO_MAXIMO):
+        assert not re.search(rf'\b{limite}\b', codigo)
+
+
+def test_sem_csrf_a_troca_e_recusada(conta):
+    cliente = Client(enforce_csrf_checks=True)
+    assert cliente.post('/trocar-senha', {'senha_atual': conta.senha}).status_code == 403
+
+
+def test_a_pagina_pedida_atravessa_a_troca_obrigatoria_e_a_proxima_entrada(conta):
+    temporaria = senha.emitir_senha_temporaria(conta.pessoa)
+    cliente = Client()
+    entrada = cliente.post('/entrar', {'cpf': conta.cpf, 'senha': temporaria, 'proximo': '/empresa/1/fazenda/2/'})
+    troca = cliente.get(entrada['Location'])
+    assert 'name="proximo" value="/empresa/1/fazenda/2/"' in troca.content.decode()
+    resposta = cliente.post('/trocar-senha', {'senha_atual': temporaria, 'senha_nova': 'uma frase longa e incomum', 'repeticao': 'uma frase longa e incomum', 'proximo': '/empresa/1/fazenda/2/'})
+    assert resposta['Location'] == '/entrar?trocada=1&proximo=%2Fempresa%2F1%2Ffazenda%2F2%2F'
+    volta = Client().post('/entrar', {'cpf': conta.cpf, 'senha': 'uma frase longa e incomum', 'proximo': '/empresa/1/fazenda/2/'})
+    assert volta['Location'] == '/empresa/1/fazenda/2/'
+
+
+def test_proximo_externo_some_na_troca(conta):
+    temporaria = senha.emitir_senha_temporaria(conta.pessoa)
+    cliente = Client()
+    cliente.post('/entrar', {'cpf': conta.cpf, 'senha': temporaria})
+    resposta = cliente.post('/trocar-senha', {'senha_atual': temporaria, 'senha_nova': 'uma frase longa e incomum', 'repeticao': 'uma frase longa e incomum', 'proximo': 'https://externo.exemplo/'})
+    assert resposta['Location'] == '/entrar?trocada=1'
+
+
+@pytest.mark.parametrize(('nova', 'texto'), [
+    ('curta', 'pelo menos 15 caracteres'),
+    ('x' * 129, 'no máximo 128 caracteres'),
+    ('1q2w3e4r5t6y7u8i9o0p', 'comum demais'),
+    ('fulana sintetica 123', 'seu nome, e-mail ou CPF'),
+])
+def test_recusa_diz_a_regra_e_como_corrigir(cliente_logado, nova, texto):
+    assert texto in _trocar(cliente_logado, nova).content.decode()

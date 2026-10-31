@@ -35,7 +35,7 @@ def _confere(resposta):
 def test_pagina_de_redefinicao_leva_nonce_no_cabecalho_e_no_script():
     resposta = Client().get('/redefinir-senha')
     nonce = _confere(resposta)
-    assert f'<script nonce="{nonce}">' in resposta.content.decode()
+    assert f'redefinir-senha.js" nonce="{nonce}">' in resposta.content.decode()
 
 
 def test_o_nonce_muda_a_cada_resposta():

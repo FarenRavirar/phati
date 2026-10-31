@@ -214,3 +214,16 @@ def test_sair_revoga_o_acesso_com_o_esquema_em_qualquer_caixa(pessoa, esquema):
     segredo = _entrar(Client(), dispositivo='celular').json()['segredo']
     assert _enviar(Client(), 'sair', headers={'Authorization': f'{esquema} {segredo}'}).status_code == 204
     assert _enviar(Client(), 'sair', headers={'Authorization': f'Bearer {segredo}'}).status_code == 401
+
+
+def test_solicitar_redefinicao_responde_antes_do_pedido_ser_gravado(pessoa, monkeypatch):
+    # PR #20: a rota pública só enfileira; CPF existente e inexistente voltam no mesmo tempo.
+    from identidade import email
+    from identidade.models import PedidoRedefinicao
+
+    fila = []
+    monkeypatch.setattr(email, '_despachar', fila.append)
+    assert _enviar(Client(), 'redefinir-senha/solicitar', {'cpf': CPF}).status_code == 204
+    assert not PedidoRedefinicao.objects.exists()
+    fila.pop()()
+    assert PedidoRedefinicao.objects.count() == 1

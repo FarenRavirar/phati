@@ -76,7 +76,7 @@ def trocar_senha(request, dados: EntradaTrocarSenha):
 
 @roteador.post('redefinir-senha/solicitar', auth=None, url_name='redefinir_senha_solicitar', response={204: None})
 def solicitar_redefinicao(request, dados: EntradaSolicitarRedefinicao):
-    redefinicao.pedir_redefinicao(dados.cpf)  # resposta neutra: CPF inexistente e existente são indistinguíveis (R5)
+    redefinicao.pedir_redefinicao_anonimo(dados.cpf)  # resposta neutra: CPF inexistente e existente são indistinguíveis (R5)
     return 204, None
 
 
