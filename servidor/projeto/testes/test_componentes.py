@@ -154,3 +154,19 @@ def test_campo_com_teclado_leva_inputmode_e_sem_corretor():
     html = _renderizar('componentes/campo.html', id='cpf', nome='cpf', rotulo='CPF', teclado='numeric')
     assert 'inputmode="numeric" spellcheck="false"' in html
     assert 'inputmode' not in _renderizar('componentes/campo.html', id='cpf', nome='cpf', rotulo='CPF')
+
+
+def _declaracoes(seletor):
+    css = (ESTATICOS / 'componentes.css').read_text(encoding='utf-8')
+    achado = re.search(rf'(?m)^{re.escape(seletor)}\s*\{{([^}}]*)\}}', css)
+    assert achado is not None, seletor
+    return achado.group(1)
+
+
+def test_arvore_e_lista_de_fazendas_em_grade_e_a_aninhada_leva_recuo_e_linha_guia():
+    # Sem o recuo e a linha, a árvore de 3 níveis vira uma lista plana (R11); a estrutura HTML sozinha não pega isso.
+    assert 'display: grid' in _declaracoes('.lista-fazendas, .arvore')
+    aninhada = _declaracoes('.arvore .arvore')
+    for declaracao in ('margin:', 'padding-left:', 'border-left:'):
+        assert declaracao in aninhada
+
