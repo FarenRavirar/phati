@@ -53,17 +53,18 @@ def test_concordancia_com_pode_em_cada_acao(cenario, fabrica_pessoa, conceder_di
     assert 'criar_empresa' not in efetivas
 
 
-def test_administrador_com_cargo_enxuto_gerencia_cargo_mas_nao_convida(cenario, fabrica_pessoa, conceder_direto):
-    # `gerenciar_cargo` vale pelo nível do Administrador (D043, `cargo._pode_gerenciar`); convidar passa por `pode()`,
-    # que nega: o menu espelha o portão real (a rota devolve 403, medido; CodeRabbit, PR #18).
+def test_administrador_com_cargo_enxuto_gerencia_cargo_convida_e_revoga(cenario, fabrica_pessoa, conceder_direto):
+    # `gerenciar_cargo`, `convidar_pessoa` e `revogar_acesso` valem pelo nível do Administrador (D043; mantenedor,
+    # 2026-10-31: Administrador convida e revoga sempre). Antes `pode()` negava convidar e revogar a cargo enxuto
+    # (PR #18); o menu continua espelhando o portão real.
     cargo = Cargo.objects.create(empresa=cenario.x, nome='Admin enxuto', base='administrador')
     CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
     admin = fabrica_pessoa('Admin enxuto')
     conceder_direto(admin, cargo, cenario.x)
     efetivas = permissoes_efetivas(admin, cenario.x)
     assert 'gerenciar_cargo' in efetivas
-    assert 'convidar_pessoa' not in efetivas
-    assert not pode(admin, 'convidar_pessoa', cenario.x)
+    assert {'convidar_pessoa', 'revogar_acesso'} <= efetivas
+    assert pode(admin, 'convidar_pessoa', cenario.x)
     assert permissoes_efetivas(admin, cenario.y) == frozenset()
 
 

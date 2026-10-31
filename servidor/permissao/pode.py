@@ -82,7 +82,8 @@ class Vinculo:
         )
 
     def permite(self, acao, alvo, categoria):
-        if acao not in self.permissoes or not self.cobre(alvo):
+        possui = self.tem(acao) if acao in ACOES_DE_DELEGACAO else acao in self.permissoes
+        if not possui or not self.cobre(alvo):
             return False
         if categoria is not None and self.base in BASES_COM_CATEGORIA:
             # Lista vazia nega: nega por padrão (inferência a confirmar, T3.1: ver tasks.md).
@@ -257,8 +258,8 @@ def permissoes_efetivas(pessoa, escopo=None):
         alvo = alvo_de(escopo)
         if alvo is not None:
             # `gerenciar_cargo` não passa por `pode()`: `cargo._pode_gerenciar` vale pelo nível do Administrador
-            # (`Vinculo.tem`, D043) e exige vínculo na empresa inteira. Convidar e revogar passam por `exige_permissao`
-            # → `pode()` e ficam só no que o cargo lista: o menu espelha o portão real (CodeRabbit, PR #18).
+            # (`Vinculo.tem`, D043) e exige vínculo na empresa inteira. Convidar e revogar passam por `pode()`, que
+            # também aplica `Vinculo.tem` a elas (ACOES_DE_DELEGACAO): o menu espelha o portão real (CodeRabbit, PR #18).
             if any(vinculo.tem('gerenciar_cargo') and vinculo.cobre(Alvo(alvo.empresa_id)) for vinculo in memoria_de(pessoa).vinculos):
                 efetivas.add('gerenciar_cargo')
         # `redefinir_senha` só vale a quem a rota aceita: a plataforma ou o Administrador da empresa (R5); cargo

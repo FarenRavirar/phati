@@ -97,6 +97,17 @@ def test_lista_de_pessoas_nao_vaza_entre_empresas_e_sem_acesso_recebe_vazio(cena
     assert _enviar(usuario_x, 'pessoas', metodo='get').json() == []
 
 
+def test_administrador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_e_revoga(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+    # D043: o Administrador convida e revoga sempre, mesmo que o cargo personalizado não liste as duas ações.
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Administrador enxuto', base='administrador')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    admin = _com(fabrica_pessoa, conceder_direto, cargo, cenario.x)
+    convite = _enviar(admin, 'pessoas', _convite(cenario.cargos_x['usuario'], {'fazenda_id': cenario.f1.pk}, cpf_novo()))
+    assert convite.status_code == 201
+    revogada = _enviar(admin, f"pessoas/{convite.json()['id']}/concessoes/{convite.json()['concessao_id']}", metodo='delete')
+    assert revogada.status_code == 204
+
+
 def test_lista_de_pessoas_nao_expoe_cpf_nem_hash_de_senha(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     for pessoa in _enviar(admin, 'pessoas', metodo='get').json():
