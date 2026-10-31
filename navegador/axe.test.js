@@ -3,9 +3,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const axe = require('axe-core');
-const { TAGS, REGRAS_DE_TECLADO_DESLIGADAS, MINIMO_DE_REGRAS } = require('./axe.js');
+const { ETIQUETAS, REGRAS_DE_TECLADO_DESLIGADAS, MINIMO_DE_REGRAS } = require('./axe.js');
 
-const habilitadas = () => axe.getRules(TAGS).map((regra) => regra.ruleId).filter((id) => !REGRAS_DE_TECLADO_DESLIGADAS.includes(id));
+const habilitadas = () => axe.getRules(ETIQUETAS).map((regra) => regra.ruleId).filter((id) => !REGRAS_DE_TECLADO_DESLIGADAS.includes(id));
 
 test('as regras habilitadas passam do piso e incluem target-size (WCAG 2.2 AA) e label', () => {
   const ids = habilitadas();

@@ -14,6 +14,6 @@ module.exports = defineConfig({
   use: { baseURL, trace: 'off' },
   projects: [
     { name: 'desktop-1280x720', use: { browserName: 'chromium', viewport: { width: 1280, height: 720 } } },
-    { name: 'celular-320x568', use: { browserName: 'chromium', viewport: { width: 320, height: 568 } } },
+    { name: 'celular-320x568', testIgnore: /zoom\.spec\.js$/, use: { browserName: 'chromium', viewport: { width: 320, height: 568 } } },
   ],
 });

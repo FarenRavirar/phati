@@ -15,7 +15,8 @@ from territorio.models import Empresa, Fazenda, SubArea
 
 
 @pytest.fixture
-def dados(db):
+def dados(db, monkeypatch):
+    monkeypatch.setenv('PHATI_AMBIENTE_TESTE', '1')
     saida = StringIO()
     call_command('popular_sintetico', stdout=saida)
     return json.loads(saida.getvalue())
@@ -29,19 +30,23 @@ def test_pessoas_com_senha_definida_entram_sem_troca_pendente(dados):
     cpfs = [dados[papel]['cpf'] for papel in ('plataforma', 'administradora_a', 'administrador_b', 'sem_acesso')]
     cpfs += [turma['usuaria']['cpf'] for turma in dados['turmas'].values()]
     pessoas = [_pessoa(dados, cpf) for cpf in cpfs]
-    assert all(pessoa is not None and not pessoa.deve_trocar_senha for pessoa in pessoas)
+    entraram = [pessoa for pessoa in pessoas if pessoa is not None]
+    assert len(entraram) == len(cpfs)
+    assert not any(pessoa.deve_trocar_senha for pessoa in entraram)
 
 
 def test_pessoa_de_troca_entra_so_com_a_senha_temporaria_e_deve_trocar(dados):
     for turma in dados['turmas'].values():
         pessoa = login.autenticar(turma['troca']['cpf'], turma['troca']['senha_temporaria'])
-        assert pessoa is not None and pessoa.deve_trocar_senha
+        assert pessoa is not None
+        assert pessoa.deve_trocar_senha
         assert _pessoa(dados, turma['troca']['cpf']) is None
 
 
 def test_cada_turma_tem_pessoas_proprias(dados):
     cpfs = [cpf for turma in dados['turmas'].values() for cpf in (turma['usuaria']['cpf'], turma['troca']['cpf'])]
-    assert len(set(cpfs)) == len(cpfs) == 4
+    assert len(set(cpfs)) == len(cpfs)
+    assert len(cpfs) == 4
     assert Pessoa.objects.count() == 4 + len(cpfs)
 
 
@@ -69,6 +74,15 @@ def test_territorio_criado_tem_duas_empresas_quatro_fazendas_e_arvore_de_tres_ni
     assert sorted(SubArea.objects.values_list('nivel', flat=True)) == [1, 2, 3]
 
 
+def test_sem_a_variavel_de_ambiente_de_teste_recusa_e_nada_e_criado(db, monkeypatch):
+    monkeypatch.delenv('PHATI_AMBIENTE_TESTE', raising=False)
+    saida = StringIO()
+    with pytest.raises(CommandError, match='so_em_ambiente_de_teste'):
+        call_command('popular_sintetico', stdout=saida)
+    assert Pessoa.objects.count() == 0
+
+
 def test_segunda_execucao_recusa_com_ja_populado(dados):
+    saida = StringIO()
     with pytest.raises(CommandError, match='ja_populado'):
-        call_command('popular_sintetico', stdout=StringIO())
+        call_command('popular_sintetico', stdout=saida)

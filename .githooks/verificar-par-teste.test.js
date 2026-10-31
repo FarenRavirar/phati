@@ -32,12 +32,18 @@ test('isentos da lista fixa não exigem par', () => {
   }
 });
 
-test('navegador/ e playwright.config.js não exigem par; JS fora deles segue exigindo', () => {
-  for (const c of ['navegador/inicio.spec.js', 'navegador/axe.js', 'playwright.config.js']) {
-    assert.equal(parEsperado(c), null, c);
-  }
-  assert.equal(parEsperado('outro/navegador/x.js'), 'outro/navegador/x.test.js');
+test('specs de navegador não exigem par; auxiliares, a config do Playwright e JS fora deles seguem exigindo', () => {
+  assert.equal(parEsperado('navegador/inicio.spec.js'), null);
+  assert.equal(parEsperado('playwright.config.js'), 'playwright.config.test.js');
+  assert.equal(parEsperado('navegador/axe.js'), 'navegador/axe.test.js');
+  assert.equal(parEsperado('navegador/apoio.js'), 'navegador/apoio.test.js');
+  assert.equal(parEsperado('outro/navegador/x.spec.js'), 'outro/navegador/x.spec.test.js');
   assert.equal(parEsperado('playwright.config.mjs'), 'playwright.config.test.mjs');
+});
+
+test('apagar o teste de um auxiliar de navegador ainda rastreado bloqueia', () => {
+  const achados = verificar({ caminhos: [], removidos: ['navegador/axe.test.js'], rastreados: ['navegador/axe.js'] });
+  assert.deepEqual(achados, [{ arquivo: 'navegador/axe.js', par: 'navegador/axe.test.js' }]);
 });
 
 test('conftest.py exige par, na raiz de servidor/ e dentro de app', () => {

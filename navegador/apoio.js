@@ -6,14 +6,19 @@ const path = require('node:path');
 const { expect } = require('@playwright/test');
 const { violacoes } = require('./axe.js');
 
-const dados = JSON.parse(fs.readFileSync(path.join(__dirname, 'dados.json'), 'utf8'));
+// Leitura preguiçosa: o teste do próprio auxiliar (`apoio.test.js`) roda no job de testes, que não tem `dados.json`.
+let memoria;
+function lerDados() {
+  memoria ??= JSON.parse(fs.readFileSync(path.join(__dirname, 'dados.json'), 'utf8'));
+  return memoria;
+}
 
 // Cada projeto (tamanho de tela) usa as próprias pessoas: os testes aceitam convite e trocam senha.
-function turmaDe(testInfo) {
+function turmaDe(testInfo, dados = lerDados()) {
   return testInfo.project.name.startsWith('desktop') ? dados.turmas.desktop : dados.turmas.celular;
 }
 
-async function entrar(pagina, cpf, senha = dados.senha) {
+async function entrar(pagina, cpf, senha = lerDados().senha) {
   await pagina.goto('/entrar');
   await pagina.getByLabel('CPF', { exact: true }).fill(cpf);
   await pagina.getByLabel('Senha', { exact: true }).fill(senha);
@@ -35,4 +40,12 @@ async function abrirMenu(pagina) {
   if ((await botao.isVisible()) && (await botao.getAttribute('aria-expanded')) === 'false') await botao.click();
 }
 
-module.exports = { dados, turmaDe, entrar, semRolagemHorizontal, acessivel, abrirMenu };
+module.exports = {
+  get dados() {
+    return lerDados();
+  },
+  turmaDe, entrar,
+  semRolagemHorizontal,
+  acessivel,
+  abrirMenu,
+};

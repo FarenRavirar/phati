@@ -6,6 +6,7 @@ os CPFs, a senha e os ids que os testes de navegador usam. Roda com as credencia
 """
 
 import json
+import os
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -61,7 +62,14 @@ def _turma(indice, administrador_a, administrador_b, empresa_a, empresa_b, fazen
 
 
 def popular():
-    """Devolve o dicionário que os testes de navegador leem. Levanta `CommandError` se o ambiente já foi populado."""
+    """Devolve o dicionário que os testes de navegador leem.
+
+    Recusa sem `PHATI_AMBIENTE_TESTE=1` no ambiente do comando: ele cria logins com CPF e senha conhecidos, e a checagem
+    do nome da empresa sozinha não distingue um banco descartável de um real (achado do Qodo, PR #22). O compose não
+    repassa essa variável: só quem a passa no comando (`-e`) popula. Levanta `CommandError` se já foi populado.
+    """
+    if os.environ.get('PHATI_AMBIENTE_TESTE') != '1':
+        raise CommandError('so_em_ambiente_de_teste')
     if Empresa.objects.filter(nome=NOME_EMPRESA_A).exists():
         raise CommandError('ja_populado')
     with transaction.atomic():

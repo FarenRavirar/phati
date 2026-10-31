@@ -52,9 +52,13 @@ jobs:
       - run: python manage.py check
       - run: python -m pytest -q
       - run: pyright
+      # `navegador/*.test.js` importa `axe-core`; o job de testes não tinha dependência de JavaScript (achado do Codex, PR #22).
+      - name: Dependências de JavaScript
+        working-directory: .
+        run: npm ci --ignore-scripts
       - name: Hooks do git
         working-directory: .
-        run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js navegador/*.test.js
+        run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js navegador/*.test.js playwright.config.test.js
       - name: Par arquivo–teste
         if: github.event_name == 'pull_request'
         working-directory: .
@@ -132,10 +136,11 @@ jobs:
             sleep 2
           done
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200
-          docker compose run --rm --no-deps -T migracao python manage.py popular_sintetico > ../navegador/dados.json
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npx playwright test
+          docker compose run --rm --no-deps -T -e PHATI_AMBIENTE_TESTE=1 migracao python manage.py popular_sintetico > ../navegador/dados.json
+      # Versões e hashes vêm do `package-lock.json`; nenhum pacote da cadeia tem script de instalação (D072), então `--ignore-scripts` não perde nada.
+      - run: npm ci --ignore-scripts
+      - run: ./node_modules/.bin/playwright install --with-deps chromium
+      - run: ./node_modules/.bin/playwright test
       - if: failure()
         working-directory: servidor
         run: docker compose logs

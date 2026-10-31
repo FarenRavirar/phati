@@ -30,13 +30,14 @@ test('volta à página pedida depois do login (R8)', async ({ page }) => {
   await expect(page).toHaveURL(/\/empresas\/$/);
 });
 
-test('destino externo é ignorado e a pessoa cai em /', async ({ page }) => {
+test('destino externo é ignorado e a pessoa cai em / do próprio site', async ({ page }, testInfo) => {
   await page.goto('/entrar?proximo=https://externo.exemplo/');
   await page.getByLabel('CPF', { exact: true }).fill(dados.sem_acesso.cpf);
   await page.getByLabel('Senha', { exact: true }).fill(dados.senha);
   await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page).toHaveURL(/\/$/);
-  expect(new URL(page.url()).hostname).not.toBe('externo.exemplo');
+  await expect(page.getByRole('heading', { name: 'Início', level: 1 })).toBeVisible();
+  // Origem e caminho exatos: qualquer outro host que terminasse em "/" não passa.
+  expect(page.url()).toBe(new URL('/', testInfo.project.use.baseURL).href);
 });
 
 test('aviso de sessão vencida aparece e passa no axe (R8)', async ({ page }) => {
