@@ -102,3 +102,7 @@ secret.txt
 
 # Gerado pelo impeccable na raiz (pode conter descrição de produto); fica local
 PRODUCT.md
+
+navegador/dados.json
+test-results/
+playwright-report/

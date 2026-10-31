@@ -19,7 +19,7 @@
 }
 .menu-item:hover { background: var(--cor-item-ativo); color: var(--cor-texto); }
 /* A página atual leva barra e negrito além da cor: a cor sozinha não é sinal (R15). */
-.menu-item[aria-current="page"] { background: var(--cor-item-ativo); color: var(--cor-primaria); font-weight: 700; box-shadow: inset 4px 0 0 var(--cor-primaria); }
+.menu-item[aria-current] { background: var(--cor-item-ativo); color: var(--cor-primaria); font-weight: 700; box-shadow: inset 4px 0 0 var(--cor-primaria); }
 
 .conteudo { padding: var(--espaco-5); min-width: 0; }
 .conteudo h2 { margin-top: var(--espaco-5); }

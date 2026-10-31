@@ -52,9 +52,13 @@ jobs:
       - run: python manage.py check
       - run: python -m pytest -q
       - run: pyright
+      # `navegador/*.test.js` importa `axe-core`; o job de testes não tinha dependência de JavaScript (achado do Codex, PR #22).
+      - name: Dependências de JavaScript
+        working-directory: .
+        run: npm ci --ignore-scripts
       - name: Hooks do git
         working-directory: .
-        run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js
+        run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js navegador/*.test.js playwright.config.test.js
       - name: Par arquivo–teste
         if: github.event_name == 'pull_request'
         working-directory: .
@@ -97,7 +101,49 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = 302
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/entrar)" = 200
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/rota-inexistente)" = 404
+          # nginx serve os estáticos (D070): sem o `collectstatic` publicado, o CSS dá 404.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/static/projeto/casca.css)" = 200
       - if: failure()
         run: docker compose logs
       - if: always()
+        run: docker compose down -v
+
+  # Testes de navegador (spec 002, R19): Chromium em 1280×720 e 320×568, axe em WCAG 2.2 AA, dado inventado.
+  navegador:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Variáveis efêmeras
+        run: |
+          {
+            echo "PHATI_CHAVE_SECRETA=$(openssl rand -hex 32)"
+            echo "PHATI_CHAVE_CPF=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "PHATI_SEGREDO_RLS=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "PHATI_BANCO_SUPER_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_DONO_USUARIO=dono"
+            echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_APP_USUARIO=app"
+            echo "PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)"
+          } >> "$GITHUB_ENV"
+      - name: Sobe o compose (app, banco, nginx) e popula o dado inventado
+        working-directory: servidor
+        run: |
+          docker compose up -d --build
+          for _ in $(seq 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
+            sleep 2
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200
+          docker compose run --rm --no-deps -T -e PHATI_AMBIENTE_TESTE=1 migracao python manage.py popular_sintetico > ../navegador/dados.json
+      # Versões e hashes vêm do `package-lock.json`; nenhum pacote da cadeia tem script de instalação (D072), então `--ignore-scripts` não perde nada.
+      - run: npm ci --ignore-scripts
+      - run: ./node_modules/.bin/playwright install --with-deps chromium
+      - run: ./node_modules/.bin/playwright test
+      - if: failure()
+        working-directory: servidor
+        run: docker compose logs
+      - if: always()
+        working-directory: servidor
         run: docker compose down -v
