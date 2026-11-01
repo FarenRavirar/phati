@@ -64,6 +64,13 @@ def test_vazio_e_cabecalho_e_tabela():
     assert '<td>F2</td>' in html
 
 
+def test_vazio_so_mostra_a_acao_quando_a_view_a_passa():
+    assert '<a ' not in _renderizar('componentes/vazio.html', texto='Sem sub-áreas.')
+    com = _renderizar('componentes/vazio.html', texto='Sem sub-áreas.', acao_rotulo='Cadastrar', acao_destino='/x/')
+    assert '<a class="botao" href="/x/">Cadastrar</a>' in com
+    assert '<a ' not in _renderizar('componentes/vazio.html', texto='x', acao_rotulo='Cadastrar')  # rótulo sem destino não vira link
+
+
 def test_lista_de_convites_tem_aceitar_e_recusar_com_csrf_e_data_brasileira():
     from datetime import datetime, timezone
 
@@ -165,7 +172,7 @@ def _declaracoes(seletor):
 
 def test_arvore_e_lista_de_fazendas_em_grade_e_a_aninhada_leva_recuo_e_linha_guia():
     # Sem o recuo e a linha, a árvore de 3 níveis vira uma lista plana (R11); a estrutura HTML sozinha não pega isso.
-    assert 'display: grid' in _declaracoes('.lista-fazendas, .arvore')
+    assert 'display: grid' in _declaracoes('.lista-fazendas, .lista-atalhos, .arvore')
     aninhada = _declaracoes('.arvore .arvore')
     for declaracao in ('margin:', 'padding-left:', 'border-left:'):
         assert declaracao in aninhada

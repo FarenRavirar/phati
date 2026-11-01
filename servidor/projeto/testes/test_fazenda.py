@@ -75,9 +75,21 @@ def test_irma_sem_concessao_da_mesma_empresa_recebe_404(cliente_logado, conta, c
     assert cliente_logado.get(_caminho(cenario.x, cenario.f2)).status_code == 404
 
 
-def test_faixa_leva_empresa_e_fazenda(cliente_logado, conta, cenario, conceder_direto):
+def test_trilha_da_faixa_tem_um_link_para_a_empresa_e_outro_para_a_fazenda(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.f1)
-    assert 'Empresa X › F1' in cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
+    resposta = cliente_logado.get(_caminho(cenario.x, cenario.f1))
+    faixa = resposta.content.decode().split('<nav class="faixa-escopo"')[1].split('</nav>')[0]
+    assert re.findall(r'<a href="([^"]+)"( aria-current="page")?>([^<]+)</a>', faixa) == [
+        (f'/empresa/{cenario.x.pk}/', '', 'Empresa X'),
+        (_caminho(cenario.x, cenario.f1), ' aria-current="page"', 'F1'),  # só o trecho da página atual leva aria-current
+    ]
+    assert 'Empresa X' not in _conteudo(resposta)  # A2: o nome da empresa não se repete no <main>
+
+
+def test_no_da_arvore_nao_e_link_enquanto_a_sub_area_nao_tem_pagina(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    arvore = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode().split('<ul class="arvore">')[1].split('</main>')[0]
+    assert '<a ' not in arvore
 
 
 def test_deslogado_vai_a_entrada_e_senha_temporaria_vai_a_troca(cliente_logado, conta, cenario):

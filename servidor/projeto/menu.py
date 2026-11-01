@@ -27,6 +27,22 @@ ITENS = (
 )
 
 
+@dataclass(frozen=True)
+class Atalho:
+    nome: str
+    caminho: str
+    acao: str  # ação do catálogo que a pessoa precisa ter em algum escopo; nunca o nome do papel (R7)
+
+
+# Atalhos fixos do Início, na ordem provisória da D081 (a confirmar com a Tatiane). Cada fase de gestão acrescenta a linha
+# da própria tela, para o atalho nunca apontar a uma rota que não existe.
+ATALHOS: tuple[Atalho, ...] = ()
+
+
+def atalhos_do_inicio(pessoa):
+    return [atalho for atalho in ATALHOS if age_em_algum_escopo(pessoa, atalho.acao)]
+
+
 def itens_do_menu(pessoa, escopo=None, caminho=None):
     efetivas = permissoes_efetivas(pessoa, escopo)
     return [replace(item, atual=_atual(item, caminho)) for item in ITENS if _visivel(item, pessoa, efetivas)]

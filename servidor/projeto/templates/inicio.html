@@ -7,11 +7,23 @@
 <h2>Convites</h2>
 {% include "componentes/lista_convites.html" %}
 {% endif %}
+{% if atalhos %}
+<h2>Atalhos</h2>
+<ul class="lista-atalhos">
+{% for atalho in atalhos %}<li><a href="{{ atalho.caminho }}">{{ atalho.nome }}</a></li>
+{% endfor %}</ul>
+{% endif %}
+{% if empresas %}
+<h2>Empresas</h2>
+<ul class="lista-fazendas">
+{% for item in empresas %}<li><a href="/empresa/{{ item.pk }}/">{{ item.nome }}</a></li>
+{% endfor %}</ul>
+{% endif %}
 {% if fazendas %}
 <h2>Suas fazendas</h2>
 <ul class="lista-fazendas">
 {% for item in fazendas %}<li><a href="/empresa/{{ item.empresa_id }}/fazenda/{{ item.pk }}/">{{ item.nome }}</a></li>
 {% endfor %}</ul>
 {% endif %}
-{% if not convites and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
+{% if not convites and not atalhos and not empresas and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
 {% endblock %}

@@ -2,7 +2,8 @@
 
 import pytest
 
-from projeto.menu import ITENS, itens_do_menu
+from projeto import menu
+from projeto.menu import ITENS, Atalho, atalhos_do_inicio, itens_do_menu
 
 
 def _nomes(pessoa, escopo=None):
@@ -58,3 +59,11 @@ def test_toda_pessoa_autenticada_tem_os_dois_primeiros_itens():
 def test_marca_o_item_atual_pelo_caminho_e_pelas_paginas_filhas(fabrica_pessoa, caminho, atual):
     itens = itens_do_menu(fabrica_pessoa('Pessoa'), None, caminho)
     assert {item.nome: item.atual for item in itens if item.atual} == atual
+
+
+def test_atalho_vem_da_acao_efetiva_nunca_do_papel(cenario, fabrica_pessoa, conceder_direto, monkeypatch):
+    monkeypatch.setattr(menu, 'ATALHOS', (Atalho('Convidar pessoa', '/x/', 'convidar_pessoa'),))
+    administrador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    usuario = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1)
+    assert [a.nome for a in atalhos_do_inicio(administrador)] == ['Convidar pessoa']
+    assert atalhos_do_inicio(usuario) == []

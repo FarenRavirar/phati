@@ -63,7 +63,7 @@
   --fonte-pequena: 0.875rem;
   --fonte-base: 1rem;
   --fonte-titulo-2: 1.25rem;
-  --fonte-titulo-1: 1.5rem;
+  --fonte-titulo-1: 1.75rem; /* razão 1,4 com --fonte-titulo-2 (era 1,2); valor a confirmar: ver tasks.md T1.1 */
   --altura-controle: 44px; /* alvo de toque: WCAG 2.5.8 pede 24 px; 44 px é o piso da maioria das plataformas móveis */
   --largura-menu: 15rem;
 }

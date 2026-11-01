@@ -1,5 +1,7 @@
 """Portão de sessão e molde da casca (R1, R5, R8; A5, A19)."""
 
+import re
+
 import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.backends.db import SessionStore
@@ -25,6 +27,18 @@ def _requisicao(pessoa=None, caminho='/empresa/1/fazenda/2/?aba=a', vigente=True
         if not vigente:
             requisicao.session['ultima_atividade'] -= 31 * 60  # A5: 31 minutos de ociosidade
     return requisicao
+
+
+def test_casca_leva_theme_color_igual_a_cor_primaria_do_css_e_o_favicon(db, fabrica_pessoa):
+    from pathlib import Path
+
+    import projeto
+
+    variaveis = (Path(projeto.__file__).parent / 'static' / 'projeto' / 'tokens.css').read_text(encoding='utf-8')
+    primaria = re.findall(r'--cor-primaria:\s*(#[0-9A-Fa-f]{6})', variaveis)[0]
+    html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'inicio.html').content.decode()
+    assert f'<meta name="theme-color" content="{primaria}">' in html
+    assert '<link rel="icon" href="/static/projeto/favicon.svg"' in html
 
 
 def test_deslogado_vai_a_entrada_com_a_pagina_pedida(db):
@@ -81,7 +95,8 @@ def test_casca_tem_faixa_menu_conteudo_e_escopo(cenario, fabrica_pessoa, concede
     assert '<header class="faixa">' in html
     assert '<nav class="menu"' in html
     assert '<main class="conteudo">' in html
-    assert 'Empresa X › F1' in html  # faixa com o escopo atual
+    assert '>Empresa X</a> › <a href=' in html  # faixa com o escopo atual, em links
+    assert '>F1</a>' in html
     assert 'Fulana Sintetica' in html
     assert 'action="/sair"' in html
     assert 'csrfmiddlewaretoken' in html
@@ -97,12 +112,12 @@ def test_menu_marca_page_na_propria_pagina_e_true_na_pagina_filha(cenario, fabri
     filha = renderizar_na_casca(_requisicao(pessoa, f'/empresa/{cenario.x.pk}/'), 'casca.html', empresa=cenario.x).content.decode()
     assert 'href="/empresas/" aria-current="page"' in propria
     assert 'href="/empresas/" aria-current="true"' in filha
-    assert 'aria-current="page"' not in filha
+    assert 'aria-current="page"' not in filha.split('<nav class="menu"')[1]  # a trilha da faixa marca a empresa, o menu não
 
 
 def test_casca_sem_escopo_deixa_a_faixa_vazia(cenario, fabrica_pessoa):
     html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'casca.html').content.decode()
-    assert '<p class="faixa-escopo"></p>' in html
+    assert '<nav class="faixa-escopo" aria-label="Escopo atual"></nav>' in html
 
 
 def test_post_sem_sessao_nao_leva_proximo_porque_o_endereco_so_aceita_post(db):
