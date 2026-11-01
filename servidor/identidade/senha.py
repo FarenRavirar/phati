@@ -93,11 +93,25 @@ def definir_senha(pessoa, senha):
 
 
 def trocar_senha(pessoa, senha_atual, senha_nova):
+    # Import local: `login` calcula um hash na carga e o hasher é `GeradorHashArgon2`, deste módulo; importar `login`
+    # no topo quebra a carga quando `senha` é o primeiro a ser importado (circular).
+    from identidade import login
+
+    recusa = None
     with _pessoa_travada(pessoa) as travada:
         # A conferência da senha atual e a gravação da nova ficam sob a mesma trava.
-        if not travada.check_password(senha_atual):
-            raise ValidationError('Senha atual incorreta.', code='senha_atual_incorreta')
-        definir_senha(travada, senha_nova)
+        agora = timezone.now()
+        bloqueada = travada.bloqueada_ate is not None and travada.bloqueada_ate > agora
+        if bloqueada or not travada.check_password(senha_atual):
+            # Sessão roubada não adivinha a senha atual de graça: a falha entra no contador da conta, o mesmo do
+            # login (achado do Qodo, PR #14). A recusa sobe depois do bloco, senão o rollback desfaz a contagem.
+            if not bloqueada:
+                login.registrar_falha(travada, agora)
+            recusa = ValidationError('Senha atual incorreta.', code='senha_atual_incorreta')
+        else:
+            definir_senha(travada, senha_nova)
+    if recusa is not None:
+        raise recusa
     pessoa.refresh_from_db()
     email.enviar_aviso_de_troca(pessoa)
 
@@ -105,8 +119,8 @@ def trocar_senha(pessoa, senha_atual, senha_nova):
 def emitir_senha_temporaria(pessoa):
     """Gera a senha temporária (uso único, 72 h), grava só o hash, envia por e-mail e a devolve a quem criou.
 
-    Gravação e envio ficam na mesma transação: se o SMTP falhar, a exceção desfaz a troca e a pessoa
-    segue com a credencial anterior (achado do Qodo, PR #9).
+    O e-mail sai depois do commit; a senha volta a quem chama, então falha do SMTP (só log) não deixa a pessoa
+    sem acesso (achado do Qodo, PR #9; T5.5a 4 e 5).
     """
     senha = ''.join(secrets.choice(ALFABETO_TEMPORARIA) for _ in range(16))
     with _pessoa_travada(pessoa) as travada:

@@ -1,0 +1,4 @@
+{% comment %}Parâmetros: tipo (erro, aviso, info, sucesso), texto. Cor, ícone e texto juntos; erro e sucesso são anunciados na hora.{% endcomment %}<div class="aviso aviso-{{ tipo }}"{% if tipo == 'erro' %} role="alert"{% elif tipo == 'sucesso' %} role="status"{% endif %}>
+{% if tipo == 'erro' %}{% include 'icones/erro.html' %}{% elif tipo == 'aviso' %}{% include 'icones/aviso.html' %}{% elif tipo == 'sucesso' %}{% include 'icones/sucesso.html' %}{% else %}{% include 'icones/info.html' %}{% endif %}
+<p class="aviso-texto">{{ texto }}</p>
+</div>

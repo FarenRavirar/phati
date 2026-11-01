@@ -1,0 +1,33 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="{{ cor_do_tema }}">
+<title>{% block titulo %}Phati{% endblock %} · phati</title>
+<link rel="icon" href="{% static 'projeto/favicon.svg' %}" type="image/svg+xml" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/tokens.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/base.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/componentes.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/casca.css' %}" {% csp_nonce_attr %}>
+</head>
+<body>
+<div class="casca">
+<header class="faixa">
+<a class="faixa-produto" href="/" translate="no">phati</a>
+<nav class="faixa-escopo" aria-label="Escopo atual">{% if empresa %}{% url 'empresa' empresa.pk as url_empresa %}<a href="{{ url_empresa }}"{% if request.path == url_empresa %} aria-current="page"{% endif %}>{{ empresa.nome }}</a>{% if fazenda %}{% url 'fazenda' empresa.pk fazenda.pk as url_fazenda %} › <a href="{{ url_fazenda }}"{% if request.path == url_fazenda %} aria-current="page"{% endif %}>{{ fazenda.nome }}</a>{% endif %}{% endif %}</nav>
+<p class="faixa-pessoa">{{ request.user.nome }}</p>
+<form class="faixa-sair" method="post" action="/sair">{% csrf_token %}<button class="botao botao-secundario" type="submit">Sair</button></form>
+</header>
+<nav class="menu" aria-label="Menu principal">
+<ul class="menu-lista">
+{% for item in itens_menu %}<li><a class="menu-item" href="{{ item.caminho }}"{% if item.atual %} aria-current="{{ item.atual }}"{% endif %}>{{ item.nome }}</a></li>
+{% endfor %}</ul>
+</nav>
+<main class="conteudo">
+{% block conteudo %}{% endblock %}
+</main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>

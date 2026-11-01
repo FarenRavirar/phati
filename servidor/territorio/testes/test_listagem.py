@@ -1,14 +1,15 @@
 """A7 (R7, R14): a listagem de fazendas devolve só as autorizadas."""
 
 from datetime import timedelta
+from importlib import import_module
 
 import pytest
 from django.utils import timezone
 
-from permissao.models import Cargo, CargoPermissao
+from permissao.models import Cargo, CargoPermissao, Permissao
 from territorio.cadastro import criar_fazenda
-from territorio.listagem import fazendas_autorizadas
-from territorio.models import Empresa, Fazenda
+from territorio.listagem import empresas_autorizadas, fazendas_autorizadas, sub_areas_da_fazenda
+from territorio.models import Empresa, Fazenda, SubArea
 
 pytestmark = pytest.mark.django_db
 
@@ -85,3 +86,106 @@ def test_fazenda_de_empresa_sem_concessao_nao_aparece(cenario, fabrica_pessoa, c
     conceder_direto(usuario, cenario.cargos_x['usuario'], cenario.f1)
     Fazenda.objects.create(empresa=vazia, nome='Da Vazia')
     assert _nomes(usuario) == ['F1']
+
+
+def _empresas(pessoa):
+    return [e.nome for e in empresas_autorizadas(pessoa)]
+
+
+def _sub_areas(pessoa, fazenda):
+    return [s.nome for s in sub_areas_da_fazenda(pessoa, fazenda)]
+
+
+def test_plataforma_lista_todas_as_empresas(cenario, plataforma):
+    assert _empresas(plataforma) == ['Empresa X', 'Empresa Y']
+
+
+def test_administrador_da_empresa_x_lista_so_a_x(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin da X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    assert _empresas(admin) == ['Empresa X']
+
+
+def test_concessao_de_fazenda_ou_sub_area_lista_a_empresa_que_a_contem(cenario, fabrica_pessoa, conceder_direto):
+    na_fazenda, na_sub_area = fabrica_pessoa('Na Fazenda'), fabrica_pessoa('Na Sub Area')
+    conceder_direto(na_fazenda, cenario.cargos_x['usuario'], cenario.f2)
+    conceder_direto(na_sub_area, cenario.cargos_y['usuario'], cenario.fy)
+    assert _empresas(na_fazenda) == ['Empresa X']
+    assert _empresas(na_sub_area) == ['Empresa Y']
+
+
+def test_pessoa_sem_concessao_lista_zero_empresas(cenario, fabrica_pessoa):
+    assert _empresas(fabrica_pessoa('Sem Nada')) == []
+
+
+@pytest.fixture
+def catalogo(db):
+    """Teste transacional esvazia o catálogo carregado pela migração; recria antes do `cenario` (mesmo molde de test_api)."""
+    for codigo, descricao, delegavel in import_module('permissao.migrations.0001_initial').ACOES:
+        Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
+
+
+@pytest.fixture
+def pessoas_do_papel_app(cenario, fabrica_pessoa, conceder_direto):
+    """Cria os dados como dono: com `como_app` ativo a escrita já passaria pela RLS."""
+    na_g1 = fabrica_pessoa('Na G1')
+    conceder_direto(na_g1, cenario.cargos_x['usuario'], cenario.g1)
+    return fabrica_pessoa('Sem Nada'), na_g1
+
+
+@pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+def test_sob_o_papel_app_sem_contexto_zero_linhas_e_com_concessao_so_o_escopo(catalogo, cenario, pessoas_do_papel_app, como_app):
+    # `como_app` troca a conexão `default` pelo papel `app`: a RLS vale, e as listagens abrem `com_permissao`.
+    sem_nada, na_g1 = pessoas_do_papel_app
+    assert list(Empresa.objects.all()) == []
+    assert list(SubArea.objects.all()) == []
+    assert _empresas(sem_nada) == []
+    assert _sub_areas(sem_nada, cenario.f1) == []
+    assert _empresas(na_g1) == ['Empresa X']
+    assert _sub_areas(na_g1, cenario.f1) == ['G1', 'T1']
+
+
+def test_concessao_de_empresa_ou_fazenda_lista_todas_as_sub_areas_da_fazenda(cenario, fabrica_pessoa, conceder_direto):
+    da_empresa, da_fazenda = fabrica_pessoa('Da Empresa'), fabrica_pessoa('Da Fazenda')
+    conceder_direto(da_empresa, cenario.cargos_x['usuario'], cenario.x)
+    conceder_direto(da_fazenda, cenario.cargos_x['usuario'], cenario.f1)
+    assert _sub_areas(da_empresa, cenario.f1) == ['G1', 'G2', 'T1']
+    assert _sub_areas(da_fazenda, cenario.f1) == ['G1', 'G2', 'T1']
+
+
+def test_concessao_de_sub_area_lista_ela_e_as_descendentes_e_nao_as_irmas(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Na G1')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.g1)
+    assert _sub_areas(pessoa, cenario.f1) == ['G1', 'T1']
+
+
+def test_sub_areas_de_fazenda_de_outra_empresa_voltam_vazias(cenario, fabrica_pessoa, conceder_direto):
+    admin_y = fabrica_pessoa('Admin da Y')
+    conceder_direto(admin_y, cenario.cargos_y['administrador'], cenario.y)
+    assert _sub_areas(admin_y, cenario.f1) == []
+    assert _sub_areas(fabrica_pessoa('Sem Nada'), cenario.f1) == []
+
+
+def test_plataforma_lista_as_sub_areas_de_qualquer_fazenda(cenario, plataforma):
+    assert _sub_areas(plataforma, cenario.f1) == ['G1', 'G2', 'T1']
+
+
+def test_filtro_por_pk_devolve_so_o_pedido_e_nunca_o_nao_autorizado(cenario, fabrica_pessoa, conceder_direto, plataforma):
+    # PR #19: a URL de escopo pede uma linha, não a lista inteira; o filtro não amplia o acesso.
+    admin = fabrica_pessoa('Admin X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    assert [e.pk for e in empresas_autorizadas(admin, pk=cenario.x.pk)] == [cenario.x.pk]
+    assert empresas_autorizadas(admin, pk=cenario.y.pk) == []
+    assert [f.pk for f in fazendas_autorizadas(admin, pk=cenario.f1.pk)] == [cenario.f1.pk]
+    assert fazendas_autorizadas(admin, pk=cenario.fy.pk) == []
+    assert [f.pk for f in fazendas_autorizadas(plataforma, pk=cenario.fy.pk)] == [cenario.fy.pk]
+    assert fazendas_autorizadas(plataforma, pk=999_999) == []
+
+
+def test_empresa_id_filtra_na_consulta_e_nao_abre_empresa_sem_acesso(cenario, fabrica_pessoa, conceder_direto, plataforma):
+    admin = fabrica_pessoa('Admin da X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    assert {f.empresa_id for f in fazendas_autorizadas(plataforma)} == {cenario.x.pk, cenario.y.pk}
+    assert [f.pk for f in fazendas_autorizadas(plataforma, empresa_id=cenario.y.pk)] == [cenario.fy.pk]
+    assert {f.empresa_id for f in fazendas_autorizadas(admin, empresa_id=cenario.x.pk)} == {cenario.x.pk}
+    assert fazendas_autorizadas(admin, empresa_id=cenario.y.pk) == []  # o filtro não amplia o acesso

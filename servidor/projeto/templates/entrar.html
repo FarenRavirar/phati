@@ -1,0 +1,13 @@
+{% extends "publica.html" %}
+{% block titulo %}Entrar{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Entrar" %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% elif expirou %}{% include "componentes/aviso.html" with tipo="aviso" texto="Sua sessão expirou." %}{% elif trocada %}{% include "componentes/aviso.html" with tipo="sucesso" texto="Senha alterada. Entre de novo com a senha nova." %}{% endif %}
+<form method="post" action="/entrar">{% csrf_token %}
+<input type="hidden" name="proximo" value="{{ proximo }}">
+{% include "componentes/campo.html" with id="cpf" nome="cpf" rotulo="CPF" valor=cpf autocomplete="username" teclado="numeric" obrigatorio=True %}
+{% include "componentes/campo.html" with id="senha" nome="senha" rotulo="Senha" tipo="password" autocomplete="current-password" obrigatorio=True %}
+{% include "componentes/botao.html" with texto="Entrar" tipo="submit" %}
+</form>
+<p class="publica-links"><a href="/esqueci-senha">Esqueci a senha</a></p>
+{% endblock %}

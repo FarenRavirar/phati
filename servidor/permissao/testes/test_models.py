@@ -197,3 +197,18 @@ def test_papel_app_acessa_as_tabelas_novas(db):
             assert consulta.fetchone() is not None
             consulta.execute(f'UPDATE {tabela} SET id = id WHERE false')
             consulta.execute(f'DELETE FROM {tabela} WHERE false')
+
+
+def test_convite_nao_pode_estar_aceito_e_recusado_ao_mesmo_tempo(cenario, fabrica_pessoa):
+    from django.db import IntegrityError, transaction
+    from django.utils import timezone
+
+    from permissao.models import Convite
+
+    pessoa = fabrica_pessoa('Existente')
+    agora = timezone.now()
+    with transaction.atomic(), pytest.raises(IntegrityError):
+        Convite.objects.create(
+            pessoa=pessoa, convidado_por=pessoa, cargo=cenario.cargos_x['usuario'], empresa=cenario.x,
+            empresa_nome='X', cargo_nome='Usuário', expira_em=agora, aceito_em=agora, recusado_em=agora,
+        )

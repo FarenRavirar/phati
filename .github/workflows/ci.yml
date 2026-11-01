@@ -23,6 +23,7 @@ jobs:
     env:
       PHATI_CHAVE_SECRETA: chave-de-teste-ci
       PHATI_CHAVE_CPF: Y2hhdmUtZGUtdGVzdGUtY2ktMzItYnl0ZXMtLS0tLS0=
+      PHATI_SEGREDO_RLS: c2VncmVkby1ybHMtZGUtdGVzdGUtY2ktMzItYnl0ZXM=
       PHATI_BANCO_NOME: phati
       PHATI_BANCO_HOST: 127.0.0.1
       PHATI_BANCO_DONO_USUARIO: dono
@@ -49,11 +50,21 @@ jobs:
           echo "PHATI_BANCO_APP_SENHA=$PHATI_BANCO_APP_SENHA" >> "$GITHUB_ENV"
           PGPASSWORD="${{ github.run_id }}-superusuario" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f banco/papeis.sql
       - run: python manage.py check
-      - run: python -m pytest -q
+      - run: python -m pytest -q --cov=. --cov-report=xml
+      # D076: piso nas linhas alteradas da PR, sem piso global.
+      - name: Cobertura das linhas alteradas
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: diff-cover coverage.xml --compare-branch="$BASE" --fail-under=90
       - run: pyright
+      # `navegador/*.test.js` importa `axe-core`; o job de testes não tinha dependência de JavaScript (achado do Codex, PR #22).
+      - name: Dependências de JavaScript
+        working-directory: .
+        run: npm ci --ignore-scripts
       - name: Hooks do git
         working-directory: .
-        run: node --test .githooks/*.test.js scripts/*.test.js
+        run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js navegador/*.test.js playwright.config.test.js
       - name: Par arquivo–teste
         if: github.event_name == 'pull_request'
         working-directory: .
@@ -75,6 +86,7 @@ jobs:
           {
             echo "PHATI_CHAVE_SECRETA=$(openssl rand -hex 32)"
             echo "PHATI_CHAVE_CPF=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "PHATI_SEGREDO_RLS=$(openssl rand -base64 32 | tr '+/' '-_')"
             echo "PHATI_BANCO_SUPER_SENHA=$(openssl rand -hex 16)"
             echo "PHATI_BANCO_DONO_USUARIO=dono"
             echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
@@ -91,8 +103,82 @@ jobs:
           test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q banco)")" = healthy
           test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
           test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migracao)")" = 0
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)" = 404
+          # `/` sem sessão redireciona ao login (302) e `/entrar` renderiza (200); rota inexistente segue 404.
+          codigo='%{http_code}'
+          http() { curl -s -o /dev/null -w "$codigo" "$@"; }
+          test "$(http http://127.0.0.1:8000/)" = 302
+          test "$(http http://127.0.0.1:8000/entrar)" = 200
+          test "$(http http://127.0.0.1:8000/rota-inexistente)" = 404
+          # nginx serve os estáticos (D070): sem o `collectstatic` publicado, o CSS dá 404.
+          test "$(http http://127.0.0.1:8080/static/projeto/casca.css)" = 200
+          # Limite de taxa (T5.5d): rajada de 100 requisições simultâneas, que não depende da velocidade do runner. A zona é
+          # uma só por origem, então depois da primeira rajada o balde está vazio e toda rota da zona devolve 429; rota
+          # fora da zona nunca devolve. A saída vai para variável porque `grep -q` num pipe quebra o `pipefail`.
+          # Cada linha da saída é `status|tipo|retry-after|n`, e o corpo de cada resposta fica em `corpos/n`.
+          mkdir corpos
+          rajada() {
+            local metodo="$1" rota="$2"
+            seq 100 | xargs -P 50 -I{} curl -s -o "corpos/{}" -w "$codigo|%{content_type}|%header{retry-after}|{}\n" -X "$metodo" "http://127.0.0.1:8080$rota"
+          }
+          # O 429 da API é JSON no envelope `detalhe` e o da página é HTML em português, os dois com `Retry-After: 1`.
+          for rota in /entrar /esqueci-senha /painel/login/ /api/v1/entrar /api/v1/redefinir-senha/solicitar /api/v1/redefinir-senha/confirmar /api/v1/acesso/renovar; do
+            saida="$(rajada POST "$rota")"
+            linha="$(grep -m1 '^429|' <<<"$saida")" || { echo "sem 429 em POST $rota"; exit 1; }
+            case "$rota" in
+              /api/*) tipo='application/json'; texto='muitas_requisicoes' ;;
+              *) tipo='text/html; charset=utf-8'; texto='Muitas tentativas' ;;
+            esac
+            IFS='|' read -r _ tipo_recebido retry n <<<"$linha"
+            { [ "$tipo_recebido" = "$tipo" ] && [ "$retry" = 1 ] && grep -q "$texto" "corpos/$n"; } || { echo "429 de POST $rota fora do formato: $linha"; exit 1; }
+          done
+          # Fora da zona a resposta é a própria da rota, nunca 429.
+          for controle in "GET /entrar 200" "POST /rota-inexistente 404"; do
+            read -r metodo rota esperado <<<"$controle"
+            saida="$(rajada "$metodo" "$rota")"
+            test "$(cut -d'|' -f1 <<<"$saida" | sort -u)" = "$esperado" || { echo "$controle: status fora do esperado"; exit 1; }
+          done
+          test "$(http http://127.0.0.1:8080/static/projeto/casca.css)" = 200
       - if: failure()
         run: docker compose logs
       - if: always()
+        run: docker compose down -v
+
+  # Testes de navegador (spec 002, R19): Chromium em 1280×720 e 320×568, axe em WCAG 2.2 AA, dado inventado.
+  navegador:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Variáveis efêmeras
+        run: |
+          {
+            echo "PHATI_CHAVE_SECRETA=$(openssl rand -hex 32)"
+            echo "PHATI_CHAVE_CPF=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "PHATI_SEGREDO_RLS=$(openssl rand -base64 32 | tr '+/' '-_')"
+            echo "PHATI_BANCO_SUPER_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_DONO_USUARIO=dono"
+            echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_APP_USUARIO=app"
+            echo "PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)"
+          } >> "$GITHUB_ENV"
+      - name: Sobe o compose (app, banco, nginx) e popula o dado inventado
+        working-directory: servidor
+        run: |
+          docker compose up -d --build
+          for _ in $(seq 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
+            sleep 2
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200
+          docker compose run --rm --no-deps -T -e PHATI_AMBIENTE_TESTE=1 migracao python manage.py popular_sintetico > ../navegador/dados.json
+      # Versões e hashes vêm do `package-lock.json`; nenhum pacote da cadeia tem script de instalação (D072), então `--ignore-scripts` não perde nada.
+      - run: npm ci --ignore-scripts
+      - run: ./node_modules/.bin/playwright install --with-deps chromium
+      - run: ./node_modules/.bin/playwright test
+      - if: failure()
+        working-directory: servidor
+        run: docker compose logs
+      - if: always()
+        working-directory: servidor
         run: docker compose down -v

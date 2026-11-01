@@ -113,17 +113,17 @@ def test_trocar_senha_revoga_os_acessos_do_aplicativo(pessoa):
     assert renovar_acesso(segredo) is None
 
 
-def test_falha_do_smtp_desfaz_a_senha_temporaria_e_mantem_a_anterior(pessoa, monkeypatch):
-    # Achado do Qodo (PR #9): senha trocada sem e-mail e sem retorno deixava a pessoa sem acesso.
+def test_falha_do_smtp_nao_desfaz_a_senha_temporaria_que_volta_a_quem_criou(pessoa, monkeypatch):
+    # Achado do Qodo (PR #9) tratado em T5.5a 4 e 5: a senha temporária volta ao Administrador que a emitiu,
+    # então a falha do e-mail (pós-commit, só log) não deixa a pessoa sem acesso.
     def falha(*_):
         raise OSError('smtp fora')
 
-    monkeypatch.setattr(senha.email, 'enviar_senha_temporaria', falha)
-    with pytest.raises(OSError):
-        senha.emitir_senha_temporaria(pessoa)
+    monkeypatch.setattr(senha.email.EmailMessage, 'send', falha)
+    temporaria = senha.emitir_senha_temporaria(pessoa)
     pessoa.refresh_from_db()
-    assert pessoa.check_password(SENHA)
-    assert not pessoa.deve_trocar_senha
+    assert pessoa.check_password(temporaria)
+    assert pessoa.deve_trocar_senha
 
 
 def test_troca_e_emissao_travam_a_pessoa(pessoa):
@@ -194,3 +194,32 @@ def test_troca_de_senha_e_renovacao_de_acesso_nao_deixam_acesso_vivo(pessoa):
     for fio in fios:
         fio.join()
     assert AcessoAplicativo.objects.filter(pessoa=pessoa, revogado_em__isnull=True).count() == 0
+
+
+def test_senha_atual_errada_na_troca_conta_na_conta_e_bloqueia(pessoa, settings):
+    # Achado do Qodo (PR #14): sessão roubada adivinhava a senha atual sem custo algum.
+    for _ in range(settings.AUTENTICACAO_FALHAS_LIMITE):
+        with pytest.raises(ValidationError):
+            senha.trocar_senha(pessoa, 'errada errada errada', 'outra-senha-bem-longa')
+    pessoa.refresh_from_db()
+    assert pessoa.falhas_consecutivas == settings.AUTENTICACAO_FALHAS_LIMITE
+    assert pessoa.bloqueada_ate is not None
+
+
+def test_conta_bloqueada_recusa_a_troca_mesmo_com_a_senha_atual_certa(pessoa, settings):
+    for _ in range(settings.AUTENTICACAO_FALHAS_LIMITE):
+        with pytest.raises(ValidationError):
+            senha.trocar_senha(pessoa, 'errada errada errada', 'outra-senha-bem-longa')
+    with pytest.raises(ValidationError) as erro:
+        senha.trocar_senha(pessoa, SENHA, 'outra-senha-bem-longa')
+    assert erro.value.code == 'senha_atual_incorreta'
+    pessoa.refresh_from_db()
+    assert pessoa.check_password(SENHA)
+
+
+def test_troca_certa_zera_o_contador(pessoa):
+    with pytest.raises(ValidationError):
+        senha.trocar_senha(pessoa, 'errada errada errada', 'outra-senha-bem-longa')
+    senha.trocar_senha(pessoa, SENHA, 'outra-senha-bem-longa')
+    pessoa.refresh_from_db()
+    assert pessoa.falhas_consecutivas == 0

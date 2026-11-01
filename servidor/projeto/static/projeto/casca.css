@@ -1,0 +1,42 @@
+/* Faixa de topo, menu lateral e conteúdo (R1, R17). Largura estreita: o menu vira barra inferior fina (003, R1). */
+.casca { display: grid; min-height: 100vh; grid-template-rows: auto 1fr; grid-template-columns: var(--largura-menu) minmax(0, 1fr); }
+
+.faixa {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-3); grid-column: 1 / -1;
+  padding: var(--espaco-2) var(--espaco-4); border-bottom: 1px solid var(--cor-borda); background: var(--cor-superficie);
+}
+.faixa-produto { font-weight: 700; color: var(--cor-primaria); text-decoration: none; }
+/* Trilha "Empresa › Fazenda" na mesma linha da marca; nome longo quebra dentro da trilha, nunca é cortado (WCAG 1.4.10). */
+.faixa-escopo { flex: 1 1 0; min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--cor-texto-suave); }
+.faixa-pessoa { margin: 0; }
+.faixa-sair { margin: 0; }
+
+.menu { padding: var(--espaco-4); border-right: 1px solid var(--cor-borda); background: var(--cor-superficie); }
+.menu-lista { display: grid; gap: var(--espaco-1); }
+.menu-item {
+  display: flex; align-items: center; min-height: var(--altura-controle); padding: 0 var(--espaco-3);
+  border-radius: var(--raio-1); color: var(--cor-texto); text-decoration: none;
+}
+.menu-item:hover { background: var(--cor-item-ativo); color: var(--cor-texto); }
+/* A página atual leva barra e negrito além da cor: a cor sozinha não é sinal (R15). */
+.menu-item[aria-current] { background: var(--cor-item-ativo); color: var(--cor-primaria); font-weight: 700; box-shadow: inset 4px 0 0 var(--cor-primaria); }
+
+.conteudo { padding: var(--espaco-5); min-width: 0; }
+.conteudo h2 { margin-top: var(--espaco-5); }
+
+@media (max-width: 48rem) {
+  .casca { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .faixa-pessoa { display: none; }
+  /* Barra inferior fixa: itens lado a lado, com rolagem própria se a lista crescer; o conteúdo ganha folga igual à barra. */
+  .menu { position: fixed; right: 0; bottom: 0; left: 0; z-index: 1; padding: 0; border-top: 1px solid var(--cor-borda); border-right: 0; }
+  .menu-lista { display: flex; overflow-x: auto; }
+  .menu-item { flex: 1 0 auto; justify-content: center; border-radius: 0; }
+  .menu-item[aria-current] { box-shadow: inset 0 4px 0 var(--cor-primaria); }
+  .conteudo { padding: var(--espaco-4) var(--espaco-4) calc(var(--altura-controle) + var(--espaco-5)); }
+}
+
+/* Molde público (login, esqueci a senha, redefinição, erros). */
+.publica { display: grid; min-height: 100vh; place-items: start center; padding: var(--espaco-6) var(--espaco-4); }
+.publica-caixa { width: 100%; max-width: 28rem; padding: var(--espaco-5); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.publica-links { margin-top: var(--espaco-4); }
+.publica-produto { margin-bottom: var(--espaco-4); font-weight: 700; color: var(--cor-primaria); }

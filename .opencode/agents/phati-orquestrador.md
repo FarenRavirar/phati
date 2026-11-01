@@ -87,9 +87,6 @@ permission:
     "phati-git": allow
     "phati-refatorador": allow
     "phati-ux-audit": allow
-  "codebase-memory*": allow
-  "codebase_memory*": allow
-  "mcp__codebase_memory__*": allow
 ---
 
 # Papel
@@ -132,7 +129,7 @@ Se o usuário disser “não commitar agora”, “não faça commit”, “sem 
 # Ferramentas de investigação
 
 Não são suas — quem as usa é o subagente. Ao delegar, mande-o seguir a ordem do
-AGENTS.md: LSP, `codebase-memory-mcp`, e só então ast-grep/`rtk rg`/`rtk read`.
+AGENTS.md: LSP, e só então ast-grep/`rtk rg`/`rtk read`.
 Ferramenta indisponível não trava o fluxo: o subagente usa fallback local e
 registra a limitação no retorno.
 

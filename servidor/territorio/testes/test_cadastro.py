@@ -55,16 +55,14 @@ def test_cargo_personalizado_com_criar_empresa_nao_cria_empresa(cenario, fabrica
         criar_empresa(pessoa, 'Empresa Intrusa', 'Ivo Intruso', 'ivo@exemplo.test', cpf)
 
 
-def test_smtp_que_falha_nao_deixa_empresa_cargo_pessoa_nem_concessao(plataforma, cpf_novo, monkeypatch):
-    def falha(pessoa, senha):
+def test_smtp_que_falha_nao_desfaz_a_empresa_criada(plataforma, cpf_novo, monkeypatch):
+    # O e-mail sai depois do commit (T5.5a 4 e 5): falha de SMTP vira log, a criação fica de pé.
+    def falha(*_):
         raise smtplib.SMTPException('fora do ar')
 
-    monkeypatch.setattr(email, 'enviar_senha_temporaria', falha)
-    antes = _contagens()
-    cpf = cpf_novo()
-    with pytest.raises(smtplib.SMTPException):
-        criar_empresa(plataforma, 'Empresa Nova', 'Ana Administradora', 'ana@exemplo.test', cpf)
-    assert _contagens() == antes
+    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+    empresa, _, _ = criar_empresa(plataforma, 'Empresa Nova', 'Ana Administradora', 'ana@exemplo.test', cpf_novo())
+    assert Empresa.objects.filter(pk=empresa.pk).exists()
 
 
 def test_cpf_do_administrador_ja_cadastrado_levanta_cpf_duplicado_e_nada_fica(plataforma, cpf_novo):

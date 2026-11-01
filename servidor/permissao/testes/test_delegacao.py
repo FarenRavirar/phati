@@ -7,13 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 from identidade import email
 from identidade.models import Pessoa
 from permissao.delegacao import conceder, convidar, pode_conceder, revogar_concessao, transferir_titularidade
-from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao
+from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, ConcessaoCategoria
 from permissao.pode import pode
 from territorio.models import Empresa
 
@@ -248,11 +248,20 @@ def test_curador_concede_categoria_a_tecnico_e_a_concessao_guarda(alvo, cenario,
     assert list(concessao.categorias.all()) == [solo]
 
 
-def test_categoria_em_cargo_de_nivel_curador_e_recusada_pelo_banco_e_nada_fica(alvo, cenario, plataforma):
+def test_categoria_em_cargo_de_nivel_curador_e_recusada_pelo_servico_e_nada_fica(alvo, cenario, plataforma):
     solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ValidationError) as erro:
         conceder(plataforma, alvo, cenario.cargos_x['curador'], cenario.f1, categorias=[solo])
+    assert erro.value.code == 'categoria_incompativel'
     assert Concessao.objects.filter(pessoa=alvo).count() == 0
+
+
+def test_gatilho_do_banco_ainda_recusa_categoria_em_cargo_de_nivel_curador(alvo, cenario):
+    # A defesa do banco vale para quem grava sem passar pelo serviço (Codex, PR #16: a checagem do serviço é a primeira).
+    solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    concessao = Concessao.objects.create(pessoa=alvo, cargo=cenario.cargos_x['curador'], empresa=cenario.x, fazenda=cenario.f1, concedida_por=alvo)
+    with pytest.raises(IntegrityError), transaction.atomic():
+        ConcessaoCategoria.objects.create(concessao=concessao, categoria=solo)
 
 
 # --- pode_conceder direto ---
@@ -303,18 +312,17 @@ def test_convite_negado_por_nivel_nao_cria_pessoa_nem_envia_email(cenario, fabri
     assert mailoutbox == []
 
 
-def test_smtp_que_falha_desfaz_o_convite_inteiro(cenario, fabrica_pessoa, conceder_direto, cpf_novo, monkeypatch):
+def test_smtp_que_falha_nao_desfaz_o_convite(cenario, fabrica_pessoa, conceder_direto, cpf_novo, monkeypatch):
+    # O e-mail sai depois do commit (T5.5a 4 e 5): falha de SMTP vira log, a concessão fica de pé.
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
 
-    def falha(pessoa, senha):
+    def falha(*_):
         raise smtplib.SMTPException('fora do ar')
 
-    monkeypatch.setattr(email, 'enviar_senha_temporaria', falha)
-    antes_pessoas, antes_concessoes = Pessoa.objects.count(), Concessao.objects.count()
-    cpf = cpf_novo()
-    with pytest.raises(smtplib.SMTPException):
-        convidar(admin, 'Davi Convidado', 'd@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1)
-    assert (Pessoa.objects.count(), Concessao.objects.count()) == (antes_pessoas, antes_concessoes)
+    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+    antes = Concessao.objects.count()
+    convidar(admin, 'Davi Convidado', 'd@exemplo.test', cpf_novo(), cenario.cargos_x['usuario'], cenario.f1)
+    assert Concessao.objects.count() == antes + 1
 
 
 def test_convite_com_cpf_ja_cadastrado_levanta_cpf_duplicado(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
@@ -454,11 +462,24 @@ def test_revogar_fora_do_escopo_e_negado(cenario, fabrica_pessoa, conceder_diret
 
 
 def test_revogar_sem_a_permissao_revogar_acesso_e_negado(cenario, fabrica_pessoa, conceder_direto):
-    sem_revogar = _cargo(cenario.x, 'Curador sem revogar', 'curador', 'ver', 'convidar_pessoa')
+    # Só Administrador e Curador revogam sem a ação no cargo (D043, D073); o Técnico depende de a ação estar no cargo.
+    sem_revogar = _cargo(cenario.x, 'Técnico sem revogar', 'tecnico', 'ver', 'convidar_pessoa')
     quem = _com(fabrica_pessoa, conceder_direto, sem_revogar, cenario.f1)
     _, concessao = _revogavel(cenario, fabrica_pessoa, conceder_direto)
     with pytest.raises(PermissionDenied):
         revogar_concessao(quem, concessao)
+    concessao.refresh_from_db()
+    assert concessao.revogada_em is None
+
+
+def test_curador_revoga_sem_ter_revogar_acesso_no_cargo(cenario, fabrica_pessoa, conceder_direto):
+    # D073: o Curador, que administra a fazenda, revoga sempre, no escopo dele.
+    sem_revogar = _cargo(cenario.x, 'Curador sem revogar', 'curador', 'ver', 'convidar_pessoa')
+    quem = _com(fabrica_pessoa, conceder_direto, sem_revogar, cenario.f1)
+    _, concessao = _revogavel(cenario, fabrica_pessoa, conceder_direto)
+    revogar_concessao(quem, concessao)
+    concessao.refresh_from_db()
+    assert concessao.revogada_em is not None
 
 
 def test_revogar_duas_vezes_levanta_concessao_ja_revogada(cenario, fabrica_pessoa, conceder_direto, plataforma):

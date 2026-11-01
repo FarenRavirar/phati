@@ -6,6 +6,7 @@ Não há autocadastro: toda função aqui começa por `pode()`. Negado: `Permiss
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
+from comum.auditoria import auditar
 from identidade import senha
 from identidade.models import Pessoa
 from permissao.cargos_base import criar_cargos_base
@@ -20,7 +21,7 @@ def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cp
     """Cria a empresa, os quatro cargos-base e o primeiro Administrador de empresa, convidado por senha temporária,
     que fica como Administrador titular (R23).
 
-    Tudo numa transação, com o e-mail dentro: SMTP que falha não deixa empresa, cargo, pessoa nem concessão.
+    Tudo numa transação; o e-mail sai depois do commit e falha de SMTP só vai para o log: empresa e administrador ficam, e a senha temporária volta no retorno.
     CPF já cadastrado levanta `cpf_duplicado` (a pessoa já existe: shortcut, o convite de quem já tem conta
     espera uma decisão sobre o Administrador de empresa que não é novo no sistema). Devolve
     `(empresa, administrador, senha_temporaria)`.
@@ -29,13 +30,19 @@ def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cp
         raise PermissionDenied
     with transaction.atomic():
         empresa = Empresa.objects.create(nome=nome)
+        auditar('empresa_criada', solicitante, empresa, empresa.pk)
         cargos = criar_cargos_base(empresa)
         administrador = Pessoa.objects.criar(
             nome_administrador, email_administrador, cpf_administrador, empresa_origem=empresa
         )
+        auditar('pessoa_criada', solicitante, administrador, empresa.pk)
         temporaria = senha.emitir_senha_temporaria(administrador)
-        Concessao.objects.create(
+        concessao = Concessao.objects.create(
             pessoa=administrador, cargo=cargos['administrador'], empresa=empresa, concedida_por=solicitante
+        )
+        auditar(
+            'concessao_criada', solicitante, concessao, empresa.pk,
+            {'pessoa_id': administrador.pk, 'cargo_id': concessao.cargo_id, 'fazenda_id': None, 'sub_area_id': None},
         )
         empresa.titular = administrador
         empresa.save(update_fields=['titular'])
@@ -45,7 +52,10 @@ def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cp
 def criar_fazenda(solicitante, empresa, nome):
     if not pode(solicitante, 'criar_fazenda', empresa):
         raise PermissionDenied
-    return Fazenda.objects.create(empresa=empresa, nome=nome)
+    with transaction.atomic():
+        fazenda = Fazenda.objects.create(empresa=empresa, nome=nome)
+        auditar('fazenda_criada', solicitante, fazenda, fazenda.empresa_id)
+    return fazenda
 
 
 def criar_sub_area(solicitante, fazenda, nome, pai=None):
@@ -57,6 +67,8 @@ def criar_sub_area(solicitante, fazenda, nome, pai=None):
     nivel = 1 if pai is None else pai.nivel + 1
     if nivel > NIVEL_MAXIMO:
         raise ValidationError('A divisão da fazenda tem no máximo 3 níveis.', code='nivel_maximo')
-    sub_area = SubArea.objects.create(empresa=fazenda.empresa, fazenda=fazenda, pai=pai, nivel=nivel, nome=nome)
-    sub_area.refresh_from_db()  # o gatilho preenche `caminho`, de que `pode()` depende (achado do Qodo, PR #11)
+    with transaction.atomic():
+        sub_area = SubArea.objects.create(empresa=fazenda.empresa, fazenda=fazenda, pai=pai, nivel=nivel, nome=nome)
+        sub_area.refresh_from_db()  # o gatilho preenche `caminho`, de que `pode()` depende (achado do Qodo, PR #11)
+        auditar('sub_area_criada', solicitante, sub_area, sub_area.empresa_id)
     return sub_area

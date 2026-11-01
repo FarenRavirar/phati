@@ -1,0 +1,9 @@
+{% extends "casca.html" %}
+{% block titulo %}{{ fazenda.nome }}{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo=fazenda.nome %}
+<h2>Divisão da fazenda</h2>
+{% if arvore %}{% include "componentes/arvore.html" with nos=arvore %}{% else %}{% include "componentes/vazio.html" with texto="Sem sub-áreas cadastradas." %}{% endif %}
+<h2>Camadas</h2>
+{% include "componentes/vazio.html" with texto="Sem camadas ainda." %}
+{% endblock %}

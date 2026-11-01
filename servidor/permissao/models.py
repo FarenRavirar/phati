@@ -31,7 +31,13 @@ class Cargo(models.Model):
     nome = models.CharField(max_length=100)
     base = models.CharField(max_length=20, choices=[(base, base) for base in NIVEL_DA_BASE])
     empresa_id: int  # anotação só para o pyright
+    # Bloqueio otimista: quem edita devolve a versão que leu, e a edição velha é recusada em vez de sobrescrever a outra
+    # (padrão de ETag e If-Match; pesquisa de 2026-10-29). Começa em 1 e sobe a cada edição.
+    versao = models.PositiveIntegerField(default=1)
     permissoes = models.ManyToManyField(Permissao, through='CargoPermissao')
+
+    def __str__(self):
+        return self.nome
 
     class Meta:
         db_table = 'cargo'
@@ -114,3 +120,54 @@ class ConcessaoCategoria(models.Model):
     class Meta:
         db_table = 'concessao_categoria'
         constraints = [models.UniqueConstraint(fields=['concessao', 'categoria'], name='concessao_categoria_unico')]
+
+
+class Convite(models.Model):
+    """Convite de CPF que já existe (R24): a concessão proposta fica aqui e só vira `Concessao` no aceite da pessoa.
+
+    Guarda o nome da empresa e do cargo: quem recebe o convite ainda não tem escopo para ler `empresa` e `cargo`
+    sob a RLS. A coerência de empresa, fazenda, sub-área e cargo é conferida no aceite, pelas regras e pelos gatilhos
+    de `concessao`, que é quem grava.
+    """
+
+    pessoa = models.ForeignKey(MODELO_PESSOA, on_delete=models.PROTECT, related_name='+')
+    convidado_por = models.ForeignKey(MODELO_PESSOA, on_delete=models.PROTECT, related_name='+')
+    cargo = models.ForeignKey(Cargo, on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(MODELO_EMPRESA, on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey('territorio.Fazenda', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    sub_area = models.ForeignKey('territorio.SubArea', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    inicio = models.DateTimeField(null=True, blank=True)
+    fim = models.DateTimeField(null=True, blank=True)
+    empresa_nome = models.CharField(max_length=200)
+    cargo_nome = models.CharField(max_length=100)
+    categorias = models.ManyToManyField(CategoriaDado, through='ConviteCategoria')
+    criado_em = models.DateTimeField(auto_now_add=True)
+    expira_em = models.DateTimeField()
+    aceito_em = models.DateTimeField(null=True, blank=True)
+    recusado_em = models.DateTimeField(null=True, blank=True)
+    cancelado_em = models.DateTimeField(null=True, blank=True)  # quem convidou retirou o convite antes da resposta
+    enviado_em = models.DateTimeField(default=timezone.now)  # último e-mail de aviso: base do intervalo entre reenvios
+    envios = models.PositiveSmallIntegerField(default=1)  # e-mails de aviso enviados (o primeiro e os reenvios)
+
+    pessoa_id: int
+    convidado_por_id: int
+    cargo_id: int
+    empresa_id: int
+    fazenda_id: int | None
+    sub_area_id: int | None
+
+    class Meta:
+        db_table = 'convite'
+        constraints = [
+            models.CheckConstraint(condition=Q(aceito_em__isnull=True) | Q(recusado_em__isnull=True), name='convite_aceito_ou_recusado'),
+            models.CheckConstraint(condition=Q(sub_area__isnull=True) | Q(fazenda__isnull=False), name='convite_sub_area_exige_fazenda'),
+        ]
+
+
+class ConviteCategoria(models.Model):
+    convite = models.ForeignKey(Convite, on_delete=models.CASCADE)
+    categoria = models.ForeignKey(CategoriaDado, on_delete=models.PROTECT)
+
+    class Meta:
+        db_table = 'convite_categoria'
+        constraints = [models.UniqueConstraint(fields=['convite', 'categoria'], name='convite_categoria_unico')]

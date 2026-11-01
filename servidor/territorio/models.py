@@ -10,6 +10,9 @@ class Empresa(models.Model):
     titular = models.ForeignKey('identidade.Pessoa', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
     titular_id: int | None  # anotação só para o pyright
 
+    def __str__(self):
+        return self.nome
+
     class Meta:
         db_table = 'empresa'
 
@@ -35,6 +38,9 @@ class Fazenda(models.Model):
     criada_em = models.DateTimeField(auto_now_add=True)
     empresa_id: int  # anotação só para o pyright: o Django cria a coluna `empresa_id`
 
+    def __str__(self):
+        return self.nome
+
     class Meta:
         db_table = 'fazenda'
         constraints = [
@@ -59,6 +65,9 @@ class SubArea(models.Model):
     caminho = models.TextField(default='/', editable=False)
     empresa_id: int  # anotações só para o pyright: o Django cria as colunas `<campo>_id`
     fazenda_id: int
+
+    def __str__(self):
+        return self.nome
 
     class Meta:
         db_table = 'sub_area'
