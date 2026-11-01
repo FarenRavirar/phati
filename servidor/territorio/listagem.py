@@ -6,7 +6,14 @@ from permissao.pode import com_permissao, escopos_da_acao
 from territorio.models import Empresa, Fazenda, SubArea
 
 
-def fazendas_autorizadas(pessoa, pk=None, empresa_id=None):
+def _filtrar_arquivadas(consulta, arquivadas):
+    """`arquivadas`: False (padrão) só as de trabalho, True só as arquivadas, None todas (leitura por URL direta, R11)."""
+    if arquivadas is None:
+        return consulta
+    return consulta.filter(arquivada_em__isnull=not arquivadas)
+
+
+def fazendas_autorizadas(pessoa, pk=None, empresa_id=None, arquivadas: bool | None = False):
     """Fazendas da empresa inteira, da fazenda concedida ou da fazenda que contém a sub-área concedida.
 
     Com `pk`, só a fazenda pedida (se autorizada): a URL de escopo não carrega a lista inteira (Qodo e Sourcery, PR #19).
@@ -20,6 +27,7 @@ def fazendas_autorizadas(pessoa, pk=None, empresa_id=None):
         )
     # Avaliada dentro de `com_permissao`: o papel `app` não vê fazenda sem as variáveis, e a lista preguiçosa
     # só consultaria o banco depois de o bloco terminar.
+    consulta = _filtrar_arquivadas(consulta, arquivadas)
     if pk is not None:
         consulta = consulta.filter(pk=pk)
     if empresa_id is not None:
@@ -28,7 +36,7 @@ def fazendas_autorizadas(pessoa, pk=None, empresa_id=None):
         return list(consulta.order_by('nome', 'pk'))
 
 
-def empresas_autorizadas(pessoa, pk=None):
+def empresas_autorizadas(pessoa, pk=None, arquivadas: bool | None = False):
     """Empresas em que a pessoa tem acesso de leitura, inclusive as que só contêm uma fazenda ou sub-área concedida.
 
     Com `pk`, só a empresa pedida (se autorizada)."""
@@ -37,18 +45,19 @@ def empresas_autorizadas(pessoa, pk=None):
         consulta = Empresa.objects.all()
     else:
         consulta = Empresa.objects.filter(pk__in=escopos.empresas | escopos.empresas_das_fazendas)
+    consulta = _filtrar_arquivadas(consulta, arquivadas)
     if pk is not None:
         consulta = consulta.filter(pk=pk)
     with com_permissao(pessoa, 'ver'):
         return list(consulta.order_by('nome', 'pk'))
 
 
-def sub_areas_da_fazenda(pessoa, fazenda):
+def sub_areas_da_fazenda(pessoa, fazenda, arquivadas: bool | None = False):
     """Sub-áreas da `fazenda` que a pessoa alcança: todas, se o acesso é da plataforma, da empresa ou da fazenda;
     com acesso só a sub-áreas, cada uma delas e as descendentes (o pai de uma raiz concedida não vem: monte a árvore
     tratando sub-área sem pai na lista como raiz)."""
     escopos = escopos_da_acao(pessoa, 'ver')
-    consulta = SubArea.objects.filter(fazenda_id=fazenda.pk)
+    consulta = _filtrar_arquivadas(SubArea.objects.filter(fazenda_id=fazenda.pk), arquivadas)
     if not (escopos.plataforma or fazenda.empresa_id in escopos.empresas or fazenda.pk in escopos.fazendas):
         filtro = Q(pk__in=escopos.sub_areas)
         for sub_area_id in escopos.sub_areas:

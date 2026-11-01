@@ -1,0 +1,9 @@
+{% extends "casca.html" %}
+{% block titulo %}Arquivadas{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Arquivadas" subtitulo="Seguem consultáveis, mas não aceitam alteração." %}
+{% if itens %}<ul class="lista-arquivadas">
+{% for item in itens %}<li><a href="{{ item.caminho }}">{{ item.nome }}</a> <span class="tipo-arquivada">{{ item.tipo }}</span>{% include "componentes/acoes.html" with acoes=item.acoes %}</li>
+{% endfor %}</ul>
+{% else %}{% include "componentes/vazio.html" with texto="Nada arquivado." %}{% endif %}
+{% endblock %}

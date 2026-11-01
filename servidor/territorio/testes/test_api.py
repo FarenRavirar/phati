@@ -96,7 +96,7 @@ def mundo_http(transactional_db, fabrica_pessoa, conceder_direto):
         Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': codigo, 'delegavel': True})
     x, y = Empresa.objects.create(nome='Empresa X'), Empresa.objects.create(nome='Empresa Y')
     f1, f2 = Fazenda.objects.create(empresa=x, nome='F1'), Fazenda.objects.create(empresa=x, nome='F2')
-    Fazenda.objects.create(empresa=y, nome='FY')
+    fy = Fazenda.objects.create(empresa=y, nome='FY')
     cargo_x = Cargo.objects.create(empresa=x, nome='Administrador', base='administrador')
     usuario_x = Cargo.objects.create(empresa=x, nome='Usuário', base='usuario')
     for cargo, codigos in ((cargo_x, ('ver', 'criar_fazenda')), (usuario_x, ('ver',))):
@@ -105,7 +105,7 @@ def mundo_http(transactional_db, fabrica_pessoa, conceder_direto):
     admin, usuario = fabrica_pessoa('Admin X'), fabrica_pessoa('Usuario F1')
     conceder_direto(admin, cargo_x, x)
     conceder_direto(usuario, usuario_x, f1)
-    return SimpleNamespace(x=x, y=y, f1=f1, f2=f2, admin=admin, usuario=usuario)
+    return SimpleNamespace(x=x, y=y, f1=f1, f2=f2, fy=fy, admin=admin, usuario=usuario)
 
 
 @pytest.mark.django_db(transaction=True, databases=['default', 'app'])
@@ -153,3 +153,69 @@ def test_empresa_recusa_email_malformado_antes_de_gravar(plataforma, cpf_novo):
     resposta = _enviar(plataforma, 'empresas', corpo)
     assert resposta.status_code == 422
     assert not Empresa.objects.filter(nome='Empresa').exists()
+
+
+# --- 003 R9, R11, R28: renomear, arquivar e desarquivar pela API, pelo mesmo serviço ---
+
+
+def test_administrador_renomeia_empresa_fazenda_e_sub_area_pela_api(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    for rota, id_, nome in (('empresas', cenario.x.pk, 'X Nova'), ('fazendas', cenario.f1.pk, 'F1 Nova'), ('sub-areas', cenario.g1.pk, 'G1 Nova')):
+        resposta = _enviar(admin, f'territorio/{rota}/{id_}', {'nome': nome}, metodo='patch')
+        assert resposta.status_code == 200, (rota, resposta.content)
+        assert resposta.json() == {'id': id_, 'nome': nome, 'arquivada': False}
+
+
+def test_nome_vazio_na_api_e_recusado_pela_funcao(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    resposta = _enviar(admin, f'territorio/fazendas/{cenario.f1.pk}', {'nome': '   '}, metodo='patch')
+    assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'nome_invalido'})
+    assert Fazenda.objects.get(pk=cenario.f1.pk).nome == 'F1'
+
+
+def test_arquivar_e_desarquivar_pela_api_e_a_escrita_em_arquivado_e_negada(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    resposta = _enviar(admin, f'territorio/fazendas/{cenario.f1.pk}/arquivar')
+    assert (resposta.status_code, resposta.json()['arquivada']) == (200, True)
+    assert _enviar(admin, f'territorio/fazendas/{cenario.f1.pk}', {'nome': 'Tarde'}, metodo='patch').status_code == 403
+    assert _enviar(admin, f'territorio/fazendas/{cenario.f1.pk}/arquivar').status_code == 403
+    resposta = _enviar(admin, f'territorio/fazendas/{cenario.f1.pk}/desarquivar')
+    assert (resposta.status_code, resposta.json()['arquivada']) == (200, False)
+
+
+def test_desarquivar_com_ancestral_arquivado_responde_400(cenario, plataforma):
+    _enviar(plataforma, f'territorio/empresas/{cenario.x.pk}/arquivar')
+    resposta = _enviar(plataforma, f'territorio/fazendas/{cenario.f1.pk}/desarquivar')
+    assert (resposta.status_code, resposta.json()) == (400, {'detalhe': 'ancestral_arquivado'})
+
+
+def test_curador_tecnico_e_usuario_recebem_403_ao_renomear_e_arquivar(cenario, fabrica_pessoa, conceder_direto):
+    for base in ('curador', 'tecnico', 'usuario'):
+        pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.x, nome=f'Pessoa {base}')
+        assert _enviar(pessoa, f'territorio/fazendas/{cenario.f1.pk}', {'nome': 'Invasora'}, metodo='patch').status_code == 403
+        assert _enviar(pessoa, f'territorio/fazendas/{cenario.f1.pk}/arquivar').status_code == 403
+        assert _enviar(pessoa, f'territorio/fazendas/{cenario.f1.pk}/desarquivar').status_code == 403
+    assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is None
+
+
+def test_alvo_de_outra_empresa_responde_negado_e_nada_muda_e_tipo_desconhecido_422(cenario, fabrica_pessoa, conceder_direto):
+    # Como dono (sem RLS) a empresa alheia existe e `pode()` nega com 403; o 404 igual ao de inexistente vem da RLS,
+    # no teste seguinte. Nos dois casos nada é alterado.
+    admin_y = _com(fabrica_pessoa, conceder_direto, cenario.cargos_y['administrador'], cenario.y)
+    assert _enviar(admin_y, f'territorio/fazendas/{cenario.f1.pk}/arquivar').status_code == 403
+    assert _enviar(admin_y, 'territorio/fazendas/999999/arquivar').status_code == 404
+    assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is None
+    assert _enviar(admin_y, f'territorio/pessoas/{cenario.f1.pk}/arquivar').status_code == 422
+
+
+@pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+def test_sob_o_papel_app_alvo_alheio_e_inexistente_dao_o_mesmo_404(mundo_http, como_app):
+    alheia = _enviar(mundo_http.admin, f'territorio/fazendas/{mundo_http.fy.pk}/arquivar')
+    inexistente = _enviar(mundo_http.admin, 'territorio/fazendas/999999/arquivar')
+    assert (alheia.status_code, alheia.json()) == (inexistente.status_code, inexistente.json()) == (404, {'detalhe': 'nao_encontrado'})
+
+
+def test_deslogado_nao_renomeia_nem_arquiva(cenario):
+    cliente = Client()
+    assert cliente.patch(f'/api/v1/territorio/fazendas/{cenario.f1.pk}', data='{"nome": "x"}', content_type='application/json').status_code == 401
+    assert cliente.post(f'/api/v1/territorio/fazendas/{cenario.f1.pk}/arquivar', data='{}', content_type='application/json').status_code == 401

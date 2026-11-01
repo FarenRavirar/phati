@@ -1,0 +1,11 @@
+{% extends "casca.html" %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo=titulo %}
+<p>{{ texto }}</p>
+{% if efeitos %}<ul class="efeitos">{% for efeito in efeitos %}<li>{{ efeito }}</li>
+{% endfor %}</ul>{% endif %}
+<form method="post">{% csrf_token %}
+<p class="acoes-pagina">{% include "componentes/botao.html" with texto=botao tipo="submit" %}<a class="botao botao-secundario" href="{{ cancelar }}">Cancelar</a></p>
+</form>
+{% endblock %}

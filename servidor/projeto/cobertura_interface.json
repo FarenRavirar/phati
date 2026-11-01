@@ -20,10 +20,13 @@
     "convites_enviados_listar": "Convites enviados — 003",
     "convites_enviados_cancelar": "Cancelar convite — 003",
     "convites_enviados_reenviar": "Reenviar convite — 003",
-    "empresas_criar": "Criar empresa — 003",
-    "fazendas_criar": "Criar fazenda — 003",
+    "empresas_criar": "Criar empresa — 003 R9 (tela /empresas/nova)",
+    "fazendas_criar": "Criar fazenda — 003 R9 (tela /empresa/<id>/fazenda/nova)",
     "fazendas_listar": "Seletor de fazenda — 002 R10",
-    "sub_areas_criar": "Criar sub-área — 003"
+    "sub_areas_criar": "Criar sub-área — 003 R9 e R10 (tela /empresa/<id>/fazenda/<id>/sub-area/nova)",
+    "territorio_renomear": "Renomear empresa, fazenda e sub-área — 003 R9 (telas `*_editar`)",
+    "territorio_arquivar": "Arquivar empresa, fazenda e sub-área — 003 R11 (telas `*_arquivar`)",
+    "territorio_desarquivar": "Desarquivar empresa, fazenda e sub-área — 003 R11 (telas `*_desarquivar` e seção Arquivadas)"
   },
   "funcoes": {
     "permissao.cargo.gerenciar_cargo": "Cargos — 003 (D057)",
@@ -86,9 +89,9 @@
     "identidade.sessao.renovar_acesso": "Sem tela: rota acesso_renovar do aplicativo Android",
     "identidade.sessao.revogar_acesso": "Sem tela: efeito de sair e de revogar um dispositivo",
     "identidade.login.registrar_falha": "Sem tela: contagem de falha de login chamada por autenticar — 002 R4",
-    "territorio.cadastro.criar_empresa": "Criar empresa — 003; hoje só pela API e pelo popular_sintetico",
-    "territorio.cadastro.criar_fazenda": "Criar fazenda — 003; hoje só pela API e pelo popular_sintetico",
-    "territorio.cadastro.criar_sub_area": "Criar sub-área — 003; hoje só pela API e pelo popular_sintetico",
+    "territorio.cadastro.criar_empresa": "Criar empresa — 003 R9 (tela e API)",
+    "territorio.cadastro.criar_fazenda": "Criar fazenda — 003 R9 (tela e API)",
+    "territorio.cadastro.criar_sub_area": "Criar sub-área — 003 R9, R10 (tela e API)",
     "identidade.cpf.normalizar_cpf": "Sem tela: valida e normaliza o CPF digitado no login, no esqueci a senha e no convite — 002 R4, R6",
     "identidade.cpf.chave_de_busca": "Sem tela: índice de busca do CPF (login, convite, redefinição)",
     "identidade.cpf.cifrar": "Sem tela: grava o CPF cifrado no cadastro da pessoa",
@@ -98,7 +101,19 @@
     "permissao.contexto.fixar_identidade": "Sem tela: assina a identidade para a consulta de vínculos da pessoa",
     "permissao.contexto.ler_contexto": "Sem tela: lê o contexto da RLS (teste e checagem de segredo)",
     "permissao.contexto.limpar_identidade": "Sem tela: tira a assinatura de identidade depois da consulta",
-    "permissao.contexto.restaurar_contexto": "Sem tela: devolve o contexto anterior da RLS na mesma transação"
+    "permissao.contexto.restaurar_contexto": "Sem tela: devolve o contexto anterior da RLS na mesma transação",
+    "territorio.cadastro.renomear_empresa": "Renomear empresa — 003 R9 (tela e API)",
+    "territorio.cadastro.renomear_fazenda": "Renomear fazenda — 003 R9 (tela e API)",
+    "territorio.cadastro.renomear_sub_area": "Renomear sub-área — 003 R9 (tela e API)",
+    "territorio.cadastro.arquivar": "Arquivar — 003 R11 (tela de confirmação e API)",
+    "territorio.cadastro.desarquivar": "Desarquivar — 003 R11 (tela de confirmação, seção Arquivadas e API)",
+    "territorio.cadastro.efeitos_do_arquivamento": "Texto da tela de confirmação de arquivar — 003 R11; sem rota na API (o aplicativo não confirma em tela)",
+    "territorio.cadastro.nome_valido": "Sem tela: validação do nome dentro das funções de criar e renomear — 003 R9",
+    "territorio.niveis.definir_nivel": "Nomes dos níveis da divisão — 003 R10; sem rota na API (o aplicativo não configura níveis nesta fase)",
+    "territorio.niveis.nome_do_nivel": "Rótulo da criação de sub-área — 003 R10; sem rota na API",
+    "territorio.niveis.nomes_configurados": "Formulário dos níveis — 003 R10; sem rota na API",
+    "territorio.niveis.nomes_dos_niveis": "Sem tela própria: nomes dos três níveis para quem lê a divisão — 003 R10",
+    "permissao.pode.escopo_arquivado": "Sem tela: auxiliar interno de pode() e de permissoes_efetivas() para o escopo arquivado — 003 R11"
   },
   "acoes": {
     "ver": "002 (Início, seletor, página da fazenda)",
@@ -122,15 +137,17 @@
     "redefinir_senha": "003",
     "configurar_prazos_escalada": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "configurar_categorias_campos": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
-    "configurar_niveis_divisao": "003, com a ligação de NivelDivisao à criação de sub-área (D069); hoje sem função",
+    "configurar_niveis_divisao": "Nomes dos níveis da divisão — 003 R10 (D069)",
     "ajustar_expiracao_pacote": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
-    "criar_empresa": "003",
-    "criar_fazenda": "003",
-    "criar_sub_area": "003",
-    "gerenciar_cargo": "003"
+    "criar_empresa": "003 R9 (tela e API)",
+    "criar_fazenda": "003 R9 (tela e API)",
+    "criar_sub_area": "003 R9 (tela e API)",
+    "gerenciar_cargo": "003",
+    "renomear": "003 R9 (telas de renomear e API); só a base Administrador",
+    "arquivar": "003 R11 (tela de confirmação e API); só a base Administrador",
+    "desarquivar": "003 R11 (tela de confirmação, seção Arquivadas e API); só a base Administrador"
   },
   "sem_acao": {
-    "editar_renomear_arquivar_territorio": "Não há ação nem função; última spec do front (D067, specs/backlog.md)",
     "leitura_de_auditoria": "Não há ação de leitura; spec 004 (D060)"
   }
 }

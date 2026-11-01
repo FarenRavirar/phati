@@ -12,11 +12,13 @@ from django.db import IntegrityError, transaction
 from comum.auditoria import auditar
 from permissao.delegacao import _nivel_permite
 from permissao.models import NIVEL_DA_BASE, Cargo, CargoPermissao, Permissao
-from permissao.pode import ACOES_DA_PLATAFORMA, Alvo, memoria_de
+from permissao.pode import ACOES_DA_PLATAFORMA, Alvo, memoria_de, pode
 
 
 def _pode_gerenciar(quem, empresa, base, codigos):
-    if quem is None or not quem.is_authenticated:
+    # `pode()` decide acesso, nível do Administrador e arquivamento da empresa num só lugar (003 R11); o resto abaixo
+    # é a hierarquia de cargo (nível e permissões que quem gerencia tem).
+    if not pode(quem, 'gerenciar_cargo', empresa):
         return False
     if quem.administrador_plataforma:
         return True

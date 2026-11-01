@@ -52,7 +52,7 @@ def test_papel_app_nao_e_dono_e_papel_dono_e():
 
 @usa_app
 def test_papel_app_le_tabela_do_dono_mas_nao_cria_tabela():
-    assert _um('app', 'SELECT count(*) FROM permissao') == (27,)
+    assert _um('app', 'SELECT count(*) FROM permissao') == (30,)
     with pytest.raises(ProgrammingError, match='permission denied'), connections['app'].cursor() as consulta:
         consulta.execute('CREATE TABLE intrusa (id int)')
 

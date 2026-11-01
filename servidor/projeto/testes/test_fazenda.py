@@ -33,13 +33,21 @@ def test_arvore_de_tres_niveis_aparece_aninhada(cliente_logado, conta, cenario, 
     assert 'Sem camadas ainda.' in html
 
 
-def test_fazenda_sem_sub_areas_mostra_o_estado_vazio_e_nao_oferece_criar(cliente_logado, conta, cenario, conceder_direto):
+def test_fazenda_sem_sub_areas_oferece_cadastrar_so_a_quem_a_permissao_efetiva_permite(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
     conteudo = _conteudo(cliente_logado.get(_caminho(cenario.x, cenario.f2)))
     assert 'Sem sub-áreas cadastradas.' in conteudo
     assert 'Sem camadas ainda.' in conteudo
-    assert '<form' not in conteudo
+    assert conteudo.count(f'href="/empresa/{cenario.x.pk}/fazenda/{cenario.f2.pk}/sub-area/nova"') == 2  # ação da página e do vazio
     assert '<button' not in conteudo
+
+
+def test_fazenda_sem_sub_areas_so_texto_para_quem_so_le(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+    conteudo = _conteudo(cliente_logado.get(_caminho(cenario.x, cenario.f2)))
+    assert 'Sem sub-áreas cadastradas.' in conteudo
+    assert 'Cadastrar sub-área' not in conteudo
+    assert '<form' not in conteudo and '<button' not in conteudo
 
 
 def test_acesso_so_a_uma_sub_area_mostra_ela_e_as_descendentes(cliente_logado, conta, cenario, conceder_direto):
@@ -86,10 +94,29 @@ def test_trilha_da_faixa_tem_um_link_para_a_empresa_e_outro_para_a_fazenda(clien
     assert 'Empresa X' not in _conteudo(resposta)  # A2: o nome da empresa não se repete no <main>
 
 
-def test_no_da_arvore_nao_e_link_enquanto_a_sub_area_nao_tem_pagina(cliente_logado, conta, cenario, conceder_direto):
+def test_no_da_arvore_so_e_link_para_quem_pode_renomear(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+    arvore = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode().split('<ul class="arvore">')[1].split('</main>')[0]
+    assert '<a ' not in arvore  # R5: sem página para quem só lê, o nó não tem aparência de link
+
+
+def test_no_da_arvore_do_administrador_leva_a_pagina_da_sub_area(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
     arvore = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode().split('<ul class="arvore">')[1].split('</main>')[0]
-    assert '<a ' not in arvore
+    assert f'<a href="/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area/{cenario.g1.pk}/editar">G1</a>' in arvore
+
+
+def test_fazenda_arquivada_mostra_aviso_e_so_a_acao_de_desarquivar(cliente_logado, conta, cenario, conceder_direto):
+    from territorio.cadastro import arquivar
+
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    arquivar(conta.pessoa, cenario.f1)
+    html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
+    assert 'Esta fazenda está arquivada: só leitura.' in html
+    assert 'Desarquivar' in html
+    for texto in ('Renomear fazenda', 'Arquivar fazenda', 'Cadastrar sub-área'):
+        assert texto not in html
+    assert '<a href="/empresa/' not in html.split('<ul class="arvore">')[1].split('</ul>')[0]  # nó sem link: escrita negada
 
 
 def test_deslogado_vai_a_entrada_e_senha_temporaria_vai_a_troca(cliente_logado, conta, cenario):
@@ -104,3 +131,13 @@ def test_pagina_so_aceita_consulta(cliente_logado, conta, cenario, conceder_dire
     conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
     assert cliente_logado.post(_caminho(cenario.x, cenario.f1)).status_code == 405
     assert Fazenda.objects.filter(empresa=cenario.x).count() == 2
+
+
+def test_administrador_so_de_sub_area_ve_o_link_das_sub_areas_dele_e_de_mais_nenhuma(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.g1)
+    html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
+    arvore = html[html.index('<ul class="arvore">'):html.index('</main>')]  # a árvore aninha outras <ul class="arvore">
+    base = f'/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area'
+    assert f'<a href="{base}/{cenario.g1.pk}/editar">G1</a>' in arvore
+    assert f'<a href="{base}/{cenario.t1.pk}/editar">T1</a>' in arvore
+    assert 'G2' not in arvore

@@ -6,11 +6,17 @@ import pytest
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import PermissionDenied
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from permissao import pode as modulo_pode
-from permissao.models import Cargo, CargoPermissao, CategoriaDado
-from permissao.pode import administrador_da_empresa, com_permissao, esquecer, exige_permissao, pode
+from permissao.models import Cargo, CargoPermissao, CategoriaDado, Permissao
+from permissao.pode import (
+    ACOES_DE_LEITURA, ACOES_VALIDAS_ARQUIVADO, administrador_da_empresa, com_permissao, esquecer, exige_permissao,
+    permissoes_efetivas, pode,
+)
+from territorio.cadastro import arquivar
+from territorio.models import Fazenda, SubArea
 
 pytestmark = pytest.mark.django_db
 
@@ -171,7 +177,7 @@ def test_uma_carga_por_requisicao_a_segunda_chamada_nao_consulta_o_banco(pessoa,
     pessoa = _recarregar(pessoa)
     assert pode(pessoa, 'ver', cenario.f1) is True
     with django_assert_num_queries(0):
-        assert pode(pessoa, 'convidar_pessoa', cenario.t1) is True
+        assert pode(pessoa, 'ver', cenario.t1) is True  # leitura não consulta arquivamento
         assert pode(pessoa, 'criar_empresa', cenario.f1) is False
 
 
@@ -327,3 +333,88 @@ def test_decorador_sem_listagem_mantem_pode_e_marca_listagem_falsa(pessoa, cenar
     requisicao = SimpleNamespace(user=pessoa)
     with pytest.raises(PermissionDenied):
         rota(requisicao)
+
+
+# --- 003 R11: escopo arquivado nega escrita em um só ponto ---
+
+# Escrita por omissão (R11): ação nova do catálogo cai aqui até alguém classificá-la de propósito. O teste abaixo
+# falha se o catálogo ganhar ação que não está em nenhuma das três listas.
+ACOES_DE_ESCRITA = frozenset({
+    'criar_registro_campo', 'propor_alteracao_atributo', 'revisar_trabalho_de_outro', 'validar_registro',
+    'validar_atributo', 'conferir_revisao_enviada', 'enviar_revisao_camada', 'aprovar_atributo', 'aprovar_geometria',
+    'tornar_revisao_vigente', 'publicar_camada', 'subir_documento', 'definir_validade_documento', 'convidar_pessoa',
+    'configurar_prazos_escalada', 'configurar_categorias_campos', 'configurar_niveis_divisao',
+    'ajustar_expiracao_pacote', 'criar_empresa', 'criar_fazenda', 'criar_sub_area', 'gerenciar_cargo', 'renomear',
+    'arquivar',
+})
+
+
+def test_toda_acao_do_catalogo_esta_classificada_de_proposito():
+    catalogo = set(Permissao.objects.values_list('codigo', flat=True))
+    classificadas = ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO | ACOES_DE_ESCRITA
+    assert catalogo == classificadas, f'sem classificação: {catalogo - classificadas}; sobrando: {classificadas - catalogo}'
+    assert not (ACOES_DE_LEITURA & ACOES_VALIDAS_ARQUIVADO) and not (ACOES_DE_ESCRITA & (ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO))
+
+
+def test_em_escopo_arquivado_so_leitura_e_as_acoes_validas_passam(pessoa, cenario, conceder_direto, plataforma):
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.x)
+    pessoa = _recarregar(pessoa)
+    arquivar(plataforma, cenario.f1)
+    f1 = Fazenda.objects.get(pk=cenario.f1.pk)
+    for acao in ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO:
+        assert pode(pessoa, acao, f1) is True, acao
+    for acao in ACOES_DE_ESCRITA - {'criar_empresa'}:
+        assert pode(pessoa, acao, f1) is False, acao
+    assert pode(pessoa, 'criar_sub_area', cenario.f2) is True
+
+
+def test_ancestral_arquivado_nega_escrita_no_descendente_mas_nao_a_leitura(pessoa, cenario, conceder_direto, plataforma):
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.x)
+    pessoa = _recarregar(pessoa)
+    arquivar(plataforma, cenario.f1)
+    t1 = SubArea.objects.get(pk=cenario.t1.pk)
+    assert pode(pessoa, 'ver', t1) is True
+    assert pode(pessoa, 'criar_sub_area', t1) is False
+    assert pode(pessoa, 'renomear', t1) is False
+
+
+def test_revogar_acesso_e_redefinir_senha_valem_em_escopo_arquivado(pessoa, cenario, conceder_direto, plataforma):
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.x)
+    pessoa = _recarregar(pessoa)
+    arquivar(plataforma, cenario.x)
+    x = type(cenario.x).objects.get(pk=cenario.x.pk)
+    assert pode(pessoa, 'revogar_acesso', x) is True
+    assert pode(pessoa, 'redefinir_senha', x) is True
+    assert pode(pessoa, 'convidar_pessoa', x) is False
+
+
+def test_plataforma_tambem_nao_escreve_em_escopo_arquivado(cenario, plataforma):
+    arquivar(plataforma, cenario.f1)
+    f1 = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert pode(plataforma, 'criar_sub_area', f1) is False
+    assert pode(plataforma, 'ver', f1) is True
+    assert pode(plataforma, 'desarquivar', f1) is True
+
+
+def test_permissoes_efetivas_em_escopo_arquivado_so_listam_leitura_e_acoes_validas(pessoa, cenario, conceder_direto, plataforma):
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.x)
+    pessoa = _recarregar(pessoa)
+    arquivar(plataforma, cenario.f1)
+    efetivas = permissoes_efetivas(pessoa, Fazenda.objects.get(pk=cenario.f1.pk))
+    assert 'criar_sub_area' not in efetivas and 'renomear' not in efetivas
+    assert {'ver', 'desarquivar'} <= efetivas
+
+
+def test_custo_da_checagem_de_arquivamento_so_em_escrita_permitida(pessoa, cenario, conceder_direto):
+    # Medido na T2.2 (tasks.md): escrita permitida custa até 3 consultas (empresa, fazenda, sub-áreas); leitura e
+    # negado não consultam o arquivamento.
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.f1)
+    pessoa = _recarregar(pessoa)
+    assert pode(pessoa, 'ver', cenario.t1) is True
+    with CaptureQueriesContext(connection) as leitura:
+        assert pode(pessoa, 'ver', cenario.t1) is True
+    with CaptureQueriesContext(connection) as negada:
+        assert pode(pessoa, 'criar_sub_area', cenario.fy) is False
+    with CaptureQueriesContext(connection) as escrita:
+        assert pode(pessoa, 'criar_sub_area', cenario.t1) is True
+    assert (len(leitura), len(negada), len(escrita)) == (0, 0, 3)

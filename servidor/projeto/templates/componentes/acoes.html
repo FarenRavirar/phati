@@ -1,0 +1,1 @@
+{% comment %}Parâmetros: acoes (lista de {rotulo, destino}). Links de gestão; a view só passa o que a permissão efetiva permite, e o servidor decide de novo ao clicar.{% endcomment %}{% if acoes %}<p class="acoes-pagina">{% for acao in acoes %}<a class="botao botao-secundario" href="{{ acao.destino }}">{{ acao.rotulo }}</a>{% endfor %}</p>{% endif %}

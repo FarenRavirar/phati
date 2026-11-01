@@ -784,6 +784,29 @@
         ],
         "title": "SaidaSubArea",
         "type": "object"
+      },
+      "SaidaTerritorio": {
+        "properties": {
+          "arquivada": {
+            "title": "Arquivada",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nome",
+          "arquivada"
+        ],
+        "title": "SaidaTerritorio",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1622,6 +1645,178 @@
         "summary": "Sair",
         "tags": [
           "identidade"
+        ]
+      }
+    },
+    "/api/v1/territorio/{tipo}/{alvo_id}": {
+      "patch": {
+        "operationId": "territorio_api_renomear",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tipo",
+            "required": true,
+            "schema": {
+              "enum": [
+                "empresas",
+                "fazendas",
+                "sub-areas"
+              ],
+              "title": "Tipo",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "alvo_id",
+            "required": true,
+            "schema": {
+              "title": "Alvo Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaNome"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaTerritorio"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Renomear",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/territorio/{tipo}/{alvo_id}/arquivar": {
+      "post": {
+        "operationId": "territorio_api_arquivar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tipo",
+            "required": true,
+            "schema": {
+              "enum": [
+                "empresas",
+                "fazendas",
+                "sub-areas"
+              ],
+              "title": "Tipo",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "alvo_id",
+            "required": true,
+            "schema": {
+              "title": "Alvo Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaTerritorio"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Arquivar",
+        "tags": [
+          "territorio"
+        ]
+      }
+    },
+    "/api/v1/territorio/{tipo}/{alvo_id}/desarquivar": {
+      "post": {
+        "operationId": "territorio_api_desarquivar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tipo",
+            "required": true,
+            "schema": {
+              "enum": [
+                "empresas",
+                "fazendas",
+                "sub-areas"
+              ],
+              "title": "Tipo",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "alvo_id",
+            "required": true,
+            "schema": {
+              "title": "Alvo Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaidaTerritorio"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Desarquivar",
+        "tags": [
+          "territorio"
         ]
       }
     },

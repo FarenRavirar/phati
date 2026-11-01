@@ -9,6 +9,7 @@ from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
+from django.core.exceptions import PermissionDenied
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, ProgrammingError, connection, connections, transaction
 from django.utils import timezone
@@ -269,8 +270,10 @@ def test_servico_roda_como_papel_app_dentro_de_com_permissao(mundo, como_app):
 
 def test_servico_sem_com_permissao_nao_grava_como_papel_app(mundo, como_app):
     administrador = type(mundo.dono_x).objects.get(pk=mundo.dono_x.pk)
-    with pytest.raises(ProgrammingError, match='row-level security'):
+    # A RLS esconde a empresa: o serviço não consegue nem travar a linha (R11) e recusa antes de gravar.
+    with pytest.raises(PermissionDenied):
         criar_fazenda(administrador, mundo.x, 'F3')
+    assert not Fazenda.objects.filter(nome='F3').exists()
 
 
 def test_gatilho_de_categoria_roda_como_dono_e_nao_depende_da_visibilidade(mundo):
@@ -494,3 +497,46 @@ def test_administrador_de_cargo_enxuto_convida_e_revoga_sob_rls(mundo, como_app,
         nova = Concessao.objects.get(pessoa_id=pessoa.pk)
         revogar_concessao(admin, nova)
         assert Concessao.objects.get(pk=nova.pk).revogada_em is not None
+
+
+# --- 003 R11: arquivar, desarquivar e renomear como o papel `app` (sujeito à RLS) ---
+
+
+@pytest.fixture
+def admin_de_arquivar(mundo, fabrica_pessoa, conceder_direto):
+    """Administrador da empresa X com as ações novas no cargo (a migração as dá aos cargos já existentes)."""
+    for codigo in ('arquivar', 'desarquivar', 'renomear'):
+        # O teste transacional esvazia o catálogo: a linha entra aqui, como `mundo` faz com as outras ações.
+        Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': codigo, 'delegavel': False})
+        CargoPermissao.objects.get_or_create(cargo=mundo.admin_x, permissao_id=codigo)
+    return type(mundo.dono_x).objects.get(pk=mundo.dono_x.pk)
+
+
+def test_administrador_da_empresa_renomeia_arquiva_e_desarquiva_como_papel_app(mundo, admin_de_arquivar, como_app):
+    from territorio.cadastro import arquivar, desarquivar, renomear_empresa, renomear_sub_area
+
+    with com_permissao(admin_de_arquivar, 'renomear', 'arquivar', 'desarquivar', 'ver'):
+        renomear_empresa(admin_de_arquivar, Empresa.objects.get(pk=mundo.x.pk), 'Empresa X Nova')
+        renomear_sub_area(admin_de_arquivar, SubArea.objects.get(pk=mundo.g1.pk), 'G1 Nova')
+        arquivar(admin_de_arquivar, Fazenda.objects.get(pk=mundo.f1.pk))
+        assert SubArea.objects.get(pk=mundo.g1.pk).arquivada_em is not None
+        desarquivar(admin_de_arquivar, Fazenda.objects.get(pk=mundo.f1.pk))
+        assert SubArea.objects.get(pk=mundo.g1.pk).arquivada_em is None
+
+
+def test_arquivar_empresa_como_papel_app_grava_a_cascata(mundo, admin_de_arquivar, como_app):
+    from territorio.cadastro import arquivar
+
+    with com_permissao(admin_de_arquivar, 'arquivar', 'ver'):
+        arquivar(admin_de_arquivar, Empresa.objects.get(pk=mundo.x.pk))
+        assert not Fazenda.objects.filter(empresa_id=mundo.x.pk, arquivada_em__isnull=True).exists()
+        assert not SubArea.objects.filter(empresa_id=mundo.x.pk, arquivada_em__isnull=True).exists()
+
+
+def test_administrador_de_outra_empresa_nao_arquiva_como_papel_app(mundo, admin_de_arquivar, como_app):
+    from territorio.cadastro import arquivar
+
+    estranho = type(mundo.dono_y).objects.get(pk=mundo.dono_y.pk)
+    CargoPermissao.objects.get_or_create(cargo=mundo.admin_y, permissao_id='arquivar')  # 'arquivar' já criada acima
+    with com_permissao(estranho, 'arquivar', 'ver'), pytest.raises(PermissionDenied):
+        arquivar(estranho, mundo.f1)  # a RLS esconde F1 do estranho: nem a trava a encontra
