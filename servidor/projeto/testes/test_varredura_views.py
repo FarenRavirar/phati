@@ -62,7 +62,11 @@ def test_toda_view_autenticada_declara_a_acao_que_exige():
 
 
 def test_acao_declarada_existe_no_catalogo_ou_e_da_propria_pessoa():
-    catalogo = {codigo for codigo, _, _ in import_module('permissao.migrations.0001_initial').ACOES}
+    catalogo = {
+        codigo
+        for migracao in ('0001_initial', '0007_acoes_territorio')
+        for codigo, _, _ in import_module(f'permissao.migrations.{migracao}').ACOES
+    }
     assert {getattr(visao, 'acao_exigida') for _, visao, _ in _autenticadas()} <= catalogo | {PROPRIA_PESSOA}
 
 
@@ -77,7 +81,7 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
 def test_pagina_de_terceiro_com_alvo_na_url_nega_a_quem_nao_tem_acesso(cliente_logado, cenario):
     # A declaração sozinha não prova a checagem (Qodo, PR #21): quem declara uma ação do catálogo e recebe 200 de
     # quem não tem concessão está declarando sem checar.
-    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk}
+    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk}
     de_terceiro = [(nome, parametros) for nome, visao, parametros in _autenticadas()
                    if getattr(visao, 'acao_exigida') != PROPRIA_PESSOA and parametros]
     assert de_terceiro

@@ -51,3 +51,14 @@ def test_pessoa_sem_concessao_recebe_404_em_tudo(cenario, fabrica_pessoa):
     for empresa_id, fazenda_id in [(cenario.x.pk, None), (cenario.x.pk, cenario.f1.pk), (cenario.y.pk, cenario.fy.pk)]:
         with pytest.raises(Http404):
             resolver_escopo(pessoa, empresa_id, fazenda_id)
+
+
+def test_escopo_arquivado_ainda_resolve_para_leitura_por_url_direta(cenario, plataforma):
+    from territorio.cadastro import arquivar
+
+    arquivar(plataforma, cenario.f1)
+    empresa, fazenda = resolver_escopo(plataforma, cenario.x.pk, cenario.f1.pk)
+    assert fazenda is not None
+    assert (empresa.pk, fazenda.pk, fazenda.arquivada_em is not None) == (cenario.x.pk, cenario.f1.pk, True)
+    arquivar(plataforma, cenario.x)
+    assert resolver_escopo(plataforma, cenario.x.pk)[0].arquivada_em is not None

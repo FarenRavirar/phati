@@ -21,7 +21,7 @@ from identidade import email
 from identidade.login import _HASH_FALSO
 from identidade.models import Pessoa
 from permissao import delegacao
-from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder
+from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder, travar_escopo
 from permissao.models import Cargo, Convite, ConviteCategoria
 from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, unir_escopos
 from territorio.models import Empresa
@@ -127,11 +127,16 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
         raise PermissionDenied
     busca = modulo_cpf.chave_de_busca(modulo_cpf.normalizar_cpf(cpf_texto))
     with transaction.atomic():
-        _exigir_cota(quem)
         existente = Pessoa.objects.filter(cpf_busca=busca).first()
+        if existente is not None:
+            _travar_pessoa(existente.pk)  # a ordem é a de `conceder`: pessoa, depois escopo; o inverso daria deadlock
+        travar_escopo(proposta)
+        if not pode_conceder(quem, proposta, categorias):  # de novo, já com a trava (003 R11)
+            raise PermissionDenied
+        _exigir_cota(quem)
         if existente is None:
             try:
-                return delegacao.convidar(quem, nome, email, cpf_texto, cargo, escopo, categorias, inicio, fim)
+                return delegacao.criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf_texto)
             except ValidationError as erro:
                 if erro.code != 'cpf_duplicado':
                     raise

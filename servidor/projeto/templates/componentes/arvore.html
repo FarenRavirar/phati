@@ -1,3 +1,3 @@
-{% comment %}Parâmetros: nos (lista de {nome, filhos}). Árvore em leitura, recursiva: o banco limita a 3 níveis.{% endcomment %}<ul class="arvore">
-{% for no in nos %}<li>{{ no.nome }}{% if no.filhos %}{% include "componentes/arvore.html" with nos=no.filhos %}{% endif %}</li>
+{% comment %}Parâmetros: nos (lista de {nome, filhos, destino}). Árvore recursiva: o banco limita a 3 níveis. Nó com destino é link; sem destino, texto sem aparência de link (R5).{% endcomment %}<ul class="arvore">
+{% for no in nos %}<li>{% if no.destino %}<a href="{{ no.destino }}">{{ no.nome }}</a>{% else %}{{ no.nome }}{% endif %}{% if no.filhos %}{% include "componentes/arvore.html" with nos=no.filhos %}{% endif %}</li>
 {% endfor %}</ul>

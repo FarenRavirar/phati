@@ -1,0 +1,12 @@
+{% extends "casca.html" %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo=titulo subtitulo=subtitulo %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+<form method="post">{% csrf_token %}
+{% for nome, valor in escondidos.items %}<input type="hidden" name="{{ nome }}" value="{{ valor }}">
+{% endfor %}{% for c in campos %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo autocomplete=c.autocomplete teclado=c.teclado obrigatorio=c.obrigatorio %}
+{% endfor %}<p class="acoes-pagina">{% include "componentes/botao.html" with texto=botao tipo="submit" %}<a class="botao botao-secundario" href="{{ cancelar }}">Cancelar</a></p>
+</form>
+{% include "componentes/acoes.html" with acoes=acoes %}
+{% endblock %}
