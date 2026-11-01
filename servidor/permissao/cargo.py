@@ -90,7 +90,7 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=
     codigos = _codigos_validos(codigos)
     with transaction.atomic():
         # Trava a empresa antes de `pode()`: espera um arquivamento em curso e depois lê o estado gravado (003 R11).
-        list(Empresa.objects.select_for_update().filter(pk=empresa.pk).values_list('pk', flat=True))
+        list(Empresa.objects.select_for_update(no_key=True).filter(pk=empresa.pk).values_list('pk', flat=True))
         cargo, base = _cargo_travado_e_base(empresa, base, cargo)
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied

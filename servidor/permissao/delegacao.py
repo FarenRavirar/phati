@@ -107,7 +107,7 @@ def travar_escopo(proposta):
     """Trava a linha do escopo da proposta: convidar e conceder esperam um arquivamento em curso e depois leem o estado
     gravado, em vez de deixar convite pendente num escopo arquivado (003 R11). Chamar dentro de `transaction.atomic()`."""
     escopo = escopo_de(proposta)
-    list(type(escopo).objects.select_for_update().filter(pk=escopo.pk).values_list('pk', flat=True))
+    list(type(escopo).objects.select_for_update(no_key=True).filter(pk=escopo.pk).values_list('pk', flat=True))
 
 
 def _proposta(quem, cargo, escopo, inicio, fim):

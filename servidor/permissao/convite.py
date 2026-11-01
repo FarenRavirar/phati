@@ -127,11 +127,13 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
         raise PermissionDenied
     busca = modulo_cpf.chave_de_busca(modulo_cpf.normalizar_cpf(cpf_texto))
     with transaction.atomic():
+        existente = Pessoa.objects.filter(cpf_busca=busca).first()
+        if existente is not None:
+            _travar_pessoa(existente.pk)  # a ordem é a de `conceder`: pessoa, depois escopo; o inverso daria deadlock
         travar_escopo(proposta)
         if not pode_conceder(quem, proposta, categorias):  # de novo, já com a trava (003 R11)
             raise PermissionDenied
         _exigir_cota(quem)
-        existente = Pessoa.objects.filter(cpf_busca=busca).first()
         if existente is None:
             try:
                 return delegacao.criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf_texto)

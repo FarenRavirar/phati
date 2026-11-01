@@ -127,8 +127,12 @@ def _empresa_de(alvo):
 def _travar(alvo):
     """`select_for_update` da linha do alvo. A ordem entre linhas é sempre empresa, fazenda, sub-área (a de
     `delegacao.py`), para dois atos concorrentes não darem deadlock. Fora do alcance da RLS a linha some e o caminho é
-    o da permissão negada. Chamar dentro de `transaction.atomic()`."""
-    if not list(type(alvo).objects.select_for_update().filter(pk=alvo.pk).values_list('pk', flat=True)):
+    o da permissão negada. Chamar dentro de `transaction.atomic()`.
+
+    `no_key=True` (FOR NO KEY UPDATE): exclui outra trava igual, mas não o FOR KEY SHARE que o INSERT de filha, de
+    fazenda ou de convite pede nas linhas pai para validar a chave estrangeira. Com FOR UPDATE cheio, quem segura a
+    fazenda e quem arquiva a empresa esperariam um ao outro (deadlock)."""
+    if not list(type(alvo).objects.select_for_update(no_key=True).filter(pk=alvo.pk).values_list('pk', flat=True)):
         raise PermissionDenied
 
 
@@ -144,8 +148,8 @@ def _filhos(alvo):
 def _travar_arvore(alvo):
     _travar(alvo)
     fazendas, sub_areas = _filhos(alvo)
-    list(fazendas.select_for_update().order_by('pk').values_list('pk', flat=True))
-    list(sub_areas.select_for_update().order_by('pk').values_list('pk', flat=True))
+    list(fazendas.select_for_update(no_key=True).order_by('pk').values_list('pk', flat=True))
+    list(sub_areas.select_for_update(no_key=True).order_by('pk').values_list('pk', flat=True))
 
 
 def _renomear(solicitante, alvo, nome, acao_auditoria):

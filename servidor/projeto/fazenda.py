@@ -5,7 +5,7 @@ sub-área, que existe para quem lê; o que cada pessoa pode fazer ali vem de `pe
 from django.urls import reverse
 from django.views.decorators.http import require_GET
 
-from permissao.pode import permissoes_efetivas, pode
+from permissao.pode import com_permissao, permissoes_efetivas, pode
 from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import exige_acao, exige_entrada, renderizar_na_casca
 from projeto.territorio_paginas import acoes_do_alvo, resolver_sub_area
@@ -42,12 +42,13 @@ def fazenda(requisicao, empresa_id, fazenda_id):
         sub_areas_da_fazenda(requisicao.user, escopo, arquivadas=None if arquivada else False),
         _destino_da_sub_area(empresa, escopo, 'sub_area'),
     )
+    consultar = _destino_da_sub_area(empresa, escopo, 'sub_area')
     desarquivar = _destino_da_sub_area(empresa, escopo, 'sub_area_desarquivar')
     arquivadas_da_fazenda = [] if arquivada else sub_areas_da_fazenda(requisicao.user, escopo, arquivadas=True)
     ids_arquivados = {s.pk for s in arquivadas_da_fazenda}
     # Restaurar só vale quando o pai não segue arquivado (`ancestral_arquivado`): sem botão que falha.
     arquivadas = [
-        {'nome': s.nome, 'destino': desarquivar(s) if s.pai_id not in ids_arquivados and pode(requisicao.user, 'desarquivar', s) else None}
+        {'nome': s.nome, 'consulta': consultar(s), 'destino': desarquivar(s) if s.pai_id not in ids_arquivados and pode(requisicao.user, 'desarquivar', s) else None}
         for s in arquivadas_da_fazenda
     ]
     cadastrar = next((a for a in acoes if a['rotulo'] == 'Cadastrar sub-área'), None)
@@ -67,8 +68,10 @@ def sub_area(requisicao, empresa_id, fazenda_id, sub_area_id):
     dentro = [
         s for s in sub_areas_da_fazenda(requisicao.user, fazenda_do_endereco, arquivadas=None) if f'/{alvo.pk}/' in s.caminho
     ]
+    with com_permissao(requisicao.user, 'ver'):
+        nivel = nome_do_nivel(empresa, alvo.nivel)
     contexto = {
-        'sub_area': alvo, 'nivel': nome_do_nivel(empresa, alvo.nivel), 'acoes': acoes_do_alvo(alvo, efetivas),
+        'sub_area': alvo, 'nivel': nivel, 'acoes': acoes_do_alvo(alvo, efetivas),
         'arvore': _arvore(dentro, _destino_da_sub_area(empresa, fazenda_do_endereco, 'sub_area')),
     }
     return renderizar_na_casca(requisicao, 'sub_area.html', contexto, empresa=empresa, fazenda=fazenda_do_endereco)

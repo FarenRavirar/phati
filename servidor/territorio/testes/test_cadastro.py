@@ -7,7 +7,6 @@ import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 
 from datetime import timedelta
-from importlib import import_module
 
 from django.db import IntegrityError, connections, transaction
 from django.utils import timezone
@@ -368,8 +367,9 @@ def test_criar_fazenda_depois_do_arquivamento_nao_nasce_ativa_sob_pai_arquivado(
 
 def test_arquivamento_incoerente_e_recusado_pelo_banco(cenario):
     agora = timezone.now()
+    consulta = Fazenda.objects.filter(pk=cenario.f1.pk)
     with pytest.raises(IntegrityError), transaction.atomic():
-        Fazenda.objects.filter(pk=cenario.f1.pk).update(arquivada_em=agora)
+        consulta.update(arquivada_em=agora)
 
 
 def test_efeitos_do_arquivamento_contam_o_que_o_ato_atinge_sem_arquivar(cenario, fabrica_pessoa):
@@ -411,14 +411,6 @@ def _criar_enquanto_arquiva(alvo_a_arquivar, solicitante, criar):
     return esperou, resultado['erro']
 
 
-@pytest.fixture
-def catalogo_da_corrida(transactional_db):
-    # O teste transacional esvazia o catálogo: recarrega o que as migrações 0001 e 0007 gravam, antes do `cenario`.
-    for migracao in ('0001_initial', '0007_acoes_territorio'):
-        for codigo, descricao, delegavel in import_module(f'permissao.migrations.{migracao}').ACOES:
-            Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
-
-
 @pytest.mark.django_db(transaction=True)
 def test_filha_criada_enquanto_o_pai_e_arquivado_em_outra_conexao_espera_e_e_negada(catalogo_da_corrida, cenario, plataforma):
     fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
@@ -452,8 +444,9 @@ def test_renomear_audita_o_nome_gravado_e_nao_o_que_a_instancia_trazia(cenario, 
 @pytest.mark.parametrize('nome', ['', '   ', 'x' * 201])
 def test_nome_do_administrador_invalido_e_recusado_e_nada_fica(plataforma, cpf_novo, nome):
     antes = _contagens()
+    cpf = cpf_novo()
     with pytest.raises(ValidationError) as erro:
-        criar_empresa(plataforma, 'Empresa Nova', nome, 'ana@exemplo.test', cpf_novo())
+        criar_empresa(plataforma, 'Empresa Nova', nome, 'ana@exemplo.test', cpf)
     assert erro.value.code == 'nome_invalido'
     assert _contagens() == antes
 
@@ -477,10 +470,12 @@ def test_convidar_e_conceder_em_escopo_arquivado_sao_negados_ate_para_a_platafor
     arquivar(plataforma, cenario.f1)
     fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
     alvo = fabrica_pessoa('Alvo')
+    cpf = cpf_novo()
+    cargo = cenario.cargos_x['usuario']
     with pytest.raises(PermissionDenied):
-        convidar_por_cpf(plataforma, 'Nova', 'nova@exemplo.test', cpf_novo(), cenario.cargos_x['usuario'], fazenda)
+        convidar_por_cpf(plataforma, 'Nova', 'nova@exemplo.test', cpf, cargo, fazenda)
     with pytest.raises(PermissionDenied):
-        conceder(plataforma, alvo, cenario.cargos_x['usuario'], fazenda)
+        conceder(plataforma, alvo, cargo, fazenda)
     assert not Concessao.objects.filter(pessoa=alvo).exists()
 
 
@@ -547,8 +542,9 @@ def test_sub_area_raiz_repetida_e_recusada_e_filhas_de_pais_diferentes_podem_rep
     b = criar_sub_area(plataforma, cenario.f2, 'B')
     criar_sub_area(plataforma, cenario.f2, 'Filha', pai=SubArea.objects.get(pk=a.pk))
     criar_sub_area(plataforma, cenario.f2, 'Filha', pai=SubArea.objects.get(pk=b.pk))
+    pai_a = SubArea.objects.get(pk=a.pk)
     with pytest.raises(ValidationError):
-        criar_sub_area(plataforma, cenario.f2, 'Filha', pai=SubArea.objects.get(pk=a.pk))
+        criar_sub_area(plataforma, cenario.f2, 'Filha', pai=pai_a)
 
 
 def test_renomear_para_nome_de_irma_ativa_e_recusado_e_empresa_repetida_tambem(cenario, plataforma, cpf_novo):
@@ -556,8 +552,9 @@ def test_renomear_para_nome_de_irma_ativa_e_recusado_e_empresa_repetida_tambem(c
         renomear_fazenda(plataforma, cenario.f1, 'f2')
     assert erro.value.code == 'nome_duplicado'
     assert Fazenda.objects.get(pk=cenario.f1.pk).nome == 'F1'
+    cpf = cpf_novo()
     with pytest.raises(ValidationError) as erro_empresa:
-        criar_empresa(plataforma, 'empresa x', 'Ana', 'ana@exemplo.test', cpf_novo())
+        criar_empresa(plataforma, 'empresa x', 'Ana', 'ana@exemplo.test', cpf)
     assert erro_empresa.value.code == 'nome_duplicado'
     assert _contagens()[0] == 2  # só X e Y: a empresa repetida não ficou
 
@@ -565,8 +562,9 @@ def test_renomear_para_nome_de_irma_ativa_e_recusado_e_empresa_repetida_tambem(c
 def test_desarquivar_com_o_nome_ocupado_por_irma_ativa_e_recusado(cenario, plataforma):
     arquivar(plataforma, cenario.f1)
     criar_fazenda(plataforma, cenario.x, 'F1')  # o nome ficou livre com a F1 arquivada
+    arquivada = Fazenda.objects.get(pk=cenario.f1.pk)
     with pytest.raises(ValidationError) as erro:
-        desarquivar(plataforma, Fazenda.objects.get(pk=cenario.f1.pk))
+        desarquivar(plataforma, arquivada)
     assert erro.value.code == 'nome_duplicado'
     assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is not None
 
@@ -574,10 +572,73 @@ def test_desarquivar_com_o_nome_ocupado_por_irma_ativa_e_recusado(cenario, plata
 def test_arquivar_com_efeitos_desatualizados_levanta_efeitos_mudaram_e_nada_muda(cenario, plataforma):
     esperados = efeitos_do_arquivamento(Fazenda.objects.get(pk=cenario.f1.pk))
     SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f1, nivel=1, nome='Nova entre a tela e o ato')
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
     with pytest.raises(ValidationError) as erro:
-        arquivar(plataforma, Fazenda.objects.get(pk=cenario.f1.pk), efeitos_esperados=esperados)
+        arquivar(plataforma, fazenda, efeitos_esperados=esperados)
     assert erro.value.code == 'efeitos_mudaram'
     assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is None
     assert not SubArea.objects.filter(arquivada_em__isnull=False).exists()
     arquivar(plataforma, Fazenda.objects.get(pk=cenario.f1.pk), efeitos_esperados=efeitos_do_arquivamento(Fazenda.objects.get(pk=cenario.f1.pk)))
     assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is not None
+
+
+def test_convidar_e_conceder_travam_a_pessoa_antes_do_escopo(cenario, plataforma, cpf_novo, monkeypatch):
+    # Mesma ordem nos dois caminhos: o inverso faria dois pedidos sobre a mesma pessoa e fazenda esperarem um ao outro.
+    from permissao import convite as modulo_convite
+    from permissao import delegacao as modulo_delegacao
+
+    ordem = []
+
+    def espiar(modulo, nome, rotulo):
+        original = getattr(modulo, nome)
+
+        def interna(*argumentos, **nomeados):
+            ordem.append(rotulo)
+            return original(*argumentos, **nomeados)
+
+        monkeypatch.setattr(modulo, nome, interna)
+
+    for modulo in (modulo_convite, modulo_delegacao):
+        espiar(modulo, '_travar_pessoa', 'pessoa')
+        espiar(modulo, 'travar_escopo', 'escopo')
+    cpf = cpf_novo()
+    existente = Pessoa.objects.criar('Existente', 'existente@exemplo.test', cpf)
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    cargo = cenario.cargos_x['usuario']
+
+    convidar_por_cpf(plataforma, 'Existente', 'existente@exemplo.test', cpf, cargo, fazenda)
+    assert ordem.index('pessoa') < ordem.index('escopo')
+    ordem.clear()
+    conceder(plataforma, existente, cargo, fazenda)
+    assert ordem.index('pessoa') < ordem.index('escopo')
+
+
+@pytest.mark.django_db(transaction=True)
+def test_criar_sub_area_e_arquivar_a_empresa_em_conexoes_diferentes_nao_travam_um_no_outro(catalogo_da_corrida, cenario, plataforma):
+    from territorio import cadastro as modulo_cadastro
+
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    empresa = Empresa.objects.get(pk=cenario.x.pk)
+    outra = Pessoa.objects.get(pk=plataforma.pk)
+    resultado = {}
+
+    def arquivar_a_empresa():
+        try:
+            arquivar(outra, empresa)
+            resultado['erro'] = None
+        except Exception as erro:  # noqa: BLE001 - o teste confere o resultado logo abaixo
+            resultado['erro'] = erro
+        finally:
+            connections.close_all()
+
+    with transaction.atomic():
+        modulo_cadastro._travar(fazenda)  # a criação já segura a fazenda...
+        fio = threading.Thread(target=arquivar_a_empresa)
+        fio.start()
+        fio.join(timeout=1.5)
+        assert fio.is_alive()  # ...e o arquivamento da empresa espera por ela
+        # O INSERT pede FOR KEY SHARE na empresa; com FOR UPDATE cheio no arquivamento isto seria deadlock.
+        SubArea.objects.create(empresa=empresa, fazenda=fazenda, nivel=1, nome='Filha da corrida')
+    fio.join(timeout=15)
+    assert resultado['erro'] is None
+    assert SubArea.objects.get(nome='Filha da corrida').arquivada_em is not None  # o arquivamento esperou e levou a filha junto

@@ -235,6 +235,26 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         return _formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes)
 
 
+def _gravar_niveis(pessoa, empresa, campos, valores, atuais):
+    """Grava os nomes alterados, tudo ou nada: um nome inválido desfaz os outros. Devolve se gravou; o erro de cada
+    campo fica em `campos`. Em branco limpa o nome."""
+    with transaction.atomic():
+        for campo, (nivel, valor) in zip(campos, valores.items()):
+            if valor.strip() == atuais.get(nivel, ''):
+                continue
+            try:
+                if valor.strip():
+                    niveis.definir_nivel(pessoa, empresa, nivel, valor)
+                else:
+                    niveis.limpar_nivel(pessoa, empresa, nivel)
+            except ValidationError as erro:
+                campo['erro'] = _texto(erro)
+        falhou = any(campo['erro'] for campo in campos)
+        if falhou:
+            transaction.set_rollback(True)
+    return not falhou
+
+
 @_pagina('configurar_niveis_divisao')
 def niveis_da_empresa(requisicao, empresa_id):
     empresa, _, _ = _resolver(requisicao, empresa_id)
@@ -249,22 +269,7 @@ def niveis_da_empresa(requisicao, empresa_id):
         ]
         cancelar = caminho_de(empresa)
         if requisicao.method == 'POST':
-            falhou = False
-            with transaction.atomic():  # tudo ou nada: um nome inválido desfaz os outros
-                for campo, (n, valor) in zip(campos, valores.items()):
-                    if valor.strip() == atuais.get(n, ''):
-                        continue
-                    try:
-                        if valor.strip():
-                            niveis.definir_nivel(requisicao.user, empresa, n, valor)
-                        else:
-                            niveis.limpar_nivel(requisicao.user, empresa, n)
-                    except ValidationError as erro:
-                        campo['erro'] = _texto(erro)
-                        falhou = True
-                if falhou:
-                    transaction.set_rollback(True)
-            if not falhou:
+            if _gravar_niveis(requisicao.user, empresa, campos, valores, atuais):
                 return redirect(cancelar)
             return _formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa, status=400)
         return _formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa)

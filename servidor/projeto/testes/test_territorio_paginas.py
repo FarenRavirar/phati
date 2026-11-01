@@ -429,3 +429,27 @@ def test_sub_area_arquivada_mostra_aviso_e_so_desarquivar(cliente_logado, admini
     assert 'Esta sub-área está arquivada: só leitura.' in html
     assert 'Desarquivar' in html
     assert 'Renomear sub-área' not in html
+
+
+@pytest.fixture
+def leitora_com_nivel_quadra(conta, cenario, conceder_direto):
+    NivelDivisao.objects.create(empresa=cenario.x, nivel=1, nome='Quadra')
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+
+
+@pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+def test_pagina_da_sub_area_mostra_o_nome_do_nivel_configurado_sob_o_papel_app(catalogo_da_corrida, conta, cenario, leitora_com_nivel_quadra, como_app):
+    cliente = Client()
+    assert cliente.post('/entrar', {'cpf': conta.cpf, 'senha': conta.senha}).status_code == 302
+    html = cliente.get(_sub_area(cenario, cenario.g1)).content.decode()
+    assert '<h1>G1</h1>' in html
+    assert 'Quadra' in html  # a RLS esconde `nivel_divisao` fora de `com_permissao`: sem ele a página diria "Nível 1"
+
+
+def test_sub_area_arquivada_tem_link_de_consulta_mesmo_sem_poder_desarquivar(cliente_logado, conta, cenario, conceder_direto, plataforma):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+    arquivar(plataforma, SubArea.objects.get(pk=cenario.g2.pk))
+    html = cliente_logado.get(_fazenda(cenario)).content.decode()
+    assert f'<a href="{_sub_area(cenario, cenario.g2)}">G2</a>' in html
+    assert f'{_sub_area(cenario, cenario.g2)}desarquivar' not in html
+    assert cliente_logado.get(_sub_area(cenario, cenario.g2)).status_code == 200
