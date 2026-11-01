@@ -180,5 +180,5 @@ def test_collectstatic_nao_publica_testes_de_js():
     ignorar = getattr(apps.get_app_config('staticfiles'), 'ignore_patterns')  # atributo do StaticFilesConfig, não do AppConfig
     assert '*.test.js' in ignorar
     publicados = [caminho.replace('\\', '/') for achador in finders.get_finders() for caminho, _ in achador.list(ignorar)]
-    assert 'projeto/menu.js' in publicados
-    assert 'projeto/menu.test.js' not in publicados
+    assert 'projeto/busca-fazendas.js' in publicados
+    assert 'projeto/busca-fazendas.test.js' not in publicados

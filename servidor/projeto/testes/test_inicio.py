@@ -130,3 +130,24 @@ def test_senha_temporaria_so_alcanca_a_troca(cliente_logado, conta):
     assert cliente_logado.get('/').status_code == 302
     assert cliente_logado.get('/')['Location'].startswith('/trocar-senha')
     assert cliente_logado.post('/convites/1/aceitar')['Location'].startswith('/trocar-senha')
+
+
+def test_administrador_da_plataforma_ve_as_empresas_e_nao_a_lista_de_fazendas(cliente_logado, conta, cenario):
+    conta.pessoa.administrador_plataforma = True
+    conta.pessoa.save(update_fields=['administrador_plataforma'])
+    html = cliente_logado.get('/').content.decode()
+    assert '<h2>Empresas</h2>' in html
+    assert f'/empresa/{cenario.x.pk}/"' in html
+    assert 'Suas fazendas' not in html
+
+
+def test_atalho_aparece_so_a_quem_tem_a_acao(cliente_logado, conta, cenario, conceder_direto, monkeypatch):
+    from projeto import menu
+
+    monkeypatch.setattr(menu, 'ATALHOS', (menu.Atalho('Convidar pessoa', '/x/', 'convidar_pessoa'),))
+    assert '<h2>Atalhos</h2>' not in cliente_logado.get('/').content.decode()
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    html = cliente_logado.get('/').content.decode()
+    assert '<h2>Atalhos</h2>' in html
+    assert '<a href="/x/">Convidar pessoa</a>' in html
+    assert html.count('Suas fazendas') == 1  # o bloco de fazendas não se repete (A28)

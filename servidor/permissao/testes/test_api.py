@@ -97,6 +97,24 @@ def test_lista_de_pessoas_nao_vaza_entre_empresas_e_sem_acesso_recebe_vazio(cena
     assert _enviar(usuario_x, 'pessoas', metodo='get').json() == []
 
 
+def test_lista_de_pessoas_so_traz_quem_tem_concessao_ativa(cenario, fabrica_pessoa, conceder_direto):
+    # Concessão revogada, vencida ou ainda não iniciada não põe a pessoa na lista (R11, A10). Só o teste de bordas da
+    # função SQL em test_rls.py pegava o mutante sem o filtro de revogada em `concessoes_ativas`; a rota não tinha teste direto.
+    agora = timezone.now()
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x, 'Admin X')
+    usuario = cenario.cargos_x['usuario']
+    ativa = _com(fabrica_pessoa, conceder_direto, usuario, cenario.f1, 'Ativa')
+    revogada = fabrica_pessoa('Revogada')
+    conceder_direto(revogada, usuario, cenario.f1, revogada_em=agora, revogada_por=admin)
+    vencida = fabrica_pessoa('Vencida')
+    conceder_direto(vencida, usuario, cenario.f1, inicio=agora - timedelta(hours=2), fim=agora - timedelta(hours=1))
+    futura = fabrica_pessoa('Futura')
+    conceder_direto(futura, usuario, cenario.f1, inicio=agora + timedelta(hours=1))
+    vistas = {p['id'] for p in _enviar(admin, 'pessoas', metodo='get').json()}
+    assert {ativa.pk, admin.pk} <= vistas
+    assert vistas.isdisjoint({revogada.pk, vencida.pk, futura.pk})
+
+
 def test_administrador_com_cargo_personalizado_sem_convidar_nem_revogar_convida_e_revoga(cenario, fabrica_pessoa, conceder_direto, cpf_novo):
     # D043: o Administrador convida e revoga sempre, mesmo que o cargo personalizado não liste as duas ações.
     cargo = Cargo.objects.create(empresa=cenario.x, nome='Administrador enxuto', base='administrador')
@@ -391,20 +409,23 @@ def test_convite_leva_o_mesmo_tempo_para_cpf_novo_e_existente(cenario, fabrica_p
     cabecalho = {'Authorization': f'Bearer {sessao.emitir_acesso(admin, "teste")}'}
     cargo, escopo = cenario.cargos_x['usuario'], {'fazenda_id': cenario.f1.pk}
 
-    def medir(cpfs):
-        tempos = []
-        for cpf in cpfs:
-            inicio = time.perf_counter()
-            resposta = Client().post('/api/v1/pessoas', data=json.dumps(_convite(cargo, escopo, cpf)), content_type='application/json', headers=cabecalho)
-            tempos.append(time.perf_counter() - inicio)
-            assert resposta.status_code == 201
-        return statistics.median(tempos)
+    def medir(cpf):
+        inicio = time.perf_counter()
+        resposta = Client().post('/api/v1/pessoas', data=json.dumps(_convite(cargo, escopo, cpf)), content_type='application/json', headers=cabecalho)
+        decorrido = time.perf_counter() - inicio
+        assert resposta.status_code == 201
+        return decorrido
 
     cpfs_existentes = [cpf_novo() for _ in range(15)]
     for cpf in cpfs_existentes:
         Pessoa.objects.criar(nome='Existente', email='existente@exemplo.test', cpf=cpf)
-    novos = medir([cpf_novo() for _ in range(15)])
-    existente = medir(cpfs_existentes)
+    # Rodadas alternadas: deriva de carga da máquina (suíte inteira, cobertura) pega os dois casos por igual; medir um
+    # caso inteiro e depois o outro punha a deriva toda na diferença (falhou 1 de 3 sozinho, medido em 2026-10-31).
+    tempos_novos, tempos_existentes = [], []
+    for cpf_existente in cpfs_existentes:
+        tempos_novos.append(medir(cpf_novo()))
+        tempos_existentes.append(medir(cpf_existente))
+    novos, existente = statistics.median(tempos_novos), statistics.median(tempos_existentes)
     smtp_lento.esvaziar()
     assert len(smtp_lento.enviados) == 30  # o callback rodou nos dois caminhos (CodeRabbit, PR #17)
     assert max(novos, existente) < smtp_lento.atraso * 0.75  # envio síncrono somaria 200 ms aos dois

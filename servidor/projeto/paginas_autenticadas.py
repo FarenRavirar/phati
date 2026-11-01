@@ -1,6 +1,8 @@
 """Páginas da casca autenticada: portão de sessão (R5, R8) e renderização no molde único (R1)."""
 
-from functools import wraps
+import re
+from functools import lru_cache, wraps
+from pathlib import Path
 from urllib.parse import urlencode
 
 from django.shortcuts import redirect, render
@@ -14,6 +16,13 @@ CAMINHO_ENTRAR = '/entrar'
 CAMINHO_TROCAR_SENHA = '/trocar-senha'
 # Ação que só toca a própria pessoa (trocar a senha, responder ao convite dela): sem alvo de terceiro, sem `pode()`.
 PROPRIA_PESSOA = 'propria_pessoa'
+
+
+@lru_cache(maxsize=1)
+def _cor_do_tema():
+    """Cor do `<meta name="theme-color">`: lida de `--cor-primaria` em `tokens.css`, a única fonte de cor (R4, R13 da 002)."""
+    tokens = (Path(__file__).parent / 'static' / 'projeto' / 'tokens.css').read_text(encoding='utf-8')
+    return re.findall(r'--cor-primaria:\s*(#[0-9A-Fa-f]{6})', tokens)[0]
 
 
 def destino_seguro(destino):
@@ -68,4 +77,5 @@ def exige_entrada(visao):
 def renderizar_na_casca(requisicao, modelo, contexto=None, empresa=None, fazenda=None):
     """Renderiza `modelo` (que estende `casca.html`) com o menu da pessoa no escopo atual (a fazenda, ou a empresa)."""
     itens = itens_do_menu(requisicao.user, fazenda or empresa, requisicao.path)
-    return render(requisicao, modelo, {**(contexto or {}), 'itens_menu': itens, 'empresa': empresa, 'fazenda': fazenda})
+    base = {'itens_menu': itens, 'empresa': empresa, 'fazenda': fazenda, 'cor_do_tema': _cor_do_tema()}
+    return render(requisicao, modelo, {**(contexto or {}), **base})
