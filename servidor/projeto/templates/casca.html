@@ -15,7 +15,7 @@
 <div class="casca">
 <header class="faixa">
 <a class="faixa-produto" href="/" translate="no">phati</a>
-<p class="faixa-escopo">{% if empresa %}<a href="/empresa/{{ empresa.pk }}/">{{ empresa.nome }}</a>{% if fazenda %} › <a href="/empresa/{{ empresa.pk }}/fazenda/{{ fazenda.pk }}/">{{ fazenda.nome }}</a>{% endif %}{% endif %}</p>
+<nav class="faixa-escopo" aria-label="Escopo atual">{% if empresa %}{% url 'empresa' empresa.pk as url_empresa %}<a href="{{ url_empresa }}"{% if request.path == url_empresa %} aria-current="page"{% endif %}>{{ empresa.nome }}</a>{% if fazenda %}{% url 'fazenda' empresa.pk fazenda.pk as url_fazenda %} › <a href="{{ url_fazenda }}"{% if request.path == url_fazenda %} aria-current="page"{% endif %}>{{ fazenda.nome }}</a>{% endif %}{% endif %}</nav>
 <p class="faixa-pessoa">{{ request.user.nome }}</p>
 <form class="faixa-sair" method="post" action="/sair">{% csrf_token %}<button class="botao botao-secundario" type="submit">Sair</button></form>
 </header>

@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-TOKENS = Path(__file__).resolve().parent.parent / 'static' / 'projeto' / 'tokens.css'
+VARIAVEIS = Path(__file__).resolve().parent.parent / 'static' / 'projeto' / 'tokens.css'
 RAZAO_ANTERIOR = 24 / 20  # 1,5rem por 1,25rem, medido na 002
 
 
@@ -15,7 +15,7 @@ def _razao(css):
 
 
 def test_h1_e_h2_tem_razao_maior_que_a_anterior():
-    assert _razao(TOKENS.read_text(encoding='utf-8')) > RAZAO_ANTERIOR
+    assert _razao(VARIAVEIS.read_text(encoding='utf-8')) > RAZAO_ANTERIOR
 
 
 def test_o_teste_reprova_os_valores_antigos():

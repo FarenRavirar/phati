@@ -78,10 +78,10 @@ def test_irma_sem_concessao_da_mesma_empresa_recebe_404(cliente_logado, conta, c
 def test_trilha_da_faixa_tem_um_link_para_a_empresa_e_outro_para_a_fazenda(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.f1)
     resposta = cliente_logado.get(_caminho(cenario.x, cenario.f1))
-    faixa = resposta.content.decode().split('<p class="faixa-escopo">')[1].split('</p>')[0]
-    assert re.findall(r'<a href="([^"]+)">([^<]+)</a>', faixa) == [
-        (f'/empresa/{cenario.x.pk}/', 'Empresa X'),
-        (_caminho(cenario.x, cenario.f1), 'F1'),
+    faixa = resposta.content.decode().split('<nav class="faixa-escopo"')[1].split('</nav>')[0]
+    assert re.findall(r'<a href="([^"]+)"( aria-current="page")?>([^<]+)</a>', faixa) == [
+        (f'/empresa/{cenario.x.pk}/', '', 'Empresa X'),
+        (_caminho(cenario.x, cenario.f1), ' aria-current="page"', 'F1'),  # só o trecho da página atual leva aria-current
     ]
     assert 'Empresa X' not in _conteudo(resposta)  # A2: o nome da empresa não se repete no <main>
 

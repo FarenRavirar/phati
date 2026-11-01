@@ -21,8 +21,8 @@ PROPRIA_PESSOA = 'propria_pessoa'
 @lru_cache(maxsize=1)
 def _cor_do_tema():
     """Cor do `<meta name="theme-color">`: lida de `--cor-primaria` em `tokens.css`, a única fonte de cor (R4, R13 da 002)."""
-    tokens = (Path(__file__).parent / 'static' / 'projeto' / 'tokens.css').read_text(encoding='utf-8')
-    return re.findall(r'--cor-primaria:\s*(#[0-9A-Fa-f]{6})', tokens)[0]
+    variaveis = (Path(__file__).parent / 'static' / 'projeto' / 'tokens.css').read_text(encoding='utf-8')
+    return re.findall(r'--cor-primaria:\s*(#[0-9A-Fa-f]{6})', variaveis)[0]
 
 
 def destino_seguro(destino):
