@@ -1,5 +1,6 @@
-"""Página da fazenda (R11, 003 R5, R6, R9, R11): nome, empresa e árvore de sub-áreas, as ações de gestão que a permissão
-efetiva da pessoa permite e a seção das sub-áreas arquivadas."""
+"""Páginas da fazenda e da sub-área (R11, 003 R5, R6, R9, R11): nome, empresa e árvore de sub-áreas, as ações de gestão
+que a permissão efetiva da pessoa permite e a seção das sub-áreas arquivadas. Todo nó da árvore leva à página da
+sub-área, que existe para quem lê; o que cada pessoa pode fazer ali vem de `permissoes_efetivas`."""
 
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -7,14 +8,16 @@ from django.views.decorators.http import require_GET
 from permissao.pode import permissoes_efetivas, pode
 from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import exige_acao, exige_entrada, renderizar_na_casca
-from projeto.territorio_paginas import acoes_do_alvo
+from projeto.territorio_paginas import acoes_do_alvo, resolver_sub_area
 from territorio.listagem import sub_areas_da_fazenda
+from territorio.models import SubArea
+from territorio.niveis import nome_do_nivel
 
 
-def _arvore(sub_areas, destino_de=None):
-    """Aninha pela `pai`; sub-área cujo pai não veio na lista (acesso só a uma sub-área) é raiz. Com `destino_de`, cada nó
-    vira link para a página dele (R5); sem ele, texto."""
-    nos = {s.pk: {'nome': s.nome, 'filhos': [], 'destino': destino_de(s) if destino_de else None} for s in sub_areas}
+def _arvore(sub_areas, destino_de):
+    """Aninha pela `pai`; sub-área cujo pai não veio na lista (acesso só a uma sub-área) é raiz. Cada nó é link para a
+    página da sub-área (R5)."""
+    nos = {s.pk: {'nome': s.nome, 'filhos': [], 'destino': destino_de(s)} for s in sub_areas}
     raizes = []
     for s in sub_areas:  # ordenadas por nível, então o pai já existe em `nos` quando vem
         (nos[s.pai_id]['filhos'] if s.pai_id in nos else raizes).append(nos[s.pk])
@@ -23,15 +26,6 @@ def _arvore(sub_areas, destino_de=None):
 
 def _destino_da_sub_area(empresa, fazenda, nome_da_url):
     return lambda s: reverse(nome_da_url, kwargs={'empresa_id': empresa.pk, 'fazenda_id': fazenda.pk, 'sub_area_id': s.pk})
-
-
-def _destino_se_pode_renomear(pessoa, empresa, fazenda):
-    """Link do nó só para quem pode renomear *aquela* sub-área (Administrador só de sub-área inclusive). Fazenda
-    arquivada não liga; nas outras, a lista traz só sub-áreas ativas, então o arquivamento não se consulta de novo."""
-    if fazenda.arquivada_em is not None:
-        return None
-    destino = _destino_da_sub_area(empresa, fazenda, 'sub_area_editar')
-    return lambda s: destino(s) if pode(pessoa, 'renomear', s, arquivado=False) else None
 
 
 @require_GET
@@ -46,13 +40,35 @@ def fazenda(requisicao, empresa_id, fazenda_id):
     arquivada = escopo.arquivada_em is not None
     arvore = _arvore(
         sub_areas_da_fazenda(requisicao.user, escopo, arquivadas=None if arquivada else False),
-        _destino_se_pode_renomear(requisicao.user, empresa, escopo),
+        _destino_da_sub_area(empresa, escopo, 'sub_area'),
     )
     desarquivar = _destino_da_sub_area(empresa, escopo, 'sub_area_desarquivar')
+    arquivadas_da_fazenda = [] if arquivada else sub_areas_da_fazenda(requisicao.user, escopo, arquivadas=True)
+    ids_arquivados = {s.pk for s in arquivadas_da_fazenda}
+    # Restaurar só vale quando o pai não segue arquivado (`ancestral_arquivado`): sem botão que falha.
     arquivadas = [
-        {'nome': s.nome, 'destino': desarquivar(s) if 'desarquivar' in efetivas else None}
-        for s in ([] if arquivada else sub_areas_da_fazenda(requisicao.user, escopo, arquivadas=True))
+        {'nome': s.nome, 'destino': desarquivar(s) if s.pai_id not in ids_arquivados and pode(requisicao.user, 'desarquivar', s) else None}
+        for s in arquivadas_da_fazenda
     ]
     cadastrar = next((a for a in acoes if a['rotulo'] == 'Cadastrar sub-área'), None)
     contexto = {'arvore': arvore, 'acoes': acoes, 'arquivadas': arquivadas, 'cadastrar': cadastrar}
     return renderizar_na_casca(requisicao, 'fazenda.html', contexto, empresa=empresa, fazenda=escopo)
+
+
+@require_GET
+@exige_entrada
+@exige_acao('ver')
+def sub_area(requisicao, empresa_id, fazenda_id, sub_area_id):
+    """Página da sub-área: nível, o que há dentro dela e as ações que a permissão efetiva da pessoa permite nela."""
+    empresa, fazenda_do_endereco, alvo = resolver_sub_area(requisicao, empresa_id, fazenda_id, sub_area_id)
+    assert fazenda_do_endereco is not None
+    assert isinstance(alvo, SubArea)  # a URL traz os dois ids: `resolver_sub_area` devolve a sub-área ou levanta 404
+    efetivas = permissoes_efetivas(requisicao.user, alvo)
+    dentro = [
+        s for s in sub_areas_da_fazenda(requisicao.user, fazenda_do_endereco, arquivadas=None) if f'/{alvo.pk}/' in s.caminho
+    ]
+    contexto = {
+        'sub_area': alvo, 'nivel': nome_do_nivel(empresa, alvo.nivel), 'acoes': acoes_do_alvo(alvo, efetivas),
+        'arvore': _arvore(dentro, _destino_da_sub_area(empresa, fazenda_do_endereco, 'sub_area')),
+    }
+    return renderizar_na_casca(requisicao, 'sub_area.html', contexto, empresa=empresa, fazenda=fazenda_do_endereco)

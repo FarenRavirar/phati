@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Lower
 
 
 class Arquivavel(models.Model):
@@ -21,6 +22,16 @@ def _arquivamento_coerente(tabela):
     return models.CheckConstraint(condition=todas_nulas | todas_preenchidas, name=f'{tabela}_arquivamento_coerente')
 
 
+def _nome_ativo_unico(tabela, *escopo, nulls_distinct=True):
+    """Entre itens ativos do mesmo lugar não há dois com o mesmo nome (sem diferenciar maiúscula): um envio repetido do
+    formulário, ou a nova tentativa depois de uma resposta perdida, não cria duplicata. Arquivado sai da regra, então o
+    nome volta a ficar livre; desarquivar com o nome já ocupado é recusado (`nome_duplicado`)."""
+    return models.UniqueConstraint(
+        Lower('nome'), *escopo, condition=Q(arquivada_em__isnull=True), nulls_distinct=nulls_distinct,
+        name=f'{tabela}_nome_ativo_unico',
+    )
+
+
 class Empresa(Arquivavel):
     nome = models.CharField(max_length=200)
     criada_em = models.DateTimeField(auto_now_add=True)
@@ -34,7 +45,10 @@ class Empresa(Arquivavel):
 
     class Meta(Arquivavel.Meta):
         db_table = 'empresa'
-        constraints = [_arquivamento_coerente('empresa')]
+        constraints = [
+            _arquivamento_coerente('empresa'),
+            _nome_ativo_unico('empresa'),
+        ]
 
 
 class NivelDivisao(models.Model):
@@ -65,6 +79,7 @@ class Fazenda(Arquivavel):
         db_table = 'fazenda'
         constraints = [
             _arquivamento_coerente('fazenda'),
+            _nome_ativo_unico('fazenda', 'empresa'),
             # Alvo da chave estrangeira composta de sub_area (migração 0001): fazenda e empresa andam juntas.
             models.UniqueConstraint(fields=['id', 'empresa'], name='fazenda_id_empresa_unico'),
         ]
@@ -86,6 +101,7 @@ class SubArea(Arquivavel):
     caminho = models.TextField(default='/', editable=False)
     empresa_id: int  # anotações só para o pyright: o Django cria as colunas `<campo>_id`
     fazenda_id: int
+    pai_id: int | None
 
     def __str__(self):
         return self.nome
@@ -94,6 +110,7 @@ class SubArea(Arquivavel):
         db_table = 'sub_area'
         constraints = [
             _arquivamento_coerente('sub_area'),
+            _nome_ativo_unico('sub_area', 'fazenda', 'pai', nulls_distinct=False),
             models.CheckConstraint(condition=Q(nivel__gte=1, nivel__lte=3), name='sub_area_nivel_1_a_3'),
             models.CheckConstraint(
                 condition=Q(nivel=1, pai__isnull=True) | Q(nivel__gt=1, pai__isnull=False),

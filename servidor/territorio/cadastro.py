@@ -5,9 +5,10 @@ Renomear, arquivar e desarquivar (003 R9, R11) seguem o mesmo molde: trava, `pod
 """
 
 import uuid
+from contextlib import contextmanager
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -21,6 +22,22 @@ from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 
 NIVEL_MAXIMO = 3
 NOMES_PADRAO_DOS_NIVEIS = {1: 'Gleba', 2: 'Talhão'}  # R10: o nível 3 nasce sem nome
+
+
+RESTRICOES_DE_NOME = frozenset({'empresa_nome_ativo_unico', 'fazenda_nome_ativo_unico', 'sub_area_nome_ativo_unico'})
+
+
+@contextmanager
+def nome_unico():
+    """Grava num ponto de salvamento e traduz a restrição de nome único em `nome_duplicado`; outra falha de integridade
+    segue visível. A pré-checagem não vê a corrida, só a restrição do banco vê."""
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError as erro:
+        if getattr(getattr(erro.__cause__, 'diag', None), 'constraint_name', None) not in RESTRICOES_DE_NOME:
+            raise
+        raise ValidationError('Já existe item com esse nome neste lugar.', code='nome_duplicado') from None
 
 
 def nome_valido(nome, maximo=200):
@@ -44,8 +61,10 @@ def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cp
     if not pode(solicitante, 'criar_empresa'):
         raise PermissionDenied
     nome = nome_valido(nome)
+    nome_administrador = nome_valido(nome_administrador)
     with transaction.atomic():
-        empresa = Empresa.objects.create(nome=nome)
+        with nome_unico():
+            empresa = Empresa.objects.create(nome=nome)
         NivelDivisao.objects.bulk_create(
             NivelDivisao(empresa=empresa, nivel=nivel, nome=nome_do_nivel) for nivel, nome_do_nivel in NOMES_PADRAO_DOS_NIVEIS.items()
         )
@@ -74,7 +93,8 @@ def criar_fazenda(solicitante, empresa, nome):
         _travar(empresa)  # espera um arquivamento em curso e depois lê o estado gravado (R11)
         if not pode(solicitante, 'criar_fazenda', empresa):
             raise PermissionDenied
-        fazenda = Fazenda.objects.create(empresa=empresa, nome=nome)
+        with nome_unico():
+            fazenda = Fazenda.objects.create(empresa=empresa, nome=nome)
         auditar('fazenda_criada', solicitante, fazenda, fazenda.empresa_id)
     return fazenda
 
@@ -89,9 +109,12 @@ def criar_sub_area(solicitante, fazenda, nome, pai=None):
         raise ValidationError('A divisão da fazenda tem no máximo 3 níveis.', code='nivel_maximo')
     with transaction.atomic():
         _travar(fazenda)
+        if pai is not None:
+            _travar(pai)  # arquivar() trava a sub-área e as descendentes: a filha espera e depois lê o pai já arquivado
         if not pode(solicitante, 'criar_sub_area', pai or fazenda):
             raise PermissionDenied
-        sub_area = SubArea.objects.create(empresa=fazenda.empresa, fazenda=fazenda, pai=pai, nivel=nivel, nome=nome)
+        with nome_unico():
+            sub_area = SubArea.objects.create(empresa=fazenda.empresa, fazenda=fazenda, pai=pai, nivel=nivel, nome=nome)
         sub_area.refresh_from_db()  # o gatilho preenche `caminho`, de que `pode()` depende (achado do Qodo, PR #11)
         auditar('sub_area_criada', solicitante, sub_area, sub_area.empresa_id)
     return sub_area
@@ -129,11 +152,13 @@ def _renomear(solicitante, alvo, nome, acao_auditoria):
     nome = nome_valido(nome)
     with transaction.atomic():
         _travar(alvo)
+        alvo.refresh_from_db(fields=['nome'])  # o nome que vale é o gravado sob a trava, não o lido antes dela
         if not pode(solicitante, 'renomear', alvo):
             raise PermissionDenied
         antigo = alvo.nome
         alvo.nome = nome
-        alvo.save(update_fields=['nome'])
+        with nome_unico():
+            alvo.save(update_fields=['nome'])
         auditar(acao_auditoria, solicitante, alvo, _empresa_de(alvo), {'nome_antigo': antigo, 'nome_novo': nome})
     return alvo
 
@@ -171,18 +196,26 @@ def _convites_pendentes(alvo, fazendas_ids, sub_areas_ids, agora):
     )
 
 
+def _contagem(alvo, fazendas_ids, sub_areas_ids, convites_ids):
+    return len(fazendas_ids) - isinstance(alvo, Fazenda), len(sub_areas_ids) - isinstance(alvo, SubArea), len(convites_ids)
+
+
 def efeitos_do_arquivamento(alvo):
     """O que arquivar `alvo` atinge além dele, para a tela de confirmação dizer a verdade: `(fazendas, sub_áreas,
     convites pendentes)` que passam a arquivados ou cancelados."""
     fazendas_ids, sub_areas_ids = _afetados(alvo)
-    convites = _convites_pendentes(alvo, fazendas_ids, sub_areas_ids, timezone.now()).count()
-    return len(fazendas_ids) - isinstance(alvo, Fazenda), len(sub_areas_ids) - isinstance(alvo, SubArea), convites
+    convites_ids = list(_convites_pendentes(alvo, fazendas_ids, sub_areas_ids, timezone.now()).values_list('pk', flat=True))
+    return _contagem(alvo, fazendas_ids, sub_areas_ids, convites_ids)
 
 
-def arquivar(solicitante, alvo):
+def arquivar(solicitante, alvo, efeitos_esperados=None):
     """Arquiva `alvo` (Empresa, Fazenda ou SubArea) e o que está abaixo dele num só ato (`arquivamento`) e invalida os
     convites pendentes do escopo (`cancelado_em`; não voltam ao desarquivar). Dado e concessões ficam intactos (R11).
-    Filho já arquivado por outro ato continua com o identificador dele."""
+    Filho já arquivado por outro ato continua com o identificador dele.
+
+    `efeitos_esperados` é o que a tela de confirmação mostrou (`efeitos_do_arquivamento`): se o que o ato atinge mudou
+    desde então, levanta `efeitos_mudaram` e não arquiva, para a pessoa confirmar de novo. A API não confirma em tela e
+    passa `None`."""
     with transaction.atomic():
         _travar_arvore(alvo)
         if not pode(solicitante, 'arquivar', alvo):
@@ -190,10 +223,15 @@ def arquivar(solicitante, alvo):
         agora, ato = timezone.now(), uuid.uuid4()
         marca = {'arquivada_em': agora, 'arquivada_por': solicitante, 'arquivamento': ato}
         fazendas_ids, sub_areas_ids = _afetados(alvo)
+        # Trava os pendentes: `aceitar` trava o convite, então quem já aceitou fica fora e quem aceita agora espera.
+        invalidados = sorted(
+            _convites_pendentes(alvo, fazendas_ids, sub_areas_ids, agora).select_for_update().values_list('pk', flat=True)
+        )
+        if efeitos_esperados is not None and tuple(efeitos_esperados) != _contagem(alvo, fazendas_ids, sub_areas_ids, invalidados):
+            raise ValidationError('O que o arquivamento atinge mudou desde a confirmação.', code='efeitos_mudaram')
         Fazenda.objects.filter(pk__in=fazendas_ids).update(**marca)
         SubArea.objects.filter(pk__in=sub_areas_ids).update(**marca)
         type(alvo).objects.filter(pk=alvo.pk).update(**marca)
-        invalidados = sorted(_convites_pendentes(alvo, fazendas_ids, sub_areas_ids, agora).values_list('pk', flat=True))
         Convite.objects.filter(pk__in=invalidados).update(cancelado_em=agora)
         auditar(
             'territorio_arquivado', solicitante, alvo, _empresa_de(alvo),
@@ -228,9 +266,10 @@ def desarquivar(solicitante, alvo):
             raise ValidationError('Desarquive o item de cima antes.', code='ancestral_arquivado')
         solta = {'arquivada_em': None, 'arquivada_por': None, 'arquivamento': None}
         fazendas, sub_areas = _filhos(atual)
-        fazendas.filter(arquivamento=atual.arquivamento).update(**solta)
-        sub_areas.filter(arquivamento=atual.arquivamento).update(**solta)
-        type(alvo).objects.filter(pk=alvo.pk).update(**solta)
+        with nome_unico():
+            fazendas.filter(arquivamento=atual.arquivamento).update(**solta)
+            sub_areas.filter(arquivamento=atual.arquivamento).update(**solta)
+            type(alvo).objects.filter(pk=alvo.pk).update(**solta)
         auditar('territorio_desarquivado', solicitante, alvo, _empresa_de(alvo), {'arquivamento': str(atual.arquivamento)})
     alvo.refresh_from_db()
     return alvo

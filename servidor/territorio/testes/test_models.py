@@ -69,7 +69,7 @@ def test_raiz_exige_nivel_1_e_filho_exige_pai(fazenda):
 
 def test_pai_nao_muda_depois_de_criado(fazenda):
     gleba = _sub_area(fazenda, 1)
-    outra_gleba = _sub_area(fazenda, 1)
+    outra_gleba = _sub_area(fazenda, 1, nome='outra gleba')
     talhao = _sub_area(fazenda, 2, pai=gleba)
     talhao.pai = outra_gleba
     with pytest.raises(IntegrityError), transaction.atomic():

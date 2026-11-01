@@ -6,7 +6,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from comum.models import EventoAuditoria
 from territorio.cadastro import arquivar, criar_sub_area
 from territorio.models import NivelDivisao, SubArea
-from territorio.niveis import definir_nivel, nome_do_nivel, nomes_dos_niveis
+from territorio.niveis import definir_nivel, limpar_nivel, nome_do_nivel, nomes_dos_niveis
 
 pytestmark = pytest.mark.django_db
 
@@ -73,3 +73,23 @@ def test_empresa_arquivada_nao_define_nivel(cenario, plataforma):
     arquivar(plataforma, cenario.x)
     with pytest.raises(PermissionDenied):
         definir_nivel(plataforma, cenario.x, 1, 'Gleba')
+
+
+def test_limpar_nivel_volta_a_mostrar_nivel_n_e_audita_o_nome_antigo(cenario, admin_x):
+    definir_nivel(admin_x, cenario.x, 1, 'Quadra')
+    limpar_nivel(admin_x, cenario.x, 1)
+    assert nome_do_nivel(cenario.x, 1) == 'Nível 1'
+    ultimo = EventoAuditoria.objects.filter(acao='nivel_definido').order_by('pk').last()
+    assert ultimo is not None
+    assert ultimo.detalhes == {'nivel': 1, 'nome_antigo': 'Quadra', 'nome_novo': None}
+
+
+def test_limpar_nivel_sem_nome_nao_faz_nada_e_exige_permissao(cenario, admin_x, fabrica_pessoa, conceder_direto):
+    limpar_nivel(admin_x, cenario.x, 2)
+    assert not EventoAuditoria.objects.filter(acao='nivel_definido').exists()
+    usuario = fabrica_pessoa('Usuaria')
+    conceder_direto(usuario, cenario.cargos_x['usuario'], cenario.x)
+    with pytest.raises(PermissionDenied):
+        limpar_nivel(usuario, cenario.x, 2)
+    with pytest.raises(ValidationError):
+        limpar_nivel(admin_x, cenario.x, 4)

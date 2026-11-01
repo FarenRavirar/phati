@@ -113,7 +113,11 @@
     "territorio.niveis.nome_do_nivel": "Rótulo da criação de sub-área — 003 R10; sem rota na API",
     "territorio.niveis.nomes_configurados": "Formulário dos níveis — 003 R10; sem rota na API",
     "territorio.niveis.nomes_dos_niveis": "Sem tela própria: nomes dos três níveis para quem lê a divisão — 003 R10",
-    "permissao.pode.escopo_arquivado": "Sem tela: auxiliar interno de pode() e de permissoes_efetivas() para o escopo arquivado — 003 R11"
+    "permissao.pode.escopo_arquivado": "Sem tela: auxiliar interno de pode() e de permissoes_efetivas() para o escopo arquivado — 003 R11",
+    "permissao.delegacao.travar_escopo": "Sem tela: trava a linha do escopo ao convidar ou conceder, para não nascer convite em escopo que está sendo arquivado — 003 R11",
+    "permissao.delegacao.criar_pessoa_e_conceder": "Sem tela: efeito interno de pessoas_convidar (CPF novo) — 003",
+    "territorio.niveis.limpar_nivel": "Nomes dos níveis da divisão (campo em branco) — 003 R10; sem rota na API",
+    "territorio.cadastro.nome_unico": "Sem tela: traduz a restrição de nome único entre irmãos ativos em `nome_duplicado` nas funções de criar, renomear e desarquivar — 003 R9"
   },
   "acoes": {
     "ver": "002 (Início, seletor, página da fazenda)",

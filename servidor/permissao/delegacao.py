@@ -17,7 +17,7 @@ from comum.auditoria import auditar
 from identidade import senha
 from identidade.models import Pessoa
 from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria
-from permissao.pode import Alvo, alvo_de, esquecer, memoria_de
+from permissao.pode import Alvo, alvo_de, escopo_arquivado, escopo_de, esquecer, memoria_de
 from territorio.models import Empresa, Fazenda, SubArea
 
 
@@ -91,6 +91,9 @@ def pode_conceder(quem, concessao, categorias=()):
     # plataforma também não pode propor isso (erro 500 e convite inválido; Sourcery, PR #16).
     if cargo.empresa_id != concessao.empresa_id:
         return False
+    # Convidar e conceder são escrita: escopo arquivado nega até a plataforma (003 R11).
+    if escopo_arquivado(escopo_de(concessao)):
+        return False
     if quem.administrador_plataforma:
         return True
     memoria = memoria_de(quem)
@@ -98,6 +101,13 @@ def pode_conceder(quem, concessao, categorias=()):
     concedidas = frozenset(cargo.permissoes.values_list('pk', flat=True))
     pedidas = frozenset(categoria.pk for categoria in categorias)
     return any(_concede(vinculo, memoria, concessao, alvo, concedidas, pedidas) for vinculo in memoria.vinculos)
+
+
+def travar_escopo(proposta):
+    """Trava a linha do escopo da proposta: convidar e conceder esperam um arquivamento em curso e depois leem o estado
+    gravado, em vez de deixar convite pendente num escopo arquivado (003 R11). Chamar dentro de `transaction.atomic()`."""
+    escopo = escopo_de(proposta)
+    list(type(escopo).objects.select_for_update().filter(pk=escopo.pk).values_list('pk', flat=True))
 
 
 def _proposta(quem, cargo, escopo, inicio, fim):
@@ -127,9 +137,21 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
+        travar_escopo(proposta)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
         return _gravar(quem, proposta, pessoa, categorias)
+
+
+def criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf):
+    """Cria a pessoa e grava a concessão proposta. Chamar dentro da transação, já com `travar_escopo` e `pode_conceder`
+    conferidos: `convidar` e `convidar_por_cpf` fazem isso uma vez cada, para os dois caminhos custarem o mesmo."""
+    pessoa = Pessoa.objects.criar(nome, email, cpf, empresa_origem=Empresa.objects.get(pk=proposta.empresa_id))
+    # Grava a concessão antes de enviar a senha: período ou categoria recusados pelo banco não podem deixar um
+    # e-mail com credencial de conta que não existe (achado do Codex, PR #11).
+    auditar('pessoa_criada', quem, pessoa, proposta.empresa_id)
+    _gravar(quem, proposta, pessoa, categorias)
+    return pessoa, senha.emitir_senha_temporaria(pessoa)
 
 
 def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, fim=None):
@@ -142,13 +164,10 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
     if not pode_conceder(quem, proposta, categorias):
         raise PermissionDenied
     with transaction.atomic():
-        pessoa = Pessoa.objects.criar(nome, email, cpf, empresa_origem=Empresa.objects.get(pk=proposta.empresa_id))
-        # Grava a concessão antes de enviar a senha: período ou categoria recusados pelo banco não podem deixar um
-        # e-mail com credencial de conta que não existe (achado do Codex, PR #11).
-        auditar('pessoa_criada', quem, pessoa, proposta.empresa_id)
-        _gravar(quem, proposta, pessoa, categorias)
-        temporaria = senha.emitir_senha_temporaria(pessoa)
-    return pessoa, temporaria
+        travar_escopo(proposta)
+        if not pode_conceder(quem, proposta, categorias):  # de novo, já com a trava: o arquivamento pode ter commitado
+            raise PermissionDenied
+        return criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf)
 
 
 def _pode_revogar(quem, concessao):

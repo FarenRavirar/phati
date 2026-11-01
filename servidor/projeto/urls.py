@@ -9,6 +9,7 @@ _FAZENDA = _EMPRESA + 'fazenda/<int:fazenda_id>/'
 _SUB_AREA = _FAZENDA + 'sub-area/<int:sub_area_id>/'
 # Telas de gestão do território (003 R9 a R11): renomear, arquivar e desarquivar repetem o molde nos três níveis.
 TERRITORIO = [
+    path(_SUB_AREA, fazenda.sub_area, name='sub_area'),
     path(_EMPRESA + 'niveis', territorio_paginas.niveis_da_empresa, name='empresa_niveis'),
     path(_EMPRESA + 'fazenda/nova', territorio_paginas.fazenda_nova, name='fazenda_nova'),
     path(_FAZENDA + 'sub-area/nova', territorio_paginas.sub_area_nova, name='sub_area_nova'),

@@ -10,14 +10,14 @@ ACOES = [
 
 
 def carregar(apps, schema_editor):
-    Permissao = apps.get_model('permissao', 'Permissao')
-    Cargo = apps.get_model('permissao', 'Cargo')
-    CargoPermissao = apps.get_model('permissao', 'CargoPermissao')
-    Permissao.objects.bulk_create(Permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES)
+    modelo_permissao = apps.get_model('permissao', 'Permissao')
+    modelo_cargo = apps.get_model('permissao', 'Cargo')
+    modelo_cargo_permissao = apps.get_model('permissao', 'CargoPermissao')
+    modelo_permissao.objects.bulk_create(modelo_permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES)
     # Cargos "administrador" já existentes acompanham o catálogo (cargos_base.py).
-    CargoPermissao.objects.bulk_create(
-        CargoPermissao(cargo=cargo, permissao_id=codigo)
-        for cargo in Cargo.objects.filter(base='administrador')
+    modelo_cargo_permissao.objects.bulk_create(
+        modelo_cargo_permissao(cargo=cargo, permissao_id=codigo)
+        for cargo in modelo_cargo.objects.filter(base='administrador')
         for codigo, _, _ in ACOES
     )
 

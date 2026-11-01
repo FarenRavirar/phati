@@ -353,7 +353,8 @@ def test_toda_acao_do_catalogo_esta_classificada_de_proposito():
     catalogo = set(Permissao.objects.values_list('codigo', flat=True))
     classificadas = ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO | ACOES_DE_ESCRITA
     assert catalogo == classificadas, f'sem classificação: {catalogo - classificadas}; sobrando: {classificadas - catalogo}'
-    assert not (ACOES_DE_LEITURA & ACOES_VALIDAS_ARQUIVADO) and not (ACOES_DE_ESCRITA & (ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO))
+    assert not ACOES_DE_LEITURA & ACOES_VALIDAS_ARQUIVADO
+    assert not ACOES_DE_ESCRITA & (ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO)
 
 
 def test_em_escopo_arquivado_so_leitura_e_as_acoes_validas_passam(pessoa, cenario, conceder_direto, plataforma):
@@ -401,7 +402,8 @@ def test_permissoes_efetivas_em_escopo_arquivado_so_listam_leitura_e_acoes_valid
     pessoa = _recarregar(pessoa)
     arquivar(plataforma, cenario.f1)
     efetivas = permissoes_efetivas(pessoa, Fazenda.objects.get(pk=cenario.f1.pk))
-    assert 'criar_sub_area' not in efetivas and 'renomear' not in efetivas
+    assert 'criar_sub_area' not in efetivas
+    assert 'renomear' not in efetivas
     assert {'ver', 'desarquivar'} <= efetivas
 
 

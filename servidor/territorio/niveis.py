@@ -5,7 +5,7 @@ from django.db import transaction
 
 from comum.auditoria import auditar
 from permissao.pode import pode
-from territorio.cadastro import NIVEL_MAXIMO, nome_valido
+from territorio.cadastro import NIVEL_MAXIMO, _travar, nome_valido
 from territorio.models import NivelDivisao
 
 
@@ -26,12 +26,28 @@ def nomes_dos_niveis(empresa):
     return {nivel: configurados.get(nivel) or f'Nível {nivel}' for nivel in range(1, NIVEL_MAXIMO + 1)}
 
 
+def limpar_nivel(solicitante, empresa, nivel):
+    """Tira o nome do `nivel`: a tela volta a mostrar "Nível N". Sem nome configurado não faz nada."""
+    if nivel not in range(1, NIVEL_MAXIMO + 1):
+        raise ValidationError('O nível vai de 1 a 3.', code='nivel_invalido')
+    with transaction.atomic():
+        _travar(empresa)  # espera um arquivamento em curso e depois lê o estado gravado (R11)
+        if not pode(solicitante, 'configurar_niveis_divisao', empresa):
+            raise PermissionDenied
+        registro = NivelDivisao.objects.select_for_update().filter(empresa=empresa, nivel=nivel).first()
+        if registro is None:
+            return
+        auditar('nivel_definido', solicitante, registro, empresa.pk, {'nivel': nivel, 'nome_antigo': registro.nome, 'nome_novo': None})
+        registro.delete()
+
+
 def definir_nivel(solicitante, empresa, nivel, nome):
     """Dá nome ao `nivel` (1 a 3) da empresa; grava `auditar` com o nome antigo e o novo."""
     if nivel not in range(1, NIVEL_MAXIMO + 1):
         raise ValidationError('O nível vai de 1 a 3.', code='nivel_invalido')
     nome = nome_valido(nome, maximo=100)
     with transaction.atomic():
+        _travar(empresa)
         if not pode(solicitante, 'configurar_niveis_divisao', empresa):
             raise PermissionDenied
         registro, criado = NivelDivisao.objects.select_for_update().get_or_create(empresa=empresa, nivel=nivel, defaults={'nome': nome})

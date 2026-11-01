@@ -68,6 +68,12 @@ test('plataforma cria empresa; o Administrador cadastra, nomeia níveis, renomei
   await page.getByRole('button', { name: 'Cadastrar quadra' }).click();
   await expect(page.getByRole('link', { name: 'Quadra E2E' })).toBeVisible();
 
+  await page.getByRole('link', { name: 'Quadra E2E' }).click(); // todo nó da árvore leva à página da sub-área
+  await expect(page.getByRole('heading', { name: 'Quadra E2E', level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Cadastrar dentro desta' })).toBeVisible();
+  await conferirTela(page);
+  await page.getByRole('link', { name: 'Voltar à fazenda' }).click();
+
   await page.getByRole('link', { name: 'Renomear fazenda' }).click();
   await conferirTela(page);
   await page.getByLabel('Nome', { exact: true }).fill(renomeada);
