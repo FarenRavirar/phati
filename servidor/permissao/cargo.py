@@ -90,7 +90,8 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=
     codigos = _codigos_validos(codigos)
     with transaction.atomic():
         # Trava a empresa antes de `pode()`: espera um arquivamento em curso e depois lê o estado gravado (003 R11).
-        list(Empresa.objects.select_for_update(no_key=True).filter(pk=empresa.pk).values_list('pk', flat=True))
+        if not list(Empresa.objects.select_for_update(no_key=True).filter(pk=empresa.pk).values_list('pk', flat=True)):
+            raise PermissionDenied  # fora do alcance (a RLS esconde a linha) ou inexistente: o mesmo caminho da permissão negada
         cargo, base = _cargo_travado_e_base(empresa, base, cargo)
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied

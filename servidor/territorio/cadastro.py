@@ -161,8 +161,12 @@ def _renomear(solicitante, alvo, nome, acao_auditoria):
             raise PermissionDenied
         antigo = alvo.nome
         alvo.nome = nome
-        with nome_unico():
-            alvo.save(update_fields=['nome'])
+        try:
+            with nome_unico():
+                alvo.save(update_fields=['nome'])
+        except ValidationError:
+            alvo.nome = antigo  # o banco ficou como estava; a instância do chamador também
+            raise
         auditar(acao_auditoria, solicitante, alvo, _empresa_de(alvo), {'nome_antigo': antigo, 'nome_novo': nome})
     return alvo
 

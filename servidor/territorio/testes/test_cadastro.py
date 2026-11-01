@@ -642,3 +642,19 @@ def test_criar_sub_area_e_arquivar_a_empresa_em_conexoes_diferentes_nao_travam_u
     fio.join(timeout=15)
     assert resultado['erro'] is None
     assert SubArea.objects.get(nome='Filha da corrida').arquivada_em is not None  # o arquivamento esperou e levou a filha junto
+
+
+def test_renomear_recusado_devolve_o_nome_antigo_a_instancia_do_chamador(cenario, plataforma):
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    with pytest.raises(ValidationError) as erro:
+        renomear_fazenda(plataforma, fazenda, 'f2')
+    assert erro.value.code == 'nome_duplicado'
+    assert fazenda.nome == 'F1'
+
+
+def test_gerenciar_cargo_de_empresa_que_nao_existe_para_quem_ve_e_negado_e_nada_grava(catalogo_da_corrida, cenario, plataforma):
+    fantasma = Empresa(pk=999999, nome='Fantasma')
+    antes = Cargo.objects.count()
+    with pytest.raises(PermissionDenied):
+        gerenciar_cargo(plataforma, fantasma, 'Cargo fantasma', ['ver'], base='usuario')
+    assert Cargo.objects.count() == antes

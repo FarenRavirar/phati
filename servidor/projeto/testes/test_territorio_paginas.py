@@ -453,3 +453,9 @@ def test_sub_area_arquivada_tem_link_de_consulta_mesmo_sem_poder_desarquivar(cli
     assert f'<a href="{_sub_area(cenario, cenario.g2)}">G2</a>' in html
     assert f'{_sub_area(cenario, cenario.g2)}desarquivar' not in html
     assert cliente_logado.get(_sub_area(cenario, cenario.g2)).status_code == 200
+
+
+def test_digito_unicode_no_pai_da_404_e_nos_efeitos_da_409_em_vez_de_500(cliente_logado, administradora, cenario):
+    assert cliente_logado.get(_fazenda(cenario) + 'sub-area/nova?pai=²').status_code == 404
+    assert cliente_logado.post(_fazenda(cenario) + 'arquivar', {'efeitos': '²,²,²'}).status_code == 409
+    assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is None

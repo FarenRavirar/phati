@@ -188,7 +188,7 @@ def sub_area_nova(requisicao, empresa_id, fazenda_id):
         pai_id = requisicao.POST.get('pai', '') if requisicao.method == 'POST' else requisicao.GET.get('pai', '')
         pai = None
         if pai_id:
-            if not pai_id.isdigit():
+            if not (pai_id.isascii() and pai_id.isdigit()):
                 raise Http404
             pai = next((s for s in sub_areas_da_fazenda(requisicao.user, fazenda, arquivadas=None) if s.pk == int(pai_id)), None)
             if pai is None or pai.nivel >= cadastro.NIVEL_MAXIMO:
@@ -295,7 +295,7 @@ def _plural(n, singular, plural):
 def _efeitos_confirmados(requisicao):
     """O que a tela de confirmação mostrou, devolvido no POST; ausente ou malformado nunca bate com o real."""
     partes = requisicao.POST.get('efeitos', '').split(',')
-    if len(partes) == 3 and all(p.isdigit() for p in partes):
+    if len(partes) == 3 and all(p.isascii() and p.isdigit() for p in partes):
         return tuple(int(p) for p in partes)
     return (-1, -1, -1)
 
