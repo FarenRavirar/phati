@@ -11,7 +11,6 @@ from django.utils import timezone
 from ninja import Field, Query, Router, Schema
 from pydantic import AwareDatetime, field_validator, model_validator
 
-from identidade import cpf as modulo_cpf
 from identidade import redefinicao
 from identidade.models import Pessoa
 from permissao import convite, delegacao
@@ -236,10 +235,7 @@ def revogar(request, pessoa_id: int, concessao_id: int):
 @roteador.post('pessoas/{pessoa_id}/redefinir-senha', url_name='pessoas_redefinir_senha', response={204: None})
 @exige_permissao('redefinir_senha', _alvo_da_redefinicao)
 def redefinir_senha(request, pessoa_id: int):
-    alvo = Pessoa.objects.get(pk=pessoa_id)
-    if not redefinicao.pode_iniciar_redefinicao(request.user, alvo):
-        raise ObjectDoesNotExist
-    redefinicao.pedir_redefinicao(modulo_cpf.decifrar(alvo.cpf_cifrado), solicitante=request.user)
+    redefinicao.pedir_redefinicao_de_outra_pessoa(request.user, Pessoa.objects.get(pk=pessoa_id))
     return 204, None
 
 

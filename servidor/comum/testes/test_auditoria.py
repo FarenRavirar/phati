@@ -89,9 +89,9 @@ def test_transferir_titularidade_audita_de_e_para(plataforma, cpf_novo):
     empresa, titular, _ = criar_empresa(plataforma, 'Empresa T', 'Tito', 'tito@exemplo.test', cpf_novo())
     cargo = Cargo.objects.get(empresa=empresa, base='administrador')
     novo, _ = convidar(plataforma, 'Nina', 'nina@exemplo.test', cpf_novo(), cargo, empresa)
-    transferir_titularidade(plataforma, empresa, novo)
+    transferir_titularidade(plataforma, empresa, novo, justificativa='  Troca de gestão.  ')
     assert [(e.pessoa_id, e.alvo_id, e.detalhes) for e in _eventos('titularidade_transferida')] == [
-        (plataforma.pk, empresa.pk, {'de': titular.pk, 'para': novo.pk})
+        (plataforma.pk, empresa.pk, {'de': titular.pk, 'para': novo.pk, 'justificativa': 'Troca de gestão.'})
     ]
 
 

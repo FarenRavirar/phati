@@ -1,0 +1,21 @@
+{% extends "casca.html" %}
+{% block titulo %}Convites enviados{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Convites enviados" subtitulo=empresa.nome %}
+{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso %}{% endif %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+{% include "componentes/acoes.html" with acoes=acoes %}
+{% if itens %}<ul class="lista-convites">
+{% for convite in itens %}<li class="convite">
+<div>
+<p class="convite-titulo">{{ convite.cargo_nome }} · {{ convite.onde }}</p>
+<p class="convite-detalhe">Enviado em {{ convite.criado_em|date:'d/m/Y' }} · {% if convite.vencido %}venceu em{% else %}vale até{% endif %} {{ convite.expira_em|date:'d/m/Y' }}</p>
+</div>
+<div class="convite-acoes">
+<form method="post" action="{{ convite.reenviar }}">{% csrf_token %}<button class="botao" type="submit" aria-label="Reenviar o convite de {{ convite.cargo_nome }}">Reenviar</button></form>
+<form method="post" action="{{ convite.cancelar }}">{% csrf_token %}<button class="botao botao-secundario" type="submit" aria-label="Cancelar o convite de {{ convite.cargo_nome }}">Cancelar</button></form>
+</div>
+</li>
+{% endfor %}</ul>
+{% else %}{% include "componentes/vazio.html" with texto="Nenhum convite sem resposta." acao_rotulo=vazio_rotulo acao_destino=vazio_destino %}{% endif %}
+{% endblock %}

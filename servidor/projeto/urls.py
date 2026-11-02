@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path
 
-from projeto import empresas, fazenda, inicio, paginas, paginas_acesso, territorio_paginas
+from projeto import empresas, fazenda, inicio, paginas, paginas_acesso, pessoas_paginas, territorio_paginas
 from projeto.api import api
 
 _EMPRESA = 'empresa/<int:empresa_id>/'
@@ -20,6 +20,20 @@ TERRITORIO = [
     ),
 ]
 
+# Telas de pessoas (003 R13 a R16): tudo sob a empresa, a mesma regra de escopo na URL (D063).
+PESSOAS = [
+    path(_EMPRESA + 'pessoas/', pessoas_paginas.pessoas, name='pessoas'),
+    path(_EMPRESA + 'pessoas/convidar', pessoas_paginas.convidar, name='pessoas_convidar'),
+    path(_EMPRESA + 'pessoas/convidar/sub-area/', pessoas_paginas.convidar_sub_area, name='convidar_sub_area'),
+    path(_EMPRESA + 'pessoas/convidar/sub-area/<int:fazenda_id>/', pessoas_paginas.convidar_sub_area, name='convidar_sub_area_fazenda'),
+    path(_EMPRESA + 'pessoas/convites', pessoas_paginas.convites_enviados, name='pessoas_convites'),
+    path(_EMPRESA + 'pessoas/convites/<int:convite_id>/cancelar', pessoas_paginas.cancelar_convite, name='convite_cancelar'),
+    path(_EMPRESA + 'pessoas/convites/<int:convite_id>/reenviar', pessoas_paginas.reenviar_convite, name='convite_reenviar'),
+    path(_EMPRESA + 'pessoa/<int:pessoa_id>/revogar/<int:concessao_id>', pessoas_paginas.revogar, name='pessoa_revogar'),
+    path(_EMPRESA + 'pessoa/<int:pessoa_id>/redefinir-senha', pessoas_paginas.redefinir_senha, name='pessoa_redefinir_senha'),
+    path(_EMPRESA + 'titularidade', pessoas_paginas.titularidade, name='titularidade'),
+]
+
 urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('redefinir-senha', paginas.redefinir_senha, name='redefinir_senha'),
                path('entrar', paginas_acesso.entrar, name='entrar'),
@@ -34,7 +48,7 @@ urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('arquivadas/', territorio_paginas.arquivadas, name='arquivadas'),
                path('empresa/<int:empresa_id>/', empresas.empresa, name='empresa'),
                path('empresa/<int:empresa_id>/fazenda/<int:fazenda_id>/', fazenda.fazenda, name='fazenda'),
-               *TERRITORIO]
+               *TERRITORIO, *PESSOAS]
 
 # O padrão do Django renderiza o 500 sem a requisição, e sem ela o molde não leva o nonce da política de conteúdo.
 handler500 = 'projeto.paginas.erro_500'

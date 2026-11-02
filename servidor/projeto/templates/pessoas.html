@@ -1,0 +1,24 @@
+{% extends "casca.html" %}
+{% block titulo %}Pessoas{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Pessoas" subtitulo=empresa.nome %}
+{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso %}{% endif %}
+{% include "componentes/acoes.html" with acoes=acoes %}
+{% if itens %}<ul class="lista-pessoas">
+{% for pessoa in itens %}<li class="pessoa">
+<p class="pessoa-nome">{{ pessoa.nome }}</p>
+<p class="pessoa-detalhe">{{ pessoa.email }}{% if pessoa.deve_trocar_senha %} · ainda não definiu a senha{% endif %}</p>
+{% if pessoa.concessoes %}<ul class="pessoa-concessoes">
+{% for concessao in pessoa.concessoes %}<li>{{ concessao.cargo }} · {{ concessao.onde }}{% if concessao.fim %} · até {{ concessao.fim|date:'d/m/Y' }}{% endif %}{% if concessao.revogar %} <a href="{{ concessao.revogar }}" aria-label="Revogar {{ concessao.cargo }} de {{ pessoa.nome }}">Revogar</a>{% endif %}</li>
+{% endfor %}</ul>
+{% else %}<p class="pessoa-detalhe">Sem acesso ativo nesta empresa.</p>{% endif %}
+{% if pessoa.redefinir %}<p><a href="{{ pessoa.redefinir }}" aria-label="Redefinir senha de {{ pessoa.nome }}">Redefinir senha</a></p>{% endif %}
+</li>
+{% endfor %}</ul>
+{% if pagina.has_other_pages %}<nav class="paginacao" aria-label="Páginas de pessoas"><p class="acoes-pagina">
+{% if pagina.has_previous %}<a class="botao botao-secundario" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+<span class="tipo-arquivada">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+{% if pagina.has_next %}<a class="botao botao-secundario" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
+</p></nav>{% endif %}
+{% else %}{% include "componentes/vazio.html" with texto="Nenhuma pessoa com acesso a esta empresa." acao_rotulo=vazio_rotulo acao_destino=vazio_destino %}{% endif %}
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "casca.html" %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo=titulo subtitulo=subtitulo %}
+{% if busca %}<form method="get" role="search" class="busca-lugar">
+<div class="campo"><label class="campo-rotulo" for="busca-q">Filtrar pelo nome</label>
+<input class="campo-controle" id="busca-q" name="q" type="search" value="{{ busca.q }}" autocomplete="off"></div>
+<p class="acoes-pagina">{% include "componentes/botao.html" with texto="Filtrar" tipo="submit" %}</p>
+</form>{% endif %}
+{% if itens %}<ul class="lista-lugares">
+{% for item in itens %}<li class="nivel-{{ item.nivel }}"><a href="{{ item.destino }}">{{ item.rotulo }}</a></li>
+{% endfor %}</ul>
+{% if pagina.has_other_pages %}<nav class="paginacao" aria-label="Páginas da lista"><p class="acoes-pagina">
+{% if pagina.has_previous %}<a class="botao botao-secundario" href="?{% if consulta %}{{ consulta }}&amp;{% endif %}pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+<span class="tipo-arquivada">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+{% if pagina.has_next %}<a class="botao botao-secundario" href="?{% if consulta %}{{ consulta }}&amp;{% endif %}pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
+</p></nav>{% endif %}
+{% else %}{% include "componentes/vazio.html" with texto=vazio %}{% endif %}
+<p class="acoes-pagina"><a class="botao botao-secundario" href="{{ voltar }}">Voltar</a></p>
+{% endblock %}

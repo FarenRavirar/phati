@@ -38,6 +38,16 @@ async function acessivel(pagina) {
   expect(await violacoes(pagina), 'violações do axe (WCAG 2.2 AA)').toEqual([]);
 }
 
+// CPF com dígitos verificadores corretos, a partir de um número base inventado (o cadastro recusa CPF inválido).
+function cpfSintetico(base) {
+  const digitos = String(base).padStart(9, '0').split('').map(Number);
+  for (const peso of [10, 11]) {
+    const soma = digitos.reduce((total, digito, indice) => total + digito * (peso - indice), 0);
+    digitos.push(((soma * 10) % 11) % 10);
+  }
+  return digitos.join('');
+}
+
 // Em tela estreita o menu começa recolhido e o botão Menu o abre.
 async function abrirMenu(pagina) {
   const botao = pagina.getByRole('button', { name: 'Menu' });
@@ -53,4 +63,5 @@ module.exports = {
   semRolagemHorizontal,
   acessivel,
   abrirMenu,
+  cpfSintetico,
 };

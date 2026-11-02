@@ -1,5 +1,14 @@
-{% comment %}Parâmetros: id, nome, rotulo, tipo (padrão text), valor, erro, ajuda, autocomplete, obrigatorio, teclado (inputmode; desliga o corretor). Rótulo e erro ligados ao controle.{% endcomment %}<div class="campo{% if erro %} campo-invalido{% endif %}">
+{% comment %}Parâmetros: id, nome, rotulo, tipo (padrão text; `select` e `caixas` pedem `opcoes`, lista de {valor, rotulo, marcada}), valor, erro, ajuda, autocomplete, obrigatorio, teclado (inputmode; desliga o corretor). Rótulo e erro ligados ao controle.{% endcomment %}{% if tipo == 'caixas' %}<fieldset class="campo campo-caixas{% if erro %} campo-invalido{% endif %}"{% if erro or ajuda %} aria-describedby="{{ id }}-descricao"{% endif %}>
+<legend class="campo-rotulo">{{ rotulo }}</legend>
+{% for opcao in opcoes %}<label class="campo-caixa"><input type="checkbox" name="{{ nome }}" value="{{ opcao.valor }}"{% if opcao.marcada %} checked{% endif %}> {{ opcao.rotulo }}</label>
+{% endfor %}{% if erro or ajuda %}<p class="{% if erro %}campo-erro{% else %}campo-ajuda{% endif %}" id="{{ id }}-descricao">{% if erro %}{{ erro }}{% else %}{{ ajuda }}{% endif %}</p>{% endif %}
+</fieldset>
+{% else %}<div class="campo{% if erro %} campo-invalido{% endif %}">
 <label class="campo-rotulo" for="{{ id }}">{{ rotulo }}</label>
-<input class="campo-controle" id="{{ id }}" name="{{ nome }}" type="{{ tipo|default:'text' }}"{% if valor is not None %} value="{{ valor }}"{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if teclado %} inputmode="{{ teclado }}" spellcheck="false"{% endif %}{% if obrigatorio %} required{% endif %}{% if erro %} aria-invalid="true"{% endif %}{% if erro or ajuda %} aria-describedby="{{ id }}-descricao"{% endif %}>
-{% if erro or ajuda %}<p class="{% if erro %}campo-erro{% else %}campo-ajuda{% endif %}" id="{{ id }}-descricao">{% if erro %}{{ erro }}{% else %}{{ ajuda }}{% endif %}</p>{% endif %}
+{% if tipo == 'select' %}<select class="campo-controle" id="{{ id }}" name="{{ nome }}"{% if obrigatorio %} required{% endif %}{% if erro %} aria-invalid="true"{% endif %}{% if erro or ajuda %} aria-describedby="{{ id }}-descricao"{% endif %}>
+{% for opcao in opcoes %}<option value="{{ opcao.valor }}"{% if opcao.valor|stringformat:'s' == valor|stringformat:'s' %} selected{% endif %}>{{ opcao.rotulo }}</option>
+{% endfor %}</select>
+{% else %}<input class="campo-controle" id="{{ id }}" name="{{ nome }}" type="{{ tipo|default:'text' }}"{% if valor is not None %} value="{{ valor }}"{% endif %}{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if teclado %} inputmode="{{ teclado }}" spellcheck="false"{% endif %}{% if obrigatorio %} required{% endif %}{% if erro %} aria-invalid="true"{% endif %}{% if erro or ajuda %} aria-describedby="{{ id }}-descricao"{% endif %}>
+{% endif %}{% if erro or ajuda %}<p class="{% if erro %}campo-erro{% else %}campo-ajuda{% endif %}" id="{{ id }}-descricao">{% if erro %}{{ erro }}{% else %}{{ ajuda }}{% endif %}</p>{% endif %}
 </div>
+{% endif %}

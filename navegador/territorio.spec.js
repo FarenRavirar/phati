@@ -4,21 +4,11 @@
 // própria de cada projeto e muda só ela: os dois projetos rodam ao mesmo tempo e os outros testes contam as fazendas
 // das empresas A e B, que aqui nunca mudam.
 const { test, expect } = require('@playwright/test');
-const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel } = require('./apoio.js');
+const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel, cpfSintetico } = require('./apoio.js');
 
 async function conferirTela(pagina) {
   await semRolagemHorizontal(pagina);
   await acessivel(pagina);
-}
-
-// CPF com dígitos verificadores corretos, a partir de um número base inventado (o cadastro recusa CPF inválido).
-function cpfSintetico(base) {
-  const digitos = String(base).padStart(9, '0').split('').map(Number);
-  for (const peso of [10, 11]) {
-    const soma = digitos.reduce((total, digito, indice) => total + digito * (peso - indice), 0);
-    digitos.push(((soma * 10) % 11) % 10);
-  }
-  return digitos.join('');
 }
 
 test('plataforma cria empresa; o Administrador cadastra, nomeia níveis, renomeia, arquiva e desarquiva', async ({ page }, informacoes) => {

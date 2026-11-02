@@ -1,38 +1,28 @@
 """Telas de gestão do território (003 R9 a R12): criar, renomear, níveis, arquivar e desarquivar.
 
 Nenhuma regra de negócio aqui (R28): a view resolve o escopo da URL (fora do alcance, 404 igual ao de inexistente),
-pergunta `pode()` (com alcance e sem a ação, 403) e chama a mesma função de serviço que a API chama. O texto de erro vem
+pergunta a permissão (com alcance e sem a ação, 403) e chama a mesma função de serviço que a API chama. O texto de erro vem
 da exceção do serviço. Arquivar e desarquivar têm tela de confirmação que diz o que o ato atinge; nada é apagado.
 """
 
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.core.paginator import Paginator
 from django.http import Http404
 from django.shortcuts import redirect
 from django.urls import reverse
-from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.http import require_GET
 
-from permissao.pode import com_permissao, permissoes_efetivas, pode
+from permissao.pode import com_permissao, permissoes_efetivas
 from projeto.escopo import resolver_escopo
-from projeto.paginas_autenticadas import exige_acao, exige_entrada, renderizar_na_casca
+from projeto.paginas_autenticadas import campo, confirmacao, exige_acao, exige_entrada, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
 from territorio import cadastro, niveis
 from territorio.listagem import empresas_autorizadas, fazendas_autorizadas, sub_areas_da_fazenda
 from territorio.models import Empresa, Fazenda, SubArea
 
-LEITURA_E_ESCRITA = require_http_methods(['GET', 'POST'])
 ITENS_POR_PAGINA = 25
 ROTULO_CADASTRAR_FAZENDA = 'Cadastrar fazenda'
 TITULO_NIVEIS = 'Nomes dos níveis da divisão'
-
-
-def _pagina(acao):
-    """Portão de sessão, métodos GET e POST e a ação do catálogo que a página declara (varredura de views, R22)."""
-
-    def declarar(visao):
-        return LEITURA_E_ESCRITA(exige_entrada(exige_acao(acao)(visao)))
-
-    return declarar
 
 
 def caminho_de(alvo):
@@ -56,12 +46,14 @@ def _argumentos(alvo):
 _ACOES_DA_PAGINA = {
     Empresa: (
         ('criar_fazenda', ROTULO_CADASTRAR_FAZENDA, 'fazenda_nova'),
+        ('convidar_pessoa', 'Pessoas', 'pessoas'),
         ('renomear', 'Renomear empresa', 'empresa_editar'),
         ('configurar_niveis_divisao', TITULO_NIVEIS, 'empresa_niveis'),
         ('arquivar', 'Arquivar empresa', 'empresa_arquivar'),
     ),
     Fazenda: (
         ('criar_sub_area', 'Cadastrar sub-área', 'sub_area_nova'),
+        ('convidar_pessoa', 'Pessoas', 'pessoas'),
         ('renomear', 'Renomear fazenda', 'fazenda_editar'),
         ('arquivar', 'Arquivar fazenda', 'fazenda_arquivar'),
     ),
@@ -76,7 +68,7 @@ _DESARQUIVAR = {Empresa: 'empresa_desarquivar', Fazenda: 'fazenda_desarquivar', 
 
 def acoes_do_alvo(alvo, efetivas, sem=()):
     """Links de gestão da página do alvo, só os que a permissão efetiva permite (o servidor decide de novo ao clicar).
-    Arquivado: só `desarquivar`, o resto seria negado por `pode()` (R11). `sem` tira ações (a tela de renomear não se oferece)."""
+    Arquivado: só `desarquivar`, o resto seria negado pela regra de permissão (R11). `sem` tira ações (a tela de renomear não se oferece)."""
     tipo = type(alvo)
     argumentos = _argumentos(alvo)
     if alvo.arquivada_em is not None:
@@ -85,38 +77,15 @@ def acoes_do_alvo(alvo, efetivas, sem=()):
     for acao, rotulo, nome in _ACOES_DA_PAGINA[tipo]:
         if acao not in efetivas or acao in sem or (acao == 'criar_sub_area' and tipo is SubArea and alvo.nivel >= cadastro.NIVEL_MAXIMO):
             continue
-        # As telas de cadastro ("_nova") vivem na fazenda ou na empresa: não levam o id da sub-área, só o pai na consulta.
-        destino = reverse(nome, kwargs={k: v for k, v in argumentos.items() if not (nome.endswith('_nova') and k == 'sub_area_id')})
+        # As telas de cadastro ("_nova") vivem na fazenda ou na empresa, e a de pessoas é da empresa: levam só o que o endereço tem.
+        destino = reverse(nome, kwargs={k: v for k, v in argumentos.items() if not (nome.endswith('_nova') and k == 'sub_area_id') and not (nome == 'pessoas' and k != 'empresa_id')})
         acoes.append({'rotulo': rotulo, 'destino': f'{destino}?pai={alvo.pk}' if nome == 'sub_area_nova' and tipo is SubArea else destino})
     return acoes
 
 
-def _campo(nome, rotulo, valor='', erro=None, ajuda=None, **extra):
-    return {'id': f'campo_{nome}', 'nome': nome, 'rotulo': rotulo, 'valor': valor, 'erro': erro, 'ajuda': ajuda, **extra}
-
-
-def _texto(erro):
-    return ' '.join(erro.messages)
-
-
-def _formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, status=200):
-    contexto = {
-        'titulo': titulo, 'subtitulo': subtitulo, 'campos': campos, 'botao': botao, 'cancelar': cancelar,
-        'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {},
-    }
-    resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, empresa=empresa, fazenda=fazenda)
-    resposta.status_code = status
-    return resposta
-
-
-def _exigir(requisicao, acao, alvo=None):
-    if not pode(requisicao.user, acao, alvo):
-        raise PermissionDenied
-
-
 def _resolver(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
     """`(empresa, fazenda, alvo)`; o alvo é a sub-área, a fazenda ou a empresa mais específica da URL. Escopo arquivado
-    resolve (a leitura segue valendo) e `pode()` nega a escrita."""
+    resolve (a leitura segue valendo) e a regra de permissão nega a escrita."""
     empresa, fazenda = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
     if sub_area_id is None:
         return empresa, fazenda, fazenda or empresa
@@ -134,27 +103,27 @@ def resolver_sub_area(requisicao, empresa_id, fazenda_id, sub_area_id):
 # --- criar ---
 
 
-@_pagina('criar_empresa')
+@pagina('criar_empresa')
 def empresa_nova(requisicao):
     with com_permissao(requisicao.user, 'criar_empresa', 'ver'):
-        _exigir(requisicao, 'criar_empresa')
+        exigir(requisicao, 'criar_empresa')
         dados = requisicao.POST if requisicao.method == 'POST' else {}
         campos = [
-            _campo('nome', 'Nome da empresa', dados.get('nome', ''), obrigatorio=True),
-            _campo('nome_administrador', 'Nome do primeiro Administrador', dados.get('nome_administrador', ''), obrigatorio=True, autocomplete='name'),
-            _campo('email_administrador', 'E-mail do Administrador', dados.get('email_administrador', ''), tipo='email', obrigatorio=True, autocomplete='email'),
-            _campo('cpf_administrador', 'CPF do Administrador', dados.get('cpf_administrador', ''), obrigatorio=True, teclado='numeric'),
+            campo('nome', 'Nome da empresa', dados.get('nome', ''), obrigatorio=True),
+            campo('nome_administrador', 'Nome do primeiro Administrador', dados.get('nome_administrador', ''), obrigatorio=True, autocomplete='name'),
+            campo('email_administrador', 'E-mail do Administrador', dados.get('email_administrador', ''), tipo='email', obrigatorio=True, autocomplete='email'),
+            campo('cpf_administrador', 'CPF do Administrador', dados.get('cpf_administrador', ''), obrigatorio=True, teclado='numeric'),
         ]
         cancelar = reverse('empresas')
         if requisicao.method == 'GET':
-            return _formulario(requisicao, 'Nova empresa', campos, 'Criar empresa', cancelar)
+            return formulario(requisicao, 'Nova empresa', campos, 'Criar empresa', cancelar)
         try:
             empresa, administrador, temporaria = cadastro.criar_empresa(
                 requisicao.user, dados.get('nome', ''), dados.get('nome_administrador', ''),
                 dados.get('email_administrador', ''), dados.get('cpf_administrador', ''),
             )
         except ValidationError as erro:
-            return _formulario(requisicao, 'Nova empresa', campos, 'Criar empresa', cancelar, erro=_texto(erro), status=400)
+            return formulario(requisicao, 'Nova empresa', campos, 'Criar empresa', cancelar, erro=texto_do_erro(erro), status=400)
         # A senha temporária aparece uma vez, no corpo desta resposta: nunca em redirecionamento nem em sessão.
         resposta = renderizar_na_casca(requisicao, 'empresa_criada.html', {
             'administrador': administrador, 'senha_temporaria': temporaria, 'destino': caminho_de(empresa),
@@ -163,25 +132,25 @@ def empresa_nova(requisicao):
         return resposta
 
 
-@_pagina('criar_fazenda')
+@pagina('criar_fazenda')
 def fazenda_nova(requisicao, empresa_id):
     empresa, _, _ = _resolver(requisicao, empresa_id)
     with com_permissao(requisicao.user, 'criar_fazenda', 'ver'):
-        _exigir(requisicao, 'criar_fazenda', empresa)
+        exigir(requisicao, 'criar_fazenda', empresa)
         nome = requisicao.POST.get('nome', '') if requisicao.method == 'POST' else ''
-        campos = [_campo('nome', 'Nome da fazenda', nome, obrigatorio=True)]
+        campos = [campo('nome', 'Nome da fazenda', nome, obrigatorio=True)]
         cancelar = caminho_de(empresa)
         if requisicao.method == 'GET':
-            return _formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa)
+            return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa)
         try:
             fazenda = cadastro.criar_fazenda(requisicao.user, empresa, nome)
         except ValidationError as erro:
-            campos[0]['erro'] = _texto(erro)
-            return _formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa, status=400)
+            campos[0]['erro'] = texto_do_erro(erro)
+            return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa, status=400)
         return redirect(caminho_de(fazenda))
 
 
-@_pagina('criar_sub_area')
+@pagina('criar_sub_area')
 def sub_area_nova(requisicao, empresa_id, fazenda_id):
     empresa, fazenda, _ = _resolver(requisicao, empresa_id, fazenda_id)
     with com_permissao(requisicao.user, 'criar_sub_area', 'ver'):
@@ -193,46 +162,46 @@ def sub_area_nova(requisicao, empresa_id, fazenda_id):
             pai = next((s for s in sub_areas_da_fazenda(requisicao.user, fazenda, arquivadas=None) if s.pk == int(pai_id)), None)
             if pai is None or pai.nivel >= cadastro.NIVEL_MAXIMO:
                 raise Http404  # a divisão tem no máximo 3 níveis: não há filha de nível 3
-        _exigir(requisicao, 'criar_sub_area', pai or fazenda)
+        exigir(requisicao, 'criar_sub_area', pai or fazenda)
         nivel = 1 if pai is None else pai.nivel + 1
         nome_do_nivel = niveis.nome_do_nivel(empresa, nivel) if nivel <= cadastro.NIVEL_MAXIMO else ''
         nome = requisicao.POST.get('nome', '') if requisicao.method == 'POST' else ''
-        campos = [_campo('nome', f'Nome de {nome_do_nivel.lower()}', nome, obrigatorio=True)]
+        campos = [campo('nome', f'Nome de {nome_do_nivel.lower()}', nome, obrigatorio=True)]
         titulo = 'Nova sub-área'
         subtitulo = f'{nome_do_nivel}' + (f', dentro de {pai.nome}' if pai else '')
         botao = f'Cadastrar {nome_do_nivel.lower()}'
         cancelar = caminho_de(fazenda)
         escondido = {'pai': pai.pk} if pai else {}
         if requisicao.method == 'GET':
-            return _formulario(requisicao, titulo, campos, botao, cancelar, subtitulo=subtitulo, empresa=empresa, fazenda=fazenda, escondidos=escondido)
+            return formulario(requisicao, titulo, campos, botao, cancelar, subtitulo=subtitulo, empresa=empresa, fazenda=fazenda, escondidos=escondido)
         try:
             cadastro.criar_sub_area(requisicao.user, fazenda, nome, pai)
         except ValidationError as erro:
-            campos[0]['erro'] = _texto(erro)
-            return _formulario(requisicao, titulo, campos, botao, cancelar, subtitulo=subtitulo, empresa=empresa, fazenda=fazenda, escondidos=escondido, status=400)
+            campos[0]['erro'] = texto_do_erro(erro)
+            return formulario(requisicao, titulo, campos, botao, cancelar, subtitulo=subtitulo, empresa=empresa, fazenda=fazenda, escondidos=escondido, status=400)
         return redirect(caminho_de(fazenda))
 
 
 # --- renomear e níveis ---
 
 
-@_pagina('renomear')
+@pagina('renomear')
 def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
     empresa, fazenda, alvo = _resolver(requisicao, empresa_id, fazenda_id, sub_area_id)
     with com_permissao(requisicao.user, 'renomear', 'criar_sub_area', 'arquivar', 'desarquivar', 'ver'):
-        _exigir(requisicao, 'renomear', alvo)
+        exigir(requisicao, 'renomear', alvo)
         nome = requisicao.POST.get('nome', alvo.nome) if requisicao.method == 'POST' else alvo.nome
-        campos = [_campo('nome', 'Nome', nome, obrigatorio=True)]
+        campos = [campo('nome', 'Nome', nome, obrigatorio=True)]
         funcao = {Empresa: cadastro.renomear_empresa, Fazenda: cadastro.renomear_fazenda, SubArea: cadastro.renomear_sub_area}[type(alvo)]
         acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',))
         if requisicao.method == 'POST':
             try:
                 funcao(requisicao.user, alvo, nome)
             except ValidationError as erro:
-                campos[0]['erro'] = _texto(erro)
-                return _formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes, status=400)
+                campos[0]['erro'] = texto_do_erro(erro)
+                return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes, status=400)
             return redirect(caminho_de(alvo))
-        return _formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes)
+        return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes)
 
 
 def _gravar_niveis(pessoa, empresa, campos, valores, atuais):
@@ -248,44 +217,38 @@ def _gravar_niveis(pessoa, empresa, campos, valores, atuais):
                 else:
                     niveis.limpar_nivel(pessoa, empresa, nivel)
             except ValidationError as erro:
-                campo['erro'] = _texto(erro)
+                campo['erro'] = texto_do_erro(erro)
         falhou = any(campo['erro'] for campo in campos)
         if falhou:
             transaction.set_rollback(True)
     return not falhou
 
 
-@_pagina('configurar_niveis_divisao')
+@pagina('configurar_niveis_divisao')
 def niveis_da_empresa(requisicao, empresa_id):
     empresa, _, _ = _resolver(requisicao, empresa_id)
     with com_permissao(requisicao.user, 'configurar_niveis_divisao', 'ver'):
-        _exigir(requisicao, 'configurar_niveis_divisao', empresa)
+        exigir(requisicao, 'configurar_niveis_divisao', empresa)
         atuais = niveis.nomes_configurados(empresa)
         enviados = requisicao.POST if requisicao.method == 'POST' else {}
         valores = {n: enviados.get(f'nivel_{n}', atuais.get(n, '')) for n in range(1, cadastro.NIVEL_MAXIMO + 1)}
         campos = [
-            _campo(f'nivel_{n}', f'Nome do nível {n}', valores[n], ajuda='Em branco, a tela mostra "Nível %d".' % n)
+            campo(f'nivel_{n}', f'Nome do nível {n}', valores[n], ajuda='Em branco, a tela mostra "Nível %d".' % n)
             for n in valores
         ]
         cancelar = caminho_de(empresa)
         if requisicao.method == 'POST':
             if _gravar_niveis(requisicao.user, empresa, campos, valores, atuais):
                 return redirect(cancelar)
-            return _formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa, status=400)
-        return _formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa)
+            return formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa, status=400)
+        return formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa)
 
 
 # --- arquivar e desarquivar ---
 
 
-def _confirmacao(requisicao, empresa, fazenda, alvo, *, titulo, texto, efeitos, botao, escondidos=None, erro=None, status=200):
-    contexto = {
-        'titulo': titulo, 'texto': texto, 'efeitos': efeitos, 'botao': botao, 'cancelar': caminho_de(alvo),
-        'escondidos': escondidos or {}, 'erro': erro,
-    }
-    resposta = renderizar_na_casca(requisicao, 'confirmacao.html', contexto, empresa=empresa, fazenda=fazenda)
-    resposta.status_code = status
-    return resposta
+def _confirmacao(requisicao, empresa, fazenda, alvo, **resto):
+    return confirmacao(requisicao, caminho_de(alvo), empresa=empresa, fazenda=fazenda, **resto)
 
 
 def _plural(n, singular, plural):
@@ -300,17 +263,17 @@ def _efeitos_confirmados(requisicao):
     return (-1, -1, -1)
 
 
-@_pagina('arquivar')
+@pagina('arquivar')
 def arquivar(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
     empresa, fazenda, alvo = _resolver(requisicao, empresa_id, fazenda_id, sub_area_id)
     with com_permissao(requisicao.user, 'arquivar', 'ver'):
-        _exigir(requisicao, 'arquivar', alvo)
+        exigir(requisicao, 'arquivar', alvo)
         erro_de_efeitos = None
         if requisicao.method == 'POST':
             try:
                 cadastro.arquivar(requisicao.user, alvo, _efeitos_confirmados(requisicao))
             except ValidationError as erro:
-                erro_de_efeitos = _texto(erro)  # o que o ato atinge mudou: mostra os números novos e pede nova confirmação
+                erro_de_efeitos = texto_do_erro(erro)  # o que o ato atinge mudou: mostra os números novos e pede nova confirmação
             else:
                 return redirect(caminho_de(alvo))
         contagem = cadastro.efeitos_do_arquivamento(alvo)
@@ -328,11 +291,11 @@ def arquivar(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         )
 
 
-@_pagina('desarquivar')
+@pagina('desarquivar')
 def desarquivar(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
     empresa, fazenda, alvo = _resolver(requisicao, empresa_id, fazenda_id, sub_area_id)
     with com_permissao(requisicao.user, 'desarquivar', 'ver'):
-        _exigir(requisicao, 'desarquivar', alvo)
+        exigir(requisicao, 'desarquivar', alvo)
         if requisicao.method == 'POST':
             try:
                 cadastro.desarquivar(requisicao.user, alvo)
@@ -348,7 +311,7 @@ def desarquivar(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
 
 def _recusa(requisicao, empresa, fazenda, alvo, erro):
     resposta = _confirmacao(
-        requisicao, empresa, fazenda, alvo, titulo=f'Desarquivar {alvo.nome}?', texto=_texto(erro), efeitos=[], botao='Tentar de novo',
+        requisicao, empresa, fazenda, alvo, titulo=f'Desarquivar {alvo.nome}?', texto=texto_do_erro(erro), efeitos=[], botao='Tentar de novo',
     )
     resposta.status_code = 400
     return resposta

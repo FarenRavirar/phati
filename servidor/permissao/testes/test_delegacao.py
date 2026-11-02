@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from identidade import email
 from identidade.models import Pessoa
-from permissao.delegacao import conceder, convidar, pode_conceder, revogar_concessao, transferir_titularidade
+from permissao.delegacao import conceder, convidar, pode_conceder, pode_transferir_titularidade, revogar_concessao, transferir_titularidade
 from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, ConcessaoCategoria
 from permissao.pode import pode
 from territorio.models import Empresa
@@ -407,7 +407,7 @@ def test_outra_concessao_do_titular_e_revogavel(cenario, titulares, conceder_dir
 
 
 def test_titular_transfere_o_titulo_e_a_protecao_acompanha(cenario, titulares):
-    transferir_titularidade(titulares.titular, cenario.x, titulares.outro)
+    transferir_titularidade(titulares.titular, cenario.x, titulares.outro, justificativa='Teste.')
     assert cenario.x.titular == titulares.outro
     with pytest.raises(ValidationError) as erro:
         revogar_concessao(titulares.titular, titulares.de_outro)
@@ -420,7 +420,7 @@ def test_novo_titular_com_concessao_de_prazo_e_recusado(cenario, titulares, fabr
     com_prazo = fabrica_pessoa('Admin com prazo')
     conceder_direto(com_prazo, cenario.cargos_x['administrador'], cenario.x, fim=timezone.now() + timedelta(days=30))
     with pytest.raises(ValidationError) as erro:
-        transferir_titularidade(titulares.titular, cenario.x, com_prazo)
+        transferir_titularidade(titulares.titular, cenario.x, com_prazo, justificativa='Teste.')
     assert erro.value.code == 'titular_invalido'
 
 
@@ -429,10 +429,26 @@ def test_so_o_titular_ou_a_plataforma_transferem(cenario, titulares, plataforma,
     conceder_direto(terceiro, cenario.cargos_x['administrador'], cenario.x)
     for quem in (titulares.outro, terceiro, None):
         with pytest.raises(PermissionDenied):
-            transferir_titularidade(quem, cenario.x, terceiro)
+            transferir_titularidade(quem, cenario.x, terceiro, justificativa='Teste.')
     assert cenario.x.titular == titulares.titular
-    transferir_titularidade(plataforma, cenario.x, terceiro)
+    transferir_titularidade(plataforma, cenario.x, terceiro, justificativa='Teste.')
     assert cenario.x.titular == terceiro
+
+
+def test_transferir_sem_justificativa_e_recusado_e_nada_muda(cenario, titulares):
+    for vazia in ('', '   ', None):
+        with pytest.raises(ValidationError) as erro:
+            transferir_titularidade(titulares.titular, cenario.x, titulares.outro, justificativa=vazia)
+        assert erro.value.code == 'justificativa_obrigatoria'
+    cenario.x.refresh_from_db()
+    assert cenario.x.titular == titulares.titular
+
+
+def test_pode_transferir_titularidade_so_para_o_titular_e_a_plataforma(cenario, titulares, plataforma):
+    assert pode_transferir_titularidade(titulares.titular, cenario.x) is True
+    assert pode_transferir_titularidade(plataforma, cenario.x) is True
+    assert pode_transferir_titularidade(titulares.outro, cenario.x) is False  # Administrador da empresa, mas não o titular
+    assert pode_transferir_titularidade(None, cenario.x) is False
 
 
 def test_novo_titular_precisa_ser_administrador_ativo_da_empresa_inteira(cenario, titulares, fabrica_pessoa, conceder_direto, plataforma):
@@ -447,7 +463,7 @@ def test_novo_titular_precisa_ser_administrador_ativo_da_empresa_inteira(cenario
     revogar_concessao(plataforma, concessao)
     for candidato in (curador, de_fazenda, de_y, revogado):
         with pytest.raises(ValidationError) as erro:
-            transferir_titularidade(titulares.titular, cenario.x, candidato)
+            transferir_titularidade(titulares.titular, cenario.x, candidato, justificativa='Teste.')
         assert erro.value.code == 'titular_invalido'
     assert cenario.x.titular == titulares.titular
 
@@ -522,7 +538,7 @@ def test_transferir_e_revogar_ao_mesmo_tempo_nunca_deixam_titular_sem_concessao(
                 connection.close()
 
         fios = [
-            threading.Thread(target=correr, args=(lambda: transferir_titularidade(plataforma, empresa, outro),)),
+            threading.Thread(target=correr, args=(lambda: transferir_titularidade(plataforma, empresa, outro, justificativa='Teste.'),)),
             threading.Thread(target=correr, args=(lambda: revogar_concessao(plataforma, Concessao.objects.get(pk=de_outro.pk)),)),
         ]
         for fio in fios:

@@ -1,0 +1,8 @@
+{% extends "casca.html" %}
+{% block titulo %}Redefinição pedida{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Redefinição pedida" %}
+{% include "componentes/aviso.html" with tipo="sucesso" texto="O pedido foi registrado. A pessoa recebe por e-mail um link para escolher a senha nova; ele vale 10 minutos e funciona uma vez. Um pedido feito há menos de 1 minuto continua valendo no lugar deste." %}
+<p>Ninguém, além da própria pessoa, vê a senha nova.</p>
+<p><a class="botao" href="{{ destino }}">Voltar às pessoas</a></p>
+{% endblock %}
