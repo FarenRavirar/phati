@@ -839,3 +839,13 @@ def test_trilha_do_seletor_nao_mostra_ancestral_fora_do_alcance(cliente_logado, 
     html = _sem_nonce(cliente_logado.get(_casa(cenario) + f'pessoas/convidar/sub-area/{cenario.f1.pk}/').content.decode())
     assert 'F1 › T1' in html
     assert 'G1' not in html
+
+
+def test_administrador_de_outra_empresa_nao_ve_a_pessoa_pelo_acesso_dela_fora_do_alcance_nesta(cliente_logado, conta, cenario, conceder_direto, cpf_novo):
+    conceder_direto(conta.pessoa, cenario.cargos_y['administrador'], cenario.y)  # alcança a Y inteira
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.g1)  # e só a G1 da X
+    de_y = Pessoa.objects.criar('Pessoa da Y com acesso na G2', 'y@exemplo.test', cpf_novo(), empresa_origem=cenario.y)
+    com_g2 = conceder_direto(de_y, cenario.cargos_x['usuario'], cenario.g2)
+    html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode())
+    assert 'Pessoa da Y com acesso na G2' not in html
+    assert cliente_logado.get(_casa(cenario) + f'pessoa/{de_y.pk}/revogar/{com_g2.pk}').status_code == 404

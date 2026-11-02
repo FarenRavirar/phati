@@ -68,8 +68,13 @@ def _contexto(requisicao):
 def _da_empresa(quem, empresa):
     """Pessoas do alcance de `quem` com acesso ativo ou futuro à empresa, ou que nasceram nela; `pessoa` não tem RLS, este
     filtro é a proteção. O acesso que ainda vai começar entra, para dar para revogá-lo antes (Greptile, PR #30)."""
-    vigentes = concessoes_vigentes_ou_futuras().filter(empresa_id=empresa.pk).values('pessoa_id')
-    return pessoas_do_escopo(quem, ACOES_DE_PESSOAS, futuras=True).filter(Q(pk__in=vigentes) | Q(empresa_origem_id=empresa.pk))
+    vigentes = concessoes_vigentes_ou_futuras().filter(empresa_id=empresa.pk)
+    alcance = unir_escopos(quem, *ACOES_DE_PESSOAS)
+    if not alcance.plataforma:
+        # Só o vínculo que quem olha alcança põe a pessoa na lista desta empresa: administrar a empresa de origem dela não
+        # basta para revelar que ela tem acesso numa sub-área irmã daqui (Codex, PR #30).
+        vigentes = vigentes.filter(filtro_do_escopo(alcance))
+    return pessoas_do_escopo(quem, ACOES_DE_PESSOAS, futuras=True).filter(Q(pk__in=vigentes.values('pessoa_id')) | Q(empresa_origem_id=empresa.pk))
 
 
 def _pessoa_da_empresa(requisicao, empresa, pessoa_id):
