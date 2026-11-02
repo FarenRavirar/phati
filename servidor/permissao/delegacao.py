@@ -9,6 +9,7 @@ concessão, a ordem única de `identidade.senha._pessoa_travada`, para não volt
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import Q
 
 from django.utils import timezone
 
@@ -16,7 +17,7 @@ from comum.auditoria import auditar
 
 from identidade import senha
 from identidade.models import Pessoa
-from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria
+from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Cargo, Concessao, ConcessaoCategoria
 from permissao.pode import Alvo, alvo_de, escopo_arquivado, escopo_de, esquecer, memoria_de
 from territorio.models import Empresa, Fazenda, SubArea
 
@@ -110,6 +111,35 @@ def travar_escopo(proposta):
     list(type(escopo).objects.select_for_update(no_key=True).filter(pk=escopo.pk).values_list('pk', flat=True))
 
 
+def com_fim_no_futuro():
+    # Concessão ou convite cujo `fim` já passou nunca vale (o banco recusa `fim <= inicio`): fora das listas (Sourcery).
+    return Q(fim__isnull=True) | Q(fim__gt=timezone.now())
+
+
+def concessao_igual(pessoa, proposta, categorias):
+    """A concessão não revogada e sem fim passado que já dá à pessoa o mesmo que `proposta` (cargo, lugar, fim e
+    categorias) e que já começou quando a proposta começa, ou None. Concessão futura não antecipa o acesso pedido
+    (Greptile, PR #30). Sem isto, repetir um convite cujo CPF já virou pessoa, ou aceitar um convite do que ela já
+    tem, gravaria uma segunda concessão igual (Sourcery, PR #30); o mesmo vale para conceder duas vezes seguidas
+    (clique duplo): revogar uma deixaria a outra valendo (003 Fase 4, mercado: GitHub e Azure não duplicam)."""
+    candidatas = Concessao.objects.filter(
+        pessoa=pessoa, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id, fazenda_id=proposta.fazenda_id,
+        sub_area_id=proposta.sub_area_id, fim=proposta.fim, inicio__lte=proposta.inicio, revogada_em__isnull=True,
+    ).filter(com_fim_no_futuro())
+    pedidas = {categoria.pk for categoria in categorias}
+    return next((c for c in candidatas if set(c.categorias.values_list('pk', flat=True)) == pedidas), None)
+
+
+def travar_cargo(cargo_id):
+    """Trava a linha do cargo. `gerenciar_cargo` a trava para trocar as permissões; quem concede, convida ou aceita
+    convite sem esta trava leria o conjunto antigo em `pode_conceder` (a chave estrangeira só bloqueia na gravação, depois da
+    checagem) e daria a quem concede uma permissão que ele não tem. Escopo de fazenda ou sub-área não passa pela linha da
+    empresa, que `gerenciar_cargo` também trava. Ordem: pessoa, escopo, cargo; `gerenciar_cargo` faz empresa e cargo, então não
+    fecha ciclo. Chamar dentro de `transaction.atomic()`, antes de `pode_conceder`."""
+    # Sem `.get`: cargo de outra empresa fica oculto pela RLS, e a recusa tem de vir de `pode_conceder`, não de uma exceção daqui.
+    list(Cargo.objects.select_for_update(no_key=True).filter(pk=cargo_id).values_list('pk', flat=True))
+
+
 def _proposta(quem, cargo, escopo, inicio, fim):
     return Concessao(
         cargo=cargo, concedida_por=quem, inicio=inicio or timezone.now(), fim=fim, **_campos_do_escopo(escopo)
@@ -138,9 +168,10 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
         travar_escopo(proposta)
+        travar_cargo(cargo.pk)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
-        return _gravar(quem, proposta, pessoa, categorias)
+        return concessao_igual(pessoa, proposta, categorias) or _gravar(quem, proposta, pessoa, categorias)
 
 
 def criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf):
@@ -165,6 +196,7 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
         raise PermissionDenied
     with transaction.atomic():
         travar_escopo(proposta)
+        travar_cargo(cargo.pk)
         if not pode_conceder(quem, proposta, categorias):  # de novo, já com a trava: o arquivamento pode ter commitado
             raise PermissionDenied
         return criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf)

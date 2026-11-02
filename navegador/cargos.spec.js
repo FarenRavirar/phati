@@ -69,6 +69,33 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
   await expect(page.getByText('Acesso concedido.')).toBeVisible();
   await expect(page.getByText(/Campo novo · Empresa inteira/)).toBeVisible();
   await conferirTela(page);
+
+  // Sub-área: a escolha em duas etapas volta para a tela de conceder, e conceder de novo o mesmo acesso não duplica (D095).
+  const casa = new URL(page.url()).pathname.replace(/pessoas\/.*/, '');
+  await page.goto(`${casa}fazenda/nova`);
+  await page.getByLabel('Nome da fazenda').fill('Fazenda Cargos');
+  await page.getByRole('button', { name: 'Cadastrar fazenda' }).click();
+  await page.getByRole('link', { name: 'Cadastrar sub-área' }).first().click();
+  await page.getByLabel('Nome de gleba').fill('Gleba Cargos');
+  await page.getByRole('button', { name: 'Cadastrar gleba' }).click();
+  await page.goto(`${casa}pessoas/`);
+  await page.getByRole('link', { name: 'Conceder cargo a Administrador Cargos' }).click();
+  await page.getByRole('link', { name: 'Escolher uma sub-área' }).click();
+  await expect(page.getByRole('heading', { name: 'Escolher a fazenda', level: 1 })).toBeVisible();
+  await conferirTela(page);
+  await page.getByRole('link', { name: 'Fazenda Cargos' }).click();
+  await page.getByLabel('Filtrar pelo nome').fill('gleba');
+  await page.getByRole('button', { name: 'Filtrar' }).click();
+  await conferirTela(page);
+  await page.getByRole('link', { name: /Gleba Cargos$/ }).click();
+  await expect(page.getByRole('heading', { name: 'Conceder cargo a Administrador Cargos', level: 1 })).toBeVisible();
+  await expect(page.getByLabel('Onde vale')).toHaveValue(/^sub-area-\d+$/);
+  await page.getByLabel('Cargo', { exact: true }).selectOption({ label: 'Campo novo' });
+  await page.getByRole('button', { name: 'Conceder' }).click();
+  await expect(page.getByText('Acesso concedido.')).toBeVisible();
+  await page.getByRole('link', { name: 'Conceder cargo a Administrador Cargos' }).click();
+  await expect(page.getByText(/Campo novo · Fazenda Cargos › Gleba Cargos · ativa/)).toHaveCount(1);
+  await conferirTela(page);
 });
 
 test('empresa que não existe devolve 404 nas telas de cargos, sem texto técnico', async ({ page }) => {

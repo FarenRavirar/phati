@@ -77,6 +77,15 @@ def _da_empresa(quem, empresa):
     return pessoas_do_escopo(quem, ACOES_DE_PESSOAS, futuras=True).filter(Q(pk__in=vigentes.values('pessoa_id')) | Q(empresa_origem_id=empresa.pk))
 
 
+def _pessoa_a_conceder(requisicao, empresa, pessoa_id):
+    """A pessoa da lista que também está no alcance de `convidar_pessoa`, ou None. A lista junta o alcance de convidar,
+    revogar e redefinir; conceder segue o de convidar, como a rota da API (Qodo, PR #31)."""
+    pessoa = _da_empresa(requisicao.user, empresa).filter(pk=pessoa_id).first()
+    if pessoa is None or not pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk=pessoa.pk).exists():
+        return None
+    return pessoa
+
+
 def _pessoa_da_empresa(requisicao, empresa, pessoa_id):
     pessoa = _da_empresa(requisicao.user, empresa).filter(pk=pessoa_id).first()
     if pessoa is None:
@@ -137,7 +146,7 @@ def pessoas(requisicao, empresa_id):
             })
         redefinir = 'redefinir_senha' in efetivas
         # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
-        concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if lugares else set()
+        concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if pode_convidar else set()
         itens = [
             {
                 'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
@@ -386,17 +395,24 @@ def _historico_de_acessos(requisicao, empresa, pessoa):
     return {'titulo': f'Acessos de {pessoa.nome} nesta empresa', 'linhas': linhas, 'vazio': 'Nenhum acesso registrado.'}
 
 
+def _sufixo_da_pessoa(pessoa):
+    """`?pessoa=<id>` nos endereços da escolha de sub-área, para ela voltar à tela de conceder e não à de convidar."""
+    return f'?{urlencode({"pessoa": pessoa.pk})}' if pessoa else ''
+
+
 @pagina('convidar_pessoa')
 def conceder(requisicao, empresa_id, pessoa_id):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
         _com_alcance(requisicao, empresa, 'convidar_pessoa')
-        pessoa = _pessoa_da_empresa(requisicao, empresa, pessoa_id)
-        # A lista junta o alcance de convidar, revogar e redefinir; conceder segue o de convidar, como a rota da API (Qodo, PR #31).
-        if not pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk=pessoa.pk).exists():
+        pessoa = _pessoa_a_conceder(requisicao, empresa, pessoa_id)
+        if pessoa is None:
             raise Http404
         escopos = _escopos_do_convite(requisicao, empresa)
-        if not escopos:
+        pedida = _sub_area_pedida(requisicao, empresa, (requisicao.POST if requisicao.method == 'POST' else requisicao.GET).get('escopo'))
+        if pedida is not None:  # veio da escolha de sub-área, ou é o que a pessoa já tinha escolhido
+            escopos[f'sub-area-{pedida[1].pk}'] = pedida
+        if not escopos and not _pode_convidar(requisicao, empresa):
             raise PermissionDenied
         cargos = list(Cargo.objects.filter(empresa_id=empresa.pk).order_by('nome'))
         categorias = list(CategoriaDado.objects.filter(empresa_id=empresa.pk).order_by('nome'))
@@ -405,10 +421,11 @@ def conceder(requisicao, empresa_id, pessoa_id):
         def tela(dados, erros, erro=None, codigo_http=200):
             return formulario(requisicao, f'Conceder cargo a {pessoa.nome}', _campos_de_acesso(dados, cargos, escopos, categorias, erros),
                               'Conceder', cancelar, subtitulo=empresa.nome, erro=erro, empresa=empresa, codigo_http=codigo_http,
-                              historico=_historico_de_acessos(requisicao, empresa, pessoa))
+                              historico=_historico_de_acessos(requisicao, empresa, pessoa),
+                              acoes=[{'rotulo': 'Escolher uma sub-área', 'destino': _caminho('convidar_sub_area', empresa) + _sufixo_da_pessoa(pessoa)}])
 
         if requisicao.method == 'GET':
-            return tela({}, {})
+            return tela({'escopo': f'sub-area-{pedida[1].pk}'} if pedida else {}, {})
         dados = requisicao.POST
         erros, cargo, lugar, marcadas, inicio, fim = _ler_acesso(dados, cargos, escopos, categorias)
         if erros:
@@ -427,18 +444,18 @@ def conceder(requisicao, empresa_id, pessoa_id):
 POR_PAGINA_DO_SELETOR = 50
 
 
-def _etapa_das_fazendas(requisicao, empresa, volta):
+def _etapa_das_fazendas(requisicao, empresa, volta, pessoa):
     fazendas = _fazendas_com_sub_areas(requisicao, empresa)
     if not fazendas and not _escopos_do_convite(requisicao, empresa):
         raise PermissionDenied
     return {
         'titulo': 'Escolher a fazenda', 'subtitulo': empresa.nome, 'busca': None, 'voltar': volta,
-        'itens': [{'rotulo': f.nome, 'destino': _caminho('convidar_sub_area_fazenda', empresa, fazenda_id=f.pk)} for f in fazendas],
+        'itens': [{'rotulo': f.nome, 'destino': _caminho('convidar_sub_area_fazenda', empresa, fazenda_id=f.pk) + _sufixo_da_pessoa(pessoa)} for f in fazendas],
         'vazio': 'Nenhuma fazenda com sub-área onde você possa convidar.', 'pagina': None,
     }
 
 
-def _etapa_das_sub_areas(requisicao, empresa, fazenda_id, volta):
+def _etapa_das_sub_areas(requisicao, empresa, fazenda_id, volta, pessoa):
     fazenda = next(iter(fazendas_autorizadas(requisicao.user, pk=fazenda_id, empresa_id=empresa.pk)), None)
     if fazenda is None:
         raise Http404
@@ -452,8 +469,9 @@ def _etapa_das_sub_areas(requisicao, empresa, fazenda_id, volta):
     da_pagina = list(pagina_de_itens)
     trilhas = _trilhas(requisicao, fazenda, da_pagina)
     return {
-        'titulo': 'Escolher a sub-área', 'subtitulo': f'{empresa.nome} › {fazenda.nome}', 'voltar': _caminho('convidar_sub_area', empresa),
-        'busca': {'q': consulta}, 'pagina': pagina_de_itens, 'consulta': urlencode({'q': consulta}) if consulta else '',
+        'titulo': 'Escolher a sub-área', 'subtitulo': f'{empresa.nome} › {fazenda.nome}', 'voltar': _caminho('convidar_sub_area', empresa) + _sufixo_da_pessoa(pessoa),
+        'busca': {'q': consulta, 'pessoa': pessoa.pk if pessoa else None}, 'pagina': pagina_de_itens,
+        'consulta': urlencode({**({'q': consulta} if consulta else {}), **({'pessoa': pessoa.pk} if pessoa else {})}),
         'itens': [{'rotulo': trilhas[sub.pk], 'destino': f'{volta}?{urlencode({"escopo": f"sub-area-{sub.pk}"})}'} for sub in da_pagina],
         'vazio': 'Nenhuma sub-área com esse texto.' if consulta else 'Esta fazenda não tem sub-áreas.',
     }
@@ -466,11 +484,14 @@ def convidar_sub_area(requisicao, empresa_id, fazenda_id=None):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
         _com_alcance(requisicao, empresa, 'convidar_pessoa')
-        volta = _caminho('pessoas_convidar', empresa)
+        # `?pessoa=<id>` vem da tela de conceder: a escolha volta para ela. Id inválido ou fora do alcance é ignorado (volta ao convite).
+        numero = requisicao.GET.get('pessoa', '')
+        pessoa = _pessoa_a_conceder(requisicao, empresa, int(numero)) if numero.isascii() and numero.isdigit() else None
+        volta = _caminho('pessoa_conceder', empresa, pessoa_id=pessoa.pk) if pessoa else _caminho('pessoas_convidar', empresa)
         if fazenda_id is None:
-            contexto = _etapa_das_fazendas(requisicao, empresa, volta)
+            contexto = _etapa_das_fazendas(requisicao, empresa, volta, pessoa)
         else:
-            contexto = _etapa_das_sub_areas(requisicao, empresa, fazenda_id, volta)
+            contexto = _etapa_das_sub_areas(requisicao, empresa, fazenda_id, volta, pessoa)
     return renderizar_na_casca(requisicao, 'escolher_lugar.html', contexto, empresa=empresa)
 
 

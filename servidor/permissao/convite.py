@@ -21,7 +21,9 @@ from identidade import email
 from identidade.login import _HASH_FALSO
 from identidade.models import Pessoa
 from permissao import delegacao
-from permissao.delegacao import _gravar, _proposta, _travar_pessoa, exigir_categoria_compativel, pode_conceder, travar_escopo
+from permissao.delegacao import (
+    _gravar, _proposta, _travar_pessoa, com_fim_no_futuro, concessao_igual, exigir_categoria_compativel, pode_conceder, travar_cargo, travar_escopo,
+)
 from permissao.models import Cargo, Concessao, Convite, ConviteCategoria
 from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, unir_escopos
 from territorio.models import Empresa
@@ -44,14 +46,9 @@ def _exigir_em_aberto(convite):
         raise ValidationError('Convite já respondido.', code='convite_encerrado')
 
 
-def _com_fim_no_futuro():
-    # Convite cujo `fim` já passou nunca será aceito (o banco recusa `fim <= inicio`): fora das duas listas (Sourcery).
-    return Q(fim__isnull=True) | Q(fim__gt=timezone.now())
-
-
 def _pendentes(pessoa):
     return Convite.objects.filter(
-        _com_fim_no_futuro(), pessoa=pessoa, aceito_em__isnull=True, recusado_em__isnull=True,
+        com_fim_no_futuro(), pessoa=pessoa, aceito_em__isnull=True, recusado_em__isnull=True,
         cancelado_em__isnull=True, expira_em__gt=timezone.now(),
     )
 
@@ -82,23 +79,10 @@ def _exigir_cota(quem):
         raise ValidationError('Convites demais na última hora.', code='convites_demais')
 
 
-def _concessao_igual(pessoa, proposta, categorias):
-    """A concessão não revogada e sem fim passado que já dá à pessoa o mesmo que `proposta` (cargo, lugar, fim e
-    categorias) e que já começou quando a proposta começa, ou None. Concessão futura não antecipa o acesso pedido
-    (Greptile, PR #30). Sem isto, repetir um convite cujo CPF já virou pessoa, ou aceitar um convite do que ela já
-    tem, gravaria uma segunda concessão igual (Sourcery, PR #30)."""
-    candidatas = Concessao.objects.filter(
-        pessoa=pessoa, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id, fazenda_id=proposta.fazenda_id,
-        sub_area_id=proposta.sub_area_id, fim=proposta.fim, inicio__lte=proposta.inicio, revogada_em__isnull=True,
-    ).filter(_com_fim_no_futuro())
-    pedidas = {categoria.pk for categoria in categorias}
-    return next((c for c in candidatas if set(c.categorias.values_list('pk', flat=True)) == pedidas), None)
-
-
 def _registrar(quem, pessoa, proposta, categorias, inicio):
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
-        ja_tem = _concessao_igual(pessoa, proposta, categorias) is not None
+        ja_tem = concessao_igual(pessoa, proposta, categorias) is not None
         envios_anteriores = 0
         for igual in _pendentes(pessoa).filter(
             convidado_por=quem, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id,
@@ -148,6 +132,7 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
         if existente is not None:
             _travar_pessoa(existente.pk)  # a ordem é a de `conceder`: pessoa, depois escopo; o inverso daria deadlock
         travar_escopo(proposta)
+        travar_cargo(cargo.pk)
         if not pode_conceder(quem, proposta, categorias):  # de novo, já com a trava (003 R11)
             raise PermissionDenied
         _exigir_cota(quem)
@@ -190,13 +175,14 @@ def aceitar(pessoa, convite_id):
         convidador = Pessoa.objects.get(pk=convite.convidado_por_id)
         # A pessoa que aceita não tem escopo na empresa: a gravação e as checagens rodam com o contexto de quem convidou.
         with com_permissao(convidador, 'convidar_pessoa'):
+            travar_cargo(convite.cargo_id)
             proposta = _proposta(
                 convidador, Cargo.objects.get(pk=convite.cargo_id), escopo_de(convite), convite.inicio, convite.fim
             )
             categorias = tuple(convite.categorias.all())
             if not pode_conceder(convidador, proposta, categorias):
                 raise ValidationError('Quem convidou não pode mais conceder isto.', code='convite_sem_autoridade')
-            concessao = _concessao_igual(pessoa, proposta, categorias) or _gravar(convidador, proposta, pessoa, categorias)
+            concessao = concessao_igual(pessoa, proposta, categorias) or _gravar(convidador, proposta, pessoa, categorias)
         convite.aceito_em = timezone.now()
         convite.save(update_fields=['aceito_em'])
         auditar('convite_aceito', pessoa, convite, convite.empresa_id, {'concessao_id': concessao.pk})
@@ -223,7 +209,7 @@ def convites_enviados(quem, empresa_id=None):
         consulta = consulta.filter(empresa_id=empresa_id)
     return list(
         consulta.filter(
-            _com_fim_no_futuro(), convidado_por=quem, aceito_em__isnull=True, recusado_em__isnull=True, cancelado_em__isnull=True,
+            com_fim_no_futuro(), convidado_por=quem, aceito_em__isnull=True, recusado_em__isnull=True, cancelado_em__isnull=True,
             expira_em__gt=timezone.now() - RETENCAO_DE_VENCIDOS,  # o vencido aparece, marcado, para poder ser reenviado
         ).order_by('pk')
     )

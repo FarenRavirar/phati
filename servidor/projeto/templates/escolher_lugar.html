@@ -5,6 +5,7 @@
 {% if busca %}<form method="get" role="search" class="busca-lugar">
 <div class="campo"><label class="campo-rotulo" for="busca-q">Filtrar pelo nome</label>
 <input class="campo-controle" id="busca-q" name="q" type="search" value="{{ busca.q }}" autocomplete="off"></div>
+{% if busca.pessoa %}<input type="hidden" name="pessoa" value="{{ busca.pessoa }}">{% endif %}
 <p class="acoes-pagina">{% include "componentes/botao.html" with texto="Filtrar" tipo="submit" %}</p>
 </form>{% endif %}
 {% if itens %}<ul class="lista-lugares">

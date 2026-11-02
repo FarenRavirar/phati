@@ -667,3 +667,114 @@ def test_pode_revogar_segue_as_mesmas_regras_da_funcao_de_revogar(cenario, titul
     assert pode_revogar(plataforma, titulares.de_titular) is False
     assert pode_revogar(titulares.titular, titulares.de_outro) is True
     assert pode_revogar(None, tecnico) is False
+
+
+# --- conceder idempotente e trava do cargo (003 Fase 4) ---
+
+
+def test_conceder_duas_vezes_o_mesmo_acesso_devolve_a_mesma_concessao(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    primeira = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    segunda = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    assert segunda.pk == primeira.pk
+    assert Concessao.objects.filter(pessoa=alvo).count() == 1
+
+
+def test_conceder_o_que_difere_em_lugar_ou_categoria_grava_outra_concessao(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    categoria = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f2)
+    conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1, categorias=[categoria])
+    assert Concessao.objects.filter(pessoa=alvo).count() == 3
+
+
+def test_conceder_de_novo_depois_de_revogar_grava_uma_concessao_nova(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    primeira = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    revogar_concessao(plataforma, primeira)
+    segunda = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    assert segunda.pk != primeira.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_conceder_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto):
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    alvo = fabrica_pessoa('Alvo')
+    usuario = cenario.cargos_x['usuario']
+    assert _corrida_com_edicao_do_cargo(usuario, lambda: conceder(curador, alvo, usuario, cenario.f1)) == ['negou']
+    assert not Concessao.objects.filter(pessoa=alvo).exists()
+
+
+def _corrida_com_edicao_do_cargo(usuario, acao):
+    """Uma edição do cargo (que o trava e acrescenta `gerenciar_cargo`, que o Curador não tem) está em curso, sem commitar,
+    quando `acao` começa em outro fio. Devolve o que `acao` levantou, ou 'concedeu'. Sem a trava do cargo, `acao` lê o conjunto
+    antigo, passa em `pode_conceder` e concede; com a trava, espera a edição e a lê nova."""
+    editando, soltar = threading.Event(), threading.Event()
+    resultado = []
+
+    def editar():
+        try:
+            with transaction.atomic():
+                Cargo.objects.select_for_update().get(pk=usuario.pk)
+                CargoPermissao.objects.create(cargo=usuario, permissao_id='gerenciar_cargo')
+                editando.set()
+                soltar.wait(15)
+        finally:
+            connection.close()
+
+    def agir():
+        try:
+            acao()
+            resultado.append('concedeu')
+        except PermissionDenied:
+            resultado.append('negou')
+        except ValidationError as erro:
+            resultado.append(erro.code)
+        finally:
+            connection.close()
+
+    edicao = threading.Thread(target=editar)
+    edicao.start()
+    assert editando.wait(15)
+    fio = threading.Thread(target=agir)
+    fio.start()
+    fio.join(1.0)  # largada: `acao` já tentou ler o cargo enquanto a edição ainda não terminou
+    soltar.set()
+    edicao.join()
+    fio.join()
+    return resultado
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('caminho', ['convidar', 'convidar_por_cpf'])
+def test_convidar_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto, cpf_novo, caminho):
+    from permissao.convite import convidar_por_cpf
+
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    usuario = cenario.cargos_x['usuario']
+    funcao = convidar if caminho == 'convidar' else convidar_por_cpf
+    resultado = _corrida_com_edicao_do_cargo(
+        usuario, lambda: funcao(curador, 'Nova Pessoa', 'nova@exemplo.test', cpf_novo(), usuario, cenario.f1),
+    )
+    assert resultado == ['negou']
+    assert not Pessoa.objects.filter(nome='Nova Pessoa').exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aceitar_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+    from permissao.convite import aceitar, convidar_por_cpf
+    from permissao.models import Convite
+
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    cpf = cpf_novo()
+    convidada = Pessoa.objects.criar(nome='Convidada', email='convidada@exemplo.test', cpf=cpf)
+    usuario = cenario.cargos_x['usuario']
+    convidar_por_cpf(curador, 'Convidada', 'convidada@exemplo.test', cpf, usuario, cenario.f1)
+    convite = Convite.objects.get(pessoa=convidada)
+    resultado = _corrida_com_edicao_do_cargo(usuario, lambda: aceitar(convidada, convite.pk))
+    assert resultado == ['convite_sem_autoridade']
+    assert not Concessao.objects.filter(pessoa=convidada).exists()

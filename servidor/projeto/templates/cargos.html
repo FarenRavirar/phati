@@ -8,7 +8,7 @@
 {% for cargo in itens %}<li class="pessoa">
 <p class="pessoa-nome">{{ cargo.nome }}</p>
 <p class="pessoa-detalhe">{{ cargo.empresa }} · nível {{ cargo.base }} · {{ cargo.total }} permiss{{ cargo.total|pluralize:"ão,ões" }}</p>
-<p><a href="{{ cargo.editar }}" aria-label="Editar o cargo {{ cargo.nome }}">Editar</a></p>
+{% if cargo.editar %}<p><a href="{{ cargo.editar }}" aria-label="Editar o cargo {{ cargo.nome }}">Editar</a></p>{% else %}<p class="pessoa-detalhe">Somente leitura: acompanha todas as permissões.</p>{% endif %}
 </li>
 {% endfor %}</ul>
 {% endblock %}

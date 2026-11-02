@@ -15,6 +15,12 @@ from permissao.models import NIVEL_DA_BASE, Cargo, CargoPermissao, Permissao
 from permissao.pode import ACOES_DA_PLATAFORMA, Alvo, memoria_de, pode
 from territorio.models import Empresa
 
+# Cargo de nível Administrador acompanha o catálogo (a migração que cria ação dá a permissão nova a ele) e é o que impede
+# a empresa de ficar sem quem gerencie: não se edita (mantenedor, 2026-11-02, opção C). shortcut: a regra é pela base, não
+# por marca no cargo; vale também para cargo de nível Administrador criado depois. Marcar o cargo de base é o passo, se
+# a empresa precisar de cargo Administrador personalizado.
+BASES_FIXAS = ('administrador',)
+
 
 def _pode_gerenciar(quem, empresa, base, codigos):
     # `pode()` decide acesso, nível do Administrador e arquivamento da empresa num só lugar (003 R11); o resto abaixo
@@ -96,6 +102,8 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied
         # Depois da autorização: quem não pode gerenciar o cargo não descobre a versão dele.
+        if cargo is not None and base in BASES_FIXAS:
+            raise ValidationError('O cargo de nível Administrador não se edita: ele acompanha todas as permissões.', code='cargo_fixo')
         if cargo is not None and versao != cargo.versao:
             raise ValidationError('Outra pessoa alterou este cargo. Recarregue a página e edite de novo.', code='cargo_alterado_por_outra_pessoa')
         _exigir_nome_livre(empresa, nome, cargo)
