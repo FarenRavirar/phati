@@ -9,4 +9,7 @@
 {% endfor %}<p class="acoes-pagina">{% include "componentes/botao.html" with texto=botao tipo="submit" %}<a class="botao botao-secundario" href="{{ cancelar }}">Cancelar</a></p>
 </form>
 {% include "componentes/acoes.html" with acoes=acoes %}
+{% if historico %}<section aria-labelledby="historico-titulo"><h2 id="historico-titulo">{{ historico.titulo }}</h2>
+{% if historico.linhas %}<ul class="lista-historico">{% for linha in historico.linhas %}<li>{{ linha }}</li>
+{% endfor %}</ul>{% else %}<p>{{ historico.vazio }}</p>{% endif %}</section>{% endif %}
 {% endblock %}

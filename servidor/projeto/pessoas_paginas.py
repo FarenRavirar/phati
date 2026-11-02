@@ -42,7 +42,7 @@ ESCOLHA_VAZIA = {'valor': '', 'rotulo': 'Escolha uma opção'}
 # O que a tela diz depois de uma ação: só estas chaves viram texto (o parâmetro `feito` do endereço nunca é impresso).
 AVISOS = {
     'cancelado': 'Convite cancelado.', 'reenviado': 'Convite reenviado.', 'revogado': 'Acesso revogado.',
-    'titularidade': 'Titularidade transferida.',
+    'titularidade': 'Titularidade transferida.', 'concedido': 'Acesso concedido.', 'criado': 'Cargo criado.', 'alterado': 'Cargo alterado.',
 }
 SEM_ALCANCE = 'Você não pode conceder este cargo neste lugar.'
 
@@ -114,7 +114,8 @@ def pessoas(requisicao, empresa_id):
     with _contexto(requisicao):
         _com_alcance(requisicao, empresa, *ACOES_DE_PESSOAS)
         efetivas = permissoes_efetivas(requisicao.user, empresa)
-        pode_convidar = _pode_convidar(requisicao, empresa)  # em algum lugar da empresa, não só nela inteira
+        lugares = _escopos_do_convite(requisicao, empresa)
+        pode_convidar = bool(lugares) or bool(_fazendas_com_sub_areas(requisicao, empresa))  # em algum lugar da empresa, não só nela inteira
         pagina_de_pessoas = Paginator(_da_empresa(requisicao.user, empresa), ITENS_POR_PAGINA).get_page(requisicao.GET.get('pagina'))
         por_pessoa = defaultdict(list)
         nomes = {f.pk: f.nome for f in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk, arquivadas=None)}
@@ -135,10 +136,13 @@ def pessoas(requisicao, empresa_id):
                 'revogar': _caminho('pessoa_revogar', empresa, pessoa_id=concessao.pessoa_id, concessao_id=concessao.pk) if delegacao.pode_revogar(requisicao.user, concessao) else None,
             })
         redefinir = 'redefinir_senha' in efetivas
+        # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
+        concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if lugares else set()
         itens = [
             {
                 'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
                 'redefinir': _caminho('pessoa_redefinir_senha', empresa, pessoa_id=p.pk) if redefinir else None,
+                'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if p.pk in concediveis else None,
             }
             for p in pagina_de_pessoas
         ]
@@ -230,11 +234,18 @@ def _sub_area_pedida(requisicao, empresa, chave):
 
 
 def _campos_do_convite(dados, cargos, escopos, categorias, erros):
-    marcadas = set(dados.getlist('categorias')) if hasattr(dados, 'getlist') else set()
     return [
         campo('nome', 'Nome', dados.get('nome', ''), erros.get('nome'), obrigatorio=True, autocomplete='name'),
         campo('email', 'E-mail', dados.get('email', ''), erros.get('email'), tipo='email', obrigatorio=True, autocomplete='email'),
         campo('cpf', 'CPF', dados.get('cpf', ''), erros.get('cpf'), obrigatorio=True, teclado='numeric'),
+        *_campos_de_acesso(dados, cargos, escopos, categorias, erros),
+    ]
+
+
+def _campos_de_acesso(dados, cargos, escopos, categorias, erros):
+    """Cargo, lugar, categorias e período: o que o convite e a concessão pedem igual."""
+    marcadas = set(dados.getlist('categorias')) if hasattr(dados, 'getlist') else set()
+    return [
         campo('cargo', 'Cargo', dados.get('cargo', ''), erros.get('cargo'), tipo='select', obrigatorio=True,
               opcoes=[ESCOLHA_VAZIA, *({'valor': c.pk, 'rotulo': c.nome} for c in cargos)]),
         campo('escopo', 'Onde vale', dados.get('escopo', ''), erros.get('escopo'), tipo='select', obrigatorio=True,
@@ -277,14 +288,21 @@ def _ler_periodo(dados):
 def _ler_convite(dados, cargos, escopos, categorias):
     """Converte e valida só o formato (R28); a regra de quem pode conceder o quê é da função de serviço."""
     erros = {}
-    cargo = next((c for c in cargos if str(c.pk) == dados.get('cargo')), None)
-    lugar = escopos.get(dados.get('escopo', ''))
     if not dados.get('nome', '').strip() or len(dados.get('nome', '')) > 200:
         erros['nome'] = 'Informe um nome de 1 a 200 caracteres.'
     if erro_do_email := _erro_do_email(dados.get('email', '')):
         erros['email'] = erro_do_email
     if not dados.get('cpf', '').strip():
         erros['cpf'] = 'Informe o CPF.'
+    erros_do_acesso, *resto = _ler_acesso(dados, cargos, escopos, categorias)
+    return {**erros, **erros_do_acesso}, *resto
+
+
+def _ler_acesso(dados, cargos, escopos, categorias):
+    """`(erros, cargo, lugar, categorias marcadas, início, fim)` dos campos de `_campos_de_acesso`."""
+    erros = {}
+    cargo = next((c for c in cargos if str(c.pk) == dados.get('cargo')), None)
+    lugar = escopos.get(dados.get('escopo', ''))
     if cargo is None:
         erros['cargo'] = 'Escolha um cargo da lista.'
     if lugar is None:
@@ -337,6 +355,71 @@ def convidar(requisicao, empresa_id):
     }, empresa=empresa)
     resposta['Cache-Control'] = 'no-store'
     return resposta
+
+
+# --- conceder cargo a quem já está na empresa ---
+
+
+def _historico_de_acessos(requisicao, empresa, pessoa):
+    """Concessões da pessoa nesta empresa que quem olha alcança, as ativas e as revogadas, da mais nova à mais antiga."""
+    concessoes = Concessao.objects.filter(empresa_id=empresa.pk, pessoa_id=pessoa.pk)
+    alcance = unir_escopos(requisicao.user, *ACOES_DE_PESSOAS)
+    if not alcance.plataforma:
+        concessoes = concessoes.filter(filtro_do_escopo(alcance))
+    concessoes = list(concessoes.select_related('cargo', 'fazenda', 'sub_area').order_by('-pk'))
+    nomes = {f.pk: f.nome for f in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk, arquivadas=None)}
+    nomes_de_sub_area = _nomes_de_sub_areas(concessoes)
+    agora = timezone.now()
+    linhas = []
+    for c in concessoes:
+        # Datas no fuso local, como o filtro `date` do molde da lista de pessoas: em UTC o último dia aparece um dia depois.
+        if c.revogada_em is not None:
+            situacao = f'revogada em {timezone.localtime(c.revogada_em):%d/%m/%Y}'
+        elif c.fim is not None and c.fim <= agora:
+            situacao = 'encerrada'
+        elif c.inicio > agora:
+            situacao = f'começa em {timezone.localtime(c.inicio):%d/%m/%Y}'
+        else:
+            situacao = 'ativa'
+        prazo = f' · até {timezone.localtime(c.fim - timedelta(microseconds=1)):%d/%m/%Y}' if c.fim else ''  # o `fim` gravado é exclusivo
+        linhas.append(f'{c.cargo.nome} · {_onde(c, nomes, nomes_de_sub_area)}{prazo} · {situacao}')
+    return {'titulo': f'Acessos de {pessoa.nome} nesta empresa', 'linhas': linhas, 'vazio': 'Nenhum acesso registrado.'}
+
+
+@pagina('convidar_pessoa')
+def conceder(requisicao, empresa_id, pessoa_id):
+    empresa = _empresa(requisicao, empresa_id)
+    with _contexto(requisicao):
+        _com_alcance(requisicao, empresa, 'convidar_pessoa')
+        pessoa = _pessoa_da_empresa(requisicao, empresa, pessoa_id)
+        # A lista junta o alcance de convidar, revogar e redefinir; conceder segue o de convidar, como a rota da API (Qodo, PR #31).
+        if not pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk=pessoa.pk).exists():
+            raise Http404
+        escopos = _escopos_do_convite(requisicao, empresa)
+        if not escopos:
+            raise PermissionDenied
+        cargos = list(Cargo.objects.filter(empresa_id=empresa.pk).order_by('nome'))
+        categorias = list(CategoriaDado.objects.filter(empresa_id=empresa.pk).order_by('nome'))
+        cancelar = _caminho('pessoas', empresa)
+
+        def tela(dados, erros, erro=None, codigo_http=200):
+            return formulario(requisicao, f'Conceder cargo a {pessoa.nome}', _campos_de_acesso(dados, cargos, escopos, categorias, erros),
+                              'Conceder', cancelar, subtitulo=empresa.nome, erro=erro, empresa=empresa, codigo_http=codigo_http,
+                              historico=_historico_de_acessos(requisicao, empresa, pessoa))
+
+        if requisicao.method == 'GET':
+            return tela({}, {})
+        dados = requisicao.POST
+        erros, cargo, lugar, marcadas, inicio, fim = _ler_acesso(dados, cargos, escopos, categorias)
+        if erros:
+            return tela(dados, erros, codigo_http=400)
+        try:
+            delegacao.conceder(requisicao.user, pessoa, cargo, lugar, marcadas, inicio, fim)
+        except ValidationError as erro:
+            return tela(dados, {}, texto_do_erro(erro), 400)
+        except PermissionDenied:
+            return tela(dados, {}, SEM_ALCANCE, 403)
+    return redirect(cancelar + '?feito=concedido')
 
 
 # --- escolher a sub-área do convite ---

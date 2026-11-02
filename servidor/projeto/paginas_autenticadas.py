@@ -114,10 +114,11 @@ def texto_do_erro(erro):
     return ' '.join(erro.messages)
 
 
-def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, codigo_http=200):
+def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, historico=None, codigo_http=200):
+    """`historico`: `{titulo, linhas, vazio}`, uma lista só de leitura que aparece depois do formulário."""
     contexto = {
         'titulo': titulo, 'subtitulo': subtitulo, 'campos': campos, 'botao': botao, 'cancelar': cancelar,
-        'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {},
+        'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {}, 'historico': historico,
     }
     resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, empresa=empresa, fazenda=fazenda)
     resposta.status_code = codigo_http

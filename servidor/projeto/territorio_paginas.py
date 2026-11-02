@@ -48,6 +48,7 @@ _ACOES_DA_PAGINA = {
     Empresa: (
         ('criar_fazenda', ROTULO_CADASTRAR_FAZENDA, 'fazenda_nova'),
         (ACOES_DE_PESSOAS, 'Pessoas', 'pessoas'),
+        ('gerenciar_cargo', 'Cargos', 'cargos'),
         ('renomear', 'Renomear empresa', 'empresa_editar'),
         ('configurar_niveis_divisao', TITULO_NIVEIS, 'empresa_niveis'),
         ('arquivar', 'Arquivar empresa', 'empresa_arquivar'),
@@ -107,7 +108,7 @@ def _destino_da_acao(nome, argumentos):
     # As telas de cadastro ("_nova") vivem na fazenda ou na empresa, e a de pessoas é da empresa: levam só o que o endereço tem.
     if nome.endswith('_nova'):
         argumentos = {k: v for k, v in argumentos.items() if k != 'sub_area_id'}
-    elif nome == 'pessoas':
+    elif nome in ('pessoas', 'cargos'):
         argumentos = {'empresa_id': argumentos['empresa_id']}
     return reverse(nome, kwargs=argumentos)
 

@@ -1,7 +1,7 @@
 """Telas de pessoas (003 R13 a R17, R28, R33; A26): caso feliz, validação, acesso negado por URL direta e escape de HTML."""
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -35,6 +35,7 @@ def _telas(cenario, pessoa_id=1, concessao_id=1, convite_id=1):
         'convite_reenviar': base + f'pessoas/convites/{convite_id}/reenviar',
         'pessoa_revogar': base + f'pessoa/{pessoa_id}/revogar/{concessao_id}',
         'pessoa_redefinir_senha': base + f'pessoa/{pessoa_id}/redefinir-senha',
+        'pessoa_conceder': base + f'pessoa/{pessoa_id}/conceder',
         'titularidade': base + 'titularidade',
     }
 
@@ -870,3 +871,120 @@ def test_link_pessoas_nao_aparece_na_fazenda_de_quem_so_alcanca_outra(cliente_lo
     pessoas = _casa(cenario) + 'pessoas/'
     assert f'href="{pessoas}"' in cliente_logado.get(_casa(cenario) + f'fazenda/{cenario.f2.pk}/').content.decode()
     assert cliente_logado.get(_casa(cenario) + f'fazenda/{cenario.f1.pk}/').status_code == 404
+
+
+# --- conceder cargo (R19, A24) ---
+
+
+def _conceder(cenario, pessoa):
+    return _casa(cenario) + f'pessoa/{pessoa.pk}/conceder'
+
+
+def test_conceder_mostra_o_formulario_e_o_historico_com_ativas_e_revogadas(cliente_logado, administradora, cenario, alvo):
+    pessoa, ativa = alvo
+    revogada = Concessao.objects.create(
+        pessoa=pessoa, cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f2, concedida_por=administradora,
+        revogada_em=timezone.now(), revogada_por=administradora,
+    )
+    html = _sem_nonce(cliente_logado.get(_conceder(cenario, pessoa)).content.decode())
+    assert 'Conceder cargo a Alvo Tecnico' in html
+    assert 'name="cargo"' in html
+    assert 'name="escopo"' in html
+    assert 'Técnico · F1 · ativa' in html
+    assert 'Usuário · F2 · revogada em' in html
+    assert html.index('Usuário · F2') < html.index('Técnico · F1')  # da mais nova à mais antiga
+    assert revogada.pk > ativa.pk
+    assert not re.search(r'object \(|Select an option', html)
+
+
+def test_conceder_grava_a_concessao_audita_e_volta_a_lista(cliente_logado, administradora, cenario, alvo):
+    pessoa, _ = alvo
+    resposta = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['curador'].pk, 'escopo': f'fazenda-{cenario.f2.pk}'})
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('/pessoas/?feito=concedido')
+    nova = Concessao.objects.get(pessoa=pessoa, cargo=cenario.cargos_x['curador'])
+    assert nova.fazenda_id == cenario.f2.pk
+    assert nova.concedida_por == administradora
+    assert len(_auditoria('concessao_criada')) == 1
+    assert 'Acesso concedido.' in _sem_nonce(cliente_logado.get(resposta['Location']).content.decode())
+
+
+@pytest.mark.parametrize('mudanca, campo_do_erro, texto', [
+    ({'cargo': ''}, 'campo_cargo', 'Escolha um cargo da lista.'),
+    ({'escopo': 'fazenda-999999'}, 'campo_escopo', 'Escolha onde o acesso vale.'),
+    ({'inicio': '2026-13-45'}, 'campo_inicio', 'Use uma data válida.'),
+    ({'inicio': '2030-01-02', 'fim': '2030-01-01'}, 'campo_fim', 'O fim precisa ser depois do início.'),
+])
+def test_conceder_com_dado_invalido_volta_com_o_erro_uma_vez_so_e_nao_grava(cliente_logado, administradora, cenario, alvo, mudanca, campo_do_erro, texto):
+    pessoa, _ = alvo
+    dados = {'cargo': cenario.cargos_x['curador'].pk, 'escopo': f'fazenda-{cenario.f2.pk}', **mudanca}
+    resposta = cliente_logado.post(_conceder(cenario, pessoa), dados)
+    html = _sem_nonce(resposta.content.decode())
+    assert resposta.status_code == 400
+    assert html.count(texto) == 1
+    assert f'id="{campo_do_erro}-descricao"' in html
+    assert Concessao.objects.filter(pessoa=pessoa).count() == 1
+
+
+def test_ninguem_concede_o_que_nao_tem_e_a_recusa_aparece_uma_vez(cliente_logado, conta, cenario, conceder_direto, alvo):
+    """A24 / D043: Curador de F1 não concede Administrador, nem em lugar fora do alcance dele."""
+    pessoa, _ = alvo
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
+    # Curador de F1 só tem a própria fazenda no seletor; F2 não aparece e o valor forjado é recusado como lugar inexistente.
+    forjado = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'fazenda-{cenario.f2.pk}'})
+    assert forjado.status_code == 400
+    acima = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['administrador'].pk, 'escopo': f'fazenda-{cenario.f1.pk}'})
+    assert acima.status_code == 403
+    assert _sem_nonce(acima.content.decode()).count('Você não pode conceder este cargo neste lugar.') == 1
+    assert Concessao.objects.filter(pessoa=pessoa).count() == 1
+
+
+def test_conceder_cargo_de_outra_empresa_e_recusado_e_nao_grava(cliente_logado, administradora, cenario, alvo):
+    pessoa, _ = alvo
+    resposta = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_y['tecnico'].pk, 'escopo': f'fazenda-{cenario.f2.pk}'})
+    assert resposta.status_code == 400
+    assert Concessao.objects.filter(pessoa=pessoa).count() == 1
+
+
+def test_conceder_a_pessoa_de_outra_empresa_e_404(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    de_y = fabrica_pessoa('Pessoa da Y')
+    conceder_direto(de_y, cenario.cargos_y['tecnico'], cenario.fy)
+    assert cliente_logado.get(_conceder(cenario, de_y)).status_code == 404
+    assert cliente_logado.post(_conceder(cenario, de_y), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': 'empresa'}).status_code == 404
+    assert not Concessao.objects.filter(pessoa=de_y, empresa=cenario.x).exists()
+
+
+def test_lista_de_pessoas_oferece_conceder_so_a_quem_pode(cliente_logado, conta, cenario, conceder_direto, alvo):
+    pessoa, _ = alvo
+    da_conta = conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    assert f'pessoa/{pessoa.pk}/conceder' in cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    da_conta.delete()
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
+    assert f'pessoa/{pessoa.pk}/conceder' in cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()  # o Curador convida, então concede
+
+
+# --- achados de revisão da PR #31 ---
+
+
+def test_historico_mostra_as_datas_no_fuso_local_e_nao_em_utc(cliente_logado, administradora, cenario, alvo, conceder_direto):
+    pessoa, _ = alvo
+    # Último dia 01/01/2030: o fim gravado é a meia-noite local do dia 02, que em UTC já é 02/01 03:00.
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f2, fim=timezone.make_aware(datetime(2030, 1, 2)))
+    html = _sem_nonce(cliente_logado.get(_conceder(cenario, pessoa)).content.decode())
+    assert 'Usuário · F2 · até 01/01/2030 · ativa' in html
+
+
+def test_conceder_so_a_pessoa_que_o_convidar_alcanca_mesmo_vista_por_revogar(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    """Quem convida na F1 e só revoga na F2 vê a pessoa da F2 na lista, mas não pode conceder a ela (a API responde 404)."""
+    revogador = Cargo.objects.create(empresa=cenario.x, nome='Revogador', base='tecnico')  # Curador convida sempre (D073): o cargo do teste não pode ser dele
+    CargoPermissao.objects.bulk_create(CargoPermissao(cargo=revogador, permissao_id=c) for c in ('ver', 'revogar_acesso'))
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
+    conceder_direto(conta.pessoa, revogador, cenario.f2)
+    da_f2 = fabrica_pessoa('Pessoa da F2')
+    conceder_direto(da_f2, cenario.cargos_x['tecnico'], cenario.f2)
+    lista = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert 'Pessoa da F2' in lista
+    assert f'pessoa/{da_f2.pk}/conceder' not in lista  # o link só aparece onde a tela abriria
+    assert cliente_logado.get(_conceder(cenario, da_f2)).status_code == 404
+    assert cliente_logado.post(_conceder(cenario, da_f2), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'fazenda-{cenario.f1.pk}'}).status_code == 404
+    assert Concessao.objects.filter(pessoa=da_f2).count() == 1
