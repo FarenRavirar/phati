@@ -40,17 +40,20 @@ def test_campo_select_marca_a_opcao_escolhida_e_escapa_o_rotulo():
     assert '<select class="campo-controle" id="cargo" name="cargo"' in html
     assert '<option value="2" selected>&lt;b&gt;Técnico&lt;/b&gt;</option>' in html
     assert '<option value="1">Usuário</option>' in html
-    assert 'aria-invalid="true"' in html and 'aria-describedby="cargo-descricao"' in html
+    assert 'aria-invalid="true"' in html
+    assert 'aria-describedby="cargo-descricao"' in html
     assert '<input' not in html
 
 
 def test_campo_caixas_agrupa_em_fieldset_com_legenda_e_marca_as_escolhidas():
     opcoes = [{'valor': 7, 'rotulo': 'Solo', 'marcada': True}, {'valor': 8, 'rotulo': 'Água', 'marcada': False}]
     html = _renderizar('componentes/campo.html', id='categorias', nome='categorias', rotulo='Categorias', tipo='caixas', opcoes=opcoes, ajuda='Só Técnico e Usuário.')
-    assert '<fieldset' in html and '<legend class="campo-rotulo">Categorias</legend>' in html
+    assert '<fieldset' in html
+    assert '<legend class="campo-rotulo">Categorias</legend>' in html
     assert '<input type="checkbox" name="categorias" value="7" checked>' in html
     assert '<input type="checkbox" name="categorias" value="8">' in html
-    assert 'aria-describedby="categorias-descricao"' in html and 'Só Técnico e Usuário.' in html
+    assert 'aria-describedby="categorias-descricao"' in html
+    assert 'Só Técnico e Usuário.' in html
 
 
 @pytest.mark.parametrize('tipo', ['erro', 'aviso', 'info', 'sucesso'])

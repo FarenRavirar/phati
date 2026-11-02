@@ -114,21 +114,21 @@ def texto_do_erro(erro):
     return ' '.join(erro.messages)
 
 
-def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, status=200):
+def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, codigo_http=200):
     contexto = {
         'titulo': titulo, 'subtitulo': subtitulo, 'campos': campos, 'botao': botao, 'cancelar': cancelar,
         'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {},
     }
     resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, empresa=empresa, fazenda=fazenda)
-    resposta.status_code = status
+    resposta.status_code = codigo_http
     return resposta
 
 
-def confirmacao(requisicao, cancelar, *, titulo, texto, efeitos, botao, empresa=None, fazenda=None, escondidos=None, erro=None, status=200):
+def confirmacao(requisicao, cancelar, *, titulo, texto, efeitos, botao, empresa=None, fazenda=None, escondidos=None, erro=None, codigo_http=200):
     contexto = {
         'titulo': titulo, 'texto': texto, 'efeitos': efeitos, 'botao': botao, 'cancelar': cancelar,
         'escondidos': escondidos or {}, 'erro': erro,
     }
     resposta = renderizar_na_casca(requisicao, 'confirmacao.html', contexto, empresa=empresa, fazenda=fazenda)
-    resposta.status_code = status
+    resposta.status_code = codigo_http
     return resposta

@@ -17,5 +17,10 @@
 </div>
 </li>
 {% endfor %}</ul>
+{% if pagina.has_other_pages %}<nav class="paginacao" aria-label="Páginas de convites"><p class="acoes-pagina">
+{% if pagina.has_previous %}<a class="botao botao-secundario" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+<span class="tipo-arquivada">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+{% if pagina.has_next %}<a class="botao botao-secundario" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
+</p></nav>{% endif %}
 {% else %}{% include "componentes/vazio.html" with texto="Nenhum convite sem resposta." acao_rotulo=vazio_rotulo acao_destino=vazio_destino %}{% endif %}
 {% endblock %}

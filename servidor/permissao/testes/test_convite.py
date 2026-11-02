@@ -558,3 +558,40 @@ def test_aceite_espera_a_revogacao_em_andamento_de_quem_convidou(cenario, fabric
     assert preso  # esperou a transação de quem convidou
     assert resultado == ['convite_sem_autoridade']
     assert not Concessao.objects.filter(pessoa=existente, empresa=cenario.x).exists()
+
+
+def test_convites_enviados_filtra_por_empresa_no_servico(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    conceder_direto(admin, cenario.cargos_y['administrador'], cenario.y)
+    for destino, cargo in ((cenario.x, cenario.cargos_x['usuario']), (cenario.y, cenario.cargos_y['usuario'])):
+        existente = fabrica_pessoa('Existente')
+        servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cargo, destino)
+    assert len(servico.convites_enviados(admin)) == 2
+    assert [c.empresa_id for c in servico.convites_enviados(admin, cenario.x.pk)] == [cenario.x.pk]
+    assert [c.empresa_id for c in servico.convites_enviados(admin, cenario.y.pk)] == [cenario.y.pk]
+
+
+def test_convidar_quem_ja_tem_exatamente_o_acesso_nao_cria_convite(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1)
+    assert servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f1) == (None, None)
+    assert not Convite.objects.exists()
+    # Outro cargo, outro lugar ou outro prazo é outro pedido: o convite sai.
+    servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['tecnico'], cenario.f1)
+    servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f2)
+    assert Convite.objects.count() == 2
+
+
+def test_aceitar_convite_do_que_a_pessoa_ja_tem_nao_grava_segunda_concessao(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    ja_tem = conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1)
+    convite = Convite.objects.create(
+        pessoa=existente, convidado_por=admin, cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f1,
+        empresa_nome=cenario.x.nome, cargo_nome='Usuário', expira_em=timezone.now() + timedelta(days=7),
+    )
+    assert servico.aceitar(existente, convite.pk) == ja_tem
+    convite.refresh_from_db()
+    assert convite.aceito_em is not None
+    assert Concessao.objects.filter(pessoa=existente).count() == 1

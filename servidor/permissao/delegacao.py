@@ -188,6 +188,16 @@ def _administra_a_empresa_inteira(concessao):
     return concessao.cargo.base == 'administrador' and concessao.fazenda_id is None
 
 
+def pode_revogar(quem, concessao):
+    """A tela só mostra o link de revogar a quem `revogar_concessao` aceitaria: escopo, nível do cargo e Administrador
+    titular protegido (Sourcery, PR #30). A função de revogar repete a checagem sob trava."""
+    if quem is None or not quem.is_authenticated or not _pode_revogar(quem, concessao):
+        return False
+    if not _administra_a_empresa_inteira(concessao):
+        return True
+    return concessao.pessoa_id != Empresa.objects.filter(pk=concessao.empresa_id).values_list('titular_id', flat=True).first()
+
+
 def revogar_concessao(quem, concessao):
     """Grava `revogada_em` e `revogada_por`. Vale na requisição seguinte da pessoa atingida (R11)."""
     if quem is None or not quem.is_authenticated:
@@ -221,9 +231,12 @@ def revogar_concessao(quem, concessao):
 
 
 def pode_transferir_titularidade(quem, empresa):
-    """Só o titular atual ou a plataforma (R23). A tela de transferir pergunta isto antes da etapa 1; a função abaixo
-    repete a checagem sob trava."""
-    return bool(quem is not None and quem.is_authenticated and (quem.administrador_plataforma or quem.pk == empresa.titular_id))
+    """Só o titular atual ou a plataforma (R23), e nunca numa empresa arquivada: transferir é escrita, e escrita em
+    escopo arquivado é recusada até para a plataforma (003 R11; Qodo, PR #30). A tela de transferir pergunta isto antes da
+    etapa 1; a função abaixo repete a checagem sob trava."""
+    if quem is None or not quem.is_authenticated or escopo_arquivado(empresa):
+        return False
+    return bool(quem.administrador_plataforma or quem.pk == empresa.titular_id)
 
 
 def transferir_titularidade(quem, empresa, novo_titular, justificativa):

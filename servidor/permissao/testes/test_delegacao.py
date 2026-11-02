@@ -637,3 +637,33 @@ def test_duas_revogacoes_ao_mesmo_tempo_so_uma_vence(fabrica_pessoa, conceder_di
         fio.join()
     assert sorted(resultados) == ['concessao_ja_revogada', 'ok']
 
+
+
+def test_titularidade_de_empresa_arquivada_e_recusada_pela_checagem_e_pela_funcao(cenario, titulares, plataforma):
+    from territorio.cadastro import arquivar, efeitos_do_arquivamento
+
+    arquivar(plataforma, cenario.x, efeitos_do_arquivamento(cenario.x))
+    cenario.x.refresh_from_db()
+    for quem in (titulares.titular, plataforma):
+        assert pode_transferir_titularidade(quem, cenario.x) is False
+        with pytest.raises(PermissionDenied):
+            transferir_titularidade(quem, cenario.x, titulares.outro, justificativa='Teste.')
+    cenario.x.refresh_from_db()
+    assert cenario.x.titular == titulares.titular
+
+
+def test_pode_revogar_segue_as_mesmas_regras_da_funcao_de_revogar(cenario, titulares, fabrica_pessoa, conceder_direto, plataforma):
+    from permissao.delegacao import pode_revogar
+
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    tecnico = conceder_direto(fabrica_pessoa('Tecnico'), cenario.cargos_x['tecnico'], cenario.f1)
+    de_admin_da_f1 = conceder_direto(fabrica_pessoa('Admin da F1'), cenario.cargos_x['administrador'], cenario.f1)
+    de_f2 = conceder_direto(fabrica_pessoa('Usuario da F2'), cenario.cargos_x['usuario'], cenario.f2)
+    assert pode_revogar(curador, tecnico) is True
+    assert pode_revogar(curador, de_admin_da_f1) is False  # nível acima
+    assert pode_revogar(curador, de_f2) is False  # fora do escopo
+    assert pode_revogar(titulares.outro, titulares.de_titular) is False  # Administrador titular é protegido
+    assert pode_revogar(plataforma, titulares.de_titular) is False
+    assert pode_revogar(titulares.titular, titulares.de_outro) is True
+    assert pode_revogar(None, tecnico) is False

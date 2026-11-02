@@ -138,12 +138,13 @@ test('escolher a sub-área do convite em duas etapas, com filtro, leva ao formul
   await conferirTela(page);
   await page.getByRole('link', { name: 'Fazenda Inventada A1' }).click();
   await expect(page.getByRole('heading', { name: 'Escolher a sub-área', level: 1 })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Talhao 1', exact: true })).toBeVisible(); // a árvore, com os três níveis
+  await expect(page.getByRole('link', { name: 'Fazenda Inventada A1 › Talhao 1', exact: true })).toBeVisible(); // cada item leva a trilha dos pais
+  await expect(page.getByRole('link', { name: 'Fazenda Inventada A1 › Talhao 1 › Gleba 1 › Lote 1' })).toBeVisible();
   await conferirTela(page);
   await page.getByLabel('Filtrar pelo nome').fill('lote');
   await page.getByRole('button', { name: 'Filtrar' }).click();
   await expect(page.getByRole('link', { name: 'Fazenda Inventada A1 › Talhao 1 › Gleba 1 › Lote 1' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Talhao 1', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Fazenda Inventada A1 › Talhao 1', exact: true })).toHaveCount(0);
   await conferirTela(page);
   await page.getByRole('link', { name: /Lote 1$/ }).click();
   await expect(page.getByRole('heading', { name: 'Convidar pessoa', level: 1 })).toBeVisible();

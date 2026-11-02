@@ -9,7 +9,7 @@
 <p class="pessoa-nome">{{ pessoa.nome }}</p>
 <p class="pessoa-detalhe">{{ pessoa.email }}{% if pessoa.deve_trocar_senha %} · ainda não definiu a senha{% endif %}</p>
 {% if pessoa.concessoes %}<ul class="pessoa-concessoes">
-{% for concessao in pessoa.concessoes %}<li>{{ concessao.cargo }} · {{ concessao.onde }}{% if concessao.fim %} · até {{ concessao.fim|date:'d/m/Y' }}{% endif %}{% if concessao.revogar %} <a href="{{ concessao.revogar }}" aria-label="Revogar {{ concessao.cargo }} de {{ pessoa.nome }}">Revogar</a>{% endif %}</li>
+{% for concessao in pessoa.concessoes %}<li>{{ concessao.cargo }} · {{ concessao.onde }}{% if concessao.comeca %} · começa em {{ concessao.comeca|date:'d/m/Y' }}{% endif %}{% if concessao.fim %} · até {{ concessao.fim|date:'d/m/Y' }}{% endif %}{% if concessao.revogar %} <a href="{{ concessao.revogar }}" aria-label="Revogar {{ concessao.cargo }} de {{ pessoa.nome }}">Revogar</a>{% endif %}</li>
 {% endfor %}</ul>
 {% else %}<p class="pessoa-detalhe">Sem acesso ativo nesta empresa.</p>{% endif %}
 {% if pessoa.redefinir %}<p><a href="{{ pessoa.redefinir }}" aria-label="Redefinir senha de {{ pessoa.nome }}">Redefinir senha</a></p>{% endif %}

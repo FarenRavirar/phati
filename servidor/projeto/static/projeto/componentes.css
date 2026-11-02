@@ -82,7 +82,5 @@
 .pessoa-detalhe { margin: 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
 .pessoa-concessoes { display: grid; gap: var(--espaco-1); margin: var(--espaco-2) 0; padding-left: var(--espaco-4); }
 
-/* Escolher o lugar do convite: árvore de sub-áreas recuada por nível (003 R13). */
+/* Escolher o lugar do convite: lista com a trilha de cada sub-área (003 R13). */
 .lista-lugares { display: grid; gap: var(--espaco-2); }
-.lista-lugares .nivel-2 { margin-left: var(--espaco-4); }
-.lista-lugares .nivel-3 { margin-left: calc(var(--espaco-4) * 2); }

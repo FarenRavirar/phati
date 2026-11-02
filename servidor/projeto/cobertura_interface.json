@@ -31,6 +31,7 @@
   "funcoes": {
     "permissao.cargo.gerenciar_cargo": "Cargos — 003 (D057)",
     "permissao.delegacao.transferir_titularidade": "Transferir titularidade — 003 R16 (tela /empresa/<id>/titularidade, em duas etapas; D068, só se exercita em ambiente de teste)",
+    "permissao.delegacao.pode_revogar": "Revogar acesso — 003 R14 (a tela só mostra o link a quem a função de revogar aceitaria)",
     "permissao.delegacao.pode_transferir_titularidade": "Transferir titularidade — 003 R16 (a tela pergunta isto antes da etapa 1; a função de transferir repete a checagem sob trava)",
     "permissao.delegacao.conceder": "Chamada por concessoes_criar; tela na 003",
     "permissao.delegacao.convidar": "Sem tela: a tela e a rota chamam convidar_por_cpf, que decide CPF novo ou existente — 003 R13",

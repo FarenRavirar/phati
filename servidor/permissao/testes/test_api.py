@@ -430,3 +430,18 @@ def test_convite_leva_o_mesmo_tempo_para_cpf_novo_e_existente(cenario, fabrica_p
     assert len(smtp_lento.enviados) == 30  # o callback rodou nos dois caminhos (CodeRabbit, PR #17)
     assert max(novos, existente) < smtp_lento.atraso * 0.75  # envio síncrono somaria 200 ms aos dois
     assert abs(novos - existente) < 0.02
+
+
+def test_pessoas_do_escopo_so_traz_quem_tem_acesso_futuro_quando_pedido(cenario, fabrica_pessoa, conceder_direto):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from permissao.api import pessoas_do_escopo
+
+    admin = fabrica_pessoa('Administradora')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    futura = fabrica_pessoa('Com acesso futuro')
+    conceder_direto(futura, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=3))
+    assert futura not in pessoas_do_escopo(admin)
+    assert futura in pessoas_do_escopo(admin, futuras=True)

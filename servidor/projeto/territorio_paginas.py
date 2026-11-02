@@ -16,6 +16,7 @@ from django.views.decorators.http import require_GET
 from permissao.pode import com_permissao, permissoes_efetivas
 from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import campo, confirmacao, exige_acao, exige_entrada, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
+from projeto.painel import ACOES_DE_PESSOAS
 from territorio import cadastro, niveis
 from territorio.listagem import empresas_autorizadas, fazendas_autorizadas, sub_areas_da_fazenda
 from territorio.models import Empresa, Fazenda, SubArea
@@ -46,14 +47,14 @@ def _argumentos(alvo):
 _ACOES_DA_PAGINA = {
     Empresa: (
         ('criar_fazenda', ROTULO_CADASTRAR_FAZENDA, 'fazenda_nova'),
-        ('convidar_pessoa', 'Pessoas', 'pessoas'),
+        (ACOES_DE_PESSOAS, 'Pessoas', 'pessoas'),
         ('renomear', 'Renomear empresa', 'empresa_editar'),
         ('configurar_niveis_divisao', TITULO_NIVEIS, 'empresa_niveis'),
         ('arquivar', 'Arquivar empresa', 'empresa_arquivar'),
     ),
     Fazenda: (
         ('criar_sub_area', 'Cadastrar sub-área', 'sub_area_nova'),
-        ('convidar_pessoa', 'Pessoas', 'pessoas'),
+        (ACOES_DE_PESSOAS, 'Pessoas', 'pessoas'),
         ('renomear', 'Renomear fazenda', 'fazenda_editar'),
         ('arquivar', 'Arquivar fazenda', 'fazenda_arquivar'),
     ),
@@ -75,7 +76,7 @@ def acoes_do_alvo(alvo, efetivas, sem=()):
         return [{'rotulo': 'Desarquivar', 'destino': reverse(_DESARQUIVAR[tipo], kwargs=argumentos)}] if 'desarquivar' in efetivas else []
     acoes = []
     for acao, rotulo, nome in _ACOES_DA_PAGINA[tipo]:
-        if acao not in efetivas or acao in sem or (acao == 'criar_sub_area' and tipo is SubArea and alvo.nivel >= cadastro.NIVEL_MAXIMO):
+        if not efetivas.intersection((acao,) if isinstance(acao, str) else acao) or acao in sem or (acao == 'criar_sub_area' and tipo is SubArea and alvo.nivel >= cadastro.NIVEL_MAXIMO):
             continue
         # As telas de cadastro ("_nova") vivem na fazenda ou na empresa, e a de pessoas é da empresa: levam só o que o endereço tem.
         destino = reverse(nome, kwargs={k: v for k, v in argumentos.items() if not (nome.endswith('_nova') and k == 'sub_area_id') and not (nome == 'pessoas' and k != 'empresa_id')})
@@ -123,7 +124,7 @@ def empresa_nova(requisicao):
                 dados.get('email_administrador', ''), dados.get('cpf_administrador', ''),
             )
         except ValidationError as erro:
-            return formulario(requisicao, 'Nova empresa', campos, 'Criar empresa', cancelar, erro=texto_do_erro(erro), status=400)
+            return formulario(requisicao, 'Nova empresa', campos, 'Criar empresa', cancelar, erro=texto_do_erro(erro), codigo_http=400)
         # A senha temporária aparece uma vez, no corpo desta resposta: nunca em redirecionamento nem em sessão.
         resposta = renderizar_na_casca(requisicao, 'empresa_criada.html', {
             'administrador': administrador, 'senha_temporaria': temporaria, 'destino': caminho_de(empresa),
@@ -146,7 +147,7 @@ def fazenda_nova(requisicao, empresa_id):
             fazenda = cadastro.criar_fazenda(requisicao.user, empresa, nome)
         except ValidationError as erro:
             campos[0]['erro'] = texto_do_erro(erro)
-            return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa, status=400)
+            return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa, codigo_http=400)
         return redirect(caminho_de(fazenda))
 
 
@@ -178,7 +179,7 @@ def sub_area_nova(requisicao, empresa_id, fazenda_id):
             cadastro.criar_sub_area(requisicao.user, fazenda, nome, pai)
         except ValidationError as erro:
             campos[0]['erro'] = texto_do_erro(erro)
-            return formulario(requisicao, titulo, campos, botao, cancelar, subtitulo=subtitulo, empresa=empresa, fazenda=fazenda, escondidos=escondido, status=400)
+            return formulario(requisicao, titulo, campos, botao, cancelar, subtitulo=subtitulo, empresa=empresa, fazenda=fazenda, escondidos=escondido, codigo_http=400)
         return redirect(caminho_de(fazenda))
 
 
@@ -199,7 +200,7 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
                 funcao(requisicao.user, alvo, nome)
             except ValidationError as erro:
                 campos[0]['erro'] = texto_do_erro(erro)
-                return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes, status=400)
+                return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes, codigo_http=400)
             return redirect(caminho_de(alvo))
         return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes)
 
@@ -240,7 +241,7 @@ def niveis_da_empresa(requisicao, empresa_id):
         if requisicao.method == 'POST':
             if _gravar_niveis(requisicao.user, empresa, campos, valores, atuais):
                 return redirect(cancelar)
-            return formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa, status=400)
+            return formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa, codigo_http=400)
         return formulario(requisicao, TITULO_NIVEIS, campos, 'Salvar nomes', cancelar, empresa=empresa)
 
 
@@ -287,7 +288,7 @@ def arquivar(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         return _confirmacao(
             requisicao, empresa, fazenda, alvo, titulo=f'Arquivar {alvo.nome}?', efeitos=efeitos, botao='Arquivar',
             texto='Arquivado, o item sai das listas de trabalho e não aceita mais alteração, mas segue consultável.',
-            escondidos={'efeitos': ','.join(str(n) for n in contagem)}, erro=erro_de_efeitos, status=409 if erro_de_efeitos else 200,
+            escondidos={'efeitos': ','.join(str(n) for n in contagem)}, erro=erro_de_efeitos, codigo_http=409 if erro_de_efeitos else 200,
         )
 
 

@@ -14,7 +14,7 @@ from pydantic import AwareDatetime, field_validator, model_validator
 from identidade import redefinicao
 from identidade.models import Pessoa
 from permissao import convite, delegacao
-from permissao.models import Cargo, CategoriaDado, Concessao, Convite, Permissao, concessoes_ativas
+from permissao.models import Cargo, CategoriaDado, Concessao, Convite, Permissao, concessoes_ativas, concessoes_vigentes_ou_futuras
 from permissao.pode import age_em_algum_escopo, escopo_de, escopos_da_acao, exige_permissao, filtro_do_escopo, unir_escopos
 from territorio.models import Empresa
 
@@ -176,12 +176,12 @@ def _concessao_saida(concessao):
     }
 
 
-def pessoas_do_escopo(quem, acoes=('convidar_pessoa',)):
+def pessoas_do_escopo(quem, acoes=('convidar_pessoa',), futuras=False):
     escopos = unir_escopos(quem, *acoes)
     if escopos.plataforma:
         return Pessoa.objects.order_by('pk')
     # Um filtro só, sem `pode()` por concessão (era uma consulta ou duas por linha; Qodo, PR #16).
-    ids = concessoes_ativas().filter(filtro_do_escopo(escopos)).values_list('pessoa_id', flat=True)
+    ids = (concessoes_vigentes_ou_futuras() if futuras else concessoes_ativas()).filter(filtro_do_escopo(escopos)).values_list('pessoa_id', flat=True)
     return Pessoa.objects.filter(Q(pk__in=ids) | Q(empresa_origem_id__in=escopos.empresas)).order_by('pk')
 
 

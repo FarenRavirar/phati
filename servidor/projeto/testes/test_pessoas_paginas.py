@@ -132,9 +132,12 @@ def test_administradora_ve_as_pessoas_da_empresa_com_cargo_e_sem_cpf_e_nao_ve_as
     resposta = cliente_logado.get(_casa(cenario) + 'pessoas/')
     html = resposta.content.decode()
     assert resposta.status_code == 200
-    assert 'Alvo Tecnico' in html and 'Técnico' in html and 'F1' in html
+    assert 'Alvo Tecnico' in html
+    assert 'Técnico' in html
+    assert 'F1' in html
     assert 'Pessoa da Y' not in html
-    assert 'Revogar' in html and 'Redefinir senha' in html
+    assert 'Revogar' in html
+    assert 'Redefinir senha' in html
     assert re.search(r'\d{3}\.?\d{3}\.?\d{3}-?\d{2}', html) is None  # nenhum CPF na lista
 
 
@@ -150,8 +153,10 @@ def test_curador_da_fazenda_ve_so_a_fazenda_dele_e_nao_ve_redefinir_nem_transfer
     de_f2 = fabrica_pessoa('Usuario da F2')
     conceder_direto(de_f2, cenario.cargos_x['usuario'], cenario.f2)
     html = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
-    assert 'Alvo Tecnico' in html and 'Usuario da F2' not in html
-    assert 'Redefinir senha' not in html and 'Transferir a titularidade' not in html
+    assert 'Alvo Tecnico' in html
+    assert 'Usuario da F2' not in html
+    assert 'Redefinir senha' not in html
+    assert 'Transferir a titularidade' not in html
     assert 'Convidar pessoa' in html
 
 
@@ -169,8 +174,11 @@ def test_empresa_arquivada_segue_listando_e_nao_oferece_convidar(cliente_logado,
     arquivar(administradora, cenario.x, efeitos_do_arquivamento(cenario.x))
     resposta = cliente_logado.get(_casa(cenario) + 'pessoas/')
     html = resposta.content.decode()
-    assert resposta.status_code == 200 and 'Alvo Tecnico' in html
-    assert 'Convidar pessoa' not in html and 'Revogar' in html and 'Redefinir senha' in html
+    assert resposta.status_code == 200
+    assert 'Alvo Tecnico' in html
+    assert 'Convidar pessoa' not in html
+    assert 'Revogar' in html
+    assert 'Redefinir senha' in html
     assert cliente_logado.get(_casa(cenario) + 'pessoas/convidar').status_code == 403
 
 
@@ -191,14 +199,16 @@ def test_formulario_de_convite_lista_cargos_e_lugares_da_empresa(cliente_logado,
         assert texto in html
     assert 'G1' not in _sem_nonce(html)  # a sub-área não vai no select: tem tela própria
     html = _sem_nonce(html)
-    assert 'Empresa Y' not in html and 'FY' not in html
+    assert 'Empresa Y' not in html
+    assert 'FY' not in html
 
 
 def test_convidar_cpf_novo_cria_a_pessoa_e_a_senha_aparece_uma_vez_sem_cache_log_sessao_nem_auditoria(cliente_logado, administradora, cenario, cpf_novo, caplog, mailoutbox):
     caplog.set_level('DEBUG')
     resposta = cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf_novo()))
     html = resposta.content.decode()
-    assert resposta.status_code == 200 and 'no-store' in resposta['Cache-Control']
+    assert resposta.status_code == 200
+    assert 'no-store' in resposta['Cache-Control']
     achada = re.search(r'class="senha-temporaria" translate="no">([^<]+)<', html)
     assert achada is not None
     temporaria = achada.group(1)
@@ -219,7 +229,9 @@ def test_convidar_cpf_que_ja_existe_grava_convite_pendente_sem_senha_e_sem_dado_
     existente = Pessoa.objects.criar(nome='Ja Cadastrada', email='ja@exemplo.test', cpf=cpf)
     resposta = cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf))
     html = resposta.content.decode()
-    assert resposta.status_code == 200 and 'senha-temporaria' not in html and 'Ja Cadastrada' not in html
+    assert resposta.status_code == 200
+    assert 'senha-temporaria' not in html
+    assert 'Ja Cadastrada' not in html
     assert Convite.objects.get(pessoa=existente).fazenda_id == cenario.f1.pk
     assert not Concessao.objects.filter(pessoa=existente).exists()  # a concessão nasce no aceite
 
@@ -239,7 +251,8 @@ def test_convidar_com_dado_invalido_volta_ao_formulario_com_o_erro_e_nao_cria_na
     assert resposta.status_code == 400
     if texto:
         assert texto in resposta.content.decode()
-    assert Pessoa.objects.count() == antes and not Convite.objects.exists()
+    assert Pessoa.objects.count() == antes
+    assert not Convite.objects.exists()
 
 
 def test_cargo_de_outra_empresa_e_recusado_e_nada_e_criado(cliente_logado, administradora, cenario, cpf_novo):
@@ -252,7 +265,8 @@ def test_periodo_com_fim_vale_ate_o_fim_do_dia(cliente_logado, administradora, c
     fim = (timezone.localdate() + timedelta(days=10)).isoformat()
     cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf_novo(), fim=fim))
     concessao = Concessao.objects.get(pessoa__nome='Pessoa Convidada')
-    assert concessao.fim is not None and concessao.fim.astimezone(timezone.get_current_timezone()).date().isoformat() == (timezone.localdate() + timedelta(days=11)).isoformat()
+    assert concessao.fim is not None
+    assert concessao.fim.astimezone(timezone.get_current_timezone()).date().isoformat() == (timezone.localdate() + timedelta(days=11)).isoformat()
 
 
 def test_curador_convida_inclusive_com_cargo_personalizado_sem_a_acao_e_nao_concede_administrador(cliente_logado, conta, cenario, conceder_direto, cpf_novo):
@@ -265,13 +279,16 @@ def test_curador_convida_inclusive_com_cargo_personalizado_sem_a_acao_e_nao_conc
     assert cliente_logado.post(caminho, _dados(cenario, cpf_novo())).status_code == 200
     antes = Pessoa.objects.count()
     resposta = cliente_logado.post(caminho, _dados(cenario, cpf_novo(), nome='Outra', cargo=cenario.cargos_x['administrador'].pk))
-    assert resposta.status_code == 403 and 'Você não pode conceder este cargo neste lugar.' in resposta.content.decode()
+    assert resposta.status_code == 403
+    assert 'Você não pode conceder este cargo neste lugar.' in resposta.content.decode()
     assert Pessoa.objects.count() == antes
     # O Curador da F1 não oferece nem aceita a empresa inteira nem a F2.
     html = cliente_logado.get(caminho).content.decode()
-    assert 'Empresa inteira' not in html and f'value="fazenda-{cenario.f2.pk}"' not in html
+    assert 'Empresa inteira' not in html
+    assert f'value="fazenda-{cenario.f2.pk}"' not in html
     resposta = cliente_logado.post(caminho, _dados(cenario, cpf_novo(), nome='Fora', escopo=f'fazenda-{cenario.f2.pk}'))
-    assert resposta.status_code == 400 and not Pessoa.objects.filter(nome='Fora').exists()
+    assert resposta.status_code == 400
+    assert not Pessoa.objects.filter(nome='Fora').exists()
 
 
 # --- convites enviados (R13) ---
@@ -287,7 +304,10 @@ def convite_enviado(cliente_logado, administradora, cenario, cpf_novo):
 
 def test_convites_enviados_lista_so_os_da_empresa_e_nao_mostra_a_pessoa(cliente_logado, convite_enviado, cenario):
     html = cliente_logado.get(_casa(cenario) + 'pessoas/convites').content.decode()
-    assert 'Usuário' in html and 'F1' in html and 'Reenviar' in html and 'Cancelar' in html
+    assert 'Usuário' in html
+    assert 'F1' in html
+    assert 'Reenviar' in html
+    assert 'Cancelar' in html
     assert 'Ja Cadastrada' not in html
 
 
@@ -297,7 +317,8 @@ def test_cancelar_convite_marca_o_cancelamento_e_audita(cliente_logado, convite_
     convite_enviado.refresh_from_db()
     assert convite_enviado.cancelado_em is None
     resposta = cliente_logado.post(caminho)
-    assert resposta.status_code == 302 and resposta['Location'].endswith('?feito=cancelado')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('?feito=cancelado')
     convite_enviado.refresh_from_db()
     assert convite_enviado.cancelado_em is not None
     assert len(_auditoria('convite_cancelado')) == 1
@@ -308,10 +329,12 @@ def test_cancelar_convite_marca_o_cancelamento_e_audita(cliente_logado, convite_
 def test_reenviar_respeita_o_intervalo_e_depois_renova(cliente_logado, convite_enviado, cenario):
     caminho = _casa(cenario) + f'pessoas/convites/{convite_enviado.pk}/reenviar'
     resposta = cliente_logado.post(caminho)
-    assert resposta.status_code == 400 and 'Aguarde antes de reenviar.' in resposta.content.decode()
+    assert resposta.status_code == 400
+    assert 'Aguarde antes de reenviar.' in resposta.content.decode()
     Convite.objects.filter(pk=convite_enviado.pk).update(enviado_em=timezone.now() - timedelta(minutes=5))
     resposta = cliente_logado.post(caminho)
-    assert resposta.status_code == 302 and resposta['Location'].endswith('?feito=reenviado')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('?feito=reenviado')
     convite_enviado.refresh_from_db()
     assert convite_enviado.envios == 2
 
@@ -327,7 +350,8 @@ def test_convite_de_outra_pessoa_e_404_e_nao_muda(cliente_logado, convite_enviad
     for acao in ('cancelar', 'reenviar'):
         assert outro.post(_casa(cenario) + f'pessoas/convites/{convite_enviado.pk}/{acao}').status_code == 404
     convite_enviado.refresh_from_db()
-    assert convite_enviado.cancelado_em is None and convite_enviado.envios == 1
+    assert convite_enviado.cancelado_em is None
+    assert convite_enviado.envios == 1
 
 
 # --- revogar (R14) ---
@@ -339,13 +363,16 @@ def test_confirmacao_de_revogar_diz_que_a_linha_fica_e_revogar_grava_sem_apagar(
     pagina = cliente_logado.get(caminho)
     assert pagina.status_code == 200
     texto = pagina.content.decode()
-    assert 'não é apagada' in texto and 'Alvo Tecnico' in texto
+    assert 'não é apagada' in texto
+    assert 'Alvo Tecnico' in texto
     concessao.refresh_from_db()
     assert concessao.revogada_em is None  # GET não revoga
     resposta = cliente_logado.post(caminho)
-    assert resposta.status_code == 302 and resposta['Location'].endswith('?feito=revogado')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('?feito=revogado')
     concessao.refresh_from_db()
-    assert concessao.revogada_em is not None and concessao.revogada_por == administradora
+    assert concessao.revogada_em is not None
+    assert concessao.revogada_por == administradora
     assert Concessao.objects.filter(pk=concessao.pk).exists()  # a linha fica
     assert [e.alvo_id for e in _auditoria('concessao_revogada')] == [concessao.pk]
     assert 'Acesso revogado.' in cliente_logado.get(resposta['Location']).content.decode()
@@ -358,7 +385,8 @@ def test_titular_nao_e_revogado_e_a_tela_mostra_a_recusa_do_servico(cliente_loga
     cenario.x.save(update_fields=['titular'])
     de_outro = Concessao.objects.get(pessoa=outro)
     resposta = cliente_logado.post(_casa(cenario) + f'pessoa/{outro.pk}/revogar/{de_outro.pk}')
-    assert resposta.status_code == 400 and 'O Administrador titular só sai por transferência de titularidade.' in resposta.content.decode()
+    assert resposta.status_code == 400
+    assert 'O Administrador titular só sai por transferência de titularidade.' in resposta.content.decode()
     de_outro.refresh_from_db()
     assert de_outro.revogada_em is None
 
@@ -399,20 +427,26 @@ def test_redefinir_manda_o_link_por_email_e_nenhuma_senha_aparece_em_lugar_algum
     pessoa, _ = alvo
     caminho = _casa(cenario) + f'pessoa/{pessoa.pk}/redefinir-senha'
     confirmacao = cliente_logado.get(caminho)
-    assert confirmacao.status_code == 200 and 'Alvo Tecnico' in confirmacao.content.decode()
+    assert confirmacao.status_code == 200
+    assert 'Alvo Tecnico' in confirmacao.content.decode()
     assert not PedidoRedefinicao.objects.exists()  # GET não pede
     resposta = cliente_logado.post(caminho)
     html = resposta.content.decode()
-    assert resposta.status_code == 200 and 'no-store' in resposta['Cache-Control']
+    assert resposta.status_code == 200
+    assert 'no-store' in resposta['Cache-Control']
     pedido = PedidoRedefinicao.objects.get()
     assert (pedido.pessoa, pedido.solicitado_por) == (pessoa, administradora)
-    assert len(mailoutbox) == 1 and mailoutbox[0].to == [pessoa.email]
+    assert len(mailoutbox) == 1
+    assert mailoutbox[0].to == [pessoa.email]
     achado = re.search(r'segredo=([\w-]+)', mailoutbox[0].body)
     assert achado is not None
     segredo = achado.group(1)
-    assert segredo not in html and segredo not in caplog.text and segredo not in str(dict(cliente_logado.session))
+    assert segredo not in html
+    assert segredo not in caplog.text
+    assert segredo not in str(dict(cliente_logado.session))
     assert all(segredo not in str(evento.detalhes) for evento in EventoAuditoria.objects.all())
-    assert 'senha temporária' not in html.lower() and 'senha-temporaria' not in html
+    assert 'senha temporária' not in html.lower()
+    assert 'senha-temporaria' not in html
     assert [e.alvo_id for e in _auditoria('redefinicao_pedida')] == [pessoa.pk]
 
 
@@ -440,10 +474,14 @@ def candidata(cenario, fabrica_pessoa, conceder_direto):
 def test_titularidade_em_duas_etapas_so_a_segunda_tem_efeito_e_audita_a_justificativa(cliente_logado, titular, candidata, cenario):
     caminho = _casa(cenario) + 'titularidade'
     pagina = cliente_logado.get(caminho).content.decode()
-    assert 'Etapa 1 de 2' in pagina and 'Candidata Admin' in pagina and titular.nome not in pagina.split('Novo titular')[1].split('</select>')[0]
+    assert 'Etapa 1 de 2' in pagina
+    assert 'Candidata Admin' in pagina
+    assert titular.nome not in pagina.split('Novo titular')[1].split('</select>')[0]
     etapa_1 = {'etapa': '1', 'novo_titular': candidata.pk, 'justificativa': 'Troca de gestão.'}
     resposta = cliente_logado.post(caminho, etapa_1)
-    assert resposta.status_code == 200 and 'Etapa 2 de 2' in resposta.content.decode() and 'Empresa X' in resposta.content.decode()
+    assert resposta.status_code == 200
+    assert 'Etapa 2 de 2' in resposta.content.decode()
+    assert 'Empresa X' in resposta.content.decode()
     cenario.x.refresh_from_db()
     assert cenario.x.titular == titular  # a etapa 1 não muda nada
     assert _auditoria('titularidade_transferida') == []
@@ -453,7 +491,8 @@ def test_titularidade_em_duas_etapas_so_a_segunda_tem_efeito_e_audita_a_justific
     cenario.x.refresh_from_db()
     assert cenario.x.titular == titular
     resposta = cliente_logado.post(caminho, {**etapa_2, 'confirmacao': ' Empresa X '})
-    assert resposta.status_code == 302 and resposta['Location'].endswith('?feito=titularidade')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('?feito=titularidade')
     cenario.x.refresh_from_db()
     assert cenario.x.titular == candidata
     evento = _auditoria('titularidade_transferida')[0]
@@ -513,10 +552,12 @@ def test_nome_e_justificativa_com_html_saem_escapados_e_o_banco_guarda_o_digitad
     concessao = conceder_direto(hostil, cenario.cargos_x['usuario'], cenario.f1)
     for caminho in (f'pessoa/{hostil.pk}/revogar/{concessao.pk}', f'pessoa/{hostil.pk}/redefinir-senha'):
         html = cliente_logado.get(_casa(cenario) + caminho).content.decode()
-        assert TRECHO_HTML not in html and '&lt;script&gt;' in html, caminho
+        assert TRECHO_HTML not in html, caminho
+        assert '&lt;script&gt;' in html, caminho
     assert Pessoa.objects.get(pk=hostil.pk).nome == TRECHO_HTML
     resposta = cliente_logado.post(_casa(cenario) + 'titularidade', {'etapa': '1', 'novo_titular': candidata.pk, 'justificativa': TRECHO_HTML})
-    assert TRECHO_HTML not in resposta.content.decode() and '&lt;script&gt;' in resposta.content.decode()
+    assert TRECHO_HTML not in resposta.content.decode()
+    assert '&lt;script&gt;' in resposta.content.decode()
     cliente_logado.post(_casa(cenario) + 'titularidade', {'etapa': '2', 'novo_titular': candidata.pk, 'justificativa': TRECHO_HTML, 'confirmacao': cenario.x.nome})
     assert _auditoria('titularidade_transferida')[0].detalhes['justificativa'] == TRECHO_HTML
 
@@ -544,11 +585,15 @@ def test_curador_de_sub_area_so_convida_dentro_dela(cliente_logado, conta, cenar
     conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.g1)
     caminho = _casa(cenario) + 'pessoas/convidar'
     html = cliente_logado.get(caminho).content.decode()
-    assert 'Empresa inteira' not in html and 'Escolher uma sub-área' in html
+    assert 'Empresa inteira' not in html
+    assert 'Escolher uma sub-área' in html
     fazendas = cliente_logado.get(caminho + '/sub-area/').content.decode()
-    assert f'/sub-area/{cenario.f1.pk}/' in fazendas and f'/sub-area/{cenario.f2.pk}/' not in fazendas
+    assert f'/sub-area/{cenario.f1.pk}/' in fazendas
+    assert f'/sub-area/{cenario.f2.pk}/' not in fazendas
     sub_areas = _sem_nonce(cliente_logado.get(caminho + f'/sub-area/{cenario.f1.pk}/').content.decode())
-    assert 'G1' in sub_areas and 'T1' in sub_areas and 'G2' not in sub_areas
+    assert 'G1' in sub_areas
+    assert 'T1' in sub_areas
+    assert 'G2' not in sub_areas
     assert cliente_logado.get(caminho + f'/sub-area/{cenario.f2.pk}/').status_code == 404  # fora do alcance dele: some, como no resto
     assert cliente_logado.post(caminho, _dados(cenario, cpf_novo(), nome='Dentro', escopo=f'sub-area-{cenario.t1.pk}')).status_code == 200
     for fora in (f'sub-area-{cenario.g2.pk}', f'fazenda-{cenario.f1.pk}', 'empresa'):
@@ -563,12 +608,12 @@ def test_curador_de_sub_area_so_convida_dentro_dela(cliente_logado, conta, cenar
 def test_escolher_sub_area_em_duas_etapas_leva_ao_formulario_com_o_lugar_escolhido(cliente_logado, administradora, cenario):
     base = _casa(cenario) + 'pessoas/convidar'
     etapa_1 = cliente_logado.get(base + '/sub-area/')
-    assert etapa_1.status_code == 200 and f'/sub-area/{cenario.f1.pk}/' in etapa_1.content.decode()
+    assert etapa_1.status_code == 200
+    assert f'/sub-area/{cenario.f1.pk}/' in etapa_1.content.decode()
     assert f'/sub-area/{cenario.fy.pk}/' not in etapa_1.content.decode()
     etapa_2 = cliente_logado.get(base + f'/sub-area/{cenario.f1.pk}/').content.decode()
-    ordem = [etapa_2.index(nome) for nome in ('G1', 'T1', 'G2')]
-    assert ordem == sorted(ordem)  # pai antes do filho, na ordem da árvore
-    assert 'nivel-1' in etapa_2 and 'nivel-2' in etapa_2
+    ordem = [etapa_2.index(nome) for nome in ('F1 › G1<', 'F1 › G2<', 'F1 › G1 › T1<')]
+    assert ordem == sorted(ordem)  # por nível e nome, cada item com a trilha dos pais
     formulario_pronto = cliente_logado.get(base + f'?escopo=sub-area-{cenario.t1.pk}').content.decode()
     assert re.search(r'<option value="sub-area-%d" selected>F1 › G1 › T1</option>' % cenario.t1.pk, formulario_pronto)
 
@@ -576,7 +621,8 @@ def test_escolher_sub_area_em_duas_etapas_leva_ao_formulario_com_o_lugar_escolhi
 def test_filtro_da_sub_area_mostra_a_trilha_e_filtra_pelo_texto(cliente_logado, administradora, cenario):
     caminho = _casa(cenario) + f'pessoas/convidar/sub-area/{cenario.f1.pk}/'
     html = _sem_nonce(cliente_logado.get(caminho + '?q=t1').content.decode())
-    assert 'F1 › G1 › T1' in html and 'G2' not in html
+    assert 'F1 › G1 › T1' in html
+    assert 'G2' not in html
     assert 'Nenhuma sub-área com esse texto.' in cliente_logado.get(caminho + '?q=nada').content.decode()
     hostil = cliente_logado.get(caminho + '?q=' + TRECHO_HTML).content.decode()
     assert TRECHO_HTML not in hostil
@@ -591,7 +637,8 @@ def test_seletor_de_sub_area_pagina_e_guarda_o_filtro_nos_links(cliente_logado, 
         SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f1, nivel=1, nome=f'Lote {n}')
     caminho = _casa(cenario) + f'pessoas/convidar/sub-area/{cenario.f1.pk}/'
     html = cliente_logado.get(caminho + '?q=lote').content.decode()
-    assert 'Página 1 de 2' in html and 'q=lote&amp;pagina=2' in html
+    assert 'Página 1 de 2' in html
+    assert 'q=lote&amp;pagina=2' in html
     assert 'Lote 3' in cliente_logado.get(caminho + '?q=lote&pagina=2').content.decode()
 
 
@@ -611,3 +658,184 @@ def test_tecnico_nao_abre_o_seletor_de_sub_area(cliente_logado, conta, cenario, 
     base = _casa(cenario) + 'pessoas/convidar/sub-area/'
     assert cliente_logado.get(base).status_code == 403
     assert cliente_logado.get(base + f'{cenario.f1.pk}/').status_code == 403
+
+# --- achados da revisão da PR #30 ---
+
+
+def test_curador_de_sub_area_nao_ve_o_acesso_da_mesma_pessoa_em_outros_lugares(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.g1)
+    pessoa = fabrica_pessoa('Pessoa com dois acessos')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.g1)  # dentro do alcance de quem olha
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.g2, fim=timezone.now() + timedelta(days=30))  # sub-área irmã
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.x)  # empresa inteira
+    html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode())
+    assert 'Pessoa com dois acessos' in html
+    assert 'Usuário · F1 › G1' in html
+    for fora in ('Técnico', 'G2', 'Administrador · Empresa inteira'):
+        assert fora not in html, fora
+
+
+def test_plataforma_ve_todos_os_acessos_da_pessoa_na_empresa(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    conta.pessoa.administrador_plataforma = True
+    conta.pessoa.save(update_fields=['administrador_plataforma'])
+    pessoa = fabrica_pessoa('Pessoa com dois acessos')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.g1)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.g2)
+    html = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert 'F1 › G1' in html
+    assert 'F1 › G2' in html
+
+
+def test_titularidade_de_empresa_arquivada_e_recusada_ate_para_a_plataforma(cliente_logado, conta, cenario, candidata, conceder_direto, fabrica_pessoa):
+    from territorio.cadastro import arquivar, efeitos_do_arquivamento
+
+    titular_de_fato = fabrica_pessoa('Titular de fato')
+    conceder_direto(titular_de_fato, cenario.cargos_x['administrador'], cenario.x)
+    cenario.x.titular = titular_de_fato
+    cenario.x.save(update_fields=['titular'])
+    conta.pessoa.administrador_plataforma = True
+    conta.pessoa.save(update_fields=['administrador_plataforma'])
+    arquivar(conta.pessoa, cenario.x, efeitos_do_arquivamento(cenario.x))
+    caminho = _casa(cenario) + 'titularidade'
+    assert cliente_logado.get(caminho).status_code == 403
+    dados = {'etapa': '2', 'novo_titular': candidata.pk, 'justificativa': 'Teste.', 'confirmacao': 'Empresa X'}
+    assert cliente_logado.post(caminho, dados).status_code == 403
+    cenario.x.refresh_from_db()
+    assert cenario.x.titular == titular_de_fato
+
+
+def test_email_acima_do_limite_do_banco_volta_ao_formulario_e_nao_cria_a_pessoa(cliente_logado, administradora, cenario, cpf_novo):
+    longo = 'a' * 250 + '@exemplo.test'
+    resposta = cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf_novo(), email=longo))
+    assert resposta.status_code == 400
+    assert 'até 254 caracteres' in resposta.content.decode()
+    assert not Pessoa.objects.filter(nome='Pessoa Convidada').exists()
+
+
+def test_fim_no_ultimo_dia_do_calendario_volta_ao_formulario_em_vez_de_estourar(cliente_logado, administradora, cenario, cpf_novo):
+    resposta = cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf_novo(), fim='9999-12-31'))
+    assert resposta.status_code == 400
+    assert 'Use uma data válida.' in resposta.content.decode()
+    assert not Pessoa.objects.filter(nome='Pessoa Convidada').exists()
+
+
+def test_convites_enviados_tem_paginas_e_so_traz_os_da_empresa(cliente_logado, administradora, cenario, cpf_novo, monkeypatch):
+    from projeto import pessoas_paginas
+
+    monkeypatch.setattr(pessoas_paginas, 'ITENS_POR_PAGINA', 1)
+    for _ in range(2):
+        cpf = cpf_novo()
+        Pessoa.objects.criar(nome='Ja Cadastrada', email='ja@exemplo.test', cpf=cpf)
+        cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf))
+    caminho = _casa(cenario) + 'pessoas/convites'
+    primeira = cliente_logado.get(caminho).content.decode()
+    assert 'Página 1 de 2' in primeira
+    assert primeira.count('Reenviar o convite') == 1
+    segunda = cliente_logado.get(caminho + '?pagina=2').content.decode()
+    assert 'Página 2 de 2' in segunda
+    assert segunda.count('Reenviar o convite') == 1
+
+
+# --- terceiro lote de revisão da PR #30 ---
+
+
+def test_acesso_futuro_aparece_na_lista_com_a_data_e_da_para_revogar_antes_de_comecar(cliente_logado, administradora, cenario, conceder_direto, fabrica_pessoa):
+    pessoa = fabrica_pessoa('Pessoa com acesso futuro')
+    concessao = conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=10))
+    revogar = _casa(cenario) + f'pessoa/{pessoa.pk}/revogar/{concessao.pk}'
+    html = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert 'Pessoa com acesso futuro' in html
+    assert 'começa em' in html
+    assert revogar in html
+    assert cliente_logado.post(revogar).status_code == 302
+    concessao.refresh_from_db()
+    assert concessao.revogada_em is not None
+
+
+def test_acesso_revogado_ou_vencido_nao_aparece_como_acesso_da_pessoa(cliente_logado, administradora, cenario, conceder_direto, fabrica_pessoa):
+    pessoa = fabrica_pessoa('Pessoa sem acesso vigente')
+    vencida = conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() - timedelta(days=9), fim=timezone.now() - timedelta(days=1))
+    revogada = conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2, revogada_em=timezone.now(), revogada_por=administradora)
+    html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode())
+    assert f'/revogar/{vencida.pk}' not in html
+    assert f'/revogar/{revogada.pk}' not in html
+
+
+def test_lista_mostra_o_ultimo_dia_de_acesso_e_nao_o_dia_seguinte(cliente_logado, administradora, cenario, cpf_novo):
+    ultimo = timezone.localdate() + timedelta(days=5)
+    cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf_novo(), fim=ultimo.isoformat()))
+    html = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert f'até {ultimo:%d/%m/%Y}' in html
+    assert f'até {ultimo + timedelta(days=1):%d/%m/%Y}' not in html
+
+
+def test_curador_so_recebe_link_de_revogar_do_que_o_servico_aceitaria(cliente_logado, conta, cenario, conceder_direto, alvo, fabrica_pessoa):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
+    admin_da_f1 = fabrica_pessoa('Admin da F1')
+    de_admin = conceder_direto(admin_da_f1, cenario.cargos_x['administrador'], cenario.f1)
+    pessoa, concessao = alvo
+    html = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert f'/pessoa/{pessoa.pk}/revogar/{concessao.pk}' in html
+    assert f'/revogar/{de_admin.pk}' not in html
+
+
+def test_confirmacao_de_redefinir_nao_aparece_a_cargo_personalizado_que_o_servico_recusaria(cliente_logado, conta, cenario, conceder_direto, alvo):
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='Curador com redefinir', base='curador')
+    for codigo in (*cenario.cargos_x['curador'].permissoes.values_list('codigo', flat=True), 'redefinir_senha'):
+        CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
+    conceder_direto(conta.pessoa, personalizado, cenario.x)
+    pessoa, _ = alvo
+    caminho = _casa(cenario) + f'pessoa/{pessoa.pk}/redefinir-senha'
+    assert cliente_logado.get(caminho).status_code == 403
+    assert cliente_logado.post(caminho).status_code == 403
+    assert not PedidoRedefinicao.objects.exists()
+
+
+def test_cargo_so_com_revogar_acesso_ganha_o_link_para_as_pessoas_na_empresa_e_na_fazenda(cliente_logado, conta, cenario, conceder_direto):
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='So revoga', base='tecnico')
+    for codigo in ('ver', 'revogar_acesso'):
+        CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
+    conceder_direto(conta.pessoa, personalizado, cenario.x)
+    pessoas = _casa(cenario) + 'pessoas/'
+    assert f'href="{pessoas}"' in cliente_logado.get(_casa(cenario)).content.decode()
+    assert f'href="{pessoas}"' in cliente_logado.get(_casa(cenario) + f'fazenda/{cenario.f1.pk}/').content.decode()
+    assert cliente_logado.get(pessoas).status_code == 200
+
+
+def test_repetir_o_convite_de_cpf_novo_nao_cria_convite_nem_segunda_concessao(cliente_logado, administradora, cenario, cpf_novo):
+    dados = _dados(cenario, cpf_novo())
+    assert cliente_logado.post(_casa(cenario) + 'pessoas/convidar', dados).status_code == 200
+    assert cliente_logado.post(_casa(cenario) + 'pessoas/convidar', dados).status_code == 200  # a resposta se perdeu e a pessoa tentou de novo
+    pessoa = Pessoa.objects.get(nome='Pessoa Convidada')
+    assert Concessao.objects.filter(pessoa=pessoa).count() == 1
+    assert not Convite.objects.exists()
+
+
+def test_seletor_de_sub_area_tem_o_mesmo_numero_de_consultas_com_20_ou_220_sub_areas(cliente_logado, administradora, cenario):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from territorio.models import SubArea
+
+    caminho = _casa(cenario) + f'pessoas/convidar/sub-area/{cenario.f1.pk}/?q=lote'
+
+    def consultas(corta_no_banco=False):
+        with CaptureQueriesContext(connection) as capturadas:
+            assert cliente_logado.get(caminho).status_code == 200
+        if corta_no_banco:
+            assert any(' LIMIT 50' in consulta['sql'] for consulta in capturadas.captured_queries)  # só a página sai do banco
+        return len(capturadas)
+
+    SubArea.objects.bulk_create([SubArea(empresa=cenario.x, fazenda=cenario.f1, nivel=1, nome=f'Lote {n}') for n in range(20)])
+    poucas = consultas()
+    SubArea.objects.bulk_create([SubArea(empresa=cenario.x, fazenda=cenario.f1, nivel=1, nome=f'Lote B{n}') for n in range(200)])
+    assert consultas(corta_no_banco=True) == poucas
+    pagina_2 = cliente_logado.get(caminho + '&pagina=2').content.decode()
+    assert 'Página 2 de 5' in pagina_2
+
+
+def test_trilha_do_seletor_nao_mostra_ancestral_fora_do_alcance(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.t1)  # só a talhão, filha da G1
+    html = _sem_nonce(cliente_logado.get(_casa(cenario) + f'pessoas/convidar/sub-area/{cenario.f1.pk}/').content.decode())
+    assert 'F1 › T1' in html
+    assert 'G1' not in html
