@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path
 
-from projeto import empresas, fazenda, inicio, paginas, paginas_acesso, pessoas_paginas, territorio_paginas
+from projeto import cargos_paginas, empresas, fazenda, inicio, paginas, paginas_acesso, pessoas_paginas, territorio_paginas
 from projeto.api import api
 
 _EMPRESA = 'empresa/<int:empresa_id>/'
@@ -32,6 +32,14 @@ PESSOAS = [
     path(_EMPRESA + 'pessoa/<int:pessoa_id>/revogar/<int:concessao_id>', pessoas_paginas.revogar, name='pessoa_revogar'),
     path(_EMPRESA + 'pessoa/<int:pessoa_id>/redefinir-senha', pessoas_paginas.redefinir_senha, name='pessoa_redefinir_senha'),
     path(_EMPRESA + 'titularidade', pessoas_paginas.titularidade, name='titularidade'),
+    path(_EMPRESA + 'pessoa/<int:pessoa_id>/conceder', pessoas_paginas.conceder, name='pessoa_conceder'),
+]
+
+# Telas de cargos (003 R18): da empresa, não da fazenda.
+CARGOS = [
+    path(_EMPRESA + 'cargos/', cargos_paginas.cargos, name='cargos'),
+    path(_EMPRESA + 'cargos/novo', cargos_paginas.cargo_novo, name='cargo_novo'),
+    path(_EMPRESA + 'cargos/<int:cargo_id>/editar', cargos_paginas.cargo_editar, name='cargo_editar'),
 ]
 
 urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
@@ -48,7 +56,7 @@ urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('arquivadas/', territorio_paginas.arquivadas, name='arquivadas'),
                path('empresa/<int:empresa_id>/', empresas.empresa, name='empresa'),
                path('empresa/<int:empresa_id>/fazenda/<int:fazenda_id>/', fazenda.fazenda, name='fazenda'),
-               *TERRITORIO, *PESSOAS]
+               *TERRITORIO, *PESSOAS, *CARGOS]
 
 # O padrão do Django renderiza o 500 sem a requisição, e sem ela o molde não leva o nonce da política de conteúdo.
 handler500 = 'projeto.paginas.erro_500'

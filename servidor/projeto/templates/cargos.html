@@ -1,0 +1,14 @@
+{% extends "casca.html" %}
+{% block titulo %}Cargos{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Cargos" subtitulo=empresa.nome %}
+{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso %}{% endif %}
+{% include "componentes/acoes.html" with acoes=acoes %}
+<ul class="lista-pessoas">
+{% for cargo in itens %}<li class="pessoa">
+<p class="pessoa-nome">{{ cargo.nome }}</p>
+<p class="pessoa-detalhe">{{ cargo.empresa }} · nível {{ cargo.base }} · {{ cargo.total }} permiss{{ cargo.total|pluralize:"ão,ões" }}</p>
+<p><a href="{{ cargo.editar }}" aria-label="Editar o cargo {{ cargo.nome }}">Editar</a></p>
+</li>
+{% endfor %}</ul>
+{% endblock %}
