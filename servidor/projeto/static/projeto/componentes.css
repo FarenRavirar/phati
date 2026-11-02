@@ -22,6 +22,8 @@
 .campo-ajuda { margin: var(--espaco-1) 0 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
 .campo-erro { margin: var(--espaco-1) 0 0; color: var(--cor-erro); font-size: var(--fonte-pequena); font-weight: 600; }
 .campo-invalido .campo-controle { border-color: var(--cor-erro); }
+.campo-caixas { border: 0; padding: 0; min-width: 0; }
+.campo-caixa { display: block; margin-bottom: var(--espaco-2); }
 
 /* Aviso: cor, ícone e texto juntos; a cor nunca é o único sinal (R15). */
 .aviso {
@@ -73,3 +75,12 @@
 .efeitos { display: grid; gap: var(--espaco-2); margin: var(--espaco-3) 0; padding-left: var(--espaco-4); }
 .lista-arquivadas { display: grid; gap: var(--espaco-3); }
 .tipo-arquivada { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+
+/* Pessoas (003 R13 a R16). */
+.lista-pessoas { display: grid; gap: var(--espaco-3); }
+.pessoa-nome { margin: 0; font-weight: 600; }
+.pessoa-detalhe { margin: 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.pessoa-concessoes { display: grid; gap: var(--espaco-1); margin: var(--espaco-2) 0; padding-left: var(--espaco-4); }
+
+/* Escolher o lugar do convite: lista com a trilha de cada sub-área (003 R13). */
+.lista-lugares { display: grid; gap: var(--espaco-2); }

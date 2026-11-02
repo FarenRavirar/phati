@@ -188,6 +188,16 @@ def _administra_a_empresa_inteira(concessao):
     return concessao.cargo.base == 'administrador' and concessao.fazenda_id is None
 
 
+def pode_revogar(quem, concessao):
+    """A tela só mostra o link de revogar a quem `revogar_concessao` aceitaria: escopo, nível do cargo e Administrador
+    titular protegido (Sourcery, PR #30). A função de revogar repete a checagem sob trava."""
+    if quem is None or not quem.is_authenticated or not _pode_revogar(quem, concessao):
+        return False
+    if not _administra_a_empresa_inteira(concessao):
+        return True
+    return concessao.pessoa_id != Empresa.objects.filter(pk=concessao.empresa_id).values_list('titular_id', flat=True).first()
+
+
 def revogar_concessao(quem, concessao):
     """Grava `revogada_em` e `revogada_por`. Vale na requisição seguinte da pessoa atingida (R11)."""
     if quem is None or not quem.is_authenticated:
@@ -220,19 +230,31 @@ def revogar_concessao(quem, concessao):
     concessao.refresh_from_db()
 
 
-def transferir_titularidade(quem, empresa, novo_titular):
+def pode_transferir_titularidade(quem, empresa):
+    """Só o titular atual ou a plataforma (R23), e nunca numa empresa arquivada: transferir é escrita, e escrita em
+    escopo arquivado é recusada até para a plataforma (003 R11; Qodo, PR #30). A tela de transferir pergunta isto antes da
+    etapa 1; a função abaixo repete a checagem sob trava."""
+    if quem is None or not quem.is_authenticated or escopo_arquivado(empresa):
+        return False
+    return bool(quem.administrador_plataforma or quem.pk == empresa.titular_id)
+
+
+def transferir_titularidade(quem, empresa, novo_titular, justificativa):
     """Passa o título de Administrador titular (R23). Só o titular atual ou a plataforma transferem, e o novo titular
     precisa ser Administrador ativo da empresa inteira, sem prazo (concessão que vence deixaria a empresa com titular
-    sem acesso). O titular antigo vira Administrador comum."""
+    sem acesso). O titular antigo vira Administrador comum. A justificativa é obrigatória e fica na auditoria (D068)."""
     if quem is None or not quem.is_authenticated:
         raise PermissionDenied
+    justificativa = (justificativa or '').strip()
+    if not justificativa:
+        raise ValidationError('Informe a justificativa da transferência.', code='justificativa_obrigatoria')
     with transaction.atomic():
         # Pessoa, depois empresa, a mesma ordem de `revogar_concessao`: a ordem inversa dava deadlock com a revogação
         # da concessão do novo titular, porque gravar `titular` pede KEY SHARE na pessoa (achado do Codex, PR #11,
         # reproduzido pelo teste de corrida).
         _travar_pessoa(novo_titular.pk)
         atual = Empresa.objects.select_for_update().get(pk=empresa.pk)
-        if not (quem.administrador_plataforma or quem.pk == atual.titular_id):
+        if not pode_transferir_titularidade(quem, atual):
             raise PermissionDenied
         # Concessões lidas de novo, depois da trava: a memória do objeto pode ser de antes dela.
         esquecer(novo_titular)
@@ -249,5 +271,5 @@ def transferir_titularidade(quem, empresa, novo_titular):
         titular_anterior = atual.titular_id
         atual.titular = novo_titular
         atual.save(update_fields=['titular'])
-        auditar('titularidade_transferida', quem, atual, atual.pk, {'de': titular_anterior, 'para': novo_titular.pk})
+        auditar('titularidade_transferida', quem, atual, atual.pk, {'de': titular_anterior, 'para': novo_titular.pk, 'justificativa': justificativa})
     empresa.refresh_from_db()

@@ -10,7 +10,7 @@ import threading
 from datetime import timedelta
 from functools import partial
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import connections, transaction
 from django.utils import timezone
 
@@ -99,6 +99,14 @@ def pedir_redefinicao(cpf_texto, solicitante=None):
         auditar('redefinicao_pedida', solicitante, alvo, alvo.empresa_origem_id)
         email.enviar_link_de_redefinicao(alvo, segredo)
     return None
+
+
+def pedir_redefinicao_de_outra_pessoa(solicitante, alvo):
+    """Pedido de quem administra (rota `pessoas_redefinir_senha` e tela): sem direito sobre `alvo`, `ObjectDoesNotExist`,
+    que vira 404 igual ao de pessoa inexistente. O CPF decifrado não sai desta função."""
+    if not pode_iniciar_redefinicao(solicitante, alvo):
+        raise ObjectDoesNotExist
+    pedir_redefinicao(cpf.decifrar(alvo.cpf_cifrado), solicitante=solicitante)
 
 
 def _pedir_na_fila(cpf_texto):

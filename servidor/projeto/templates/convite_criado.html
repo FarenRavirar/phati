@@ -1,0 +1,10 @@
+{% extends "casca.html" %}
+{% block titulo %}Convite enviado{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Convite enviado" %}
+{% if senha_temporaria %}<p>A pessoa foi cadastrada e recebeu o acesso.</p>
+{% include "componentes/aviso.html" with tipo="aviso" texto="Anote a senha temporária agora: ela aparece só nesta página e a pessoa precisa trocá-la no primeiro acesso." %}
+<p>Senha temporária: <strong class="senha-temporaria" translate="no">{{ senha_temporaria }}</strong></p>
+{% else %}<p>O convite foi enviado. A pessoa o vê ao entrar e decide se aceita; o acesso só começa no aceite.</p>{% endif %}
+<p><a class="botao" href="{{ destino }}">Voltar às pessoas</a></p>
+{% endblock %}

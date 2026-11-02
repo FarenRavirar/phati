@@ -5,11 +5,14 @@ from functools import lru_cache, wraps
 from pathlib import Path
 from urllib.parse import urlencode
 
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_http_methods
 
 from identidade import sessao
+from permissao.pode import pode
 from projeto.menu import itens_do_menu
 
 CAMINHO_ENTRAR = '/entrar'
@@ -79,3 +82,53 @@ def renderizar_na_casca(requisicao, modelo, contexto=None, empresa=None, fazenda
     itens = itens_do_menu(requisicao.user, fazenda or empresa, requisicao.path)
     base = {'itens_menu': itens, 'empresa': empresa, 'fazenda': fazenda, 'cor_do_tema': _cor_do_tema()}
     return render(requisicao, modelo, {**(contexto or {}), **base})
+
+
+# Peças comuns das telas de gestão (território e pessoas). Moram aqui, fora dos `*_paginas.py`, para as views só
+# declararem e chamarem o serviço: a pergunta de permissão fica num lugar só (003 R28, A26).
+
+
+LEITURA_E_ESCRITA = require_http_methods(['GET', 'POST'])
+
+
+def pagina(acao):
+    """Portão de sessão, métodos GET e POST e a ação do catálogo que a página declara (varredura de views, R22)."""
+
+    def declarar(visao):
+        return LEITURA_E_ESCRITA(exige_entrada(exige_acao(acao)(visao)))
+
+    return declarar
+
+
+def exigir(requisicao, acao, alvo=None):
+    """Alcance sem a ação: 403 (a regra é a mesma da API)."""
+    if not pode(requisicao.user, acao, alvo):
+        raise PermissionDenied
+
+
+def campo(nome, rotulo, valor='', erro=None, ajuda=None, **extra):
+    return {'id': f'campo_{nome}', 'nome': nome, 'rotulo': rotulo, 'valor': valor, 'erro': erro, 'ajuda': ajuda, **extra}
+
+
+def texto_do_erro(erro):
+    return ' '.join(erro.messages)
+
+
+def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, codigo_http=200):
+    contexto = {
+        'titulo': titulo, 'subtitulo': subtitulo, 'campos': campos, 'botao': botao, 'cancelar': cancelar,
+        'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {},
+    }
+    resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, empresa=empresa, fazenda=fazenda)
+    resposta.status_code = codigo_http
+    return resposta
+
+
+def confirmacao(requisicao, cancelar, *, titulo, texto, efeitos, botao, empresa=None, fazenda=None, escondidos=None, erro=None, codigo_http=200):
+    contexto = {
+        'titulo': titulo, 'texto': texto, 'efeitos': efeitos, 'botao': botao, 'cancelar': cancelar,
+        'escondidos': escondidos or {}, 'erro': erro,
+    }
+    resposta = renderizar_na_casca(requisicao, 'confirmacao.html', contexto, empresa=empresa, fazenda=fazenda)
+    resposta.status_code = codigo_http
+    return resposta

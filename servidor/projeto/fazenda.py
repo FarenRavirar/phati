@@ -35,7 +35,7 @@ def fazenda(requisicao, empresa_id, fazenda_id):
     empresa, escopo = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
     assert escopo is not None  # a URL traz o id da fazenda: `resolver_escopo` devolve a fazenda ou levanta 404
     efetivas = permissoes_efetivas(requisicao.user, escopo)
-    acoes = acoes_do_alvo(escopo, efetivas)
+    acoes = acoes_do_alvo(escopo, efetivas, pessoa=requisicao.user)
     # Fazenda arquivada continua consultável por inteiro (R11): a árvore mostra tudo e não há seção separada.
     arquivada = escopo.arquivada_em is not None
     arvore = _arvore(
@@ -71,7 +71,7 @@ def sub_area(requisicao, empresa_id, fazenda_id, sub_area_id):
     with com_permissao(requisicao.user, 'ver'):
         nivel = nome_do_nivel(empresa, alvo.nivel)
     contexto = {
-        'sub_area': alvo, 'nivel': nivel, 'acoes': acoes_do_alvo(alvo, efetivas),
+        'sub_area': alvo, 'nivel': nivel, 'acoes': acoes_do_alvo(alvo, efetivas, pessoa=requisicao.user),
         'arvore': _arvore(dentro, _destino_da_sub_area(empresa, fazenda_do_endereco, 'sub_area')),
     }
     return renderizar_na_casca(requisicao, 'sub_area.html', contexto, empresa=empresa, fazenda=fazenda_do_endereco)

@@ -5,8 +5,9 @@ Esconder o item não protege a rota: ela responde 404 a quem não pode (R3). A 0
 
 from dataclasses import dataclass, replace
 
-from permissao.pode import age_em_algum_escopo, permissoes_efetivas
+from permissao.pode import age_em_algum_escopo, escopos_da_acao, permissoes_efetivas
 from projeto.painel import ACOES_DE_GESTAO
+from territorio.listagem import empresas_autorizadas
 
 
 @dataclass(frozen=True)
@@ -30,17 +31,33 @@ ITENS = (
 @dataclass(frozen=True)
 class Atalho:
     nome: str
-    caminho: str
+    caminho: str  # com `{empresa_id}`, o atalho vale por empresa: um link para cada empresa em que a pessoa tem a ação
     acao: str  # ação do catálogo que a pessoa precisa ter em algum escopo; nunca o nome do papel (R7)
 
 
 # Atalhos fixos do Início, na ordem provisória da D081 (a confirmar com a Tatiane). Cada fase de gestão acrescenta a linha
 # da própria tela, para o atalho nunca apontar a uma rota que não existe.
-ATALHOS: tuple[Atalho, ...] = ()
+ATALHOS: tuple[Atalho, ...] = (
+    Atalho('Convidar pessoa', '/empresa/{empresa_id}/pessoas/convidar', 'convidar_pessoa'),
+)
 
 
 def atalhos_do_inicio(pessoa):
-    return [atalho for atalho in ATALHOS if age_em_algum_escopo(pessoa, atalho.acao)]
+    atalhos = []
+    for atalho in ATALHOS:
+        if '{empresa_id}' not in atalho.caminho:
+            if age_em_algum_escopo(pessoa, atalho.acao):
+                atalhos.append(atalho)
+            continue
+        # O Administrador da plataforma escolhe a empresa pela lista do Início: um atalho por empresa seria uma parede.
+        if pessoa.administrador_plataforma:
+            continue
+        escopos = escopos_da_acao(pessoa, atalho.acao)
+        alcancadas = [e for e in empresas_autorizadas(pessoa) if e.pk in escopos.empresas | escopos.empresas_das_fazendas]
+        for empresa in alcancadas:
+            nome = atalho.nome if len(alcancadas) == 1 else f'{atalho.nome} · {empresa.nome}'
+            atalhos.append(replace(atalho, nome=nome, caminho=atalho.caminho.format(empresa_id=empresa.pk)))
+    return atalhos
 
 
 def itens_do_menu(pessoa, escopo=None, caminho=None):

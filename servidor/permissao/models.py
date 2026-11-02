@@ -113,6 +113,13 @@ def concessoes_ativas(agora=None):
     return Concessao.objects.filter(revogada_em__isnull=True, inicio__lte=agora).filter(Q(fim__isnull=True) | Q(fim__gt=agora))
 
 
+def concessoes_vigentes_ou_futuras(agora=None):
+    """Não revogadas e sem fim no passado: as ativas e as que ainda vão começar. A lista de pessoas mostra as duas, para
+    o Administrador poder revogar um acesso antes de ele começar (Greptile, PR #30)."""
+    agora = agora or timezone.now()
+    return Concessao.objects.filter(revogada_em__isnull=True).filter(Q(fim__isnull=True) | Q(fim__gt=agora))
+
+
 class ConcessaoCategoria(models.Model):
     concessao = models.ForeignKey(Concessao, on_delete=models.CASCADE)
     categoria = models.ForeignKey(CategoriaDado, on_delete=models.PROTECT)

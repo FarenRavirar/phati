@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib.auth import get_user
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.auth.hashers import make_password
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.test import RequestFactory
@@ -97,6 +97,17 @@ def test_administrador_da_plataforma_inicia_e_fica_registrado(pessoa, outra_pess
     assert pedido.solicitado_por == outra_pessoa
     assert len(mailoutbox) == 1
     assert mailoutbox[0].to == [pessoa.email]
+
+
+def test_pedido_de_outra_pessoa_sem_direito_levanta_nao_encontrado_e_com_direito_grava_o_pedido(pessoa, outra_pessoa, mailoutbox):
+    with pytest.raises(ObjectDoesNotExist):
+        redefinicao.pedir_redefinicao_de_outra_pessoa(outra_pessoa, pessoa)
+    assert PedidoRedefinicao.objects.count() == 0
+    outra_pessoa.administrador_plataforma = True
+    outra_pessoa.save()
+    assert redefinicao.pedir_redefinicao_de_outra_pessoa(outra_pessoa, pessoa) is None
+    assert PedidoRedefinicao.objects.get().solicitado_por == outra_pessoa
+    assert len(mailoutbox) == 1
 
 
 def test_pedido_nao_conta_falha_nem_bloqueia(pessoa, monkeypatch):

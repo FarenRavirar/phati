@@ -76,12 +76,20 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
         assert getattr(por_nome[nome], 'acao_exigida') == 'ver'
     for nome in ('inicio', 'aceitar_convite', 'recusar_convite', 'trocar_senha'):
         assert getattr(por_nome[nome], 'acao_exigida') == PROPRIA_PESSOA
+    # Telas de pessoas (003 R13 a R17): cada uma declara a ação que a API exige para a mesma operação.
+    esperadas = {
+        'pessoas': 'convidar_pessoa', 'pessoas_convidar': 'convidar_pessoa', 'pessoas_convites': 'convidar_pessoa',
+        'convidar_sub_area': 'convidar_pessoa', 'convidar_sub_area_fazenda': 'convidar_pessoa',
+        'convite_cancelar': 'convidar_pessoa', 'convite_reenviar': 'convidar_pessoa', 'pessoa_revogar': 'revogar_acesso',
+        'pessoa_redefinir_senha': 'redefinir_senha', 'titularidade': 'ver',
+    }
+    assert {nome: getattr(por_nome[nome], 'acao_exigida') for nome in esperadas} == esperadas
 
 
 def test_pagina_de_terceiro_com_alvo_na_url_nega_a_quem_nao_tem_acesso(cliente_logado, cenario):
     # A declaração sozinha não prova a checagem (Qodo, PR #21): quem declara uma ação do catálogo e recebe 200 de
     # quem não tem concessão está declarando sem checar.
-    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk}
+    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1}
     de_terceiro = [(nome, parametros) for nome, visao, parametros in _autenticadas()
                    if getattr(visao, 'acao_exigida') != PROPRIA_PESSOA and parametros]
     assert de_terceiro

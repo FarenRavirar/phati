@@ -41,6 +41,6 @@ def empresa(requisicao, empresa_id):
     escopo, _ = resolver_escopo(requisicao.user, empresa_id)
     # Empresa arquivada continua consultável por inteiro (R11): as fazendas dela, arquivadas pelo mesmo ato, aparecem.
     fazendas = fazendas_autorizadas(requisicao.user, empresa_id=escopo.pk, arquivadas=None if escopo.arquivada_em else False)
-    acoes = acoes_do_alvo(escopo, permissoes_efetivas(requisicao.user, escopo))
+    acoes = acoes_do_alvo(escopo, permissoes_efetivas(requisicao.user, escopo), pessoa=requisicao.user)
     contexto = {'grupos': [(escopo, fazendas)] if fazendas else [], 'acoes': acoes, 'empresa_arquivada': escopo.arquivada_em is not None}
     return renderizar_na_casca(requisicao, 'empresas.html', contexto, empresa=escopo)
