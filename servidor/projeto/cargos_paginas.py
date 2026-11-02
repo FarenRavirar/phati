@@ -94,7 +94,7 @@ def _campos(dados, erros, catalogo, base_fixa=None):
         campo('nome', 'Nome do cargo', dados.get('nome', ''), erros.get('nome'), obrigatorio=True),
         *([] if base_fixa else [campo('base', 'Nível do cargo', dados.get('base', ''), erros.get('base'), tipo='select', obrigatorio=True,
                                       ajuda='Não muda depois de criado.',
-                                      opcoes=[ESCOLHA_VAZIA, *({'valor': base, 'rotulo': nome} for base, nome in NOMES.items())])]),
+                                      opcoes=[ESCOLHA_VAZIA, *({'valor': base, 'rotulo': nome} for base, nome in NOMES.items() if base not in servico.BASES_FIXAS)])]),
         *grupos,
     ]
 
@@ -132,7 +132,7 @@ def cargo_novo(requisicao, empresa_id):
         if requisicao.method == 'GET':
             return tela({}, {})
         dados = requisicao.POST
-        if dados.get('base') not in NOMES:  # só o formato; a regra de quem cria qual nível é do serviço
+        if dados.get('base') not in NOMES or dados['base'] in servico.BASES_FIXAS:  # só o formato; a regra de quem cria qual nível é do serviço
             return tela(dados, {'base': 'Escolha o nível do cargo.'}, codigo_http=400)
         erros, erro, codigo = _gravar(requisicao, empresa, dados, None, dados['base'])
         if codigo != 200:

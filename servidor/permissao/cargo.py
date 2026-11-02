@@ -10,15 +10,16 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 
 from comum.auditoria import auditar
-from permissao.delegacao import _nivel_permite
+from permissao.delegacao import _nivel_permite, travar_cargo_para_edicao
 from permissao.models import NIVEL_DA_BASE, Cargo, CargoPermissao, Permissao
 from permissao.pode import ACOES_DA_PLATAFORMA, Alvo, memoria_de, pode
 from territorio.models import Empresa
 
-# Cargo de nível Administrador acompanha o catálogo (a migração que cria ação dá a permissão nova a ele) e é o que impede
-# a empresa de ficar sem quem gerencie: não se edita (mantenedor, 2026-11-02, opção C). shortcut: a regra é pela base, não
-# por marca no cargo; vale também para cargo de nível Administrador criado depois. Marcar o cargo de base é o passo, se
-# a empresa precisar de cargo Administrador personalizado.
+# Cargo de nível Administrador acompanha o catálogo (a migração que cria ação dá a permissão nova a ele) e é o que impede a
+# empresa de ficar sem quem gerencie: nasce com a empresa (`criar_cargos_base`) e não se cria nem se edita aqui (mantenedor,
+# 2026-11-02, opção C; criar ficou de fora depois da revisão da PR #32: um cargo de nível Administrador novo nasceria
+# impossível de completar). atalho: a regra é pela base, não por marca no cargo; se a empresa precisar de cargo Administrador
+# personalizado, o passo é marcar o cargo de base.
 BASES_FIXAS = ('administrador',)
 
 
@@ -98,12 +99,14 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=
         # Trava a empresa antes de `pode()`: espera um arquivamento em curso e depois lê o estado gravado (003 R11).
         if not list(Empresa.objects.select_for_update(no_key=True).filter(pk=empresa.pk).values_list('pk', flat=True)):
             raise PermissionDenied  # fora do alcance (a RLS esconde a linha) ou inexistente: o mesmo caminho da permissão negada
+        if cargo is not None:
+            travar_cargo_para_edicao(cargo.pk)  # quem concede, convida ou aceita convite espera a edição e lê o conjunto novo
         cargo, base = _cargo_travado_e_base(empresa, base, cargo)
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied
         # Depois da autorização: quem não pode gerenciar o cargo não descobre a versão dele.
-        if cargo is not None and base in BASES_FIXAS:
-            raise ValidationError('O cargo de nível Administrador não se edita: ele acompanha todas as permissões.', code='cargo_fixo')
+        if base in BASES_FIXAS:  # criar ou editar: depois da autorização, quem não pode gerenciar não descobre a regra
+            raise ValidationError('O cargo de nível Administrador nasce com a empresa e não se cria nem se edita: ele acompanha todas as permissões.', code='cargo_fixo')
         if cargo is not None and versao != cargo.versao:
             raise ValidationError('Outra pessoa alterou este cargo. Recarregue a página e edite de novo.', code='cargo_alterado_por_outra_pessoa')
         _exigir_nome_livre(empresa, nome, cargo)

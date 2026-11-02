@@ -12,7 +12,10 @@ from django.utils import timezone
 
 from identidade import email
 from identidade.models import Pessoa
-from permissao.delegacao import conceder, convidar, pode_conceder, pode_transferir_titularidade, revogar_concessao, transferir_titularidade
+from permissao.delegacao import (
+    conceder, convidar, pode_conceder, pode_transferir_titularidade, revogar_concessao, transferir_titularidade, travar_cargo,
+    travar_cargo_para_edicao,
+)
 from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, ConcessaoCategoria
 from permissao.pode import pode
 from territorio.models import Empresa
@@ -707,6 +710,20 @@ def test_conceder_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, c
     assert not Concessao.objects.filter(pessoa=alvo).exists()
 
 
+def _esperar_alguem_bloqueado(segundos=3.0):
+    """Espera, sem tempo fixo, até haver um advisory lock esperando: prova que o fio da ação chegou à trava. Sem a trava nunca
+    aparece, e a espera acaba no limite (o teste então falha pelo resultado, 'concedeu')."""
+    import time
+
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        with connection.cursor() as consulta:
+            consulta.execute("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")
+            if consulta.fetchone():
+                return
+        time.sleep(0.02)
+
+
 def _corrida_com_edicao_do_cargo(usuario, acao):
     """Uma edição do cargo (que o trava e acrescenta `gerenciar_cargo`, que o Curador não tem) está em curso, sem commitar,
     quando `acao` começa em outro fio. Devolve o que `acao` levantou, ou 'concedeu'. Sem a trava do cargo, `acao` lê o conjunto
@@ -717,7 +734,7 @@ def _corrida_com_edicao_do_cargo(usuario, acao):
     def editar():
         try:
             with transaction.atomic():
-                Cargo.objects.select_for_update().get(pk=usuario.pk)
+                travar_cargo_para_edicao(usuario.pk)  # o que `gerenciar_cargo` faz antes de trocar as permissões
                 CargoPermissao.objects.create(cargo=usuario, permissao_id='gerenciar_cargo')
                 editando.set()
                 soltar.wait(15)
@@ -740,7 +757,7 @@ def _corrida_com_edicao_do_cargo(usuario, acao):
     assert editando.wait(15)
     fio = threading.Thread(target=agir)
     fio.start()
-    fio.join(1.0)  # largada: `acao` já tentou ler o cargo enquanto a edição ainda não terminou
+    _esperar_alguem_bloqueado()  # `acao` já chegou à trava do cargo (ou, sem trava, já passou dela) antes de a edição terminar
     soltar.set()
     edicao.join()
     fio.join()
@@ -778,3 +795,25 @@ def test_aceitar_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, ce
     resultado = _corrida_com_edicao_do_cargo(usuario, lambda: aceitar(convidada, convite.pk))
     assert resultado == ['convite_sem_autoridade']
     assert not Concessao.objects.filter(pessoa=convidada).exists()
+
+
+@pytest.fixture
+def curador_de_fazenda(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto):
+    # Montado como dono, antes de `como_app`.
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    return curador
+
+
+@pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+def test_trava_do_cargo_vale_sob_o_papel_app_para_quem_so_tem_a_fazenda(catalogo_da_corrida, cenario, curador_de_fazenda, como_app):
+    """A RLS deixa o Curador de fazenda só LER o cargo; um `FOR UPDATE` na linha não travaria nada para ele (Codex e Greptile,
+    PR #32). O advisory lock não depende da visibilidade da linha."""
+    from permissao.pode import com_permissao
+
+    usuario = cenario.cargos_x['usuario']
+    with com_permissao(curador_de_fazenda, 'convidar_pessoa'), transaction.atomic():
+        travar_cargo(usuario.pk)
+        with connection.cursor() as consulta:
+            consulta.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()")
+            assert consulta.fetchone()[0] == 1

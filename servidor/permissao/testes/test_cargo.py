@@ -200,5 +200,10 @@ def test_cargo_de_nivel_administrador_nao_se_edita_mesmo_pela_plataforma(cenario
     assert (administrador.nome, administrador.versao, _codigos(administrador)) == ('Administrador', 1, antes)
 
 
-def test_cargo_de_nivel_administrador_ainda_se_cria(cenario, plataforma):
-    assert gerenciar_cargo(plataforma, cenario.x, 'Direção', ['ver'], base='administrador').base == 'administrador'
+def test_cargo_de_nivel_administrador_nao_se_cria_aqui(cenario, plataforma):
+    """Ele nasce com a empresa; um novo nasceria impossível de completar, porque também não se edita (Qodo, PR #32)."""
+    antes = Cargo.objects.count()
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Direção', ['ver'], base='administrador')
+    assert erro.value.code == 'cargo_fixo'
+    assert Cargo.objects.count() == antes

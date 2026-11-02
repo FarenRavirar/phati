@@ -228,11 +228,16 @@ def _pode_convidar(requisicao, empresa):
     return bool(_escopos_do_convite(requisicao, empresa)) or bool(_fazendas_com_sub_areas(requisicao, empresa))
 
 
+def _e_id(texto):
+    """Só dígitos ASCII e que cabem no bigint do banco (até 18); número maior é id que não existe, não erro 500 (Sourcery e Qodo, PR #32)."""
+    return texto.isascii() and texto.isdigit() and len(texto) <= 18
+
+
 def _sub_area_pedida(requisicao, empresa, chave):
     """`(trilha, sub-área)` se `chave` (`sub-area-<id>`) é de uma sub-área desta empresa onde a pessoa pode convidar; senão None."""
     chave = chave or ''
     numero = chave.removeprefix('sub-area-')
-    if not chave.startswith('sub-area-') or not (numero.isascii() and numero.isdigit()):
+    if not chave.startswith('sub-area-') or not _e_id(numero):
         return None
     sub_area = SubArea.objects.filter(pk=int(numero), empresa_id=empresa.pk).first()
     if sub_area is None:
@@ -486,7 +491,7 @@ def convidar_sub_area(requisicao, empresa_id, fazenda_id=None):
         _com_alcance(requisicao, empresa, 'convidar_pessoa')
         # `?pessoa=<id>` vem da tela de conceder: a escolha volta para ela. Id inválido ou fora do alcance é ignorado (volta ao convite).
         numero = requisicao.GET.get('pessoa', '')
-        pessoa = _pessoa_a_conceder(requisicao, empresa, int(numero)) if numero.isascii() and numero.isdigit() else None
+        pessoa = _pessoa_a_conceder(requisicao, empresa, int(numero)) if _e_id(numero) else None
         volta = _caminho('pessoa_conceder', empresa, pessoa_id=pessoa.pk) if pessoa else _caminho('pessoas_convidar', empresa)
         if fazenda_id is None:
             contexto = _etapa_das_fazendas(requisicao, empresa, volta, pessoa)

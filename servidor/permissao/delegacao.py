@@ -8,7 +8,7 @@ concessão, a ordem única de `identidade.senha._pessoa_travada`, para não volt
 """
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 
 from django.utils import timezone
@@ -17,7 +17,7 @@ from comum.auditoria import auditar
 
 from identidade import senha
 from identidade.models import Pessoa
-from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Cargo, Concessao, ConcessaoCategoria
+from permissao.models import BASES_COM_CATEGORIA, NIVEL_DA_BASE, Concessao, ConcessaoCategoria
 from permissao.pode import Alvo, alvo_de, escopo_arquivado, escopo_de, esquecer, memoria_de
 from territorio.models import Empresa, Fazenda, SubArea
 
@@ -130,14 +130,30 @@ def concessao_igual(pessoa, proposta, categorias):
     return next((c for c in candidatas if set(c.categorias.values_list('pk', flat=True)) == pedidas), None)
 
 
+def _chave_da_trava_do_cargo(cargo_id):
+    # Um bigint só: prefixo fixo nos 32 bits altos (separa de outro uso de advisory lock) e o id do cargo nos baixos.
+    return (0xC0C0 << 32) | (cargo_id & 0xFFFFFFFF)
+
+
 def travar_cargo(cargo_id):
-    """Trava a linha do cargo. `gerenciar_cargo` a trava para trocar as permissões; quem concede, convida ou aceita
-    convite sem esta trava leria o conjunto antigo em `pode_conceder` (a chave estrangeira só bloqueia na gravação, depois da
-    checagem) e daria a quem concede uma permissão que ele não tem. Escopo de fazenda ou sub-área não passa pela linha da
-    empresa, que `gerenciar_cargo` também trava. Ordem: pessoa, escopo, cargo; `gerenciar_cargo` faz empresa e cargo, então não
-    fecha ciclo. Chamar dentro de `transaction.atomic()`, antes de `pode_conceder`."""
-    # Sem `.get`: cargo de outra empresa fica oculto pela RLS, e a recusa tem de vir de `pode_conceder`, não de uma exceção daqui.
-    list(Cargo.objects.select_for_update(no_key=True).filter(pk=cargo_id).values_list('pk', flat=True))
+    """Trava COMPARTILHADA do cargo até o fim da transação: quem concede, convida ou aceita convite não bloqueia outro que
+    concede, mas espera a edição do cargo (`travar_cargo_para_edicao`) terminar e lê as permissões novas em `pode_conceder`.
+    Sem ela a checagem lia o conjunto antigo enquanto a edição o ampliava, e dava a quem concede uma permissão que ele não tem
+    (a chave estrangeira só bloqueia na gravação, depois da checagem).
+
+    É um advisory lock, não `SELECT ... FOR UPDATE` na linha: a RLS deixa o Curador de fazenda ou sub-área só LER o cargo, e o
+    `FOR UPDATE` exige também a política de escrita, então para ele travaria nada e a corrida voltaria (Codex e Greptile, PR #32).
+    Também não levanta exceção para cargo de outra empresa: a recusa vem de `pode_conceder`. Compartilhada entre os três
+    caminhos, não fecha ciclo com a trava de pessoa. Ordem: pessoa, escopo, cargo; `gerenciar_cargo` faz empresa e cargo.
+    Chamar dentro de `transaction.atomic()`, antes de `pode_conceder`."""
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT pg_advisory_xact_lock_shared(%s)', [_chave_da_trava_do_cargo(cargo_id)])
+
+
+def travar_cargo_para_edicao(cargo_id):
+    """Trava EXCLUSIVA do cargo até o fim da transação, para `gerenciar_cargo`: espera quem concede e bloqueia quem começa."""
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT pg_advisory_xact_lock(%s)', [_chave_da_trava_do_cargo(cargo_id)])
 
 
 def _proposta(quem, cargo, escopo, inicio, fim):

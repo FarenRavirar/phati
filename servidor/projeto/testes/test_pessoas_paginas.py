@@ -1036,3 +1036,12 @@ def test_curador_so_da_sub_area_concede_nela_pela_tela(cliente_logado, conta, ce
     assert resposta.status_code == 302
     forjada = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'sub-area-{cenario.g2.pk}'})
     assert forjada.status_code == 400
+
+
+@pytest.mark.parametrize('numero', ['9' * 19, '9' * 400, '9223372036854775808'])
+def test_id_que_nao_cabe_no_banco_e_ignorado_e_nao_vira_erro_500(cliente_logado, administradora, cenario, alvo, numero):
+    pessoa, _ = alvo
+    base = _casa(cenario) + 'pessoas/convidar/sub-area/'
+    assert cliente_logado.get(f'{base}{cenario.f1.pk}/?pessoa={numero}').status_code == 200
+    assert cliente_logado.get(f'{_conceder(cenario, pessoa)}?escopo=sub-area-{numero}').status_code == 200
+    assert cliente_logado.get(f'{_casa(cenario)}pessoas/convidar?escopo=sub-area-{numero}').status_code == 200

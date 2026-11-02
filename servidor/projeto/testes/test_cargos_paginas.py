@@ -200,8 +200,9 @@ def test_gestor_nao_cria_cargo_de_nivel_acima_nem_com_permissao_que_nao_tem(clie
     antes = Cargo.objects.count()
     acima = cliente_logado.post(caminho, {'nome': 'Chefe', 'base': 'administrador', 'permissoes': ['ver']})
     a_mais = cliente_logado.post(caminho, {'nome': 'Campo', 'base': 'tecnico', 'permissoes': ['ver', 'validar_registro']})
-    assert (acima.status_code, a_mais.status_code) == (403, 403)
-    assert 'nível ou permissões acima das suas' in _html(acima)
+    # O nível Administrador nem é oferecido (400); a recusa por nível acima, com 403, é do serviço (`test_cargo.py`).
+    assert (acima.status_code, a_mais.status_code) == (400, 403)
+    assert 'nível ou permissões acima das suas' in _html(a_mais)
     assert Cargo.objects.count() == antes
     dentro = cliente_logado.post(caminho, {'nome': 'Leitor', 'base': 'tecnico', 'permissoes': ['ver']})
     assert dentro.status_code == 302
@@ -302,3 +303,12 @@ def test_erro_de_permissao_invalida_aparece_uma_vez_no_primeiro_grupo(cliente_lo
     assert resposta.status_code == 400
     assert html.count('Permissão inexistente ou exclusiva da plataforma.') == 1
     assert 'id="campo_permissoes-descricao"' in html
+
+
+def test_criar_nao_oferece_nem_aceita_o_nivel_administrador(cliente_logado, administradora, cenario):
+    html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
+    assert '<option value="administrador"' not in html
+    antes = Cargo.objects.count()
+    resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Direção', 'base': 'administrador', 'permissoes': ['ver']})
+    assert resposta.status_code == 400
+    assert Cargo.objects.count() == antes
