@@ -136,11 +136,13 @@ def pessoas(requisicao, empresa_id):
                 'revogar': _caminho('pessoa_revogar', empresa, pessoa_id=concessao.pessoa_id, concessao_id=concessao.pk) if delegacao.pode_revogar(requisicao.user, concessao) else None,
             })
         redefinir = 'redefinir_senha' in efetivas
+        # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
+        concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if lugares else set()
         itens = [
             {
                 'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
                 'redefinir': _caminho('pessoa_redefinir_senha', empresa, pessoa_id=p.pk) if redefinir else None,
-                'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if lugares else None,
+                'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if p.pk in concediveis else None,
             }
             for p in pagina_de_pessoas
         ]

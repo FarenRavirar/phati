@@ -982,7 +982,9 @@ def test_conceder_so_a_pessoa_que_o_convidar_alcanca_mesmo_vista_por_revogar(cli
     conceder_direto(conta.pessoa, revogador, cenario.f2)
     da_f2 = fabrica_pessoa('Pessoa da F2')
     conceder_direto(da_f2, cenario.cargos_x['tecnico'], cenario.f2)
-    assert 'Pessoa da F2' in cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    lista = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert 'Pessoa da F2' in lista
+    assert f'pessoa/{da_f2.pk}/conceder' not in lista  # o link só aparece onde a tela abriria
     assert cliente_logado.get(_conceder(cenario, da_f2)).status_code == 404
     assert cliente_logado.post(_conceder(cenario, da_f2), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'fazenda-{cenario.f1.pk}'}).status_code == 404
     assert Concessao.objects.filter(pessoa=da_f2).count() == 1
