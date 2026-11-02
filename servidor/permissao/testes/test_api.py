@@ -439,9 +439,9 @@ def test_pessoas_do_escopo_so_traz_quem_tem_acesso_futuro_quando_pedido(cenario,
 
     from permissao.api import pessoas_do_escopo
 
-    admin = fabrica_pessoa('Administradora')
-    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    administradora = fabrica_pessoa('Administradora')
+    conceder_direto(administradora, cenario.cargos_x['administrador'], cenario.x)
     futura = fabrica_pessoa('Com acesso futuro')
     conceder_direto(futura, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=3))
-    assert futura not in pessoas_do_escopo(admin)
-    assert futura in pessoas_do_escopo(admin, futuras=True)
+    assert futura not in pessoas_do_escopo(administradora)
+    assert futura in pessoas_do_escopo(administradora, futuras=True)

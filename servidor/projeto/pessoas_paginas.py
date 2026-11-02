@@ -27,7 +27,7 @@ from permissao import convite as convites
 from permissao import delegacao
 from permissao.api import pessoas_do_escopo
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, concessoes_ativas, concessoes_vigentes_ou_futuras
-from permissao.pode import com_permissao, escopo_arquivado, escopo_de, filtro_do_escopo, permissoes_efetivas, unir_escopos
+from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, permissoes_efetivas, unir_escopos
 from projeto.escopo import resolver_escopo
 from projeto.painel import ACOES_DE_PESSOAS
 from projeto.paginas_autenticadas import campo, confirmacao, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
@@ -168,25 +168,25 @@ def _data(texto):
 def _escopos_do_convite(requisicao, empresa) -> dict[str, tuple[str, object]]:
     """`{valor do campo: (rótulo, lugar)}` onde a pessoa pode convidar: a empresa inteira e as fazendas do alcance dela. A
     sub-área não entra aqui: são muitas, e a escolha delas tem tela própria (`convidar_sub_area`). Quem tem a ação no
-    alcance só perde o lugar arquivado."""
+    alcance só perde o lugar arquivado: a listagem já tira a fazenda arquivada, e arquivar a empresa arquiva as fazendas
+    dela na mesma transação, então basta olhar a empresa, sem consulta por lugar (CodeRabbit, PR #30)."""
     escopos = unir_escopos(requisicao.user, 'convidar_pessoa')
     da_empresa_toda = escopos.plataforma or empresa.pk in escopos.empresas
-    candidatos = {'empresa': ('Empresa inteira', empresa)} if da_empresa_toda else {}
+    candidatos = {'empresa': ('Empresa inteira', empresa)} if da_empresa_toda and empresa.arquivada_em is None else {}
     for fazenda in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk):
         if da_empresa_toda or fazenda.pk in escopos.fazendas:
             candidatos[f'fazenda-{fazenda.pk}'] = (fazenda.nome, fazenda)
-    return {chave: (rotulo, lugar) for chave, (rotulo, lugar) in candidatos.items() if not escopo_arquivado(lugar)}
+    return candidatos
 
 
 def _consulta_de_sub_areas(requisicao, fazenda):
     """Sub-áreas da `fazenda` onde a pessoa pode convidar, como consulta: nada é carregado até alguém pedir a página
     (Qodo, Sourcery e Greptile, PR #30). Alcança quem tem a fazenda inteira, a própria sub-área ou uma ascendente (o
     `caminho` guarda os ancestrais). Convidar para o lugar mais estreito que serve é o menor privilégio (Azure RBAC,
-    Google Cloud IAM, GitHub). Fazenda arquivada não aceita convite; a listagem já tira a sub-área arquivada."""
+    Google Cloud IAM, GitHub). As fazendas chegam daqui já sem as arquivadas (`fazendas_autorizadas`), e a consulta já
+    tira a sub-área arquivada."""
     escopos = unir_escopos(requisicao.user, 'convidar_pessoa')
     da_fazenda = escopos.plataforma or fazenda.empresa_id in escopos.empresas or fazenda.pk in escopos.fazendas
-    if da_fazenda and escopo_arquivado(fazenda):
-        return SubArea.objects.none()
     consulta = SubArea.objects.filter(fazenda_id=fazenda.pk, arquivada_em__isnull=True)
     if not da_fazenda:
         filtro = Q(pk__in=escopos.sub_areas)

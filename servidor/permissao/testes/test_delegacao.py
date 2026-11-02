@@ -658,10 +658,10 @@ def test_pode_revogar_segue_as_mesmas_regras_da_funcao_de_revogar(cenario, titul
     curador = fabrica_pessoa('Curador')
     conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
     tecnico = conceder_direto(fabrica_pessoa('Tecnico'), cenario.cargos_x['tecnico'], cenario.f1)
-    de_admin_da_f1 = conceder_direto(fabrica_pessoa('Admin da F1'), cenario.cargos_x['administrador'], cenario.f1)
+    de_administrador_da_f1 = conceder_direto(fabrica_pessoa('Admin da F1'), cenario.cargos_x['administrador'], cenario.f1)
     de_f2 = conceder_direto(fabrica_pessoa('Usuario da F2'), cenario.cargos_x['usuario'], cenario.f2)
     assert pode_revogar(curador, tecnico) is True
-    assert pode_revogar(curador, de_admin_da_f1) is False  # nível acima
+    assert pode_revogar(curador, de_administrador_da_f1) is False  # nível acima
     assert pode_revogar(curador, de_f2) is False  # fora do escopo
     assert pode_revogar(titulares.outro, titulares.de_titular) is False  # Administrador titular é protegido
     assert pode_revogar(plataforma, titulares.de_titular) is False

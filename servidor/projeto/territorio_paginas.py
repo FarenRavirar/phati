@@ -13,7 +13,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.decorators.http import require_GET
 
-from permissao.pode import com_permissao, permissoes_efetivas
+from permissao.pode import com_permissao, permissoes_efetivas, unir_escopos
 from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import campo, confirmacao, exige_acao, exige_entrada, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
 from projeto.painel import ACOES_DE_PESSOAS
@@ -67,26 +67,38 @@ _ACOES_DA_PAGINA = {
 _DESARQUIVAR = {Empresa: 'empresa_desarquivar', Fazenda: 'fazenda_desarquivar', SubArea: 'sub_area_desarquivar'}
 
 
-def acoes_do_alvo(alvo, efetivas, sem=()):
+def acoes_do_alvo(alvo, efetivas, sem=(), pessoa=None):
     """Links de gestão da página do alvo, só os que a permissão efetiva permite (o servidor decide de novo ao clicar).
-    Arquivado: só `desarquivar`, o resto seria negado pela regra de permissão (R11). `sem` tira ações (a tela de renomear não se oferece)."""
+    Arquivado: só `desarquivar`, o resto seria negado pela regra de permissão (R11). `sem` tira ações (a tela de renomear não se oferece).
+    `pessoa` deixa o link Pessoas valer também para quem só alcança uma sub-área daqui: a permissão efetiva da empresa ou da
+    fazenda não a enxerga (CodeRabbit, PR #30)."""
     tipo = type(alvo)
     argumentos = _argumentos(alvo)
     if alvo.arquivada_em is not None:
         return [{'rotulo': 'Desarquivar', 'destino': reverse(_DESARQUIVAR[tipo], kwargs=argumentos)}] if 'desarquivar' in efetivas else []
     acoes = []
     for acao, rotulo, nome in _ACOES_DA_PAGINA[tipo]:
-        if not _oferecida(acao, alvo, efetivas, sem):
+        if not _oferecida(acao, alvo, efetivas, sem, pessoa):
             continue
         destino = _destino_da_acao(nome, argumentos)
         acoes.append({'rotulo': rotulo, 'destino': f'{destino}?pai={alvo.pk}' if nome == 'sub_area_nova' and tipo is SubArea else destino})
     return acoes
 
 
-def _oferecida(acao, alvo, efetivas, sem):
+def _gestao_de_pessoas_em(pessoa, alvo):
+    """A pessoa tem alguma ação de pessoas na empresa ou na fazenda do alvo, inclusive só numa sub-área dela."""
+    escopos = unir_escopos(pessoa, *ACOES_DE_PESSOAS)
+    if escopos.plataforma:
+        return True
+    if isinstance(alvo, Empresa):
+        return alvo.pk in escopos.empresas | escopos.empresas_das_fazendas
+    return alvo.empresa_id in escopos.empresas or alvo.pk in escopos.fazendas | escopos.fazendas_das_sub_areas
+
+
+def _oferecida(acao, alvo, efetivas, sem, pessoa=None):
     """A página oferece a ação se a pessoa tem alguma das ações exigidas, a tela não a tirou e há onde cadastrar."""
     exigidas = (acao,) if isinstance(acao, str) else acao
-    if not efetivas.intersection(exigidas) or acao in sem:
+    if acao in sem or not (efetivas.intersection(exigidas) or (acao is ACOES_DE_PESSOAS and pessoa is not None and _gestao_de_pessoas_em(pessoa, alvo))):
         return False
     return not (acao == 'criar_sub_area' and isinstance(alvo, SubArea) and alvo.nivel >= cadastro.NIVEL_MAXIMO)
 
@@ -210,7 +222,7 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         nome = requisicao.POST.get('nome', alvo.nome) if requisicao.method == 'POST' else alvo.nome
         campos = [campo('nome', 'Nome', nome, obrigatorio=True)]
         funcao = {Empresa: cadastro.renomear_empresa, Fazenda: cadastro.renomear_fazenda, SubArea: cadastro.renomear_sub_area}[type(alvo)]
-        acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',))
+        acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',), pessoa=requisicao.user)
         if requisicao.method == 'POST':
             try:
                 funcao(requisicao.user, alvo, nome)
@@ -349,6 +361,6 @@ def arquivadas(requisicao):
     pagina = Paginator(todos, ITENS_POR_PAGINA).get_page(requisicao.GET.get('pagina'))
     for alvo in pagina:
         # Item cujo ancestral segue arquivado só volta depois dele (`ancestral_arquivado`): sem botão que falha.
-        acoes = [] if getattr(alvo, 'empresa_id', None) in empresas_arquivadas else acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo))
+        acoes = [] if getattr(alvo, 'empresa_id', None) in empresas_arquivadas else acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), pessoa=requisicao.user)
         itens.append({'nome': alvo.nome, 'tipo': 'Empresa' if isinstance(alvo, Empresa) else 'Fazenda', 'caminho': caminho_de(alvo), 'acoes': acoes})
     return renderizar_na_casca(requisicao, 'arquivadas.html', {'itens': itens, 'pagina': pagina})

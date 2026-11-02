@@ -341,10 +341,10 @@ def test_reenviar_respeita_o_intervalo_e_depois_renova(cliente_logado, convite_e
 
 def test_convite_de_outra_pessoa_e_404_e_nao_muda(cliente_logado, convite_enviado, cenario, conceder_direto, cpf_novo):
     cpf = cpf_novo()
-    admin2 = Pessoa.objects.criar('Admin 2', 'admin2@exemplo.test', cpf)
-    admin2.set_password('cavalo azul sobe o morro')
-    admin2.save()
-    conceder_direto(admin2, cenario.cargos_x['administrador'], cenario.x)
+    segunda_administradora = Pessoa.objects.criar('Admin 2', 'segunda_administradora@exemplo.test', cpf)
+    segunda_administradora.set_password('cavalo azul sobe o morro')
+    segunda_administradora.save()
+    conceder_direto(segunda_administradora, cenario.cargos_x['administrador'], cenario.x)
     outro = Client()
     assert outro.post('/entrar', {'cpf': cpf, 'senha': 'cavalo azul sobe o morro'}).status_code == 302
     for acao in ('cancelar', 'reenviar'):
@@ -393,10 +393,10 @@ def test_titular_nao_e_revogado_e_a_tela_mostra_a_recusa_do_servico(cliente_loga
 
 def test_curador_revoga_abaixo_dele_e_nao_revoga_administrador(cliente_logado, conta, cenario, conceder_direto, alvo, fabrica_pessoa):
     conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
-    admin_da_f1 = fabrica_pessoa('Admin da F1')
-    de_admin = conceder_direto(admin_da_f1, cenario.cargos_x['administrador'], cenario.f1)
+    administrador_da_f1 = fabrica_pessoa('Admin da F1')
+    de_admin = conceder_direto(administrador_da_f1, cenario.cargos_x['administrador'], cenario.f1)
     pessoa, concessao = alvo
-    assert cliente_logado.post(_casa(cenario) + f'pessoa/{admin_da_f1.pk}/revogar/{de_admin.pk}').status_code == 403
+    assert cliente_logado.post(_casa(cenario) + f'pessoa/{administrador_da_f1.pk}/revogar/{de_admin.pk}').status_code == 403
     de_admin.refresh_from_db()
     assert de_admin.revogada_em is None
     assert cliente_logado.post(_casa(cenario) + f'pessoa/{pessoa.pk}/revogar/{concessao.pk}').status_code == 302
@@ -771,8 +771,8 @@ def test_lista_mostra_o_ultimo_dia_de_acesso_e_nao_o_dia_seguinte(cliente_logado
 
 def test_curador_so_recebe_link_de_revogar_do_que_o_servico_aceitaria(cliente_logado, conta, cenario, conceder_direto, alvo, fabrica_pessoa):
     conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
-    admin_da_f1 = fabrica_pessoa('Admin da F1')
-    de_admin = conceder_direto(admin_da_f1, cenario.cargos_x['administrador'], cenario.f1)
+    administrador_da_f1 = fabrica_pessoa('Admin da F1')
+    de_admin = conceder_direto(administrador_da_f1, cenario.cargos_x['administrador'], cenario.f1)
     pessoa, concessao = alvo
     html = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
     assert f'/pessoa/{pessoa.pk}/revogar/{concessao.pk}' in html
@@ -849,3 +849,24 @@ def test_administrador_de_outra_empresa_nao_ve_a_pessoa_pelo_acesso_dela_fora_do
     html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode())
     assert 'Pessoa da Y com acesso na G2' not in html
     assert cliente_logado.get(_casa(cenario) + f'pessoa/{de_y.pk}/revogar/{com_g2.pk}').status_code == 404
+
+
+def test_link_pessoas_aparece_para_quem_so_alcanca_uma_sub_area(cliente_logado, conta, cenario, conceder_direto):
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='So revoga na sub-area', base='tecnico')
+    for codigo in ('ver', 'revogar_acesso'):
+        CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
+    conceder_direto(conta.pessoa, personalizado, cenario.g1)
+    pessoas = _casa(cenario) + 'pessoas/'
+    assert f'href="{pessoas}"' in cliente_logado.get(_casa(cenario)).content.decode()
+    assert f'href="{pessoas}"' in cliente_logado.get(_casa(cenario) + f'fazenda/{cenario.f1.pk}/').content.decode()
+    assert cliente_logado.get(pessoas).status_code == 200
+
+
+def test_link_pessoas_nao_aparece_na_fazenda_de_quem_so_alcanca_outra(cliente_logado, conta, cenario, conceder_direto):
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='So revoga na F2', base='tecnico')
+    for codigo in ('ver', 'revogar_acesso'):
+        CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
+    conceder_direto(conta.pessoa, personalizado, cenario.f2)
+    pessoas = _casa(cenario) + 'pessoas/'
+    assert f'href="{pessoas}"' in cliente_logado.get(_casa(cenario) + f'fazenda/{cenario.f2.pk}/').content.decode()
+    assert cliente_logado.get(_casa(cenario) + f'fazenda/{cenario.f1.pk}/').status_code == 404

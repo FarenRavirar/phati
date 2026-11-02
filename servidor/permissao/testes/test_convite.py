@@ -561,34 +561,34 @@ def test_aceite_espera_a_revogacao_em_andamento_de_quem_convidou(cenario, fabric
 
 
 def test_convites_enviados_filtra_por_empresa_no_servico(cenario, fabrica_pessoa, conceder_direto):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    conceder_direto(admin, cenario.cargos_y['administrador'], cenario.y)
+    administradora = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    conceder_direto(administradora, cenario.cargos_y['administrador'], cenario.y)
     for destino, cargo in ((cenario.x, cenario.cargos_x['usuario']), (cenario.y, cenario.cargos_y['usuario'])):
         existente = fabrica_pessoa('Existente')
-        servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cargo, destino)
-    assert len(servico.convites_enviados(admin)) == 2
-    assert [c.empresa_id for c in servico.convites_enviados(admin, cenario.x.pk)] == [cenario.x.pk]
-    assert [c.empresa_id for c in servico.convites_enviados(admin, cenario.y.pk)] == [cenario.y.pk]
+        servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cargo, destino)
+    assert len(servico.convites_enviados(administradora)) == 2
+    assert [c.empresa_id for c in servico.convites_enviados(administradora, cenario.x.pk)] == [cenario.x.pk]
+    assert [c.empresa_id for c in servico.convites_enviados(administradora, cenario.y.pk)] == [cenario.y.pk]
 
 
 def test_convidar_quem_ja_tem_exatamente_o_acesso_nao_cria_convite(cenario, fabrica_pessoa, conceder_direto):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    administradora = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     existente = fabrica_pessoa('Existente')
     conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1)
-    assert servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f1) == (None, None)
+    assert servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f1) == (None, None)
     assert not Convite.objects.exists()
     # Outro cargo, outro lugar ou outro prazo é outro pedido: o convite sai.
-    servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['tecnico'], cenario.f1)
-    servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f2)
+    servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['tecnico'], cenario.f1)
+    servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f2)
     assert Convite.objects.count() == 2
 
 
 def test_aceitar_convite_do_que_a_pessoa_ja_tem_nao_grava_segunda_concessao(cenario, fabrica_pessoa, conceder_direto):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    administradora = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     existente = fabrica_pessoa('Existente')
     ja_tem = conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1)
     convite = Convite.objects.create(
-        pessoa=existente, convidado_por=admin, cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f1,
+        pessoa=existente, convidado_por=administradora, cargo=cenario.cargos_x['usuario'], empresa=cenario.x, fazenda=cenario.f1,
         empresa_nome=cenario.x.nome, cargo_nome='Usuário', expira_em=timezone.now() + timedelta(days=7),
     )
     assert servico.aceitar(existente, convite.pk) == ja_tem
@@ -598,10 +598,22 @@ def test_aceitar_convite_do_que_a_pessoa_ja_tem_nao_grava_segunda_concessao(cena
 
 
 def test_concessao_futura_nao_impede_o_convite_para_comecar_agora(cenario, fabrica_pessoa, conceder_direto):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    administradora = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     existente = fabrica_pessoa('Existente')
     conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=10))
-    servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f1)
+    servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f1)
     convite = Convite.objects.get()  # o acesso pedido começa agora: a concessão de daqui a dez dias não o cobre
     servico.aceitar(existente, convite.pk)
     assert Concessao.objects.filter(pessoa=existente).count() == 2
+
+
+def test_convidar_o_que_a_pessoa_ja_tem_cancela_o_convite_pendente_de_outro_prazo(cenario, fabrica_pessoa, conceder_direto):
+    administradora = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    cpf = _cpf_de(existente)
+    servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1, fim=timezone.now() + timedelta(days=10))
+    conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1)  # sem prazo: é o que o próximo pedido quer
+    servico.convidar_por_cpf(administradora, 'Qualquer', 'q@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1)
+    convite = Convite.objects.get()
+    assert convite.cancelado_em is not None  # senão o aceite ainda daria o acesso antigo, com prazo
+    assert servico.convites_da_pessoa(existente) == []

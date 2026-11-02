@@ -98,8 +98,7 @@ def _concessao_igual(pessoa, proposta, categorias):
 def _registrar(quem, pessoa, proposta, categorias, inicio):
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
-        if _concessao_igual(pessoa, proposta, categorias) is not None:
-            return  # a pessoa já tem exatamente este acesso: nada a convidar
+        ja_tem = _concessao_igual(pessoa, proposta, categorias) is not None
         envios_anteriores = 0
         for igual in _pendentes(pessoa).filter(
             convidado_por=quem, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id,
@@ -111,11 +110,14 @@ def _registrar(quem, pessoa, proposta, categorias, inicio):
             # Mesmo lugar e cargo com outro período ou outras categorias: o novo vale e o antigo sai, senão o aceite
             # criaria o acesso antigo (Greptile, PR #16). Substituir manda outro e-mail, então herda o intervalo e o
             # teto de envios do reenvio: sem isso 50 substituições seguidas encheriam a caixa da pessoa.
-            _exigir_pode_enviar(igual)
-            envios_anteriores = igual.envios
+            if not ja_tem:  # sem convite novo não sai e-mail: o intervalo e o teto não valem
+                _exigir_pode_enviar(igual)
+                envios_anteriores = igual.envios
             igual.cancelado_em = timezone.now()
             igual.save(update_fields=['cancelado_em'])
             auditar('convite_cancelado', quem, igual, igual.empresa_id, {'substituido': True})
+        if ja_tem:
+            return  # a pessoa já tem exatamente este acesso: nada a convidar (o pendente antigo já saiu acima)
         convite = Convite.objects.create(
             pessoa=pessoa, convidado_por=quem, cargo=proposta.cargo, empresa_id=proposta.empresa_id,
             fazenda_id=proposta.fazenda_id, sub_area_id=proposta.sub_area_id, inicio=inicio, fim=proposta.fim,

@@ -14,16 +14,17 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   const projeto = informacoes.project.name;
   const computador = projeto.startsWith('computador');
   // Nome e CPFs mudam a cada rodada: o banco de teste guarda a rodada anterior e o cadastro recusa nome e CPF repetidos.
-  const rodada = 600000000 + (Date.now() % 90000000);
+  // Cada projeto usa uma base de 4 CPFs só dele (a rodada anda de 8 em 8): os dois projetos rodam ao mesmo tempo e nunca dividem CPF.
+  const rodada = 600000000 + (Date.now() % 12000000) * 8 + (computador ? 0 : 4);
   const empresa = `Empresa Pessoas ${projeto} ${rodada}`;
-  const cpfConvidada = cpfSintetico(rodada + (computador ? 1 : 2));
+  const cpfConvidada = cpfSintetico(rodada);
   await entrar(page, dados.plataforma.cpf);
 
   await page.goto('/empresas/nova');
   await page.getByLabel('Nome da empresa').fill(empresa);
   await page.getByLabel('Nome do primeiro Administrador').fill('Administrador Pessoas');
   await page.getByLabel('E-mail do Administrador').fill(`pessoas-${projeto}@exemplo.test`);
-  await page.getByLabel('CPF do Administrador').fill(cpfSintetico(rodada + (computador ? 3 : 4)));
+  await page.getByLabel('CPF do Administrador').fill(cpfSintetico(rodada + 1));
   await page.getByRole('button', { name: 'Criar empresa' }).click();
   await page.getByRole('link', { name: 'Abrir a empresa' }).click();
 
