@@ -1,7 +1,7 @@
 """Telas de pessoas (003 R13 a R17, R28, R33; A26): caso feliz, validação, acesso negado por URL direta e escape de HTML."""
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -887,8 +887,11 @@ def test_conceder_mostra_o_formulario_e_o_historico_com_ativas_e_revogadas(clien
         revogada_em=timezone.now(), revogada_por=administradora,
     )
     html = _sem_nonce(cliente_logado.get(_conceder(cenario, pessoa)).content.decode())
-    assert 'Conceder cargo a Alvo Tecnico' in html and 'name="cargo"' in html and 'name="escopo"' in html
-    assert 'Técnico · F1 · ativa' in html and 'Usuário · F2 · revogada em' in html
+    assert 'Conceder cargo a Alvo Tecnico' in html
+    assert 'name="cargo"' in html
+    assert 'name="escopo"' in html
+    assert 'Técnico · F1 · ativa' in html
+    assert 'Usuário · F2 · revogada em' in html
     assert html.index('Usuário · F2') < html.index('Técnico · F1')  # da mais nova à mais antiga
     assert revogada.pk > ativa.pk
     assert not re.search(r'object \(|Select an option', html)
@@ -897,9 +900,11 @@ def test_conceder_mostra_o_formulario_e_o_historico_com_ativas_e_revogadas(clien
 def test_conceder_grava_a_concessao_audita_e_volta_a_lista(cliente_logado, administradora, cenario, alvo):
     pessoa, _ = alvo
     resposta = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['curador'].pk, 'escopo': f'fazenda-{cenario.f2.pk}'})
-    assert resposta.status_code == 302 and resposta['Location'].endswith('/pessoas/?feito=concedido')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('/pessoas/?feito=concedido')
     nova = Concessao.objects.get(pessoa=pessoa, cargo=cenario.cargos_x['curador'])
-    assert (nova.fazenda_id, nova.concedida_por_id) == (cenario.f2.pk, administradora.pk)
+    assert nova.fazenda_id == cenario.f2.pk
+    assert nova.concedida_por == administradora
     assert len(_auditoria('concessao_criada')) == 1
     assert 'Acesso concedido.' in _sem_nonce(cliente_logado.get(resposta['Location']).content.decode())
 
@@ -915,7 +920,9 @@ def test_conceder_com_dado_invalido_volta_com_o_erro_uma_vez_so_e_nao_grava(clie
     dados = {'cargo': cenario.cargos_x['curador'].pk, 'escopo': f'fazenda-{cenario.f2.pk}', **mudanca}
     resposta = cliente_logado.post(_conceder(cenario, pessoa), dados)
     html = _sem_nonce(resposta.content.decode())
-    assert resposta.status_code == 400 and html.count(texto) == 1 and f'id="{campo_do_erro}-descricao"' in html
+    assert resposta.status_code == 400
+    assert html.count(texto) == 1
+    assert f'id="{campo_do_erro}-descricao"' in html
     assert Concessao.objects.filter(pessoa=pessoa).count() == 1
 
 
@@ -954,3 +961,28 @@ def test_lista_de_pessoas_oferece_conceder_so_a_quem_pode(cliente_logado, conta,
     da_conta.delete()
     conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
     assert f'pessoa/{pessoa.pk}/conceder' in cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()  # o Curador convida, então concede
+
+
+# --- achados de revisão da PR #31 ---
+
+
+def test_historico_mostra_as_datas_no_fuso_local_e_nao_em_utc(cliente_logado, administradora, cenario, alvo, conceder_direto):
+    pessoa, _ = alvo
+    # Último dia 01/01/2030: o fim gravado é a meia-noite local do dia 02, que em UTC já é 02/01 03:00.
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f2, fim=timezone.make_aware(datetime(2030, 1, 2)))
+    html = _sem_nonce(cliente_logado.get(_conceder(cenario, pessoa)).content.decode())
+    assert 'Usuário · F2 · até 01/01/2030 · ativa' in html
+
+
+def test_conceder_so_a_pessoa_que_o_convidar_alcanca_mesmo_vista_por_revogar(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    """Quem convida na F1 e só revoga na F2 vê a pessoa da F2 na lista, mas não pode conceder a ela (a API responde 404)."""
+    revogador = Cargo.objects.create(empresa=cenario.x, nome='Revogador', base='tecnico')  # Curador convida sempre (D073): o cargo do teste não pode ser dele
+    CargoPermissao.objects.bulk_create(CargoPermissao(cargo=revogador, permissao_id=c) for c in ('ver', 'revogar_acesso'))
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
+    conceder_direto(conta.pessoa, revogador, cenario.f2)
+    da_f2 = fabrica_pessoa('Pessoa da F2')
+    conceder_direto(da_f2, cenario.cargos_x['tecnico'], cenario.f2)
+    assert 'Pessoa da F2' in cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert cliente_logado.get(_conceder(cenario, da_f2)).status_code == 404
+    assert cliente_logado.post(_conceder(cenario, da_f2), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'fazenda-{cenario.f1.pk}'}).status_code == 404
+    assert Concessao.objects.filter(pessoa=da_f2).count() == 1

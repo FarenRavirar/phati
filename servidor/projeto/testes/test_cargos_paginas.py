@@ -80,7 +80,8 @@ def test_editar_cargo_de_outra_empresa_pela_url_de_x_e_404_e_nao_muda_nada(clien
     resposta = cliente_logado.post(_casa(cenario) + f'cargos/{de_y.pk}/editar', {'nome': 'Roubado', 'versao': de_y.versao, 'permissoes': ['ver']})
     assert resposta.status_code == 404
     de_y.refresh_from_db()
-    assert de_y.nome == 'Técnico' and de_y.versao == 1
+    assert de_y.nome == 'Técnico'
+    assert de_y.versao == 1
 
 
 # --- lista (R18, A12) ---
@@ -90,7 +91,8 @@ def test_lista_mostra_cada_cargo_com_empresa_nivel_e_total_em_portugues(cliente_
     html = _html(cliente_logado.get(_casa(cenario) + 'cargos/'))
     for esperado in ('Campo', 'Empresa X', 'nível Técnico', 'nível Administrador', 'Criar cargo', f'cargos/{campo.pk}/editar'):
         assert esperado in html, esperado
-    assert 'Empresa Y' not in html and not re.search(r'object \(|Select an option', html)
+    assert 'Empresa Y' not in html
+    assert not re.search(r'object \(|Select an option', html)
 
 
 # --- criar (R18) ---
@@ -98,14 +100,17 @@ def test_lista_mostra_cada_cargo_com_empresa_nivel_e_total_em_portugues(cliente_
 
 def test_formulario_de_criar_lista_a_matriz_pela_descricao_e_sem_acao_da_plataforma(cliente_logado, administradora, cenario):
     html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
-    assert 'Ver o território e seus dados' in html and 'Criar e alterar cargo' in html
-    assert 'Criar empresa' not in html and 'value="criar_empresa"' not in html
+    assert 'Ver o território e seus dados' in html
+    assert 'Criar e alterar cargo' in html
+    assert 'Criar empresa' not in html
+    assert 'value="criar_empresa"' not in html
     assert not re.search(r'object \(|Select an option', html)
 
 
 def test_criar_grava_o_cargo_com_as_permissoes_e_audita(cliente_logado, administradora, cenario):
     resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Campo 2', 'base': 'tecnico', 'permissoes': ['ver', 'baixar_documento']})
-    assert resposta.status_code == 302 and resposta['Location'].endswith('/cargos/?feito=criado')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('/cargos/?feito=criado')
     cargo = Cargo.objects.get(empresa=cenario.x, nome='Campo 2')
     assert cargo.base == 'tecnico'
     assert set(CargoPermissao.objects.filter(cargo=cargo).values_list('permissao_id', flat=True)) == {'ver', 'baixar_documento'}
@@ -126,7 +131,8 @@ def test_criar_com_dado_invalido_volta_com_o_erro_uma_vez_so_no_campo(cliente_lo
     resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', dados)
     html = _html(resposta)
     assert resposta.status_code == 400
-    assert html.count(texto) == 1 and f'id="{campo_do_erro}-descricao"' in html
+    assert html.count(texto) == 1
+    assert f'id="{campo_do_erro}-descricao"' in html
     assert Cargo.objects.count() == antes
 
 
@@ -137,8 +143,10 @@ def test_editar_mostra_o_nivel_como_texto_e_a_versao_oculta(cliente_logado, admi
     resposta = cliente_logado.get(_casa(cenario) + f'cargos/{campo.pk}/editar')
     html = _html(resposta)
     assert _versao(resposta) == campo.versao
-    assert 'nível Técnico, que não muda' in html and 'name="base"' not in html
-    assert re.search(r'value="baixar_documento"[^>]* checked', html) and not re.search(r'value="validar_registro"[^>]* checked', html)
+    assert 'nível Técnico, que não muda' in html
+    assert 'name="base"' not in html
+    assert re.search(r'value="baixar_documento"[^>]* checked', html)
+    assert not re.search(r'value="validar_registro"[^>]* checked', html)
 
 
 def test_editar_grava_nome_e_permissoes_soma_a_versao_e_ignora_base_e_empresa_enviadas(cliente_logado, administradora, cenario, campo):
@@ -146,7 +154,8 @@ def test_editar_grava_nome_e_permissoes_soma_a_versao_e_ignora_base_e_empresa_en
     resposta = cliente_logado.post(caminho, {
         'nome': 'Campo novo', 'versao': campo.versao, 'permissoes': ['ver'], 'base': 'administrador', 'empresa': cenario.y.pk,
     })
-    assert resposta.status_code == 302 and resposta['Location'].endswith('/cargos/?feito=alterado')
+    assert resposta.status_code == 302
+    assert resposta['Location'].endswith('/cargos/?feito=alterado')
     campo.refresh_from_db()
     assert (campo.nome, campo.versao, campo.base, campo.empresa_id) == ('Campo novo', 2, 'tecnico', cenario.x.pk)
     assert set(campo.permissoes.values_list('pk', flat=True)) == {'ver'}
@@ -159,7 +168,8 @@ def test_versao_velha_volta_409_com_o_cargo_recarregado_e_nao_sobrescreve(client
     resposta = cliente_logado.post(caminho, {'nome': 'Campo velho', 'versao': lida, 'permissoes': ['ver', 'baixar_documento']})
     html = _html(resposta)
     assert resposta.status_code == 409
-    assert html.count('Outra pessoa alterou este cargo.') == 1 and 'value="Campo da outra pessoa"' in html
+    assert html.count('Outra pessoa alterou este cargo.') == 1
+    assert 'value="Campo da outra pessoa"' in html
     assert _versao(resposta) == lida + 1  # a tela reabre com a versão nova: o próximo envio vale
     campo.refresh_from_db()
     assert campo.nome == 'Campo da outra pessoa'
@@ -194,7 +204,8 @@ def test_gestor_nao_cria_cargo_de_nivel_acima_nem_com_permissao_que_nao_tem(clie
     assert 'nível ou permissões acima das suas' in _html(acima)
     assert Cargo.objects.count() == antes
     dentro = cliente_logado.post(caminho, {'nome': 'Leitor', 'base': 'tecnico', 'permissoes': ['ver']})
-    assert dentro.status_code == 302 and Cargo.objects.filter(nome='Leitor').exists()
+    assert dentro.status_code == 302
+    assert Cargo.objects.filter(nome='Leitor').exists()
 
 
 def test_gestor_nao_edita_cargo_de_nivel_igual_ou_acima_e_nada_muda(cliente_logado, gestor, cenario):
@@ -202,4 +213,35 @@ def test_gestor_nao_edita_cargo_de_nivel_igual_ou_acima_e_nada_muda(cliente_loga
     resposta = cliente_logado.post(_casa(cenario) + f'cargos/{adm.pk}/editar', {'nome': 'Rebaixado', 'versao': adm.versao, 'permissoes': ['ver']})
     assert resposta.status_code == 403
     adm.refresh_from_db()
-    assert adm.nome == 'Administrador' and adm.versao == 1
+    assert adm.nome == 'Administrador'
+    assert adm.versao == 1
+
+
+# --- achados de revisão da PR #31 ---
+
+
+def test_erro_de_validacao_na_edicao_mantem_a_versao_enviada_e_o_reenvio_ainda_da_409(cliente_logado, administradora, cenario, campo):
+    caminho = _casa(cenario) + f'cargos/{campo.pk}/editar'
+    lida = _versao(cliente_logado.get(caminho))
+    gerenciar_cargo(administradora, cenario.x, 'Campo da outra pessoa', ['ver'], cargo=campo, versao=lida)
+    invalida = cliente_logado.post(caminho, {'nome': ' ', 'versao': lida, 'permissoes': ['ver', 'baixar_documento']})
+    assert invalida.status_code == 400
+    assert _versao(invalida) == lida  # a versão que a pessoa leu, não a que a outra pessoa gravou
+    reenvio = cliente_logado.post(caminho, {'nome': 'Campo corrigido', 'versao': _versao(invalida), 'permissoes': ['ver', 'baixar_documento']})
+    assert reenvio.status_code == 409
+    campo.refresh_from_db()
+    assert campo.nome == 'Campo da outra pessoa'
+
+
+def test_gerenciar_cargo_so_na_fazenda_nao_abre_as_telas_de_cargos(cliente_logado, conta, cenario, conceder_direto):
+    """`gerenciar_cargo` exige a empresa inteira (cargo é da empresa): quem o tem só numa fazenda recebe 403, não um formulário que falharia."""
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Gestor de fazenda', base='curador')
+    CargoPermissao.objects.bulk_create(CargoPermissao(cargo=cargo, permissao_id=c) for c in ('ver', 'gerenciar_cargo'))
+    conceder_direto(conta.pessoa, cargo, cenario.f1)
+    for nome, caminho in _telas(cenario, cenario.cargos_x['tecnico'].pk).items():
+        assert (nome, cliente_logado.get(caminho).status_code) == (nome, 403)
+
+
+def test_lista_mostra_o_total_de_permissoes_de_cada_cargo(cliente_logado, administradora, cenario, campo):
+    html = _html(cliente_logado.get(_casa(cenario) + 'cargos/'))
+    assert 'nível Técnico · 2 permissões' in html

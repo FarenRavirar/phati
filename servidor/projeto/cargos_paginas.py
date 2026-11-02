@@ -14,11 +14,11 @@ from django.shortcuts import redirect
 from permissao import cargo as servico
 from permissao.cargos_base import NOMES
 from permissao.models import Cargo, Permissao
-from permissao.pode import ACOES_DA_PLATAFORMA, com_permissao
+from permissao.pode import ACOES_DA_PLATAFORMA, com_permissao, unir_escopos
 from projeto.paginas_autenticadas import campo, formulario, pagina, renderizar_na_casca, texto_do_erro
-from projeto.pessoas_paginas import ESCOLHA_VAZIA, _aviso_do_endereco, _caminho, _com_alcance, _empresa
+from projeto.pessoas_paginas import ESCOLHA_VAZIA, _aviso_do_endereco, _caminho, _empresa
 
-TITULO_CARGOS = 'Cargos'
+TITULO_CRIAR = 'Criar cargo'
 SEM_ALCANCE = 'Você não pode criar nem alterar este cargo: ele tem nível ou permissões acima das suas.'
 # Código da `ValidationError` do serviço → campo da tela que mostra o texto (o resto vai para o aviso do topo).
 CAMPO_DO_ERRO = {'nome_invalido': 'nome', 'nome_duplicado': 'nome', 'permissao_invalida': 'permissoes', 'base_invalida': 'base'}
@@ -28,18 +28,26 @@ def _contexto(requisicao):
     return com_permissao(requisicao.user, 'gerenciar_cargo', 'ver')
 
 
+def _com_alcance(requisicao, empresa):
+    """Cargo é da empresa: `gerenciar_cargo` só vale com a empresa inteira. Quem o tem só numa fazenda ou sub-área recebe 403
+    em vez de um formulário que o serviço recusaria no envio (Qodo, PR #31)."""
+    escopos = unir_escopos(requisicao.user, 'gerenciar_cargo')
+    if not (escopos.plataforma or empresa.pk in escopos.empresas):
+        raise PermissionDenied
+
+
 @pagina('gerenciar_cargo')
 def cargos(requisicao, empresa_id):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
-        _com_alcance(requisicao, empresa, 'gerenciar_cargo')
+        _com_alcance(requisicao, empresa)
         lista = Cargo.objects.filter(empresa_id=empresa.pk).annotate(total=Count('permissoes')).order_by('nome').values('pk', 'nome', 'base', 'total')
         itens = [
             {'nome': c['nome'], 'base': NOMES[c['base']], 'empresa': empresa.nome, 'total': c['total'],
              'editar': _caminho('cargo_editar', empresa, cargo_id=c['pk'])}
             for c in lista
         ]
-    contexto = {'itens': itens, 'aviso': _aviso_do_endereco(requisicao), 'acoes': [{'rotulo': 'Criar cargo', 'destino': _caminho('cargo_novo', empresa)}]}
+    contexto = {'itens': itens, 'aviso': _aviso_do_endereco(requisicao), 'acoes': [{'rotulo': TITULO_CRIAR, 'destino': _caminho('cargo_novo', empresa)}]}
     return renderizar_na_casca(requisicao, 'cargos.html', contexto, empresa=empresa)
 
 
@@ -83,12 +91,12 @@ def _gravar(requisicao, empresa, dados, cargo, base):
 def cargo_novo(requisicao, empresa_id):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
-        _com_alcance(requisicao, empresa, 'gerenciar_cargo')
+        _com_alcance(requisicao, empresa)
         catalogo = _permissoes_do_catalogo()
         cancelar = _caminho('cargos', empresa)
 
         def tela(dados, erros, erro=None, codigo_http=200):
-            return formulario(requisicao, 'Criar cargo', _campos(dados, erros, catalogo), 'Criar cargo', cancelar,
+            return formulario(requisicao, TITULO_CRIAR, _campos(dados, erros, catalogo), TITULO_CRIAR, cancelar,
                               subtitulo=empresa.nome, erro=erro, empresa=empresa, codigo_http=codigo_http)
 
         if requisicao.method == 'GET':
@@ -106,17 +114,19 @@ def cargo_novo(requisicao, empresa_id):
 def cargo_editar(requisicao, empresa_id, cargo_id):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
-        _com_alcance(requisicao, empresa, 'gerenciar_cargo')
+        _com_alcance(requisicao, empresa)
         cargo = Cargo.objects.filter(pk=cargo_id, empresa_id=empresa.pk).first()
         if cargo is None:
             raise Http404
         catalogo = _permissoes_do_catalogo()
         cancelar = _caminho('cargos', empresa)
 
-        def tela(dados, erros, erro=None, codigo_http=200):
+        def tela(dados, erros, erro=None, codigo_http=200, versao=None):
+            # Erro de validação devolve a versão que a pessoa leu: a do banco pode ser de outra edição, e reenviar com ela
+            # sobrescreveria a mudança sem o 409 (Codex, Greptile e Qodo, PR #31). Só recarregar dados e versão juntos.
             return formulario(requisicao, f'Editar {cargo.nome}', _campos(dados, erros, catalogo, base_fixa=cargo.base), 'Salvar cargo',
                               cancelar, subtitulo=f'{empresa.nome} · nível {NOMES[cargo.base]}, que não muda', erro=erro, empresa=empresa,
-                              escondidos={'versao': cargo.versao}, codigo_http=codigo_http)
+                              escondidos={'versao': cargo.versao if versao is None else versao}, codigo_http=codigo_http)
 
         def dados_atuais():
             return {'nome': cargo.nome, 'permissoes': {p.codigo for p in cargo.permissoes.all()}}
@@ -128,5 +138,5 @@ def cargo_editar(requisicao, empresa_id, cargo_id):
             cargo.refresh_from_db()
             return tela(dados_atuais(), {}, erro, codigo)
         if codigo != 200:
-            return tela(requisicao.POST, erros, erro, codigo)
+            return tela(requisicao.POST, erros, erro, codigo, versao=requisicao.POST.get('versao', ''))
     return redirect(cancelar + '?feito=alterado')

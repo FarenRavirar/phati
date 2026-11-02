@@ -370,15 +370,16 @@ def _historico_de_acessos(requisicao, empresa, pessoa):
     agora = timezone.now()
     linhas = []
     for c in concessoes:
+        # Datas no fuso local, como o filtro `date` do molde da lista de pessoas: em UTC o último dia aparece um dia depois.
         if c.revogada_em is not None:
-            situacao = f'revogada em {c.revogada_em:%d/%m/%Y}'
+            situacao = f'revogada em {timezone.localtime(c.revogada_em):%d/%m/%Y}'
         elif c.fim is not None and c.fim <= agora:
             situacao = 'encerrada'
         elif c.inicio > agora:
-            situacao = f'começa em {c.inicio:%d/%m/%Y}'
+            situacao = f'começa em {timezone.localtime(c.inicio):%d/%m/%Y}'
         else:
             situacao = 'ativa'
-        prazo = f' · até {c.fim - timedelta(microseconds=1):%d/%m/%Y}' if c.fim else ''  # o `fim` gravado é exclusivo
+        prazo = f' · até {timezone.localtime(c.fim - timedelta(microseconds=1)):%d/%m/%Y}' if c.fim else ''  # o `fim` gravado é exclusivo
         linhas.append(f'{c.cargo.nome} · {_onde(c, nomes, nomes_de_sub_area)}{prazo} · {situacao}')
     return {'titulo': f'Acessos de {pessoa.nome} nesta empresa', 'linhas': linhas, 'vazio': 'Nenhum acesso registrado.'}
 
@@ -389,6 +390,9 @@ def conceder(requisicao, empresa_id, pessoa_id):
     with _contexto(requisicao):
         _com_alcance(requisicao, empresa, 'convidar_pessoa')
         pessoa = _pessoa_da_empresa(requisicao, empresa, pessoa_id)
+        # A lista junta o alcance de convidar, revogar e redefinir; conceder segue o de convidar, como a rota da API (Qodo, PR #31).
+        if not pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk=pessoa.pk).exists():
+            raise Http404
         escopos = _escopos_do_convite(requisicao, empresa)
         if not escopos:
             raise PermissionDenied

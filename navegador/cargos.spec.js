@@ -62,7 +62,8 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
   await page.getByRole('link', { name: 'Conceder cargo a Administrador Cargos' }).click();
   await expect(page.getByRole('heading', { name: 'Conceder cargo a Administrador Cargos', level: 1 })).toBeVisible();
   await conferirTela(page);
-  await page.getByLabel('Cargo').selectOption({ label: 'Campo novo' });
+  // exact: a região do histórico ("Acessos de ... nesta empresa") também casa com "Cargo" por substring.
+  await page.getByLabel('Cargo', { exact: true }).selectOption({ label: 'Campo novo' });
   await page.getByLabel('Onde vale').selectOption({ label: 'Empresa inteira' });
   await page.getByRole('button', { name: 'Conceder' }).click();
   await expect(page.getByText('Acesso concedido.')).toBeVisible();
