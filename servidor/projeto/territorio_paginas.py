@@ -76,12 +76,28 @@ def acoes_do_alvo(alvo, efetivas, sem=()):
         return [{'rotulo': 'Desarquivar', 'destino': reverse(_DESARQUIVAR[tipo], kwargs=argumentos)}] if 'desarquivar' in efetivas else []
     acoes = []
     for acao, rotulo, nome in _ACOES_DA_PAGINA[tipo]:
-        if not efetivas.intersection((acao,) if isinstance(acao, str) else acao) or acao in sem or (acao == 'criar_sub_area' and tipo is SubArea and alvo.nivel >= cadastro.NIVEL_MAXIMO):
+        if not _oferecida(acao, alvo, efetivas, sem):
             continue
-        # As telas de cadastro ("_nova") vivem na fazenda ou na empresa, e a de pessoas é da empresa: levam só o que o endereço tem.
-        destino = reverse(nome, kwargs={k: v for k, v in argumentos.items() if not (nome.endswith('_nova') and k == 'sub_area_id') and not (nome == 'pessoas' and k != 'empresa_id')})
+        destino = _destino_da_acao(nome, argumentos)
         acoes.append({'rotulo': rotulo, 'destino': f'{destino}?pai={alvo.pk}' if nome == 'sub_area_nova' and tipo is SubArea else destino})
     return acoes
+
+
+def _oferecida(acao, alvo, efetivas, sem):
+    """A página oferece a ação se a pessoa tem alguma das ações exigidas, a tela não a tirou e há onde cadastrar."""
+    exigidas = (acao,) if isinstance(acao, str) else acao
+    if not efetivas.intersection(exigidas) or acao in sem:
+        return False
+    return not (acao == 'criar_sub_area' and isinstance(alvo, SubArea) and alvo.nivel >= cadastro.NIVEL_MAXIMO)
+
+
+def _destino_da_acao(nome, argumentos):
+    # As telas de cadastro ("_nova") vivem na fazenda ou na empresa, e a de pessoas é da empresa: levam só o que o endereço tem.
+    if nome.endswith('_nova'):
+        argumentos = {k: v for k, v in argumentos.items() if k != 'sub_area_id'}
+    elif nome == 'pessoas':
+        argumentos = {'empresa_id': argumentos['empresa_id']}
+    return reverse(nome, kwargs=argumentos)
 
 
 def _resolver(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):

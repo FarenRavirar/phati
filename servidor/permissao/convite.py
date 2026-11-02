@@ -84,11 +84,12 @@ def _exigir_cota(quem):
 
 def _concessao_igual(pessoa, proposta, categorias):
     """A concessão não revogada e sem fim passado que já dá à pessoa o mesmo que `proposta` (cargo, lugar, fim e
-    categorias), ou None. Sem isto, repetir um convite cujo CPF já virou pessoa, ou aceitar um convite do que ela já
+    categorias) e que já começou quando a proposta começa, ou None. Concessão futura não antecipa o acesso pedido
+    (Greptile, PR #30). Sem isto, repetir um convite cujo CPF já virou pessoa, ou aceitar um convite do que ela já
     tem, gravaria uma segunda concessão igual (Sourcery, PR #30)."""
     candidatas = Concessao.objects.filter(
         pessoa=pessoa, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id, fazenda_id=proposta.fazenda_id,
-        sub_area_id=proposta.sub_area_id, fim=proposta.fim, revogada_em__isnull=True,
+        sub_area_id=proposta.sub_area_id, fim=proposta.fim, inicio__lte=proposta.inicio, revogada_em__isnull=True,
     ).filter(_com_fim_no_futuro())
     pedidas = {categoria.pk for categoria in categorias}
     return next((c for c in candidatas if set(c.categorias.values_list('pk', flat=True)) == pedidas), None)

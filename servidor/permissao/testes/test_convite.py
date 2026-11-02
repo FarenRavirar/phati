@@ -595,3 +595,13 @@ def test_aceitar_convite_do_que_a_pessoa_ja_tem_nao_grava_segunda_concessao(cena
     convite.refresh_from_db()
     assert convite.aceito_em is not None
     assert Concessao.objects.filter(pessoa=existente).count() == 1
+
+
+def test_concessao_futura_nao_impede_o_convite_para_comecar_agora(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    conceder_direto(existente, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=10))
+    servico.convidar_por_cpf(admin, 'Qualquer', 'q@exemplo.test', _cpf_de(existente), cenario.cargos_x['usuario'], cenario.f1)
+    convite = Convite.objects.get()  # o acesso pedido começa agora: a concessão de daqui a dez dias não o cobre
+    servico.aceitar(existente, convite.pk)
+    assert Concessao.objects.filter(pessoa=existente).count() == 2

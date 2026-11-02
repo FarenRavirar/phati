@@ -242,6 +242,33 @@ def _campos_do_convite(dados, cargos, escopos, categorias, erros):
     ]
 
 
+def _erro_do_email(email):
+    try:
+        validate_email(email)
+    except ValidationError:
+        return 'Informe um e-mail válido.'
+    if len(email) > TAMANHO_DO_EMAIL:  # o banco recusaria na gravação da pessoa nova (Qodo, PR #30)
+        return f'Informe um e-mail de até {TAMANHO_DO_EMAIL} caracteres.'
+    return None
+
+
+def _ler_periodo(dados):
+    """`(erros, início, fim)` do período: o fim vale até o fim do dia escolhido, então soma um dia."""
+    erros, inicio, fim = {}, None, None
+    try:
+        inicio = _data(dados.get('inicio', ''))
+    except ValueError:
+        erros['inicio'] = 'Use uma data válida.'
+    try:
+        fim = _data(dados.get('fim', ''))
+        fim = fim + timedelta(days=1) if fim else None
+    except (ValueError, OverflowError):  # 9999-12-31 mais um dia estoura o calendário (Qodo, PR #30)
+        erros['fim'] = 'Use uma data válida.'
+    if not erros and fim is not None and fim <= (inicio or timezone.now()):
+        erros['fim'] = 'O fim precisa ser depois do início.'
+    return erros, inicio, fim
+
+
 def _ler_convite(dados, cargos, escopos, categorias):
     """Converte e valida só o formato (R28); a regra de quem pode conceder o quê é da função de serviço."""
     erros = {}
@@ -249,13 +276,8 @@ def _ler_convite(dados, cargos, escopos, categorias):
     lugar = escopos.get(dados.get('escopo', ''))
     if not dados.get('nome', '').strip() or len(dados.get('nome', '')) > 200:
         erros['nome'] = 'Informe um nome de 1 a 200 caracteres.'
-    try:
-        validate_email(dados.get('email', ''))
-    except ValidationError:
-        erros['email'] = 'Informe um e-mail válido.'
-    else:
-        if len(dados['email']) > TAMANHO_DO_EMAIL:  # o banco recusaria na gravação da pessoa nova (Qodo, PR #30)
-            erros['email'] = f'Informe um e-mail de até {TAMANHO_DO_EMAIL} caracteres.'
+    if erro_do_email := _erro_do_email(dados.get('email', '')):
+        erros['email'] = erro_do_email
     if not dados.get('cpf', '').strip():
         erros['cpf'] = 'Informe o CPF.'
     if cargo is None:
@@ -266,18 +288,8 @@ def _ler_convite(dados, cargos, escopos, categorias):
     marcadas = [c for c in categorias if str(c.pk) in escolhidas]
     if len(marcadas) != len(escolhidas):
         erros['categorias'] = 'Categoria inexistente nesta empresa.'
-    inicio = fim = None
-    try:
-        inicio = _data(dados.get('inicio', ''))
-    except ValueError:
-        erros['inicio'] = 'Use uma data válida.'
-    try:
-        fim = _data(dados.get('fim', ''))
-        fim = fim + timedelta(days=1) if fim else None
-    except (ValueError, OverflowError):  # 9999-12-31 mais um dia estoura o calendário (Qodo, PR #30)
-        erros['fim'] = 'Use uma data válida.'
-    if 'inicio' not in erros and 'fim' not in erros and fim is not None and fim <= (inicio or timezone.now()):
-        erros['fim'] = 'O fim precisa ser depois do início.'
+    erros_do_periodo, inicio, fim = _ler_periodo(dados)
+    erros.update(erros_do_periodo)
     return erros, cargo, lugar[1] if lugar else None, marcadas, inicio, fim
 
 
