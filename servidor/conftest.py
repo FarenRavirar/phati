@@ -107,6 +107,18 @@ def conceder_direto(db):
 
 
 @pytest.fixture
+def catalogo_da_corrida(transactional_db):
+    """O teste transacional esvazia o catálogo: recarrega o que as migrações 0001 e 0007 gravam, antes do `cenario`."""
+    from importlib import import_module
+
+    from permissao.models import Permissao
+
+    for migracao in ('0001_initial', '0007_acoes_territorio'):
+        for codigo, descricao, delegavel in import_module(f'permissao.migrations.{migracao}').ACOES:
+            Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
+
+
+@pytest.fixture
 def cenario(db):
     """Duas empresas sintéticas. X: fazendas F1 (glebas G1 > talhão T1, e a irmã G2) e F2. Y: fazenda FY."""
     from types import SimpleNamespace

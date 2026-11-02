@@ -67,3 +67,9 @@
 .arvore .arvore { margin: var(--espaco-2) 0 0 var(--espaco-4); padding-left: var(--espaco-3); border-left: 1px solid var(--cor-borda); }
 .grupo-empresa { margin-top: var(--espaco-4); }
 .busca-vazia { color: var(--cor-texto-suave); }
+
+/* Ações de gestão da página e telas de confirmação (003 R9, R11). */
+.acoes-pagina { display: flex; flex-wrap: wrap; gap: var(--espaco-2); margin: var(--espaco-4) 0; }
+.efeitos { display: grid; gap: var(--espaco-2); margin: var(--espaco-3) 0; padding-left: var(--espaco-4); }
+.lista-arquivadas { display: grid; gap: var(--espaco-3); }
+.tipo-arquivada { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }

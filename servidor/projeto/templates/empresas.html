@@ -3,6 +3,8 @@
 {% block titulo %}Fazendas{% endblock %}
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Fazendas" %}
+{% if empresa_arquivada %}{% include "componentes/aviso.html" with tipo="aviso" texto="Esta empresa está arquivada: só leitura." %}{% endif %}
+{% include "componentes/acoes.html" with acoes=acoes %}
 {% if grupos %}
 <div class="busca-fazendas" data-busca-fazendas>
 <div class="campo">

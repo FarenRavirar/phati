@@ -35,7 +35,7 @@ def test_composicao_de_cada_cargo_base_confere_com_o_plano(cenario):
 
 def test_administrador_leva_todo_o_catalogo_menos_criar_empresa(cenario):
     acoes = _acoes(cenario.cargos_x['administrador'])
-    assert len(acoes) == 26
+    assert len(acoes) == 29
     assert 'criar_empresa' not in acoes
     assert {'tornar_revisao_vigente', 'aprovar_geometria', 'gerenciar_cargo'} <= acoes
 

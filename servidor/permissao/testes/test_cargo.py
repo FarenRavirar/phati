@@ -173,3 +173,17 @@ def test_conflito_de_versao_nao_audita_nada(cenario, plataforma):
     with pytest.raises(ValidationError):
         gerenciar_cargo(plataforma, cenario.x, 'Campo 2', ['ver'], cargo=cargo, versao=cargo.versao + 5)
     assert EventoAuditoria.objects.filter(acao='cargo_alterado').count() == antes
+
+
+def test_empresa_arquivada_nao_aceita_cargo_novo_nem_alterado_nem_da_plataforma(cenario, fabrica_pessoa, conceder_direto, plataforma):
+    from territorio.cadastro import arquivar
+    from permissao.pode import permissoes_efetivas
+
+    admin = fabrica_pessoa('Admin da X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    arquivar(plataforma, cenario.x)
+    for quem in (admin, plataforma):
+        with pytest.raises(PermissionDenied):
+            gerenciar_cargo(quem, cenario.x, 'Tarde', ['ver'], base='usuario')
+    assert not Cargo.objects.filter(nome='Tarde').exists()
+    assert 'gerenciar_cargo' not in permissoes_efetivas(admin, cenario.x)

@@ -12,11 +12,14 @@ from django.db import IntegrityError, transaction
 from comum.auditoria import auditar
 from permissao.delegacao import _nivel_permite
 from permissao.models import NIVEL_DA_BASE, Cargo, CargoPermissao, Permissao
-from permissao.pode import ACOES_DA_PLATAFORMA, Alvo, memoria_de
+from permissao.pode import ACOES_DA_PLATAFORMA, Alvo, memoria_de, pode
+from territorio.models import Empresa
 
 
 def _pode_gerenciar(quem, empresa, base, codigos):
-    if quem is None or not quem.is_authenticated:
+    # `pode()` decide acesso, nível do Administrador e arquivamento da empresa num só lugar (003 R11); o resto abaixo
+    # é a hierarquia de cargo (nível e permissões que quem gerencia tem).
+    if not pode(quem, 'gerenciar_cargo', empresa):
         return False
     if quem.administrador_plataforma:
         return True
@@ -86,6 +89,9 @@ def gerenciar_cargo(quem, empresa, nome, codigos, base=None, cargo=None, versao=
         raise ValidationError('Nome do cargo inválido.', code='nome_invalido')
     codigos = _codigos_validos(codigos)
     with transaction.atomic():
+        # Trava a empresa antes de `pode()`: espera um arquivamento em curso e depois lê o estado gravado (003 R11).
+        if not list(Empresa.objects.select_for_update(no_key=True).filter(pk=empresa.pk).values_list('pk', flat=True)):
+            raise PermissionDenied  # fora do alcance (a RLS esconde a linha) ou inexistente: o mesmo caminho da permissão negada
         cargo, base = _cargo_travado_e_base(empresa, base, cargo)
         if not _pode_gerenciar(quem, empresa, base, codigos):
             raise PermissionDenied

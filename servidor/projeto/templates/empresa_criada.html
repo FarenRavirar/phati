@@ -1,0 +1,9 @@
+{% extends "casca.html" %}
+{% block titulo %}Empresa criada{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Empresa criada" %}
+<p>{{ empresa.nome }} foi criada. O primeiro Administrador é {{ administrador.nome }}.</p>
+{% include "componentes/aviso.html" with tipo="aviso" texto="Anote a senha temporária agora: ela aparece só nesta página e a pessoa precisa trocá-la no primeiro acesso." %}
+<p>Senha temporária: <strong class="senha-temporaria" translate="no">{{ senha_temporaria }}</strong></p>
+<p><a class="botao" href="{{ destino }}">Abrir a empresa</a></p>
+{% endblock %}

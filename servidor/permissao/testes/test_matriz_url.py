@@ -80,7 +80,8 @@ def mundo(fabrica_pessoa, conceder_direto, plataforma):
 
 
 def _chamar(pessoa, metodo, caminho, cpf_novo):
-    corpo = {'nome': 'Nova', 'nome_administrador': 'Ana', 'email_administrador': 'ana@exemplo.test', 'cpf_administrador': cpf_novo()}
+    cpf = cpf_novo()
+    corpo = {'nome': f'Nova {cpf}', 'nome_administrador': 'Ana', 'email_administrador': 'ana@exemplo.test', 'cpf_administrador': cpf}  # nome único: a regra de nome ativo recusa repetição
     cabecalho = {'Authorization': f'Bearer {sessao.emitir_acesso(pessoa, "teste")}'}
     cliente = Client()
     if metodo == 'get':

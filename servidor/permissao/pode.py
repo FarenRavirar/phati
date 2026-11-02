@@ -24,6 +24,14 @@ ACOES_DA_PLATAFORMA = frozenset({'criar_empresa'})
 # O Administrador conta como quem tem estas, mesmo que o cargo personalizado não as liste (D043); o escopo de RLS
 # delas segue a mesma regra, senão o papel `app` barraria o que `pode_conceder` autoriza.
 ACOES_DE_DELEGACAO = frozenset({'convidar_pessoa', 'revogar_acesso'})
+# Idem para o nível Administrador, só ele (cargo é da empresa, D043): o Curador não ganha estas.
+ACOES_DO_ADMINISTRADOR = frozenset({'gerenciar_cargo'})
+_CONTA_PELO_NIVEL = ACOES_DE_DELEGACAO | ACOES_DO_ADMINISTRADOR
+# Em escopo arquivado (alvo ou ancestral) `pode()` nega toda ação fora destas duas listas (003 R11). Ação nova do
+# catálogo conta como escrita até entrar aqui: o lado seguro. `desarquivar`, `revogar_acesso` e `redefinir_senha`
+# valem em arquivado para desfazer o ato e desligar quem saiu da empresa (inferência a confirmar).
+ACOES_DE_LEITURA = frozenset({'ver', 'baixar_pacote_offline', 'baixar_documento'})
+ACOES_VALIDAS_ARQUIVADO = frozenset({'desarquivar', 'revogar_acesso', 'redefinir_senha'})
 _ATRIBUTO_MEMORIA = '_memoria_do_pode'
 
 
@@ -85,7 +93,7 @@ class Vinculo:
         )
 
     def permite(self, acao, alvo, categoria):
-        possui = self.tem(acao) if acao in ACOES_DE_DELEGACAO else acao in self.permissoes
+        possui = self.tem(acao) if acao in _CONTA_PELO_NIVEL else acao in self.permissoes
         if not possui or not self.cobre(alvo):
             return False
         if categoria is not None and self.base in BASES_COM_CATEGORIA:
@@ -137,11 +145,29 @@ def _identificada(pessoa):
     return pessoa is not None and pessoa.is_authenticated
 
 
-def pode(pessoa, acao, alvo=None, categoria=None):
+def escopo_arquivado(alvo):
+    """O alvo (Empresa, Fazenda ou SubArea salva) ou algum ancestral está arquivado. Lê o banco a cada chamada:
+    arquivar e criar concorrentes precisam ver o estado já gravado (003 R11)."""
+    resolvido = alvo_de(alvo)
+    if resolvido is None:
+        return False
+    ids_sub_areas = [int(i) for i in resolvido.caminho.split('/') if i]
+    if resolvido.sub_area_id is not None:
+        ids_sub_areas.append(resolvido.sub_area_id)
+    return (
+        Empresa.objects.filter(pk=resolvido.empresa_id, arquivada_em__isnull=False).exists()
+        or (resolvido.fazenda_id is not None and Fazenda.objects.filter(pk=resolvido.fazenda_id, arquivada_em__isnull=False).exists())
+        or (bool(ids_sub_areas) and SubArea.objects.filter(pk__in=ids_sub_areas, arquivada_em__isnull=False).exists())
+    )
+
+
+def pode(pessoa, acao, alvo=None, categoria=None, arquivado=None):
     """Decide se `pessoa` exerce `acao` sobre `alvo` (Empresa, Fazenda ou SubArea), na `categoria` do dado se houver.
 
     Sem `alvo` só decide o Administrador da plataforma: ação sem lugar para cobrir não é concedida por escopo.
     A categoria só restringe cargo de Técnico e Usuário; Curador e Administrador não têm limite por categoria.
+    Em escopo arquivado só passam `ACOES_DE_LEITURA` e `ACOES_VALIDAS_ARQUIVADO`, até a plataforma (R11, o único
+    ponto dessa regra). `arquivado` (resultado de `escopo_arquivado`) evita repetir a consulta em laço.
     """
     if not _identificada(pessoa):
         return False
@@ -149,13 +175,18 @@ def pode(pessoa, acao, alvo=None, categoria=None):
     if acao not in memoria.catalogo:
         return False
     if pessoa.administrador_plataforma:
-        return True
-    if acao in ACOES_DA_PLATAFORMA or alvo is None:
+        permitido = True
+    elif acao in ACOES_DA_PLATAFORMA or alvo is None:
         return False
-    alvo_resolvido = alvo_de(alvo)
-    return alvo_resolvido is not None and any(
-        vinculo.permite(acao, alvo_resolvido, categoria) for vinculo in memoria.vinculos
-    )
+    else:
+        alvo_resolvido = alvo_de(alvo)
+        permitido = alvo_resolvido is not None and any(
+            vinculo.permite(acao, alvo_resolvido, categoria) for vinculo in memoria.vinculos
+        )
+    if not permitido or alvo is None or acao in ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO:
+        return permitido
+    # O arquivamento só se consulta quando o resto já deixaria passar: negado não custa consulta (R11).
+    return not (escopo_arquivado(alvo) if arquivado is None else arquivado)
 
 
 def administrador_da_empresa(pessoa, empresa_id):
@@ -194,7 +225,7 @@ def escopos_da_acao(pessoa, acao):
     concessoes = [
         vinculo.concessao
         for vinculo in memoria.vinculos
-        if (vinculo.tem(acao) if acao in ACOES_DE_DELEGACAO else acao in vinculo.permissoes)
+        if (vinculo.tem(acao) if acao in _CONTA_PELO_NIVEL else acao in vinculo.permissoes)
     ]
     return Escopos(
         empresas=frozenset(c.empresa_id for c in concessoes if c.fazenda_id is None),
@@ -257,13 +288,15 @@ def permissoes_efetivas(pessoa, escopo=None):
     if not _identificada(pessoa):
         return frozenset()
     with com_permissao(pessoa):
-        efetivas = {codigo for codigo in memoria_de(pessoa).catalogo if pode(pessoa, codigo, escopo)}
+        arquivado = escopo_arquivado(escopo)
+        efetivas = {codigo for codigo in memoria_de(pessoa).catalogo if pode(pessoa, codigo, escopo, arquivado=arquivado)}
         alvo = alvo_de(escopo)
         if alvo is not None:
-            # `gerenciar_cargo` não passa por `pode()`: `cargo._pode_gerenciar` vale pelo nível do Administrador
-            # (`Vinculo.tem`, D043) e exige vínculo na empresa inteira. Convidar e revogar passam por `pode()`, que
-            # também aplica `Vinculo.tem` a elas (ACOES_DE_DELEGACAO): o menu espelha o portão real (CodeRabbit, PR #18).
-            if any(vinculo.tem('gerenciar_cargo') and vinculo.cobre(Alvo(alvo.empresa_id)) for vinculo in memoria_de(pessoa).vinculos):
+            # Cargo é da empresa, não da fazenda: `gerenciar_cargo` vale só com vínculo na empresa inteira (D043), e
+            # `pode()` aplica o nível do Administrador (ACOES_DE_DELEGACAO) e o arquivamento. O menu espelha o portão
+            # real (CodeRabbit, PR #18).
+            efetivas.discard('gerenciar_cargo')
+            if pode(pessoa, 'gerenciar_cargo', Empresa(pk=alvo.empresa_id)):
                 efetivas.add('gerenciar_cargo')
         # `redefinir_senha` só vale a quem a rota aceita: a plataforma ou o Administrador da empresa (R5); cargo
         # personalizado de Curador ou Técnico com a ação passa em `pode()` e a rota recusa (Sourcery, PR #18).

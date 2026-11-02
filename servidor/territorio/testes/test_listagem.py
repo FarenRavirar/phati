@@ -189,3 +189,37 @@ def test_empresa_id_filtra_na_consulta_e_nao_abre_empresa_sem_acesso(cenario, fa
     assert [f.pk for f in fazendas_autorizadas(plataforma, empresa_id=cenario.y.pk)] == [cenario.fy.pk]
     assert {f.empresa_id for f in fazendas_autorizadas(admin, empresa_id=cenario.x.pk)} == {cenario.x.pk}
     assert fazendas_autorizadas(admin, empresa_id=cenario.y.pk) == []  # o filtro não amplia o acesso
+
+
+# --- 003 R11: listas de trabalho não trazem arquivado; a seção "Arquivadas" pede só os arquivados ---
+
+
+def test_arquivada_sai_das_listas_de_trabalho_e_entra_so_na_lista_de_arquivadas(cenario, plataforma):
+    from territorio.cadastro import arquivar
+
+    arquivar(plataforma, cenario.f1)
+    assert [f.nome for f in fazendas_autorizadas(plataforma, empresa_id=cenario.x.pk)] == ['F2']
+    assert [f.nome for f in fazendas_autorizadas(plataforma, arquivadas=True)] == ['F1']
+    assert {f.nome for f in fazendas_autorizadas(plataforma, arquivadas=None, empresa_id=cenario.x.pk)} == {'F1', 'F2'}
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert sub_areas_da_fazenda(plataforma, fazenda) == []
+    assert {s.nome for s in sub_areas_da_fazenda(plataforma, fazenda, arquivadas=True)} == {'G1', 'T1', 'G2'}
+
+
+def test_empresa_arquivada_sai_da_lista_de_empresas(cenario, plataforma):
+    from territorio.cadastro import arquivar
+
+    arquivar(plataforma, cenario.x)
+    assert [e.nome for e in empresas_autorizadas(plataforma)] == ['Empresa Y']
+    assert [e.nome for e in empresas_autorizadas(plataforma, arquivadas=True)] == ['Empresa X']
+    assert len(empresas_autorizadas(plataforma, arquivadas=None)) == 2
+
+
+def test_quem_nao_tinha_acesso_nao_ve_a_arquivada_de_outra_empresa(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    from territorio.cadastro import arquivar
+
+    arquivar(plataforma, cenario.f1)
+    admin_y = fabrica_pessoa('Admin da Y')
+    conceder_direto(admin_y, cenario.cargos_y['administrador'], cenario.y)
+    assert fazendas_autorizadas(admin_y, arquivadas=True) == []
+    assert fazendas_autorizadas(admin_y, arquivadas=None, pk=cenario.f1.pk) == []

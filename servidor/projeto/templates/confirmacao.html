@@ -1,0 +1,13 @@
+{% extends "casca.html" %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo=titulo %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+<p>{{ texto }}</p>
+{% if efeitos %}<ul class="efeitos">{% for efeito in efeitos %}<li>{{ efeito }}</li>
+{% endfor %}</ul>{% endif %}
+<form method="post">{% csrf_token %}
+{% for nome, valor in escondidos.items %}<input type="hidden" name="{{ nome }}" value="{{ valor }}">
+{% endfor %}<p class="acoes-pagina">{% include "componentes/botao.html" with texto=botao tipo="submit" %}<a class="botao botao-secundario" href="{{ cancelar }}">Cancelar</a></p>
+</form>
+{% endblock %}
