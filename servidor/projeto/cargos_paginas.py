@@ -78,7 +78,8 @@ def _grupos_da_matriz(catalogo):
     grupos = [(titulo, [por_codigo[c] for c in codigos if c in por_codigo], aviso) for titulo, codigos, aviso in GRUPOS_DE_PERMISSOES]
     classificadas = {c for _, codigos, _ in GRUPOS_DE_PERMISSOES for c in codigos}
     sobra = [p for p in catalogo if p.pk not in classificadas]
-    return [g for g in [*grupos, ('Outras permissões', sobra, None)] if g[1]]
+    # "Pessoas e cargos" (o aviso de quem controla acesso) fica sempre por último; o que não tem grupo entra logo antes.
+    return [g for g in [*grupos[:-1], ('Outras permissões', sobra, None), grupos[-1]] if g[1]]
 
 
 def _campos(dados, erros, catalogo, base_fixa=None):

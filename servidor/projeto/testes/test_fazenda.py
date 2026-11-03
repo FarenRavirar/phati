@@ -68,8 +68,8 @@ def test_fazenda_de_outra_empresa_e_inexistente_dao_o_mesmo_404(cliente_logado, 
     inexistente = cliente_logado.get(f'/empresa/{cenario.x.pk}/fazenda/999999/')
     assert [r.status_code for r in (de_fora, cruzada, inexistente)] == [404, 404, 404]
     assert _sem_nonce(de_fora) == _sem_nonce(cruzada) == _sem_nonce(inexistente)
-    assert b'Empresa Y' not in de_fora.content
-    assert b'FY' not in de_fora.content
+    assert b'Empresa Y' not in _sem_nonce(de_fora)
+    assert b'FY' not in _sem_nonce(de_fora)  # nonce e token CSRF são aleatórios e podem conter 'FY'
 
 
 def test_pessoa_sem_concessao_e_pessoa_de_outra_empresa_recebem_404(cliente_logado, conta, cenario, conceder_direto):

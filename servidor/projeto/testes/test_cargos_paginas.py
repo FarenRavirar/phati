@@ -280,7 +280,11 @@ def test_matriz_mostra_grupos_na_ordem_com_cada_acao_uma_vez_e_o_aviso_no_ultimo
     html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
     titulos = re.findall(r'<legend class="campo-rotulo">([^<]+)</legend>', html)
     assert titulos == ['Consulta', 'Trabalho de campo', 'Documentos', 'Validação e aprovação', 'Território', 'Configurações', 'Pessoas e cargos']
-    assert html.count('name="permissoes"') == 29
+    from permissao.models import Permissao
+    from permissao.pode import ACOES_DA_PLATAFORMA
+
+    elegiveis = Permissao.objects.exclude(codigo__in=ACOES_DA_PLATAFORMA).count()  # o mesmo critério do teste de classificação
+    assert html.count('name="permissoes"') == elegiveis
     assert html.count('value="ver"') == 1
     assert html.index('Pessoas e cargos') > html.index('Território')
     assert 'Quem tem estas permissões controla o acesso de outras pessoas.' in html
@@ -294,6 +298,7 @@ def test_acao_sem_grupo_aparece_em_outras_permissoes_e_nao_some(cliente_logado, 
     monkeypatch.setattr(cargos_paginas, 'GRUPOS_DE_PERMISSOES', sem_ver)
     html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
     assert html.index('Outras permissões') < html.index('value="ver"')
+    assert html.index('Outras permissões') < html.index('Pessoas e cargos')  # "Pessoas e cargos" segue por último
     assert html.count('value="ver"') == 1
 
 
