@@ -54,7 +54,25 @@ async function abrirMenu(pagina) {
   if ((await botao.isVisible()) && (await botao.getAttribute('aria-expanded')) === 'false') await botao.click();
 }
 
+// Rede externa (spec 004 R16): `true` quando a URL não é do próprio app. `data:` e `blob:` não saem do navegador.
+function ehExterna(url, base) {
+  const alvo = new URL(url);
+  if (alvo.protocol === 'data:' || alvo.protocol === 'blob:' || alvo.protocol === 'about:') return false;
+  return alvo.host !== new URL(base).host;
+}
+
+// Registra cada requisição da página; devolve a lista (viva) das externas. Quem chama confere que ficou vazia.
+function observarRequisicoesExternas(pagina, base) {
+  const externas = [];
+  pagina.on('request', (requisicao) => {
+    if (ehExterna(requisicao.url(), base)) externas.push(requisicao.url());
+  });
+  return externas;
+}
+
 module.exports = {
+  ehExterna,
+  observarRequisicoesExternas,
   get dados() {
     return lerDados();
   },

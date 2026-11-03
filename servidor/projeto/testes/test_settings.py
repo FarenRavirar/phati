@@ -182,3 +182,51 @@ def test_collectstatic_nao_publica_testes_de_js():
     publicados = [caminho.replace('\\', '/') for achador in finders.get_finders() for caminho, _ in achador.list(ignorar)]
     assert 'projeto/busca-fazendas.js' in publicados
     assert 'projeto/busca-fazendas.test.js' not in publicados
+
+
+def _com_ambiente(monkeypatch, ambiente, flag):
+    for nome, valor in (('PHATI_AMBIENTE', ambiente), ('PHATI_MAPA_TESTE_ATIVO', flag)):
+        if valor is None:
+            monkeypatch.delenv(nome, raising=False)
+        else:
+            monkeypatch.setenv(nome, valor)
+    return runpy.run_path(str(CAMINHO))
+
+
+def test_sem_variaveis_o_ambiente_e_producao_e_o_mapa_esta_desligado(monkeypatch):
+    configuracao = _com_ambiente(monkeypatch, None, None)
+    assert configuracao['AMBIENTE'] == 'producao'
+    assert configuracao['MAPA_TESTE_ATIVO'] is False
+
+
+@pytest.mark.parametrize('flag', [None, '', '0', '2', 'true', 'sim', ' 1'])
+def test_so_o_valor_1_liga_o_mapa(monkeypatch, flag):
+    assert _com_ambiente(monkeypatch, 'teste', flag)['MAPA_TESTE_ATIVO'] is False
+
+
+@pytest.mark.parametrize('ambiente', ['local', 'homologacao', 'teste'])
+def test_flag_ligada_nos_tres_ambientes_de_teste_sobe(monkeypatch, ambiente):
+    configuracao = _com_ambiente(monkeypatch, ambiente, '1')
+    assert configuracao['MAPA_TESTE_ATIVO'] is True
+    assert configuracao['AMBIENTE'] == ambiente
+
+
+@pytest.mark.parametrize('ambiente', [None, 'producao', 'Local', '', 'qualquer'])
+def test_flag_ligada_fora_dos_ambientes_de_teste_derruba_o_servidor(monkeypatch, ambiente):
+    with pytest.raises(ImproperlyConfigured, match='PHATI_MAPA_TESTE_ATIVO'):
+        _com_ambiente(monkeypatch, ambiente, '1')
+
+
+@pytest.mark.parametrize('ambiente', [None, 'producao', 'qualquer'])
+def test_flag_desligada_em_qualquer_ambiente_sobe(monkeypatch, ambiente):
+    assert _com_ambiente(monkeypatch, ambiente, '0')['MAPA_TESTE_ATIVO'] is False
+
+
+def test_politica_do_mapa_e_a_da_002_mais_blob_no_img_e_worker():
+    configuracao = runpy.run_path(str(CAMINHO))
+    base, mapa = configuracao['SECURE_CSP'], configuracao['SECURE_CSP_MAPA']
+    assert {k: v for k, v in mapa.items() if k not in ('img-src', 'worker-src')} == {k: v for k, v in base.items() if k != 'img-src'}
+    assert mapa['img-src'] == base['img-src'] + ['blob:']
+    assert mapa['worker-src'] == ["'self'", 'blob:']
+    assert "'unsafe-inline'" not in [v for valores in mapa.values() for v in valores]
+    assert "'unsafe-eval'" not in [v for valores in mapa.values() for v in valores]

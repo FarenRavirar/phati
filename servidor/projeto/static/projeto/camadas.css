@@ -7,3 +7,6 @@
   --cor-camada-provisoria-3: #5B6FB5;
   --cor-camada-provisoria-4: #8E5BA6;
 }
+
+/* Mapa de teste de layout (004): o MapLibre ocupa a região; o contêiner precisa de altura própria para abrir. */
+.mapa { width: 100%; height: 100%; min-height: 14rem; }

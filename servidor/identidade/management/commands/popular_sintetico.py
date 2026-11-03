@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
@@ -69,11 +70,11 @@ def _turma(indice, credencial, administrador_a, administrador_b, empresa_a, empr
 def popular():
     """Devolve o dicionário que os testes de navegador leem.
 
-    Recusa sem `PHATI_AMBIENTE_TESTE=1` no ambiente do comando: ele cria logins com CPF conhecido, e a checagem
-    do nome da empresa sozinha não distingue um banco descartável de um real (achado do Qodo, PR #22). O compose não
-    repassa essa variável: só quem a passa no comando (`-e`) popula. Levanta `CommandError` se já foi populado.
+    Recusa quando `PHATI_AMBIENTE` não é `local`, `homologacao` ou `teste` (ausente vale `producao`): ele cria logins com
+    CPF conhecido, e a checagem do nome da empresa sozinha não distingue um banco descartável de um real (achado do Qodo,
+    PR #22). Um conceito de ambiente só (004 R21). Levanta `CommandError` se já foi populado.
     """
-    if os.environ.get('PHATI_AMBIENTE_TESTE') != '1':
+    if os.environ.get('PHATI_AMBIENTE', 'producao') not in settings.AMBIENTES_DE_TESTE:
         raise CommandError('so_em_ambiente_de_teste')
     if Empresa.objects.filter(nome=NOME_EMPRESA_A).exists():
         raise CommandError('ja_populado')

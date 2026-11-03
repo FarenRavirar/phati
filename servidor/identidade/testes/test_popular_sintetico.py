@@ -16,7 +16,7 @@ from territorio.models import Empresa, Fazenda, SubArea
 
 @pytest.fixture
 def dados(db, monkeypatch):
-    monkeypatch.setenv('PHATI_AMBIENTE_TESTE', '1')
+    monkeypatch.setenv('PHATI_AMBIENTE', 'teste')
     saida = StringIO()
     call_command('popular_sintetico', stdout=saida)
     return json.loads(saida.getvalue())
@@ -84,12 +84,24 @@ def test_territorio_criado_tem_duas_empresas_quatro_fazendas_e_arvore_de_tres_ni
     assert sorted(SubArea.objects.values_list('nivel', flat=True)) == [1, 2, 3]
 
 
-def test_sem_a_variavel_de_ambiente_de_teste_recusa_e_nada_e_criado(db, monkeypatch):
-    monkeypatch.delenv('PHATI_AMBIENTE_TESTE', raising=False)
+@pytest.mark.parametrize('ambiente', [None, 'producao', 'qualquer', ''])
+def test_fora_dos_ambientes_de_teste_recusa_e_nada_e_criado(db, monkeypatch, ambiente):
+    # Ausente vale `producao` (004 R21): só `local`, `homologacao` e `teste` populam.
+    if ambiente is None:
+        monkeypatch.delenv('PHATI_AMBIENTE', raising=False)
+    else:
+        monkeypatch.setenv('PHATI_AMBIENTE', ambiente)
     saida = StringIO()
     with pytest.raises(CommandError, match='so_em_ambiente_de_teste'):
         call_command('popular_sintetico', stdout=saida)
     assert Pessoa.objects.count() == 0
+
+
+@pytest.mark.parametrize('ambiente', ['local', 'homologacao', 'teste'])
+def test_os_tres_ambientes_de_teste_populam(db, monkeypatch, ambiente):
+    monkeypatch.setenv('PHATI_AMBIENTE', ambiente)
+    call_command('popular_sintetico', stdout=StringIO())
+    assert Empresa.objects.count() == 2
 
 
 def test_segunda_execucao_recusa_com_ja_populado(dados):

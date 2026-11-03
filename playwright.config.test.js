@@ -29,6 +29,15 @@ test('o endereço padrão é o do nginx do compose e a variável de ambiente o t
   assert.equal(carregar('http://exemplo.test:9000').use.baseURL, 'http://exemplo.test:9000');
 });
 
+test('os dois projetos lançam o Chromium com WebGL2 por software (spec 004 R16)', () => {
+  const projetos = carregar().projects;
+  assert.equal(projetos.length, 2);
+  for (const projeto of projetos) {
+    assert.deepEqual(projeto.use.launchOptions.args, ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'], projeto.name);
+    assert.ok(!projeto.use.launchOptions.args.includes('--disable-3d-apis'), projeto.name);
+  }
+});
+
 test('o zoom roda só no projeto computador, sem skip', () => {
   const [computador, celular] = carregar().projects;
   assert.equal(computador.testIgnore, undefined);

@@ -2,7 +2,7 @@
 // Auxiliares dos testes de navegador, com páginas de mentira: nenhum navegador nem dados.json.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { turmaDe, semRolagemHorizontal, abrirMenu, cpfSintetico } = require('./apoio.js');
+const { turmaDe, semRolagemHorizontal, abrirMenu, cpfSintetico, ehExterna, observarRequisicoesExternas } = require('./apoio.js');
 
 const dados = { turmas: { computador: { nome: 'p' }, celular: { nome: 'c' } } };
 const projeto = (nome) => ({ project: { name: nome } });
@@ -48,4 +48,25 @@ test('cpfSintetico gera 11 dígitos com os verificadores corretos e distintos po
     assert.equal(Number(cpf[10]), verificador(cpf, 10));
   }
   assert.notEqual(cpfSintetico(700000001), cpfSintetico(700000002));
+});
+
+test('ehExterna: só o host do app é interno; data, blob e about não saem do navegador', () => {
+  const base = 'http://127.0.0.1:8080';
+  assert.equal(ehExterna('http://127.0.0.1:8080/static/projeto/mapa.js', base), false);
+  assert.equal(ehExterna('blob:http://127.0.0.1:8080/abc', base), false);
+  assert.equal(ehExterna('data:image/png;base64,AAAA', base), false);
+  assert.equal(ehExterna('http://127.0.0.1:9090/x', base), true);
+  assert.equal(ehExterna('https://tile.googleapis.com/v1/x', base), true);
+  assert.equal(ehExterna('https://127.0.0.1.exemplo.test/', base), true);
+});
+
+test('observarRequisicoesExternas registra só as externas e a lista devolvida enxerga as futuras', () => {
+  let ouvinte;
+  const pagina = { on: (evento, f) => { assert.equal(evento, 'request'); ouvinte = f; } };
+  const externas = observarRequisicoesExternas(pagina, 'http://127.0.0.1:8080');
+  const pedido = (url) => ({ url: () => url });
+  ouvinte(pedido('http://127.0.0.1:8080/mapa'));
+  assert.deepEqual(externas, []);
+  ouvinte(pedido('https://externo.test/tile'));
+  assert.deepEqual(externas, ['https://externo.test/tile']);
 });

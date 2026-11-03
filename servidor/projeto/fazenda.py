@@ -7,6 +7,7 @@ from django.views.decorators.http import require_GET
 
 from permissao.pode import com_permissao, permissoes_efetivas, pode
 from projeto.escopo import resolver_escopo
+from projeto.mapa import com_politica_do_mapa, mapa_ativo
 from projeto.paginas_autenticadas import exige_acao, exige_entrada, renderizar_na_casca
 from projeto.territorio_paginas import acoes_do_alvo, resolver_sub_area
 from territorio.listagem import sub_areas_da_fazenda
@@ -52,8 +53,8 @@ def fazenda(requisicao, empresa_id, fazenda_id):
         for s in arquivadas_da_fazenda
     ]
     cadastrar = next((a for a in acoes if a['rotulo'] == 'Cadastrar sub-área'), None)
-    contexto = {'arvore': arvore, 'acoes': acoes, 'arquivadas': arquivadas, 'cadastrar': cadastrar}
-    return renderizar_na_casca(requisicao, 'fazenda.html', contexto, empresa=empresa, fazenda=escopo)
+    contexto = {'arvore': arvore, 'acoes': acoes, 'arquivadas': arquivadas, 'cadastrar': cadastrar, 'mapa_ativo': mapa_ativo()}
+    return com_politica_do_mapa(renderizar_na_casca(requisicao, 'fazenda.html', contexto, empresa=empresa, fazenda=escopo))
 
 
 @require_GET
