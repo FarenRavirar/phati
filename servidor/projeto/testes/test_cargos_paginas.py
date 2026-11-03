@@ -20,7 +20,7 @@ def _telas(cenario, cargo_id):
 
 
 def _html(resposta):
-    return re.sub(r' nonce="[^"]*"', '', resposta.content.decode())
+    return re.sub(r'name="csrfmiddlewaretoken" value="[^"]+"| nonce="[^"]+"', '', resposta.content.decode())
 
 
 def _versao(resposta):
@@ -200,8 +200,9 @@ def test_gestor_nao_cria_cargo_de_nivel_acima_nem_com_permissao_que_nao_tem(clie
     antes = Cargo.objects.count()
     acima = cliente_logado.post(caminho, {'nome': 'Chefe', 'base': 'administrador', 'permissoes': ['ver']})
     a_mais = cliente_logado.post(caminho, {'nome': 'Campo', 'base': 'tecnico', 'permissoes': ['ver', 'validar_registro']})
-    assert (acima.status_code, a_mais.status_code) == (403, 403)
-    assert 'nível ou permissões acima das suas' in _html(acima)
+    # O nível Administrador nem é oferecido (400); a recusa por nível acima, com 403, é do serviço (`test_cargo.py`).
+    assert (acima.status_code, a_mais.status_code) == (400, 403)
+    assert 'nível ou permissões acima das suas' in _html(a_mais)
     assert Cargo.objects.count() == antes
     dentro = cliente_logado.post(caminho, {'nome': 'Leitor', 'base': 'tecnico', 'permissoes': ['ver']})
     assert dentro.status_code == 302
@@ -245,3 +246,74 @@ def test_gerenciar_cargo_so_na_fazenda_nao_abre_as_telas_de_cargos(cliente_logad
 def test_lista_mostra_o_total_de_permissoes_de_cada_cargo(cliente_logado, administradora, cenario, campo):
     html = _html(cliente_logado.get(_casa(cenario) + 'cargos/'))
     assert 'nível Técnico · 2 permissões' in html
+
+
+def test_cargo_administrador_aparece_como_somente_leitura_e_a_edicao_e_negada(cliente_logado, administradora, cenario):
+    administrador = cenario.cargos_x['administrador']
+    html = _html(cliente_logado.get(_casa(cenario) + 'cargos/'))
+    assert 'Somente leitura' in html
+    assert f'cargos/{administrador.pk}/editar' not in html
+    caminho = _casa(cenario) + f'cargos/{administrador.pk}/editar'
+    assert cliente_logado.get(caminho).status_code == 403
+    assert cliente_logado.post(caminho, {'nome': 'Rebaixado', 'versao': administrador.versao, 'permissoes': ['ver']}).status_code == 403
+    administrador.refresh_from_db()
+    assert (administrador.nome, administrador.versao) == ('Administrador', 1)
+
+
+# --- matriz de permissões em grupos (003 Fase 4) ---
+
+
+def test_todo_codigo_do_catalogo_tem_grupo_na_matriz(db):
+    """Ação nova no catálogo (migração) falha aqui até ganhar grupo; a tela a mostra em "Outras permissões" enquanto isso."""
+    from permissao.models import Permissao
+    from permissao.pode import ACOES_DA_PLATAFORMA
+    from projeto.cargos_paginas import GRUPOS_DE_PERMISSOES
+
+    classificadas = [c for _, codigos, _ in GRUPOS_DE_PERMISSOES for c in codigos]
+    assert len(classificadas) == len(set(classificadas)), 'ação em dois grupos'
+    catalogo = set(Permissao.objects.exclude(codigo__in=ACOES_DA_PLATAFORMA).values_list('pk', flat=True))
+    assert catalogo - set(classificadas) == set()
+    assert set(classificadas) - catalogo == set()
+
+
+def test_matriz_mostra_grupos_na_ordem_com_cada_acao_uma_vez_e_o_aviso_no_ultimo(cliente_logado, administradora, cenario):
+    html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
+    titulos = re.findall(r'<legend class="campo-rotulo">([^<]+)</legend>', html)
+    assert titulos == ['Consulta', 'Trabalho de campo', 'Documentos', 'Validação e aprovação', 'Território', 'Configurações', 'Pessoas e cargos']
+    from permissao.models import Permissao
+    from permissao.pode import ACOES_DA_PLATAFORMA
+
+    elegiveis = Permissao.objects.exclude(codigo__in=ACOES_DA_PLATAFORMA).count()  # o mesmo critério do teste de classificação
+    assert html.count('name="permissoes"') == elegiveis
+    assert html.count('value="ver"') == 1
+    assert html.index('Pessoas e cargos') > html.index('Território')
+    assert 'Quem tem estas permissões controla o acesso de outras pessoas.' in html
+    assert html.count('Você só marca o que o seu próprio acesso permite.') == 1
+
+
+def test_acao_sem_grupo_aparece_em_outras_permissoes_e_nao_some(cliente_logado, administradora, cenario, monkeypatch):
+    from projeto import cargos_paginas
+
+    sem_ver = tuple((t, tuple(c for c in codigos if c != 'ver'), a) for t, codigos, a in cargos_paginas.GRUPOS_DE_PERMISSOES)
+    monkeypatch.setattr(cargos_paginas, 'GRUPOS_DE_PERMISSOES', sem_ver)
+    html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
+    assert html.index('Outras permissões') < html.index('value="ver"')
+    assert html.index('Outras permissões') < html.index('Pessoas e cargos')  # "Pessoas e cargos" segue por último
+    assert html.count('value="ver"') == 1
+
+
+def test_erro_de_permissao_invalida_aparece_uma_vez_no_primeiro_grupo(cliente_logado, administradora, cenario):
+    resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Novo', 'base': 'tecnico', 'permissoes': ['criar_empresa']})
+    html = _html(resposta)
+    assert resposta.status_code == 400
+    assert html.count('Permissão inexistente ou exclusiva da plataforma.') == 1
+    assert 'id="campo_permissoes-descricao"' in html
+
+
+def test_criar_nao_oferece_nem_aceita_o_nivel_administrador(cliente_logado, administradora, cenario):
+    html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
+    assert '<option value="administrador"' not in html
+    antes = Cargo.objects.count()
+    resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Direção', 'base': 'administrador', 'permissoes': ['ver']})
+    assert resposta.status_code == 400
+    assert Cargo.objects.count() == antes

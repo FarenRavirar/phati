@@ -445,3 +445,15 @@ def test_pessoas_do_escopo_so_traz_quem_tem_acesso_futuro_quando_pedido(cenario,
     conceder_direto(futura, cenario.cargos_x['usuario'], cenario.f1, inicio=timezone.now() + timedelta(days=3))
     assert futura not in pessoas_do_escopo(administradora)
     assert futura in pessoas_do_escopo(administradora, futuras=True)
+
+
+def test_conceder_o_mesmo_acesso_de_novo_responde_200_com_a_mesma_concessao(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    alvo = fabrica_pessoa('Alvo')
+    conceder_direto(alvo, cenario.cargos_x['usuario'], cenario.f2)  # a pessoa precisa estar no alcance de quem concede
+    corpo = {'cargo_id': cenario.cargos_x['tecnico'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    primeira = _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo)
+    segunda = _enviar(admin, f'pessoas/{alvo.pk}/concessoes', corpo)
+    assert (primeira.status_code, segunda.status_code) == (201, 200)
+    assert segunda.json()['id'] == primeira.json()['id']
+    assert Concessao.objects.filter(pessoa=alvo, cargo=cenario.cargos_x['tecnico']).count() == 1

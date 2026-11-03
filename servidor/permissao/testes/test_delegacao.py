@@ -10,9 +10,13 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
+from comum.models import EventoAuditoria
 from identidade import email
 from identidade.models import Pessoa
-from permissao.delegacao import conceder, convidar, pode_conceder, pode_transferir_titularidade, revogar_concessao, transferir_titularidade
+from permissao.delegacao import (
+    conceder, conceder_com_status, convidar, pode_conceder, pode_transferir_titularidade, revogar_concessao, transferir_titularidade, travar_cargo,
+    travar_cargo_para_edicao,
+)
 from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, ConcessaoCategoria
 from permissao.pode import pode
 from territorio.models import Empresa
@@ -667,3 +671,248 @@ def test_pode_revogar_segue_as_mesmas_regras_da_funcao_de_revogar(cenario, titul
     assert pode_revogar(plataforma, titulares.de_titular) is False
     assert pode_revogar(titulares.titular, titulares.de_outro) is True
     assert pode_revogar(None, tecnico) is False
+
+
+# --- conceder idempotente e trava do cargo (003 Fase 4) ---
+
+
+def test_conceder_duas_vezes_o_mesmo_acesso_devolve_a_mesma_concessao(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    primeira = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    segunda = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    assert segunda.pk == primeira.pk
+    assert Concessao.objects.filter(pessoa=alvo).count() == 1
+
+
+def test_conceder_o_que_difere_em_lugar_ou_categoria_grava_outra_concessao(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    categoria = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f2)
+    conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1, categorias=[categoria])
+    assert Concessao.objects.filter(pessoa=alvo).count() == 3
+
+
+def test_conceder_de_novo_depois_de_revogar_grava_uma_concessao_nova(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    primeira = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    revogar_concessao(plataforma, primeira)
+    segunda = conceder(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    assert segunda.pk != primeira.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_conceder_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto):
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    alvo = fabrica_pessoa('Alvo')
+    usuario = cenario.cargos_x['usuario']
+    assert _corrida_com_edicao_do_cargo(usuario, lambda: conceder(curador, alvo, usuario, cenario.f1)) == ['negou']
+    assert not Concessao.objects.filter(pessoa=alvo).exists()
+
+
+def _esperar_alguem_bloqueado(segundos=5.0):
+    """Espera, sem tempo fixo, até haver um advisory lock esperando: prova que o fio da ação chegou à trava. Devolve se viu o
+    bloqueio; o chamador exige isso, senão uma ação lenta que só começasse depois do commit leria o conjunto novo, negaria e
+    passaria sem provar a trava (CodeRabbit, PR #32)."""
+    import time
+
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        with connection.cursor() as consulta:
+            consulta.execute("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")
+            if consulta.fetchone():
+                return True
+        time.sleep(0.02)
+    return False
+
+
+def _corrida_com_edicao_do_cargo(usuario, acao):
+    """Uma edição do cargo (que o trava e acrescenta `gerenciar_cargo`, que o Curador não tem) está em curso, sem commitar,
+    quando `acao` começa em outro fio. Devolve o que `acao` levantou, ou 'concedeu'. Sem a trava do cargo, `acao` lê o conjunto
+    antigo, passa em `pode_conceder` e concede; com a trava, espera a edição e a lê nova."""
+    editando, soltar = threading.Event(), threading.Event()
+    resultado = []
+
+    def editar():
+        try:
+            with transaction.atomic():
+                travar_cargo_para_edicao(usuario.pk)  # o que `gerenciar_cargo` faz antes de trocar as permissões
+                CargoPermissao.objects.create(cargo=usuario, permissao_id='gerenciar_cargo')
+                editando.set()
+                soltar.wait(15)
+        finally:
+            connection.close()
+
+    def agir():
+        try:
+            acao()
+            resultado.append('concedeu')
+        except PermissionDenied:
+            resultado.append('negou')
+        except ValidationError as erro:
+            resultado.append(erro.code)
+        finally:
+            connection.close()
+
+    edicao = threading.Thread(target=editar)
+    edicao.start()
+    assert editando.wait(15)
+    fio = threading.Thread(target=agir)
+    fio.start()
+    bloqueou = _esperar_alguem_bloqueado()  # `acao` chegou à trava do cargo e espera a edição terminar
+    soltar.set()
+    edicao.join()
+    fio.join()
+    assert bloqueou, 'a ação não esperou a trava do cargo (sem trava, ou o fio não chegou a tempo)'
+    return resultado
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('caminho', ['convidar', 'convidar_por_cpf'])
+def test_convidar_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto, cpf_novo, caminho):
+    from permissao.convite import convidar_por_cpf
+
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    usuario = cenario.cargos_x['usuario']
+    funcao = convidar if caminho == 'convidar' else convidar_por_cpf
+    resultado = _corrida_com_edicao_do_cargo(
+        usuario, lambda: funcao(curador, 'Nova Pessoa', 'nova@exemplo.test', cpf_novo(), usuario, cenario.f1),
+    )
+    assert resultado == ['negou']
+    assert not Pessoa.objects.filter(nome='Nova Pessoa').exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aceitar_le_o_cargo_depois_da_edicao_que_o_trava(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto, cpf_novo):
+    from permissao.convite import aceitar, convidar_por_cpf
+    from permissao.models import Convite
+
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    cpf = cpf_novo()
+    convidada = Pessoa.objects.criar(nome='Convidada', email='convidada@exemplo.test', cpf=cpf)
+    usuario = cenario.cargos_x['usuario']
+    convidar_por_cpf(curador, 'Convidada', 'convidada@exemplo.test', cpf, usuario, cenario.f1)
+    convite = Convite.objects.get(pessoa=convidada)
+    resultado = _corrida_com_edicao_do_cargo(usuario, lambda: aceitar(convidada, convite.pk))
+    assert resultado == ['convite_sem_autoridade']
+    assert not Concessao.objects.filter(pessoa=convidada).exists()
+
+
+@pytest.fixture
+def curador_de_fazenda(catalogo_da_corrida, cenario, fabrica_pessoa, conceder_direto):
+    # Montado como dono, antes de `como_app`.
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    return curador
+
+
+@pytest.mark.django_db(transaction=True, databases=['default', 'app'])
+def test_trava_do_cargo_vale_sob_o_papel_app_para_quem_so_tem_a_fazenda(catalogo_da_corrida, cenario, curador_de_fazenda, como_app):
+    """A RLS deixa o Curador de fazenda só LER o cargo; um `FOR UPDATE` na linha não travaria nada para ele (Codex e Greptile,
+    PR #32). O advisory lock não depende da visibilidade da linha."""
+    from permissao.pode import com_permissao
+
+    usuario = cenario.cargos_x['usuario']
+    with com_permissao(curador_de_fazenda, 'convidar_pessoa'), transaction.atomic():
+        travar_cargo(usuario.pk)
+        with connection.cursor() as consulta:
+            consulta.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()")
+            assert consulta.fetchone()[0] == 1
+
+
+def test_conceder_com_status_diz_se_criou_ou_reaproveitou(cenario, plataforma, fabrica_pessoa):
+    alvo = fabrica_pessoa('Alvo')
+    primeira, criada = conceder_com_status(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    segunda, criada_de_novo = conceder_com_status(plataforma, alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    assert (criada, criada_de_novo) == (True, False)
+    assert segunda.pk == primeira.pk
+
+
+# --- migração que revoga as concessões repetidas (PR #32) ---
+
+
+def _migracao_0008():
+    from importlib import import_module
+
+    return import_module('permissao.migrations.0008_revogar_concessoes_duplicadas')
+
+
+def test_migracao_revoga_so_as_repetidas_e_mantem_a_que_comecou_primeiro(cenario, fabrica_pessoa, conceder_direto):
+    from django.apps import apps
+
+    alvo = fabrica_pessoa('Alvo')
+    agora = timezone.now()
+    antiga = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1, inicio=agora - timedelta(days=10))
+    repetida = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1, inicio=agora - timedelta(days=2))
+    outra_fazenda = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f2)
+    outro_prazo = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1, fim=agora + timedelta(days=30))
+    outro_cargo = conceder_direto(alvo, cenario.cargos_x['usuario'], cenario.f1)
+    ja_revogada = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1, revogada_em=agora, revogada_por=alvo)
+    _migracao_0008().revogar_repetidas(apps, None)
+    for mantida in (antiga, outra_fazenda, outro_prazo, outro_cargo):
+        mantida.refresh_from_db()
+        assert mantida.revogada_em is None
+    repetida.refresh_from_db()
+    assert repetida.revogada_em is not None
+    assert repetida.revogada_por_id == repetida.concedida_por_id
+    ja_revogada.refresh_from_db()
+    assert ja_revogada.revogada_em == agora
+    evento = EventoAuditoria.objects.get(acao='concessao_revogada', alvo_id=repetida.pk)
+    assert evento.detalhes['mantida'] == antiga.pk
+    assert evento.detalhes['motivo'] == 'duplicada'
+
+
+def test_migracao_nao_junta_concessoes_com_categorias_diferentes(cenario, fabrica_pessoa, conceder_direto):
+    from django.apps import apps
+
+    alvo = fabrica_pessoa('Alvo')
+    solo = CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    com_categoria = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1, categorias=[solo])
+    sem_categoria = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    repetida = conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.f1)
+    revogada_a_mao = conceder_direto(alvo, cenario.cargos_x['usuario'], cenario.f1)
+    revogada_a_mao.revogada_em, revogada_a_mao.revogada_por = timezone.now(), alvo
+    revogada_a_mao.save(update_fields=['revogada_em', 'revogada_por'])
+    _migracao_0008().revogar_repetidas(apps, None)
+    for c in (com_categoria, sem_categoria, repetida, revogada_a_mao):
+        c.refresh_from_db()
+    assert (com_categoria.revogada_em, sem_categoria.revogada_em) == (None, None)
+    assert repetida.revogada_em is not None
+    assert revogada_a_mao.revogada_em is not None  # a revogação que já existia fica como estava
+
+
+def test_convite_por_cpf_que_perde_a_corrida_refaz_travando_a_pessoa_antes_do_escopo(cenario, fabrica_pessoa, conceder_direto, cpf_novo, monkeypatch):
+    """O CPF vira pessoa entre a consulta e a gravação: segurar escopo e cargo e esperar a pessoa fecharia um ciclo com `aceitar`
+    e `conceder`, que travam a pessoa primeiro (Sourcery, PR #32). A transação volta e é refeita com a pessoa travada antes."""
+    from permissao import convite
+    from permissao.models import Convite
+
+    curador = fabrica_pessoa('Curador')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.f1)
+    cpf = cpf_novo()
+    existente = Pessoa.objects.criar(nome='Existente', email='existente@exemplo.test', cpf=cpf)
+    ordem, consultas = [], []
+    filtrar = convite.Pessoa.objects.filter
+
+    class PrimeiraSemAchar:
+        def __init__(self, consulta):
+            self.consulta = consulta
+
+        def __getattr__(self, nome):  # `exists()` e o resto passam direto: só `first()` esconde a pessoa
+            return getattr(self.consulta, nome)
+
+        def first(self):
+            consultas.append(1)
+            return None if len(consultas) == 1 else self.consulta.first()  # só a primeira consulta não vê a pessoa: a corrida
+
+    monkeypatch.setattr(convite.Pessoa.objects, 'filter', lambda **filtro: PrimeiraSemAchar(filtrar(**filtro)))
+    pessoa_travada, escopo_travado = convite._travar_pessoa, convite.travar_escopo
+    monkeypatch.setattr(convite, '_travar_pessoa', lambda pk: (ordem.append('pessoa'), pessoa_travada(pk))[1])
+    monkeypatch.setattr(convite, 'travar_escopo', lambda proposta: (ordem.append('escopo'), escopo_travado(proposta))[1])
+    assert convite.convidar_por_cpf(curador, 'Existente', 'existente@exemplo.test', cpf, cenario.cargos_x['usuario'], cenario.f1) == (None, None)
+    # 1ª tentativa: escopo (a pessoa "não existia"); volta. 2ª: pessoa, escopo, e a pessoa de novo em `_registrar`.
+    assert ordem == ['escopo', 'pessoa', 'escopo', 'pessoa']
+    assert Convite.objects.filter(pessoa=existente).count() == 1

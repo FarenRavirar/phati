@@ -8,7 +8,8 @@ concessão, a ordem única de `identidade.senha._pessoa_travada`, para não volt
 """
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import Q
 
 from django.utils import timezone
 
@@ -110,6 +111,51 @@ def travar_escopo(proposta):
     list(type(escopo).objects.select_for_update(no_key=True).filter(pk=escopo.pk).values_list('pk', flat=True))
 
 
+def com_fim_no_futuro():
+    # Concessão ou convite cujo `fim` já passou nunca vale (o banco recusa `fim <= inicio`): fora das listas (Sourcery).
+    return Q(fim__isnull=True) | Q(fim__gt=timezone.now())
+
+
+def concessao_igual(pessoa, proposta, categorias):
+    """A concessão não revogada e sem fim passado que já dá à pessoa o mesmo que `proposta` (cargo, lugar, fim e
+    categorias) e que já começou quando a proposta começa, ou None. Concessão futura não antecipa o acesso pedido
+    (Greptile, PR #30). Sem isto, repetir um convite cujo CPF já virou pessoa, ou aceitar um convite do que ela já
+    tem, gravaria uma segunda concessão igual (Sourcery, PR #30); o mesmo vale para conceder duas vezes seguidas
+    (clique duplo): revogar uma deixaria a outra valendo (003 Fase 4, mercado: GitHub e Azure não duplicam)."""
+    candidatas = Concessao.objects.filter(
+        pessoa=pessoa, cargo_id=proposta.cargo_id, empresa_id=proposta.empresa_id, fazenda_id=proposta.fazenda_id,
+        sub_area_id=proposta.sub_area_id, fim=proposta.fim, inicio__lte=proposta.inicio, revogada_em__isnull=True,
+    ).filter(com_fim_no_futuro())
+    pedidas = {categoria.pk for categoria in categorias}
+    return next((c for c in candidatas if set(c.categorias.values_list('pk', flat=True)) == pedidas), None)
+
+
+def _chave_da_trava_do_cargo(cargo_id):
+    # Um bigint só: prefixo fixo nos 32 bits altos (separa de outro uso de advisory lock) e o id do cargo nos baixos.
+    return (0xC0C0 << 32) | (cargo_id & 0xFFFFFFFF)
+
+
+def travar_cargo(cargo_id):
+    """Trava COMPARTILHADA do cargo até o fim da transação: quem concede, convida ou aceita convite não bloqueia outro que
+    concede, mas espera a edição do cargo (`travar_cargo_para_edicao`) terminar e lê as permissões novas em `pode_conceder`.
+    Sem ela a checagem lia o conjunto antigo enquanto a edição o ampliava, e dava a quem concede uma permissão que ele não tem
+    (a chave estrangeira só bloqueia na gravação, depois da checagem).
+
+    É um advisory lock, não `SELECT ... FOR UPDATE` na linha: a RLS deixa o Curador de fazenda ou sub-área só LER o cargo, e o
+    `FOR UPDATE` exige também a política de escrita, então para ele travaria nada e a corrida voltaria (Codex e Greptile, PR #32).
+    Também não levanta exceção para cargo de outra empresa: a recusa vem de `pode_conceder`. Compartilhada entre os três
+    caminhos, não fecha ciclo com a trava de pessoa. Ordem: pessoa, escopo, cargo; `gerenciar_cargo` faz empresa e cargo.
+    Chamar dentro de `transaction.atomic()`, antes de `pode_conceder`."""
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT pg_advisory_xact_lock_shared(%s)', [_chave_da_trava_do_cargo(cargo_id)])
+
+
+def travar_cargo_para_edicao(cargo_id):
+    """Trava EXCLUSIVA do cargo até o fim da transação, para `gerenciar_cargo`: espera quem concede e bloqueia quem começa."""
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT pg_advisory_xact_lock(%s)', [_chave_da_trava_do_cargo(cargo_id)])
+
+
 def _proposta(quem, cargo, escopo, inicio, fim):
     return Concessao(
         cargo=cargo, concedida_por=quem, inicio=inicio or timezone.now(), fim=fim, **_campos_do_escopo(escopo)
@@ -130,17 +176,28 @@ def _gravar(quem, proposta, pessoa, categorias):
     return proposta
 
 
-def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
-    """Concede `cargo` a `pessoa` em `escopo` (Empresa, Fazenda ou SubArea). Negado: `PermissionDenied`."""
+def conceder_com_status(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
+    """Concede `cargo` a `pessoa` em `escopo` (Empresa, Fazenda ou SubArea). Devolve `(concessao, criada)`: `criada` é falso quando
+    a pessoa já tinha o mesmo acesso e a concessão existente foi reaproveitada (mantenedor, 2026-11-02: a API responde 200).
+    Negado: `PermissionDenied`."""
     categorias = tuple(categorias)  # percorrido na checagem e na gravação: um gerador acabaria na primeira
     exigir_categoria_compativel(cargo, categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
     with transaction.atomic():
         _travar_pessoa(pessoa.pk)
         travar_escopo(proposta)
+        travar_cargo(cargo.pk)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
-        return _gravar(quem, proposta, pessoa, categorias)
+        existente = concessao_igual(pessoa, proposta, categorias)
+        if existente is not None:
+            return existente, False
+        return _gravar(quem, proposta, pessoa, categorias), True
+
+
+def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
+    """Concede `cargo` a `pessoa` em `escopo`; devolve a concessão (a existente, se a pessoa já tinha o mesmo acesso)."""
+    return conceder_com_status(quem, pessoa, cargo, escopo, categorias, inicio, fim)[0]
 
 
 def criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf):
@@ -165,6 +222,7 @@ def convidar(quem, nome, email, cpf, cargo, escopo, categorias=(), inicio=None, 
         raise PermissionDenied
     with transaction.atomic():
         travar_escopo(proposta)
+        travar_cargo(cargo.pk)
         if not pode_conceder(quem, proposta, categorias):  # de novo, já com a trava: o arquivamento pode ter commitado
             raise PermissionDenied
         return criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf)

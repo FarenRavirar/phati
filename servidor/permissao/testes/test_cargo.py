@@ -187,3 +187,23 @@ def test_empresa_arquivada_nao_aceita_cargo_novo_nem_alterado_nem_da_plataforma(
             gerenciar_cargo(quem, cenario.x, 'Tarde', ['ver'], base='usuario')
     assert not Cargo.objects.filter(nome='Tarde').exists()
     assert 'gerenciar_cargo' not in permissoes_efetivas(admin, cenario.x)
+
+
+def test_cargo_de_nivel_administrador_nao_se_edita_mesmo_pela_plataforma(cenario, plataforma):
+    """Opção C do mantenedor (2026-11-02): o Administrador acompanha o catálogo e é quem impede a empresa de ficar sem gestão."""
+    administrador = cenario.cargos_x['administrador']
+    antes = _codigos(administrador)
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Rebaixado', ['ver'], cargo=administrador, versao=administrador.versao)
+    assert erro.value.code == 'cargo_fixo'
+    administrador.refresh_from_db()
+    assert (administrador.nome, administrador.versao, _codigos(administrador)) == ('Administrador', 1, antes)
+
+
+def test_cargo_de_nivel_administrador_nao_se_cria_aqui(cenario, plataforma):
+    """Ele nasce com a empresa; um novo nasceria impossível de completar, porque também não se edita (Qodo, PR #32)."""
+    antes = Cargo.objects.count()
+    with pytest.raises(ValidationError) as erro:
+        gerenciar_cargo(plataforma, cenario.x, 'Direção', ['ver'], base='administrador')
+    assert erro.value.code == 'cargo_fixo'
+    assert Cargo.objects.count() == antes

@@ -23,7 +23,7 @@ def _entrar_com_csrf(conta):
 
 
 def _sem_nonce(resposta):
-    return re.sub(rb'nonce="[^"]*"', b'', resposta.content)
+    return re.sub(rb'name="csrfmiddlewaretoken" value="[^"]+"|nonce="[^"]+"', b'', resposta.content)
 
 
 def _chave_da_pagina(cliente):

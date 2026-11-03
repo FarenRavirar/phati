@@ -16,8 +16,8 @@ TRECHO_HTML = '<script>alert(1)</script>'
 
 
 def _sem_nonce(html):
-    """O `nonce` da política de conteúdo é aleatório e pode conter 'F2' ou 'FY': tira antes de procurar texto que não deve existir."""
-    return re.sub(r' nonce="[^"]*"', '', html)
+    """O `nonce` da política de conteúdo e o token CSRF dos formulários são aleatórios e podem conter 'F2', 'FY' ou 'G1': tira os dois antes de procurar texto que não deve existir."""
+    return re.sub(r'name="csrfmiddlewaretoken" value="[^"]+"| nonce="[^"]+"', '', html)
 
 
 def _casa(cenario):
@@ -988,3 +988,60 @@ def test_conceder_so_a_pessoa_que_o_convidar_alcanca_mesmo_vista_por_revogar(cli
     assert cliente_logado.get(_conceder(cenario, da_f2)).status_code == 404
     assert cliente_logado.post(_conceder(cenario, da_f2), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'fazenda-{cenario.f1.pk}'}).status_code == 404
     assert Concessao.objects.filter(pessoa=da_f2).count() == 1
+
+
+# --- conceder com sub-área e sem duplicar (003 Fase 4) ---
+
+
+def test_conceder_duas_vezes_pela_tela_grava_uma_concessao_so(cliente_logado, administradora, cenario, alvo):
+    pessoa, _ = alvo
+    dados = {'cargo': cenario.cargos_x['curador'].pk, 'escopo': f'fazenda-{cenario.f2.pk}'}
+    assert cliente_logado.post(_conceder(cenario, pessoa), dados).status_code == 302
+    assert cliente_logado.post(_conceder(cenario, pessoa), dados).status_code == 302
+    assert Concessao.objects.filter(pessoa=pessoa, cargo=cenario.cargos_x['curador']).count() == 1
+
+
+def test_escolha_de_sub_area_volta_para_a_tela_de_conceder_e_concede_na_sub_area(cliente_logado, administradora, cenario, alvo):
+    pessoa, _ = alvo
+    base = _casa(cenario) + 'pessoas/convidar/sub-area/'
+    fazendas = _sem_nonce(cliente_logado.get(f'{base}?pessoa={pessoa.pk}').content.decode())
+    assert f'{base}{cenario.f1.pk}/?pessoa={pessoa.pk}' in fazendas
+    sub_areas = _sem_nonce(cliente_logado.get(f'{base}{cenario.f1.pk}/?pessoa={pessoa.pk}').content.decode())
+    assert f'{_conceder(cenario, pessoa)}?escopo=sub-area-{cenario.g1.pk}' in sub_areas
+    assert f'name="pessoa" value="{pessoa.pk}"' in sub_areas  # o filtro não perde a pessoa
+    tela = _sem_nonce(cliente_logado.get(f'{_conceder(cenario, pessoa)}?escopo=sub-area-{cenario.g1.pk}').content.decode())
+    assert re.search(rf'<option value="sub-area-{cenario.g1.pk}" selected>', tela)
+    resposta = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['curador'].pk, 'escopo': f'sub-area-{cenario.g1.pk}'})
+    assert resposta.status_code == 302
+    assert Concessao.objects.filter(pessoa=pessoa, cargo=cenario.cargos_x['curador'], sub_area=cenario.g1).count() == 1
+
+
+def test_escolha_de_sub_area_ignora_pessoa_fora_do_alcance_e_volta_ao_convite(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    de_y = fabrica_pessoa('Pessoa da Y')
+    conceder_direto(de_y, cenario.cargos_y['tecnico'], cenario.fy)
+    base = _casa(cenario) + 'pessoas/convidar/sub-area/'
+    for pedida in (str(de_y.pk), '999999', 'abc'):
+        html = _sem_nonce(cliente_logado.get(f'{base}{cenario.f1.pk}/?pessoa={pedida}').content.decode())
+        assert f'{_casa(cenario)}pessoas/convidar?escopo=sub-area-{cenario.g1.pk}' in html
+        assert '/conceder' not in html
+
+
+def test_curador_so_da_sub_area_concede_nela_pela_tela(cliente_logado, conta, cenario, conceder_direto, alvo):
+    pessoa, _ = alvo
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.g1)
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.t1)
+    lista = cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode()
+    assert f'pessoa/{pessoa.pk}/conceder' in lista
+    resposta = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'sub-area-{cenario.t1.pk}'})
+    assert resposta.status_code == 302
+    forjada = cliente_logado.post(_conceder(cenario, pessoa), {'cargo': cenario.cargos_x['tecnico'].pk, 'escopo': f'sub-area-{cenario.g2.pk}'})
+    assert forjada.status_code == 400
+
+
+@pytest.mark.parametrize('numero', ['9' * 19, '9' * 400, '9223372036854775808'])
+def test_id_que_nao_cabe_no_banco_e_ignorado_e_nao_vira_erro_500(cliente_logado, administradora, cenario, alvo, numero):
+    pessoa, _ = alvo
+    base = _casa(cenario) + 'pessoas/convidar/sub-area/'
+    assert cliente_logado.get(f'{base}{cenario.f1.pk}/?pessoa={numero}').status_code == 200
+    assert cliente_logado.get(f'{_conceder(cenario, pessoa)}?escopo=sub-area-{numero}').status_code == 200
+    assert cliente_logado.get(f'{_casa(cenario)}pessoas/convidar?escopo=sub-area-{numero}').status_code == 200

@@ -211,18 +211,18 @@ def convidar_pessoa(request, dados: EntradaConvite):
     return 201, {'pendente': False, 'id': pessoa.pk, 'concessao_id': concessao.pk, 'senha_temporaria': temporaria}
 
 
-@roteador.post('pessoas/{pessoa_id}/concessoes', url_name='concessoes_criar', response={201: SaidaConcessao})
+@roteador.post('pessoas/{pessoa_id}/concessoes', url_name='concessoes_criar', response={200: SaidaConcessao, 201: SaidaConcessao})
 @exige_permissao('convidar_pessoa', _alvo_do_corpo)
 def conceder(request, pessoa_id: int, dados: EntradaConcessao):
     escopo = escopo_de(dados.escopo)
     # `pessoa` não tem RLS e o id é sequencial: só quem está no alcance de quem concede. Fora dele, 404 igual ao de
     # id inexistente, senão a rota enumera pessoas de outras empresas e as puxa para esta (Qodo, PR #16).
     pessoa = pessoas_do_escopo(request.user).get(pk=pessoa_id)
-    concessao = delegacao.conceder(
+    concessao, criada = delegacao.conceder_com_status(
         request.user, pessoa, Cargo.objects.get(pk=dados.cargo_id), escopo,
         _categorias(dados, escopo), dados.inicio, dados.fim,
     )
-    return 201, _concessao_saida(concessao)
+    return (201 if criada else 200), _concessao_saida(concessao)  # 200: a pessoa já tinha o mesmo acesso, nada foi criado
 
 
 @roteador.delete('pessoas/{pessoa_id}/concessoes/{concessao_id}', url_name='concessoes_revogar', response={204: None})
