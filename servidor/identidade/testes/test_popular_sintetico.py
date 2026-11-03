@@ -113,8 +113,9 @@ def test_banco_com_dado_que_nao_e_do_seed_recusa_mesmo_em_ambiente_de_teste(db, 
     else:
         Empresa.objects.create(nome='Empresa que já estava aqui')
     antes = (Pessoa.objects.count(), Empresa.objects.count())
+    saida = StringIO()
     with pytest.raises(CommandError, match='banco_nao_vazio'):
-        call_command('popular_sintetico', stdout=StringIO())
+        call_command('popular_sintetico', stdout=saida)
     assert (Pessoa.objects.count(), Empresa.objects.count()) == antes
 
 
