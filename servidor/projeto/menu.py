@@ -50,24 +50,28 @@ ACOES_DE_ATALHO = frozenset(atalho.acao for atalho in ATALHOS)
 LIMITE_POR_FREQUENCIA = 2  # R27 e A16
 
 
+def _por_empresa(pessoa, atalho):
+    """Um link para cada empresa em que a pessoa tem a ação, no alcance que o destino exige."""
+    escopos = escopos_da_acao(pessoa, atalho.acao)
+    lugares = escopos.empresas if atalho.empresa_inteira else escopos.empresas | escopos.empresas_das_fazendas
+    alcancadas = [e for e in empresas_autorizadas(pessoa) if e.pk in lugares]
+    if atalho.so_administrador:
+        alcancadas = [e for e in alcancadas if administrador_da_empresa(pessoa, e.pk)]
+    return [
+        replace(atalho, nome=atalho.nome if len(alcancadas) == 1 else f'{atalho.nome} · {e.nome}', caminho=atalho.caminho.format(empresa_id=e.pk))
+        for e in alcancadas
+    ]
+
+
 def atalhos_do_inicio(pessoa):
     atalhos = []
     for atalho in ATALHOS:
-        if '{empresa_id}' not in atalho.caminho:
-            if age_em_algum_escopo(pessoa, atalho.acao):
-                atalhos.append(atalho)
-            continue
-        # O Administrador da plataforma escolhe a empresa pela lista do Início: um atalho por empresa seria uma parede.
-        if pessoa.administrador_plataforma:
-            continue
-        escopos = escopos_da_acao(pessoa, atalho.acao)
-        lugares = escopos.empresas if atalho.empresa_inteira else escopos.empresas | escopos.empresas_das_fazendas
-        alcancadas = [e for e in empresas_autorizadas(pessoa) if e.pk in lugares]
-        if atalho.so_administrador:
-            alcancadas = [e for e in alcancadas if administrador_da_empresa(pessoa, e.pk)]
-        for empresa in alcancadas:
-            nome = atalho.nome if len(alcancadas) == 1 else f'{atalho.nome} · {empresa.nome}'
-            atalhos.append(replace(atalho, nome=nome, caminho=atalho.caminho.format(empresa_id=empresa.pk)))
+        if '{empresa_id}' in atalho.caminho:
+            # O Administrador da plataforma escolhe a empresa pela lista do Início: um atalho por empresa seria uma parede.
+            if not pessoa.administrador_plataforma:
+                atalhos.extend(_por_empresa(pessoa, atalho))
+        elif age_em_algum_escopo(pessoa, atalho.acao):
+            atalhos.append(atalho)
     return atalhos
 
 
