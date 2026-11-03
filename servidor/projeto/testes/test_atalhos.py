@@ -31,13 +31,13 @@ def _usar(pessoa, acao, vezes):
 
 
 def _nomes(pessoa):
-    mostrados, _ = atalhos_da_pessoa(pessoa)
+    mostrados, _, _ = atalhos_da_pessoa(pessoa)
     return [a.nome for a in mostrados]
 
 
 def test_sem_historico_vale_so_a_ordem_fixa(administrador, monkeypatch):
     monkeypatch.setattr(menu, 'ATALHOS', (CONVIDAR, CARGOS, FAZENDA))
-    mostrados, ocultos = atalhos_da_pessoa(administrador)
+    mostrados, ocultos, _ = atalhos_da_pessoa(administrador)
     assert [a.nome for a in mostrados] == ['Convidar pessoa']
     assert ocultos == []
 
@@ -93,7 +93,7 @@ def test_ocultar_tira_do_inicio_e_mostrar_devolve(administrador, monkeypatch):
     _usar(administrador, 'gerenciar_cargo', 3)
     definir_estado(administrador, 'gerenciar_cargo', oculto=True)
     definir_estado(administrador, 'convidar_pessoa', oculto=True)
-    mostrados, ocultos = atalhos_da_pessoa(administrador)
+    mostrados, ocultos, _ = atalhos_da_pessoa(administrador)
     assert mostrados == []
     assert ocultos == [('convidar_pessoa', 'Convidar pessoa'), ('gerenciar_cargo', 'Cargos')]
     definir_estado(administrador, 'gerenciar_cargo', oculto=False)
@@ -104,7 +104,7 @@ def test_fixar_mostra_sem_uso_e_vai_antes_dos_frequentes(administrador, monkeypa
     monkeypatch.setattr(menu, 'ATALHOS', (CONVIDAR, CARGOS, FAZENDA))
     _usar(administrador, 'criar_fazenda', 7)
     definir_estado(administrador, 'gerenciar_cargo', fixado=True)
-    mostrados, _ = atalhos_da_pessoa(administrador)
+    mostrados, _, _ = atalhos_da_pessoa(administrador)
     assert [(a.nome, a.fixado) for a in mostrados] == [('Convidar pessoa', False), ('Cargos', True), ('Cadastrar fazenda', False)]
 
 
@@ -135,3 +135,39 @@ def test_a16_com_os_atalhos_reais_redefinir_senha_vem_por_frequencia(administrad
     _usar(administrador, 'redefinir_senha', 5)
     _usar(administrador, 'convidar_pessoa', 9)
     assert _nomes(administrador) == ['Convidar pessoa', 'Redefinir senha']
+
+
+def test_permissao_so_de_fazenda_nao_gera_atalho_de_destino_que_exige_a_empresa(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Curadora de fazenda')
+    conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.f1)
+    _usar(pessoa, 'gerenciar_cargo', 3)
+    _usar(pessoa, 'criar_fazenda', 3)
+    _usar(pessoa, 'convidar_pessoa', 3)
+    mostrados, _, disponiveis = atalhos_da_pessoa(pessoa)
+    assert [a.acao for a in mostrados] == ['convidar_pessoa']  # a página de cargos e a de nova fazenda dariam 403
+    assert disponiveis == []
+
+
+def test_redefinir_senha_so_aparece_para_administrador_da_empresa(cenario, fabrica_pessoa, conceder_direto):
+    from permissao.models import Cargo, CargoPermissao
+
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='So redefine', base='curador')
+    for codigo in ('ver', 'redefinir_senha'):
+        CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
+    curadora, administradora = fabrica_pessoa('Curadora'), fabrica_pessoa('Administradora')
+    conceder_direto(curadora, personalizado, cenario.x)
+    conceder_direto(administradora, cenario.cargos_x['administrador'], cenario.x)
+    _usar(curadora, 'redefinir_senha', 2)
+    _usar(administradora, 'redefinir_senha', 2)
+    assert 'Redefinir senha' not in _nomes(curadora)  # o serviço recusaria a confirmação (403)
+    assert 'Redefinir senha' in _nomes(administradora)
+
+
+def test_disponiveis_sao_os_permitidos_fora_do_inicio_e_nao_ocultos(administrador, monkeypatch):
+    monkeypatch.setattr(menu, 'ATALHOS', (CONVIDAR, CARGOS, FAZENDA, SUB_AREA))
+    _usar(administrador, 'criar_fazenda', 1)
+    definir_estado(administrador, 'criar_sub_area', oculto=True)
+    mostrados, ocultos, disponiveis = atalhos_da_pessoa(administrador)
+    assert [a.nome for a in mostrados] == ['Convidar pessoa', 'Cadastrar fazenda']
+    assert ocultos == [('criar_sub_area', 'Cadastrar sub-área')]
+    assert disponiveis == [('gerenciar_cargo', 'Cargos')]

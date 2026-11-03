@@ -166,8 +166,11 @@ def test_inicio_mostra_atalho_de_frequencia_e_os_controles(cliente_logado, conta
     assert f'<a href="/empresa/{cenario.x.pk}/cargos/">Cargos</a>' in html
     assert 'Fixar Cargos' in html
     assert 'Ocultar Cargos' in html
-    assert 'Ocultar Convidar pessoa' in html and 'Fixar Convidar pessoa' not in html  # fixo do papel só oculta
-    assert 'Cadastrar fazenda' not in html  # sem uso e sem fixar
+    assert 'Ocultar Convidar pessoa' in html
+    assert 'Fixar Convidar pessoa' not in html  # fixo do papel só oculta
+    assert f'/empresa/{cenario.x.pk}/fazenda/nova' not in html  # sem uso e sem fixar: fora da lista de atalhos
+    assert 'Mais atalhos' in html
+    assert 'Fixar Cadastrar fazenda' in html  # mas pode ser fixado mesmo sem nunca ter sido usado
 
 
 def test_fixar_ocultar_e_mostrar_pelo_inicio(cliente_logado, conta, cenario, conceder_direto):
@@ -179,11 +182,21 @@ def test_fixar_ocultar_e_mostrar_pelo_inicio(cliente_logado, conta, cenario, con
     assert 'Desafixar Cadastrar fazenda' in cliente_logado.get('/').content.decode()
     cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'ocultar'})
     html = cliente_logado.get('/').content.decode()
-    assert 'Mostrar Cadastrar fazenda' in html and 'Atalhos ocultos' in html
+    assert 'Mostrar Cadastrar fazenda' in html
+    assert 'Atalhos ocultos' in html
     assert f'/empresa/{cenario.x.pk}/fazenda/nova' not in html
     cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'mostrar'})
     html = cliente_logado.get('/').content.decode()
-    assert 'Atalhos ocultos' not in html and 'Fixar Cadastrar fazenda' in html
+    assert 'Atalhos ocultos' not in html
+    assert 'Fixar Cadastrar fazenda' in html
+
+
+def test_fixar_atalho_ainda_nao_usado_pelo_mais_atalhos(cliente_logado, conta, cenario, conceder_direto):
+    _admin_x(conta, cenario, conceder_direto)
+    cliente_logado.post('/atalhos/gerenciar_cargo', {'estado': 'fixar'})
+    html = cliente_logado.get('/').content.decode()
+    assert f'<a href="/empresa/{cenario.x.pk}/cargos/">Cargos</a>' in html
+    assert 'Desafixar Cargos' in html
 
 
 def test_escolher_atalho_recusa_acao_desconhecida_e_estado_invalido(cliente_logado, conta, cenario, conceder_direto):

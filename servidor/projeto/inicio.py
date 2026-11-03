@@ -28,11 +28,12 @@ TEXTOS_DO_CONVITE = {
 @exige_entrada
 @exige_acao(PROPRIA_PESSOA)
 def inicio(requisicao):
-    atalhos, atalhos_ocultos = atalhos_da_pessoa(requisicao.user)
+    atalhos, atalhos_ocultos, atalhos_disponiveis = atalhos_da_pessoa(requisicao.user)
     contexto = {
         'convites': convite.convites_da_pessoa(requisicao.user),
         'atalhos': atalhos,
         'atalhos_ocultos': atalhos_ocultos,
+        'atalhos_disponiveis': atalhos_disponiveis,
         # O Administrador da plataforma vê as empresas, não todas as fazendas da casa (R7).
         'empresas': empresas_autorizadas(requisicao.user) if requisicao.user.administrador_plataforma else [],
         'fazendas': [] if requisicao.user.administrador_plataforma else fazendas_autorizadas(requisicao.user),

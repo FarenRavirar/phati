@@ -23,6 +23,13 @@
 <form method="post" action="/atalhos/{{ acao }}" class="controles-atalho">{% csrf_token %}<button name="estado" value="mostrar">Mostrar {{ nome }}</button></form></li>
 {% endfor %}</ul>
 {% endif %}
+{% if atalhos_disponiveis %}
+<h2>Mais atalhos</h2>
+<ul class="lista-atalhos">
+{% for acao, nome in atalhos_disponiveis %}<li>{{ nome }}
+<form method="post" action="/atalhos/{{ acao }}" class="controles-atalho">{% csrf_token %}<button name="estado" value="fixar">Fixar {{ nome }}</button></form></li>
+{% endfor %}</ul>
+{% endif %}
 {% if empresas %}
 <h2>Empresas</h2>
 <ul class="lista-fazendas">
@@ -35,5 +42,5 @@
 {% for item in fazendas %}<li><a href="/empresa/{{ item.empresa_id }}/fazenda/{{ item.pk }}/">{{ item.nome }}</a></li>
 {% endfor %}</ul>
 {% endif %}
-{% if not convites and not atalhos and not atalhos_ocultos and not empresas and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
+{% if not convites and not atalhos and not atalhos_ocultos and not atalhos_disponiveis and not empresas and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
 {% endblock %}

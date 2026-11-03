@@ -69,6 +69,10 @@ class Migration(migrations.Migration):
             model_name='usoacao',
             constraint=models.UniqueConstraint(fields=('pessoa', 'acao'), name='uso_acao_unico'),
         ),
+        migrations.AddConstraint(
+            model_name='usoacao',
+            constraint=models.CheckConstraint(condition=models.Q(('contagem', 0), ('ultimo_uso__isnull', False), _connector='OR'), name='uso_acao_contagem_com_data'),
+        ),
         migrations.RunSQL(CHAVE, 'ALTER TABLE uso_acao DROP CONSTRAINT uso_acao_pessoa_fk'),
         migrations.RunPython(ligar_rls, desligar_rls),
     ]

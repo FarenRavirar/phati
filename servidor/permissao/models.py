@@ -196,4 +196,8 @@ class UsoAcao(models.Model):
 
     class Meta:
         db_table = 'uso_acao'
-        constraints = [models.UniqueConstraint(fields=['pessoa', 'acao'], name='uso_acao_unico')]
+        constraints = [
+            models.UniqueConstraint(fields=['pessoa', 'acao'], name='uso_acao_unico'),
+            # Quem ordena por recência lê `ultimo_uso` de toda linha com contagem: sem a data o Início daria 500.
+            models.CheckConstraint(condition=models.Q(contagem=0) | models.Q(ultimo_uso__isnull=False), name='uso_acao_contagem_com_data'),
+        ]

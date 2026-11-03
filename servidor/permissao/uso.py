@@ -33,7 +33,8 @@ def registrar_uso(pessoa, acao):
                 _, criada = UsoAcao.objects.get_or_create(pessoa=pessoa, acao=acao, defaults={'contagem': 1, 'ultimo_uso': agora})
                 if not criada:  # outra requisição criou a linha entre o UPDATE e o INSERT
                     filtro.update(contagem=F('contagem') + 1, ultimo_uso=agora)
-    except Exception:  # noqa: BLE001  qualquer erro, de banco ou não, fica no log e a página segue
+    except Exception:  # noqa: BLE001
+        # Qualquer erro, de banco ou não, fica no log e a página segue.
         registro.exception('Falha ao registrar uso da ação %s', acao)
 
 
@@ -42,7 +43,8 @@ def usos_da_pessoa(pessoa):
     try:
         with _como_a_propria_pessoa(pessoa):
             return {uso.acao: uso for uso in UsoAcao.objects.filter(pessoa=pessoa)}
-    except Exception:  # noqa: BLE001  mesmo motivo de `registrar_uso`
+    except Exception:  # noqa: BLE001
+        # Mesmo motivo de `registrar_uso`.
         registro.exception('Falha ao ler o uso de ações')
         return {}
 
@@ -51,8 +53,6 @@ def definir_estado(pessoa, acao, *, fixado=None, oculto=None):
     """Grava Fixar e Ocultar da própria pessoa. Escolha explícita: o erro sobe, não é engolido."""
     with _como_a_propria_pessoa(pessoa):
         uso, _ = UsoAcao.objects.get_or_create(pessoa=pessoa, acao=acao)
-        if fixado is not None:
-            uso.fixado = fixado
-        if oculto is not None:
-            uso.oculto = oculto
-        uso.save(update_fields=['fixado', 'oculto'])
+        # Um UPDATE só dos campos pedidos: gravar os dois desfaria a escolha de outra aba que mudou o outro campo.
+        campos = {nome: valor for nome, valor in (('fixado', fixado), ('oculto', oculto)) if valor is not None}
+        UsoAcao.objects.filter(pk=uso.pk).update(**campos)

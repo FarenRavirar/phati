@@ -122,3 +122,19 @@ def test_apagar_a_pessoa_como_papel_app_apaga_o_uso_apesar_da_rls(fabrica_pessoa
     with connection.cursor() as dono:
         dono.execute('SELECT count(*) FROM uso_acao')
         assert dono.fetchone()[0] == 0
+
+
+def test_fixar_e_ocultar_gravam_so_o_campo_pedido(fabrica_pessoa):
+    pessoa = fabrica_pessoa('Duas abas')
+    definir_estado(pessoa, 'gerenciar_cargo', fixado=True)
+    definir_estado(pessoa, 'gerenciar_cargo', oculto=True)  # não desfaz o `fixado` gravado antes
+    uso = usos_da_pessoa(pessoa)['gerenciar_cargo']
+    assert (uso.fixado, uso.oculto) == (True, True)
+
+
+def test_contagem_sem_data_e_recusada_pelo_banco(fabrica_pessoa):
+    from django.db import IntegrityError
+
+    pessoa = fabrica_pessoa('Sem data')
+    with pytest.raises(IntegrityError), transaction.atomic():
+        UsoAcao.objects.create(pessoa=pessoa, acao='convidar_pessoa', contagem=1, ultimo_uso=None)
