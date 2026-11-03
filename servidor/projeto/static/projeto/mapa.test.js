@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 
 test('importar o módulo no Node não carrega o MapLibre nem exige DOM', async () => {
   const mapa = await import('./mapa.js');
-  assert.deepEqual(Object.keys(mapa).sort(), ['CENTRO_INICIAL', 'ZOOM_INICIAL', 'criarMapa', 'montarEstilo', 'mostrarErro']);
+  assert.deepEqual(Object.keys(mapa).sort(), ['CENTRO_INICIAL', 'ZOOM_INICIAL', 'criarMapa', 'esconderAviso', 'montarEstilo', 'mostrarErro']);
 });
 
 test('o estilo é o fundo abaixo de tudo, na versão 8 da especificação', async () => {
@@ -23,7 +23,7 @@ test('aceita qualquer fundo com a forma {fontes, camadas}, não só o neutro', a
 
 test('fundo fora da forma é erro, não mapa em branco', async () => {
   const { montarEstilo } = await import('./mapa.js');
-  for (const ruim of [undefined, null, {}, { fontes: {} }, { fontes: null, camadas: [] }, { fontes: {}, camadas: 'x' }]) {
+  for (const ruim of [undefined, null, {}, { fontes: {} }, { fontes: null, camadas: [] }, { fontes: {}, camadas: 'x' }, { fontes: {}, camadas: {} }]) {
     assert.throws(() => montarEstilo(ruim), /fora da forma/);
   }
 });
@@ -52,4 +52,15 @@ test('mostrarErro marca o mapa e revela o aviso da região; sem aviso, só marca
   const sozinho = { dataset: {}, parentElement: null };
   mostrarErro(sozinho);
   assert.equal(sozinho.dataset.mapaErro, 'sim');
+});
+
+test('esconderAviso some com o aviso e mostrarErro o traz de volta; sem aviso nenhum dos dois quebra', async () => {
+  const { esconderAviso, mostrarErro } = await import('./mapa.js');
+  const caixa = { hidden: false };
+  const elemento = { dataset: {}, parentElement: { querySelector: () => caixa } };
+  esconderAviso(elemento);
+  assert.equal(caixa.hidden, true);
+  mostrarErro(elemento);
+  assert.equal(caixa.hidden, false);
+  esconderAviso({ dataset: {}, parentElement: null });
 });

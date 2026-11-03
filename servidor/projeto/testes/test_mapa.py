@@ -51,7 +51,8 @@ def test_flag_ligada_a_pagina_carrega_o_mapa_como_modulo_com_o_nonce_da_resposta
     assert re.search(rf'<script type="module" src="/static/projeto/mapa\.js" nonce="{nonce}">', html)
     assert re.search(rf'<link rel="stylesheet" href="/static/projeto/terceiros/maplibre/maplibre-gl\.css" nonce="{nonce}">', html)
     assert 'data-mapa' in html
-    assert re.search(r'<div data-mapa-aviso hidden>.*Não foi possível abrir o mapa', html, re.S)
+    # O aviso de falha nasce visível (sem `hidden`): o `mapa.js` o esconde quando o mapa abre.
+    assert re.search(r'<div data-mapa-aviso>.*Não foi possível abrir o mapa', html, re.S)
     assert 'O mapa aparece quando a fazenda tiver camadas.' not in html
 
 

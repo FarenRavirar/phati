@@ -25,6 +25,8 @@ test('o mapa abre com fundo neutro, sem violação de política e sem rede exter
   await expect(mapa).toHaveAttribute('data-mapa-pronto', 'sim');
   await expect(mapa).not.toHaveAttribute('data-mapa-erro', /.*/);
   await expect(mapa.locator('canvas.maplibregl-canvas')).toBeVisible();
+  await expect(mapa).toHaveAttribute('data-mapa-fundo', '#e8ecef'); // COR_DO_FUNDO de fundo-neutro.js, lida do estilo ativo
+  await expect(page.getByText('Não foi possível abrir o mapa neste navegador.')).toBeHidden();
   expect(violacoes, 'violação de CSP no console').toEqual([]);
   expect(externas, 'requisição para host que não é o do app').toEqual([]);
   await semRolagemHorizontal(page);
@@ -46,6 +48,15 @@ test('falha ao carregar o motor mostra o aviso na região, nunca região vazia',
   await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
   await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-erro', 'sim');
   await expect(page.getByText('Não foi possível abrir o mapa neste navegador.')).toBeVisible();
+  await acessivel(page);
+});
+
+test('falha ao carregar o próprio mapa.js também deixa o aviso visível', async ({ page }) => {
+  await page.route('**/projeto/mapa.js', (rota) => rota.abort());
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
+  await expect(page.getByText('Não foi possível abrir o mapa neste navegador.')).toBeVisible();
+  await expect(page.locator('[data-mapa]')).not.toHaveAttribute('data-mapa-pronto', /.*/);
   await acessivel(page);
 });
 

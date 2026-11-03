@@ -12,3 +12,6 @@
 /* A região vira coluna e o mapa ocupa o que sobra abaixo do título; `height: 100%` não resolve com o pai só com `min-height`. */
 .regiao-mapa { display: flex; flex-direction: column; } /* seletor simples: test_componentes limita a especificidade de regra com `display` */
 .mapa { flex: 1 1 auto; width: 100%; min-height: 14rem; }
+/* O aviso de falha nasce visível e some quando o mapa abre; sobreposto ao mapa, não desloca o layout ao sumir. */
+.regiao-mapa { position: relative; }
+[data-mapa-aviso] { position: absolute; right: var(--espaco-4); bottom: var(--espaco-4); left: var(--espaco-4); }
