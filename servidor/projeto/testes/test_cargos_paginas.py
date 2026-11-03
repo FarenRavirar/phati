@@ -8,6 +8,7 @@ from django.test import Client
 from comum.models import EventoAuditoria
 from permissao.cargo import gerenciar_cargo
 from permissao.models import Cargo, CargoPermissao
+from permissao.models import UsoAcao
 
 
 def _casa(cenario):
@@ -317,3 +318,20 @@ def test_criar_nao_oferece_nem_aceita_o_nivel_administrador(cliente_logado, admi
     resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Direção', 'base': 'administrador', 'permissoes': ['ver']})
     assert resposta.status_code == 400
     assert Cargo.objects.count() == antes
+
+
+def test_criar_cargo_conta_um_uso_e_cargo_recusado_nao_conta(cliente_logado, administradora, cenario):
+    cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Campo 2', 'base': 'tecnico', 'permissoes': ['ver']})
+    assert UsoAcao.objects.get(pessoa=administradora, acao='gerenciar_cargo').contagem == 1
+    assert cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': '', 'base': 'tecnico'}).status_code == 400
+    assert UsoAcao.objects.get(pessoa=administradora, acao='gerenciar_cargo').contagem == 1
+
+
+def test_falha_ao_contar_nao_derruba_criar_cargo(cliente_logado, administradora, cenario, monkeypatch):
+    def quebrar(*_args, **_kwargs):
+        raise RuntimeError('banco fora')
+
+    monkeypatch.setattr(UsoAcao.objects, 'filter', quebrar)
+    resposta = cliente_logado.post(_casa(cenario) + 'cargos/novo', {'nome': 'Campo 3', 'base': 'tecnico', 'permissoes': ['ver']})
+    assert resposta.status_code == 302
+    assert Cargo.objects.filter(empresa=cenario.x, nome='Campo 3').exists()

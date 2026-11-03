@@ -7,6 +7,7 @@ from django.test import Client
 
 from comum.models import EventoAuditoria
 from permissao.models import Convite
+from permissao.models import UsoAcao
 from territorio.cadastro import arquivar
 from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 from territorio.niveis import nome_do_nivel
@@ -459,3 +460,10 @@ def test_digito_unicode_no_pai_da_404_e_nos_efeitos_da_409_em_vez_de_500(cliente
     assert cliente_logado.get(_fazenda(cenario) + 'sub-area/nova?pai=²').status_code == 404
     assert cliente_logado.post(_fazenda(cenario) + 'arquivar', {'efeitos': '²,²,²'}).status_code == 409
     assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is None
+
+
+def test_cadastrar_fazenda_conta_um_uso_e_nome_invalido_nao_conta(cliente_logado, administradora, cenario):
+    cliente_logado.post(_casa(cenario) + 'fazenda/nova', {'nome': 'Fazenda Contada'})
+    assert UsoAcao.objects.get(pessoa=administradora, acao='criar_fazenda').contagem == 1
+    assert cliente_logado.post(_casa(cenario) + 'fazenda/nova', {'nome': '  '}).status_code == 400
+    assert UsoAcao.objects.get(pessoa=administradora, acao='criar_fazenda').contagem == 1

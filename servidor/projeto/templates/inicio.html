@@ -10,7 +10,17 @@
 {% if atalhos %}
 <h2>Atalhos</h2>
 <ul class="lista-atalhos">
-{% for atalho in atalhos %}<li><a href="{{ atalho.caminho }}">{{ atalho.nome }}</a></li>
+{% for atalho in atalhos %}<li><a href="{{ atalho.caminho }}">{{ atalho.nome }}</a>
+<form method="post" action="/atalhos/{{ atalho.acao }}" class="controles-atalho">{% csrf_token %}
+{% if not atalho.fixo %}{% if atalho.fixado %}<button name="estado" value="desafixar">Desafixar {{ atalho.nome }}</button>{% else %}<button name="estado" value="fixar">Fixar {{ atalho.nome }}</button>{% endif %}{% endif %}
+<button name="estado" value="ocultar">Ocultar {{ atalho.nome }}</button></form></li>
+{% endfor %}</ul>
+{% endif %}
+{% if atalhos_ocultos %}
+<h2>Atalhos ocultos</h2>
+<ul class="lista-atalhos">
+{% for acao, nome in atalhos_ocultos %}<li>{{ nome }}
+<form method="post" action="/atalhos/{{ acao }}" class="controles-atalho">{% csrf_token %}<button name="estado" value="mostrar">Mostrar {{ nome }}</button></form></li>
 {% endfor %}</ul>
 {% endif %}
 {% if empresas %}
@@ -25,5 +35,5 @@
 {% for item in fazendas %}<li><a href="/empresa/{{ item.empresa_id }}/fazenda/{{ item.pk }}/">{{ item.nome }}</a></li>
 {% endfor %}</ul>
 {% endif %}
-{% if not convites and not atalhos and not empresas and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
+{% if not convites and not atalhos and not atalhos_ocultos and not empresas and not fazendas %}{% include "componentes/vazio.html" with texto="Sem pendências." %}{% endif %}
 {% endblock %}

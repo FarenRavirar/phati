@@ -151,3 +151,63 @@ def test_atalho_aparece_so_a_quem_tem_a_acao(cliente_logado, conta, cenario, con
     assert '<h2>Atalhos</h2>' in html
     assert '<a href="/x/">Convidar pessoa</a>' in html
     assert html.count('Suas fazendas') == 1  # o bloco de fazendas não se repete (A28)
+
+
+def _admin_x(conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+
+
+def test_inicio_mostra_atalho_de_frequencia_e_os_controles(cliente_logado, conta, cenario, conceder_direto):
+    from permissao.uso import registrar_uso
+
+    _admin_x(conta, cenario, conceder_direto)
+    registrar_uso(conta.pessoa, 'gerenciar_cargo')
+    html = cliente_logado.get('/').content.decode()
+    assert f'<a href="/empresa/{cenario.x.pk}/cargos/">Cargos</a>' in html
+    assert 'Fixar Cargos' in html
+    assert 'Ocultar Cargos' in html
+    assert 'Ocultar Convidar pessoa' in html and 'Fixar Convidar pessoa' not in html  # fixo do papel só oculta
+    assert 'Cadastrar fazenda' not in html  # sem uso e sem fixar
+
+
+def test_fixar_ocultar_e_mostrar_pelo_inicio(cliente_logado, conta, cenario, conceder_direto):
+    from permissao.uso import registrar_uso
+
+    _admin_x(conta, cenario, conceder_direto)
+    registrar_uso(conta.pessoa, 'criar_fazenda')  # com uso, o atalho volta por frequência depois de Mostrar
+    assert cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'fixar'}).status_code == 302
+    assert 'Desafixar Cadastrar fazenda' in cliente_logado.get('/').content.decode()
+    cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'ocultar'})
+    html = cliente_logado.get('/').content.decode()
+    assert 'Mostrar Cadastrar fazenda' in html and 'Atalhos ocultos' in html
+    assert f'/empresa/{cenario.x.pk}/fazenda/nova' not in html
+    cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'mostrar'})
+    html = cliente_logado.get('/').content.decode()
+    assert 'Atalhos ocultos' not in html and 'Fixar Cadastrar fazenda' in html
+
+
+def test_escolher_atalho_recusa_acao_desconhecida_e_estado_invalido(cliente_logado, conta, cenario, conceder_direto):
+    from permissao.models import UsoAcao
+
+    _admin_x(conta, cenario, conceder_direto)
+    assert cliente_logado.post('/atalhos/nao_existe', {'estado': 'fixar'}).status_code == 404
+    assert cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'apagar'}).status_code == 400
+    assert cliente_logado.post('/atalhos/criar_fazenda', {}).status_code == 400
+    assert not UsoAcao.objects.exists()
+
+
+def test_escolher_atalho_exige_post_entrada_e_csrf(conta, cenario, conceder_direto):
+    anonimo = Client()
+    assert anonimo.get('/atalhos/criar_fazenda').status_code == 405
+    assert anonimo.post('/atalhos/criar_fazenda', {'estado': 'fixar'}).status_code == 302  # volta à tela de entrada
+    cliente = _entrar_com_csrf(conta)
+    assert cliente.post('/atalhos/criar_fazenda', {'estado': 'fixar'}).status_code == 403  # sem token
+
+
+def test_escolher_atalho_grava_so_na_linha_da_propria_pessoa(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    from permissao.models import UsoAcao
+
+    outra = fabrica_pessoa('Outra')
+    cliente_logado.post('/atalhos/criar_fazenda', {'estado': 'ocultar'})
+    assert list(UsoAcao.objects.values_list('pessoa_id', 'oculto')) == [(conta.pessoa.pk, True)]
+    assert not UsoAcao.objects.filter(pessoa=outra).exists()

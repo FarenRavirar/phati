@@ -10,6 +10,16 @@ const AMPLIACOES = [
   ['400%', { width: 320, height: 180 }],
 ];
 
+const TELAS_DA_GESTAO = [
+  ['Início com atalhos', () => '/'],
+  ['lista de pessoas', (d) => `/empresa/${d.empresa_a}/pessoas/`],
+  ['convidar pessoa', (d) => `/empresa/${d.empresa_a}/pessoas/convidar`],
+  ['lista de cargos', (d) => `/empresa/${d.empresa_a}/cargos/`],
+  ['cargo novo', (d) => `/empresa/${d.empresa_a}/cargos/novo`],
+  ['fazenda nova', (d) => `/empresa/${d.empresa_a}/fazenda/nova`],
+  ['níveis da empresa', (d) => `/empresa/${d.empresa_a}/niveis`],
+];
+
 for (const [rotulo, tela] of AMPLIACOES) {
   test(`login em ${rotulo}: sem rolagem horizontal, axe limpo e o botão Entrar entra`, async ({ page }) => {
     await page.setViewportSize(tela);
@@ -32,4 +42,17 @@ for (const [rotulo, tela] of AMPLIACOES) {
     await semRolagemHorizontal(page);
     await acessivel(page);
   });
+
+  // Telas novas da 003 (T7.4): a administradora da empresa A percorre Início, pessoas, convite, cargos, cargo novo, nova fazenda e níveis.
+  for (const [nome, caminho] of TELAS_DA_GESTAO) {
+    test(`${nome} em ${rotulo}: sem rolagem horizontal e axe limpo`, async ({ page }) => {
+      await page.setViewportSize(tela);
+      await entrar(page, dados.administradora_a.cpf);
+      await page.goto(caminho(dados));
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      await abrirMenu(page);
+      await semRolagemHorizontal(page);
+      await acessivel(page);
+    });
+  }
 }

@@ -29,3 +29,21 @@ test('convites e fazendas aparecem; aceitar libera a fazenda e recusar não', as
   await expect(page.getByRole('heading', { name: 'Convites' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Fazenda Inventada A2' })).toHaveCount(0);
 });
+
+test('atalho do Início: ocultar leva à lista de ocultos e mostrar devolve (R27)', async ({ page }) => {
+  await entrar(page, dados.administradora_a.cpf);
+  const lista = page.locator('.lista-atalhos').first();
+  await expect(lista.getByRole('link', { name: /^Convidar pessoa/ }).first()).toBeVisible();
+  await semRolagemHorizontal(page);
+  await acessivel(page);
+
+  await page.getByRole('button', { name: /^Ocultar Convidar pessoa/ }).first().click();
+  await expect(page.getByRole('heading', { name: 'Atalhos ocultos' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Convidar pessoa/ })).toHaveCount(0);
+  await semRolagemHorizontal(page);
+  await acessivel(page);
+
+  await page.getByRole('button', { name: /^Mostrar Convidar pessoa/ }).first().click();
+  await expect(page.getByRole('heading', { name: 'Atalhos ocultos' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /^Convidar pessoa/ }).first()).toBeVisible();
+});

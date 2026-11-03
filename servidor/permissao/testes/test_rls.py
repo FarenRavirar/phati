@@ -456,7 +456,9 @@ def test_pedido_de_redefinicao_por_administrador_de_empresa_com_concessao_sob_rl
 def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
     migracao = import_module('permissao.migrations.0003_rls')
     contexto = import_module('permissao.migrations.0004_contexto_assinado')
+    uso = import_module('permissao.migrations.0009_uso_acao')  # a política do uso depende de `app_contexto()`
     with connection.schema_editor() as editor:
+        uso.desligar_rls(None, editor)
         contexto.remover(None, editor)
         migracao.remover(None, editor)
     try:
@@ -480,6 +482,7 @@ def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
         with connection.schema_editor() as editor:
             migracao.criar(None, editor)
             contexto.criar(None, editor)
+            uso.ligar_rls(None, editor)
     assert _tabelas_sem_rls_nem_excecao() == set()
 
 

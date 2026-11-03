@@ -15,6 +15,7 @@ from permissao import cargo as servico
 from permissao.cargos_base import NOMES
 from permissao.models import Cargo, Permissao
 from permissao.pode import ACOES_DA_PLATAFORMA, com_permissao, unir_escopos
+from permissao.uso import registrar_uso
 from projeto.paginas_autenticadas import campo, formulario, pagina, renderizar_na_casca, texto_do_erro
 from projeto.pessoas_paginas import ESCOLHA_VAZIA, _aviso_do_endereco, _caminho, _empresa
 
@@ -138,6 +139,7 @@ def cargo_novo(requisicao, empresa_id):
         erros, erro, codigo = _gravar(requisicao, empresa, dados, None, dados['base'])
         if codigo != 200:
             return tela(dados, erros, erro, codigo)
+    registrar_uso(requisicao.user, 'gerenciar_cargo')
     return redirect(cancelar + '?feito=criado')
 
 
@@ -172,4 +174,5 @@ def cargo_editar(requisicao, empresa_id, cargo_id):
             return tela(dados_atuais(), {}, erro, codigo)
         if codigo != 200:
             return tela(requisicao.POST, erros, erro, codigo, versao=requisicao.POST.get('versao', ''))
+    registrar_uso(requisicao.user, 'gerenciar_cargo')
     return redirect(cancelar + '?feito=alterado')

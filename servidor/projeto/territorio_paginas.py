@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET
 
 from permissao.pode import com_permissao, permissoes_efetivas, unir_escopos
+from permissao.uso import registrar_uso
 from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import campo, confirmacao, exige_acao, exige_entrada, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
 from projeto.painel import ACOES_DE_PESSOAS
@@ -177,6 +178,7 @@ def fazenda_nova(requisicao, empresa_id):
         except ValidationError as erro:
             campos[0]['erro'] = texto_do_erro(erro)
             return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa, codigo_http=400)
+        registrar_uso(requisicao.user, 'criar_fazenda')
         return redirect(caminho_de(fazenda))
 
 

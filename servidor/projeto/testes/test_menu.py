@@ -6,6 +6,9 @@ from projeto import menu
 from projeto.menu import ITENS, Atalho, atalhos_do_inicio, itens_do_menu
 
 
+ATALHO_POR_EMPRESA = (Atalho('Convidar pessoa', '/empresa/{empresa_id}/pessoas/convidar', 'convidar_pessoa'),)
+
+
 def _nomes(pessoa, escopo=None):
     return [item.nome for item in itens_do_menu(pessoa, escopo)]
 
@@ -60,7 +63,8 @@ def test_atalho_vem_da_acao_efetiva_nunca_do_papel(cenario, fabrica_pessoa, conc
     assert atalhos_do_inicio(usuario) == []
 
 
-def test_atalho_por_empresa_leva_ao_caminho_da_empresa_e_so_a_quem_tem_a_acao(cenario, fabrica_pessoa, conceder_direto, plataforma):
+def test_atalho_por_empresa_leva_ao_caminho_da_empresa_e_so_a_quem_tem_a_acao(cenario, fabrica_pessoa, conceder_direto, plataforma, monkeypatch):
+    monkeypatch.setattr(menu, 'ATALHOS', ATALHO_POR_EMPRESA)
     administrador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     curador_da_fazenda = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.f1)
     usuario = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['usuario'], cenario.f1)
@@ -71,7 +75,8 @@ def test_atalho_por_empresa_leva_ao_caminho_da_empresa_e_so_a_quem_tem_a_acao(ce
     assert atalhos_do_inicio(plataforma) == []  # a plataforma escolhe a empresa na lista do Início
 
 
-def test_atalho_por_empresa_com_duas_empresas_traz_um_link_para_cada_com_o_nome_da_empresa(cenario, fabrica_pessoa, conceder_direto):
+def test_atalho_por_empresa_com_duas_empresas_traz_um_link_para_cada_com_o_nome_da_empresa(cenario, fabrica_pessoa, conceder_direto, monkeypatch):
+    monkeypatch.setattr(menu, 'ATALHOS', ATALHO_POR_EMPRESA)
     pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     conceder_direto(pessoa, cenario.cargos_y['administrador'], cenario.y)
     assert sorted((a.nome, a.caminho) for a in atalhos_do_inicio(pessoa)) == [
@@ -80,7 +85,8 @@ def test_atalho_por_empresa_com_duas_empresas_traz_um_link_para_cada_com_o_nome_
     ]
 
 
-def test_atalho_nao_lista_empresa_arquivada(cenario, fabrica_pessoa, conceder_direto):
+def test_atalho_nao_lista_empresa_arquivada(cenario, fabrica_pessoa, conceder_direto, monkeypatch):
+    monkeypatch.setattr(menu, 'ATALHOS', ATALHO_POR_EMPRESA)
     from territorio.cadastro import arquivar, efeitos_do_arquivamento
 
     pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)

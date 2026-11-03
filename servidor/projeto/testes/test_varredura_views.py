@@ -74,7 +74,7 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
     por_nome = {nome: visao for nome, visao, _ in _autenticadas()}
     for nome in ('empresas', 'empresa', 'fazenda'):
         assert getattr(por_nome[nome], 'acao_exigida') == 'ver'
-    for nome in ('inicio', 'aceitar_convite', 'recusar_convite', 'trocar_senha'):
+    for nome in ('inicio', 'aceitar_convite', 'recusar_convite', 'escolher_atalho', 'trocar_senha'):
         assert getattr(por_nome[nome], 'acao_exigida') == PROPRIA_PESSOA
     # Telas de pessoas (003 R13 a R17): cada uma declara a ação que a API exige para a mesma operação.
     esperadas = {

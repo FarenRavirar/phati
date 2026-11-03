@@ -29,6 +29,9 @@
     "territorio_desarquivar": "Desarquivar empresa, fazenda e sub-área — 003 R11 (telas `*_desarquivar` e seção Arquivadas)"
   },
   "funcoes": {
+    "permissao.uso.registrar_uso": "Contador dos atalhos do Início — 003 R26 (sem tela própria: roda depois de convidar, criar ou editar cargo e criar fazenda)",
+    "permissao.uso.usos_da_pessoa": "Atalhos do Início — 003 R27 (leitura do uso da própria pessoa, sem tela própria)",
+    "permissao.uso.definir_estado": "Fixar e ocultar atalho — 003 R27 (botões do Início, POST /atalhos/<acao>)",
     "permissao.cargo.gerenciar_cargo": "Cargos — 003 R18 (telas /empresa/<id>/cargos/novo e .../cargos/<id>/editar; D057)",
     "permissao.delegacao.transferir_titularidade": "Transferir titularidade — 003 R16 (tela /empresa/<id>/titularidade, em duas etapas; D068, só se exercita em ambiente de teste)",
     "permissao.delegacao.pode_revogar": "Revogar acesso — 003 R14 (a tela só mostra o link a quem a função de revogar aceitaria)",

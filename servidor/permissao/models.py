@@ -178,3 +178,22 @@ class ConviteCategoria(models.Model):
     class Meta:
         db_table = 'convite_categoria'
         constraints = [models.UniqueConstraint(fields=['convite', 'categoria'], name='convite_categoria_unico')]
+
+
+class UsoAcao(models.Model):
+    """Contador de uso de atalho por pessoa (003 R26, D083): só a ação e a contagem, nunca o alvo (qual fazenda, qual
+    pessoa). `fixado` e `oculto` guardam a escolha da própria pessoa sobre o atalho. A RLS (migração 0009) deixa só
+    a própria pessoa ler e gravar; ler e gravar passam por `permissao.uso`, que assina a identidade."""
+
+    # Apagar a pessoa apaga as linhas por `ON DELETE CASCADE` que a migração 0009 põe no banco: a cascata do ORM rodaria
+    # sob a RLS e não apagaria nada. O Django 6.1 não mistura `DB_CASCADE` com `Pessoa` em cascata de Python (E323).
+    pessoa = models.ForeignKey(MODELO_PESSOA, on_delete=models.DO_NOTHING, db_constraint=False, related_name='+')
+    acao = models.CharField(max_length=64)
+    contagem = models.PositiveIntegerField(default=0)
+    ultimo_uso = models.DateTimeField(null=True, blank=True)
+    fixado = models.BooleanField(default=False)
+    oculto = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'uso_acao'
+        constraints = [models.UniqueConstraint(fields=['pessoa', 'acao'], name='uso_acao_unico')]
