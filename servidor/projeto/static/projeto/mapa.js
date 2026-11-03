@@ -20,6 +20,13 @@ export function criarMapa(maplibre, elemento, fundo) {
   return new maplibre.Map({ container: elemento, style: montarEstilo(fundo), center: CENTRO_INICIAL, zoom: ZOOM_INICIAL });
 }
 
+// Falha de WebGL2, do módulo ou do motor: marca o elemento e mostra o aviso da região, nunca uma região vazia.
+export function mostrarErro(elemento) {
+  elemento.dataset.mapaErro = 'sim';
+  const aviso = elemento.parentElement?.querySelector('[data-mapa-aviso]');
+  if (aviso) aviso.hidden = false;
+}
+
 async function iniciar() {
   const elemento = document.querySelector('[data-mapa]');
   if (!elemento) return;
@@ -27,9 +34,9 @@ async function iniciar() {
     const maplibre = await import('./terceiros/maplibre/maplibre-gl.mjs');
     const mapa = criarMapa(maplibre, elemento, fundoNeutro());
     mapa.once('load', () => { elemento.dataset.mapaPronto = 'sim'; });
-    mapa.on('error', () => { elemento.dataset.mapaErro = 'sim'; });
+    mapa.on('error', () => mostrarErro(elemento));
   } catch {
-    elemento.dataset.mapaErro = 'sim';
+    mostrarErro(elemento);
   }
 }
 

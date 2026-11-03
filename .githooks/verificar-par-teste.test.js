@@ -47,6 +47,7 @@ test('terceiros embutidos ficam isentos; JS do produto no mesmo static continua 
   assert.equal(parEsperado(`${base}/terceiros/maplibre/maplibre-gl-worker.mjs`), null);
   assert.equal(parEsperado(`${base}/mapa.js`), `${base}/mapa.test.js`);
   assert.equal(parEsperado(`${base}/fundo-neutro.js`), `${base}/fundo-neutro.test.js`);
+  assert.equal(parEsperado(`${base}/terceiros/outra-lib/x.mjs`), `${base}/terceiros/outra-lib/x.test.mjs`);
   assert.equal(parEsperado(`${base}/outro-terceiros/x.mjs`), `${base}/outro-terceiros/x.test.mjs`);
 });
 

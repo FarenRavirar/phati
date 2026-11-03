@@ -1,4 +1,5 @@
 {% load static %}{% comment %}Mapa de teste de layout (004). Só entra na página com a flag ligada (`mapa_ativo`). O MapLibre vem embutido, sem CDN; `mapa.js` o carrega como módulo e marca `data-mapa-pronto` quando o mapa abre.{% endcomment %}<section class="regiao regiao-mapa" aria-labelledby="regiao-mapa-titulo">
 <h2 class="regiao-titulo" id="regiao-mapa-titulo">Mapa</h2>
 <div class="mapa" data-mapa role="region" aria-label="Mapa de teste de layout"></div>
+<div data-mapa-aviso hidden>{% include "componentes/aviso.html" with tipo="erro" texto="Não foi possível abrir o mapa neste navegador." %}</div>
 </section>

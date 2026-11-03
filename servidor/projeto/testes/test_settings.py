@@ -230,3 +230,13 @@ def test_politica_do_mapa_e_a_da_002_mais_blob_no_img_e_worker():
     assert mapa['worker-src'] == ["'self'", 'blob:']
     assert "'unsafe-inline'" not in [v for valores in mapa.values() for v in valores]
     assert "'unsafe-eval'" not in [v for valores in mapa.values() for v in valores]
+
+
+def test_nginx_entrega_mjs_como_javascript_sem_perder_os_outros_tipos():
+    # O mime.types do nginx 1.30 não tem `mjs`: sem a regra o MapLibre sai como octet-stream e o módulo é recusado (PR #35).
+    # `types` dentro do location substitui o mapa herdado, por isso o bloco precisa incluir o padrão.
+    conf = (CAMINHO.parents[1] / 'nginx' / 'default.conf').read_text(encoding='utf-8')
+    bloco = re.search(r'location /static/ \{.*?types \{(.*?)\}', conf, re.S)
+    assert bloco, 'location /static/ sem bloco types'
+    assert 'include mime.types;' in bloco.group(1)
+    assert re.search(r'text/javascript\s+mjs;', bloco.group(1))

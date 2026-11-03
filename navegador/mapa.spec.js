@@ -31,6 +31,24 @@ test('o mapa abre com fundo neutro, sem violação de política e sem rede exter
   await acessivel(page);
 });
 
+test('o mapa preenche a região abaixo do título (sem faixa vazia)', async ({ page, baseURL }) => {
+  await abrirMapa(page, baseURL);
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-pronto', 'sim');
+  const regiao = await page.locator('.regiao-mapa').boundingBox();
+  const mapa = await page.locator('[data-mapa]').boundingBox();
+  const folga = regiao.y + regiao.height - (mapa.y + mapa.height);
+  expect(folga, `faixa vazia de ${folga}px abaixo do mapa`).toBeLessThanOrEqual(24);
+});
+
+test('falha ao carregar o motor mostra o aviso na região, nunca região vazia', async ({ page }) => {
+  await page.route('**/maplibre-gl.mjs', (rota) => rota.abort());
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-erro', 'sim');
+  await expect(page.getByText('Não foi possível abrir o mapa neste navegador.')).toBeVisible();
+  await acessivel(page);
+});
+
 test('o detector de rede externa reprova quando uma requisição externa acontece', async ({ page, baseURL }) => {
   const externas = observarRequisicoesExternas(page, baseURL);
   await page.goto('http://externo.invalid/').catch(() => {});

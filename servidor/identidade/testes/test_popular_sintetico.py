@@ -104,6 +104,20 @@ def test_os_tres_ambientes_de_teste_populam(db, monkeypatch, ambiente):
     assert Empresa.objects.count() == 2
 
 
+@pytest.mark.parametrize('existente', ['pessoa', 'empresa'])
+def test_banco_com_dado_que_nao_e_do_seed_recusa_mesmo_em_ambiente_de_teste(db, monkeypatch, existente, fabrica_pessoa):
+    # Achado do Qodo (PR #35): o rótulo do ambiente sozinho não prova que o banco é descartável.
+    monkeypatch.setenv('PHATI_AMBIENTE', 'homologacao')
+    if existente == 'pessoa':
+        fabrica_pessoa('Pessoa que já estava aqui')
+    else:
+        Empresa.objects.create(nome='Empresa que já estava aqui')
+    antes = (Pessoa.objects.count(), Empresa.objects.count())
+    with pytest.raises(CommandError, match='banco_nao_vazio'):
+        call_command('popular_sintetico', stdout=StringIO())
+    assert (Pessoa.objects.count(), Empresa.objects.count()) == antes
+
+
 def test_segunda_execucao_recusa_com_ja_populado(dados):
     saida = StringIO()
     with pytest.raises(CommandError, match='ja_populado'):
