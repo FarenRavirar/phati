@@ -111,12 +111,16 @@ def _requisicao():
 
 
 def test_cor_so_existe_no_arquivo_de_variaveis():
+    cor = r'#[0-9A-Fa-f]{6}\b|\brgba?\(|\bhsla?\('
     achados = [
         arquivo.name
         for arquivo in [*ESTATICOS.glob('*.css'), *TEMPLATES.rglob('*.html')]
-        if arquivo.name != 'tokens.css' and re.search(r'#[0-9A-Fa-f]{6}\b|\brgba?\(|\bhsla?\(', arquivo.read_text(encoding='utf-8'))
+        if arquivo.name not in ('tokens.css', 'camadas.css') and re.search(cor, arquivo.read_text(encoding='utf-8'))
     ]
     assert achados == []
+    # camadas.css pode ter cor só dentro do bloco `:root`: fora dele, uma regra com cor literal reabriria o problema.
+    fora_do_root = re.sub(r':root\s*\{[^}]*\}', '', (ESTATICOS / 'camadas.css').read_text(encoding='utf-8'))
+    assert not re.search(cor, re.sub(r'/\*.*?\*/', '', fora_do_root, flags=re.S))
 
 
 def test_template_nao_tem_script_inline_nem_estilo_inline():

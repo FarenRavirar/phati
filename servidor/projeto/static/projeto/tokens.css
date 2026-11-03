@@ -1,7 +1,7 @@
-/* Tokens do phati (R13). Único arquivo com valor de cor, espaçamento, tipografia e raio.
+/* Tokens do phati (R13). Único arquivo com valor de cor da interface, espaçamento, tipografia e raio (a cor do mapa mora em outro arquivo).
    Cada par de cor usado em texto ou contorno tem um comentário `contraste:` que scripts/contraste-tokens.test.js mede
    (4,5:1 para texto normal, 3:1 para texto grande e contorno de campo, WCAG 1.4.3 e 1.4.11). Token `--cor-*` fora de
-   par precisa de `isento:` com o motivo. Cor de camada do mapa e cor de situação de governança são sistemas separados:
+   par precisa de `isento:` com o motivo. A cor do mapa (simbologia) mora em outro arquivo e a de situação de governança é outro sistema:
    esta lista só tem a segunda e a interface. */
 :root {
   --cor-fundo: #F5F7F4;

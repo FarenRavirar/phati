@@ -84,3 +84,19 @@
 
 /* Escolher o lugar do convite: lista com a trilha de cada sub-área (003 R13). */
 .lista-lugares { display: grid; gap: var(--espaco-2); }
+
+/* Regiões do mapa na página da fazenda (003 R22): o mapa é o foco; os painéis ficam ao lado no desktop e abaixo no celular. */
+.regioes { display: grid; gap: var(--espaco-4); grid-template-columns: minmax(0, 1fr); margin-top: var(--espaco-5); }
+.regiao { min-width: 0; padding: var(--espaco-4); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.regiao-mapa { min-height: 16rem; }
+.regiao-titulo { margin: 0 0 var(--espaco-3); font-size: var(--fonte-titulo-2); }
+.regiao-recolhivel > summary { cursor: pointer; }
+.regiao-carregando { margin: 0; color: var(--cor-texto-suave); }
+.ficha { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--espaco-1) var(--espaco-3); margin: 0; }
+.ficha dt { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.ficha dd { margin: 0; overflow-wrap: anywhere; }
+/* 64rem, não 48rem: acima de 48rem o menu lateral (15rem) ainda ocupa a tela e o mapa ficaria numa faixa estreita. */
+@media (min-width: 64rem) {
+  .regioes { grid-template-columns: minmax(0, 1fr) 20rem; align-items: start; }
+  .regiao-mapa { grid-row: 1 / span 3; min-height: 24rem; }
+}

@@ -155,6 +155,15 @@ def como_app(transactional_db):
 
 
 @pytest.fixture
+def painel_aberto_a_gestores(monkeypatch):
+    """Tira só a trava de plataforma do painel (R21). Os filtros por escopo das telas do admin seguem valendo como defesa
+    em profundidade (a RLS também); os testes que os exercitam entram com quem tem escopo, não com a plataforma."""
+    from projeto.painel import PainelSite
+
+    monkeypatch.setattr(PainelSite, 'has_permission', PainelSite.sessao_de_gestao)
+
+
+@pytest.fixture
 def entrar_no_painel(db):
     """Devolve `entrar(pessoa)`: define uma senha, faz o login pela tela do painel e devolve o cliente já com a sessão."""
     from django.test import Client

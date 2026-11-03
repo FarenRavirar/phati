@@ -1,0 +1,11 @@
+{% comment %}Parâmetros: id, titulo, estado (vazio, carregando, erro, sem_permissao, sem_informacao), texto (opcional), recolhivel (opcional). Região reservada ao mapa (R22): quem monta o conteúdo depois herda os cinco estados; estado fora da lista vira erro visível, nunca região vazia. Nenhum estado vira número: "sem informação" nunca é 0.{% endcomment %}<section class="regiao regiao-{{ id }}" aria-labelledby="regiao-{{ id }}-titulo">
+<h2 class="regiao-titulo" id="regiao-{{ id }}-titulo">{{ titulo }}</h2>
+{% if recolhivel %}<details class="regiao-recolhivel" open><summary>Mostrar ou ocultar {{ titulo|lower }}</summary>{% endif %}
+{% if estado == 'carregando' %}<output class="regiao-carregando">Carregando…</output>
+{% elif estado == 'erro' %}{% include "componentes/aviso.html" with tipo="erro" texto=texto|default:"Não foi possível carregar esta região." %}
+{% elif estado == 'sem_permissao' %}{% include "componentes/aviso.html" with tipo="info" texto="Você não tem permissão para ver esta região." %}
+{% elif estado == 'sem_informacao' %}{% include "componentes/vazio.html" with texto="Sem informação." %}
+{% elif estado == 'vazio' %}{% include "componentes/vazio.html" with texto=texto %}
+{% else %}{% include "componentes/aviso.html" with tipo="erro" texto="Estado de região fora do contrato." %}{% endif %}
+{% if recolhivel %}</details>{% endif %}
+</section>

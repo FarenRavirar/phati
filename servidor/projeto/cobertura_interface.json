@@ -69,7 +69,7 @@
     "permissao.pode.permissoes_efetivas": "Menu — 002 R2; sem rota na API (o aplicativo não monta menu por permissão)",
     "permissao.pode.com_permissao": "Todas as views autenticadas e a ponte para o painel — 002 R3, R24",
     "permissao.pode.escopos_da_acao": "Todas as views autenticadas — 002 R3",
-    "permissao.pode.age_em_algum_escopo": "Menu e ponte para o painel — 002 R2, R24",
+    "permissao.pode.age_em_algum_escopo": "Menu e atalhos do Início — 002 R2, 003 R7",
     "permissao.convite.convites_da_pessoa": "Início — 002 R9",
     "permissao.convite.aceitar": "Início — 002 R9",
     "permissao.convite.recusar": "Início — 002 R9",

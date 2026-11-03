@@ -18,6 +18,33 @@ test('mostra nome, empresa, árvore de três níveis e "Sem camadas ainda."', as
   await acessivel(page);
 });
 
+test('regiões do mapa não se sobrepõem e os painéis recolhem (R22)', async ({ page }) => {
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
+  const nomes = ['mapa', 'camadas', 'consulta', 'ficha'];
+  const caixas = [];
+  for (const nome of nomes) {
+    const regiao = page.locator(`.regiao-${nome}`);
+    await expect(regiao).toBeVisible();
+    caixas.push(await regiao.boundingBox());
+  }
+  for (let i = 0; i < caixas.length; i += 1) {
+    for (let j = i + 1; j < caixas.length; j += 1) {
+      const a = caixas[i];
+      const b = caixas[j];
+      const separadas = a.x + a.width <= b.x + 0.5 || b.x + b.width <= a.x + 0.5 || a.y + a.height <= b.y + 0.5 || b.y + b.height <= a.y + 0.5;
+      expect(separadas, `${nomes[i]} e ${nomes[j]} se sobrepõem`).toBe(true);
+    }
+  }
+  const camadas = page.locator('.regiao-camadas');
+  await camadas.getByText('Mostrar ou ocultar camadas').click();
+  await expect(camadas.getByText('Sem camadas ainda.')).toBeHidden();
+  await camadas.getByText('Mostrar ou ocultar camadas').click();
+  await expect(camadas.getByText('Sem camadas ainda.')).toBeVisible();
+  await semRolagemHorizontal(page);
+  await acessivel(page);
+});
+
 test('fazenda de outra empresa dá 404 sem revelar nome (URL direta)', async ({ page }) => {
   await entrar(page, dados.administradora_a.cpf);
   const resposta = await page.goto(url(dados.empresa_b, dados.fazenda_b));
