@@ -95,7 +95,8 @@
 .ficha { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--espaco-1) var(--espaco-3); margin: 0; }
 .ficha dt { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
 .ficha dd { margin: 0; overflow-wrap: anywhere; }
-@media (min-width: 48rem) {
+/* 64rem, não 48rem: acima de 48rem o menu lateral (15rem) ainda ocupa a tela e o mapa ficaria numa faixa estreita. */
+@media (min-width: 64rem) {
   .regioes { grid-template-columns: minmax(0, 1fr) 20rem; align-items: start; }
   .regiao-mapa { grid-row: 1 / span 3; min-height: 24rem; }
 }

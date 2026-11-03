@@ -80,11 +80,11 @@ def test_acao_em_massa_de_apagar_nao_existe(cenario, plataforma, entrar_no_paine
     from territorio.models import Fazenda
 
     cliente = entrar_no_painel(plataforma)
-    resposta = cliente.post(
-        '/painel/territorio/fazenda/', {'action': 'delete_selected', '_selected_action': [cenario.f1.pk], 'post': 'yes'}
-    )
+    cliente.post('/painel/territorio/fazenda/', {'action': 'delete_selected', '_selected_action': [cenario.f1.pk], 'post': 'yes'})
     assert Fazenda.objects.filter(pk=cenario.f1.pk).exists()
-    assert 'delete_selected' not in resposta.content.decode().split('name="action"')[-1][:2000]
+    listagem = cliente.get('/painel/territorio/fazenda/')
+    assert listagem.status_code == 200  # a plataforma vê a lista; sem isso a ausência da ação não prova nada
+    assert 'delete_selected' not in listagem.content.decode().split('name="action"')[-1][:2000]
 
 
 def test_entrada_invalida_de_quem_ja_esta_logado_nao_renova_o_teto_da_sessao(plataforma, entrar_no_painel):

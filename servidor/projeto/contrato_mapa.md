@@ -8,13 +8,14 @@ que lê o registro é `ficha.py`; `testes/test_ficha.py` falha se esta lista e o
 |---|---|---|
 | `camada` | texto: nome da camada | "Sem informação" |
 | `atributo` | texto: nome do atributo | "Sem informação" |
-| `valor` | número ou texto | "Sem informação"; `0` é um valor medido e se mostra como `0` |
+| `valor` | número ou texto (nunca booleano) | "Sem informação" para `None` e texto vazio; `0` é um valor medido e se mostra como `0`; decimal sai com vírgula |
 | `unidade` | texto | o valor aparece com "(sem informação de unidade)" |
 | `fonte` | texto: quem produziu o dado | "Sem informação" |
-| `data` | data do dado | "Sem informação" |
+| `data` | `date` | "Sem informação" |
 | `situacao` | `vigente`, `em análise`, `substituída` ou `arquivada` | não falta: fora da lista é erro |
 | `ressalva` | texto livre | "Sem informação" |
 | `origem` | `medicao` ou `estimativa` | não falta: fora da lista é erro |
+| `metodo` | texto: como o valor foi obtido | "Sem informação" na medição; na estimativa é obrigatório e a falta é erro |
 
 Regras:
 

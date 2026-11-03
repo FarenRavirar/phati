@@ -21,7 +21,7 @@ Paleta verde institucional discreta sobre fundo claro. Verde não serve de sinal
 - **Camada ≠ governança.** A cor de uma camada do mapa e a cor da situação administrativa (vigente, em análise, recusada) são dois sistemas separados, com símbolos e legendas próprios. O `tokens.css` só traz o segundo e a interface; as cores de camada, quando vierem, ficam em arquivo próprio e não reutilizam as de estado.
 - **Estado = cor + ícone + texto.** Erro, aviso, informação e sucesso nunca dependem só da cor. O componente de aviso reúne os três.
 - **Contraste medido, não presumido.** Cada par de cor usado em texto ou contorno é declarado em `tokens.css` por um comentário `contraste:`, e `scripts/contraste-tokens.test.js` mede: 4,5:1 para texto normal, 3:1 para texto grande e contorno de campo (WCAG 1.4.3 e 1.4.11). Token de cor fora de par precisa de `isento:` com o motivo. A primeira paleta tinha a borda de campo em 1,25:1 sobre o fundo; foi escurecida e o teste cobra a regressão.
-- Nenhuma página escreve cor fora de `tokens.css`.
+- Nenhuma página escreve cor fora de `tokens.css` e `camadas.css`; neste, só dentro do bloco `:root`. As cores de camada não passam pela medição de contraste do `tokens.css`: são provisórias até a paleta da Tatiane.
 
 ## Espaço, tipografia e forma
 

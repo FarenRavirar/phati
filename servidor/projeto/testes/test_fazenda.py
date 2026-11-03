@@ -152,5 +152,8 @@ def test_pagina_da_fazenda_tem_as_quatro_regioes_em_estado_vazio_sem_zero_invent
     for regiao in ('mapa', 'camadas', 'consulta', 'ficha'):
         assert f'aria-labelledby="regiao-{regiao}-titulo"' in conteudo
     assert conteudo.count('<details class="regiao-recolhivel" open>') == 3  # o mapa é o foco: só os painéis recolhem
+    for texto in ('O mapa aparece quando a fazenda tiver camadas.', 'Sem camadas ainda.', 'Escolha um ponto no mapa para consultar.',
+                  'A ficha, as fontes e as ressalvas aparecem aqui.'):
+        assert texto in conteudo
     assert 'title=' not in conteudo
     assert not re.search(r'https?://', conteudo)  # R25: nenhum recurso de terceiro

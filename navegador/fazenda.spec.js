@@ -37,9 +37,9 @@ test('regiões do mapa não se sobrepõem e os painéis recolhem (R22)', async (
     }
   }
   const camadas = page.locator('.regiao-camadas');
-  await camadas.getByText('Camadas', { exact: true }).click();
+  await camadas.getByText('Mostrar ou ocultar camadas').click();
   await expect(camadas.getByText('Sem camadas ainda.')).toBeHidden();
-  await camadas.getByText('Camadas', { exact: true }).click();
+  await camadas.getByText('Mostrar ou ocultar camadas').click();
   await expect(camadas.getByText('Sem camadas ainda.')).toBeVisible();
   await semRolagemHorizontal(page);
   await acessivel(page);
