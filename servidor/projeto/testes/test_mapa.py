@@ -63,7 +63,8 @@ def test_flag_ligada_a_politica_do_mapa_so_acrescenta_blob_e_worker(pagina):
     for sem in ('unsafe-eval', 'unsafe-inline'):
         assert sem not in politica
     assert "script-src 'self' 'nonce-" in politica
-    assert "object-src 'none'" in politica and "frame-ancestors 'none'" in politica
+    assert "object-src 'none'" in politica
+    assert "frame-ancestors 'none'" in politica
 
 
 @override_settings(MAPA_TESTE_ATIVO=True)

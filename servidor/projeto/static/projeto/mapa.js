@@ -40,4 +40,4 @@ async function iniciar() {
   }
 }
 
-if (typeof document !== 'undefined') iniciar();
+if (typeof document !== 'undefined') void iniciar(); // `iniciar` captura o próprio erro

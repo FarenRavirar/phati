@@ -10,5 +10,5 @@
 
 /* Mapa de teste de layout (004): o MapLibre ocupa a região; o contêiner precisa de altura própria para abrir. */
 /* A região vira coluna e o mapa ocupa o que sobra abaixo do título; `height: 100%` não resolve com o pai só com `min-height`. */
-.regiao-mapa:has(> .mapa) { display: flex; flex-direction: column; }
+.regiao-mapa { display: flex; flex-direction: column; } /* seletor simples: test_componentes limita a especificidade de regra com `display` */
 .mapa { flex: 1 1 auto; width: 100%; min-height: 14rem; }
