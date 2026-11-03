@@ -100,3 +100,4 @@
   .regioes { grid-template-columns: minmax(0, 1fr) 20rem; align-items: start; }
   .regiao-mapa { grid-row: 1 / span 3; min-height: 24rem; }
 }
+.controles-atalho { display: flex; flex-wrap: wrap; gap: var(--espaco-2); }

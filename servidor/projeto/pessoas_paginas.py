@@ -28,6 +28,7 @@ from permissao import delegacao
 from permissao.api import pessoas_do_escopo
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, concessoes_ativas, concessoes_vigentes_ou_futuras
 from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, permissoes_efetivas, unir_escopos
+from permissao.uso import registrar_uso
 from projeto.escopo import resolver_escopo
 from projeto.painel import ACOES_DE_PESSOAS
 from projeto.paginas_autenticadas import campo, confirmacao, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
@@ -364,6 +365,7 @@ def convidar(requisicao, empresa_id):
             return tela(dados, {}, texto_do_erro(erro), 400)
         except PermissionDenied:
             return tela(dados, {}, SEM_ALCANCE, 403)
+    registrar_uso(requisicao.user, 'convidar_pessoa')
     resposta = renderizar_na_casca(requisicao, 'convite_criado.html', {
         'senha_temporaria': temporaria if pessoa is not None else None, 'destino': cancelar,
     }, empresa=empresa)
@@ -620,6 +622,7 @@ def redefinir_senha(requisicao, empresa_id, pessoa_id):
                 redefinicao.pedir_redefinicao_de_outra_pessoa(requisicao.user, pessoa)
             except ObjectDoesNotExist as erro:
                 raise Http404 from erro
+            registrar_uso(requisicao.user, 'redefinir_senha')
             resposta = renderizar_na_casca(requisicao, 'redefinicao_pedida.html', {'destino': cancelar}, empresa=empresa)
             resposta['Cache-Control'] = 'no-store'
             return resposta

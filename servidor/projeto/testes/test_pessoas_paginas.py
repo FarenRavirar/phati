@@ -1045,3 +1045,31 @@ def test_id_que_nao_cabe_no_banco_e_ignorado_e_nao_vira_erro_500(cliente_logado,
     assert cliente_logado.get(f'{base}{cenario.f1.pk}/?pessoa={numero}').status_code == 200
     assert cliente_logado.get(f'{_conceder(cenario, pessoa)}?escopo=sub-area-{numero}').status_code == 200
     assert cliente_logado.get(f'{_casa(cenario)}pessoas/convidar?escopo=sub-area-{numero}').status_code == 200
+
+
+def test_convidar_conta_um_uso_e_convite_recusado_nao_conta(cliente_logado, administradora, cenario, cpf_novo):
+    from permissao.models import UsoAcao
+
+    cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf_novo()))
+    assert UsoAcao.objects.get(pessoa=administradora, acao='convidar_pessoa').contagem == 1
+    assert cliente_logado.post(_casa(cenario) + 'pessoas/convidar', {'nome': ''}).status_code == 400
+    assert UsoAcao.objects.get(pessoa=administradora, acao='convidar_pessoa').contagem == 1
+
+
+def test_redefinir_conta_um_uso_so_quando_pede(cliente_logado, administradora, cenario, alvo, mailoutbox):
+    from permissao.models import UsoAcao
+
+    pessoa, _ = alvo
+    caminho = _casa(cenario) + f'pessoa/{pessoa.pk}/redefinir-senha'
+    cliente_logado.get(caminho)
+    assert not UsoAcao.objects.filter(acao='redefinir_senha').exists()
+    cliente_logado.post(caminho)
+    assert UsoAcao.objects.get(pessoa=administradora, acao='redefinir_senha').contagem == 1
+
+
+def test_cargo_so_com_redefinir_senha_abre_a_lista_de_pessoas_do_atalho(cliente_logado, conta, cenario, conceder_direto):
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='So redefine', base='curador')
+    for codigo in ('ver', 'redefinir_senha'):
+        CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
+    conceder_direto(conta.pessoa, personalizado, cenario.x)
+    assert cliente_logado.get(_casa(cenario) + 'pessoas/').status_code == 200  # o atalho "Redefinir senha" não cai em 404
