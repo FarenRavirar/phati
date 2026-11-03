@@ -114,7 +114,7 @@ def test_cor_so_existe_no_arquivo_de_variaveis():
     achados = [
         arquivo.name
         for arquivo in [*ESTATICOS.glob('*.css'), *TEMPLATES.rglob('*.html')]
-        if arquivo.name != 'tokens.css' and re.search(r'#[0-9A-Fa-f]{6}\b|\brgba?\(|\bhsla?\(', arquivo.read_text(encoding='utf-8'))
+        if arquivo.name not in ('tokens.css', 'camadas.css') and re.search(r'#[0-9A-Fa-f]{6}\b|\brgba?\(|\bhsla?\(', arquivo.read_text(encoding='utf-8'))
     ]
     assert achados == []
 

@@ -144,3 +144,13 @@ def test_administrador_so_de_sub_area_ve_o_link_das_sub_areas_dele_e_de_mais_nen
     assert f'<a href="{base}/{cenario.g1.pk}/">G1</a>' in arvore
     assert f'<a href="{base}/{cenario.t1.pk}/">T1</a>' in arvore
     assert 'G2' not in arvore
+
+
+def test_pagina_da_fazenda_tem_as_quatro_regioes_em_estado_vazio_sem_zero_inventado(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+    conteudo = _conteudo(cliente_logado.get(_caminho(cenario.x, cenario.f1)))
+    for regiao in ('mapa', 'camadas', 'consulta', 'ficha'):
+        assert f'aria-labelledby="regiao-{regiao}-titulo"' in conteudo
+    assert conteudo.count('<details class="regiao-recolhivel" open>') == 3  # o mapa é o foco: só os painéis recolhem
+    assert 'title=' not in conteudo
+    assert not re.search(r'https?://', conteudo)  # R25: nenhum recurso de terceiro

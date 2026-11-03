@@ -1,0 +1,9 @@
+/* Cor e simbologia das camadas do mapa (003 R23). Arquivo próprio: nunca em tokens.css, que guarda só a interface.
+   PROVISÓRIO: a paleta e a simbologia vêm da Tatiane; estes valores só mantêm a legenda legível até a entrega. A 004 e a
+   spec de camadas leem estas variáveis; trocar a paleta é trocar este arquivo. */
+:root {
+  --cor-camada-provisoria-1: #2E7D6B;
+  --cor-camada-provisoria-2: #B5651D;
+  --cor-camada-provisoria-3: #5B6FB5;
+  --cor-camada-provisoria-4: #8E5BA6;
+}

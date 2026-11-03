@@ -21,18 +21,18 @@ def test_anonimo_vai_para_a_entrada_e_a_tela_de_entrada_abre(db):
     assert (tela.status_code, 'CPF' in tela.content.decode()) == (200, True)
 
 
-def test_administrador_entra_pelo_cpf_e_abre_o_painel(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    cliente = entrar_no_painel(admin)
+def test_administrador_da_plataforma_entra_pelo_cpf_e_abre_o_painel(plataforma, entrar_no_painel):
+    cliente = entrar_no_painel(plataforma)
     pagina = cliente.get('/painel/')
     assert pagina.status_code == 200
-    assert admin.cpf_busca not in pagina.content.decode()  # o nome aparece no cabeçalho, nunca o índice cego do CPF
+    assert plataforma.cpf_busca not in pagina.content.decode()  # o nome aparece no cabeçalho, nunca o índice cego do CPF
     assert {'entrada_em', 'ultima_atividade'} <= set(cliente.session.keys())
 
 
-@pytest.mark.parametrize('base', ['tecnico', 'usuario'])
-def test_tecnico_e_usuario_nao_abrem_nenhuma_tela(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel, base):
-    cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.f1))
+@pytest.mark.parametrize('base', ['administrador', 'curador', 'tecnico', 'usuario'])
+def test_quem_nao_e_da_plataforma_nao_abre_nenhuma_tela(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel, base):
+    # R21: Administrador de empresa e Curador também ficam de fora; as telas do Phati cobrem o que faziam aqui.
+    cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.x))
     for rota in ('/painel/', '/painel/territorio/fazenda/', '/painel/permissao/concessao/', '/painel/identidade/pessoa/',
                  '/painel/permissao/cargo/', '/painel/territorio/fazenda/add/'):
         assert cliente.get(rota).status_code == 302, rota
@@ -42,8 +42,8 @@ def test_pessoa_sem_acesso_nao_abre_o_painel(cenario, fabrica_pessoa, entrar_no_
     assert entrar_no_painel(fabrica_pessoa('Sem acesso')).get('/painel/').status_code == 302
 
 
-def test_senha_errada_e_senha_temporaria_nao_entram(cenario, fabrica_pessoa, conceder_direto):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+def test_senha_errada_e_senha_temporaria_nao_entram(plataforma):
+    admin = plataforma
     texto = senha.emitir_senha_temporaria(admin)  # deve_trocar_senha: a troca é da API
     cliente = Client()
     cpf = modulo_cpf.decifrar(admin.cpf_cifrado)
@@ -52,9 +52,9 @@ def test_senha_errada_e_senha_temporaria_nao_entram(cenario, fabrica_pessoa, con
     assert cliente.get('/painel/').status_code == 302
 
 
-def test_sessao_ociosa_ou_velha_demais_perde_o_painel(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel, settings):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    cliente = entrar_no_painel(admin)
+def test_sessao_ociosa_ou_velha_demais_perde_o_painel(plataforma, entrar_no_painel, settings):
+    cliente = entrar_no_painel(plataforma)
+    assert cliente.get('/painel/').status_code == 200
     sessao = cliente.session
     sessao['ultima_atividade'] -= settings.SESSAO_OCIOSIDADE_SEGUNDOS + 1
     sessao.save()
@@ -62,28 +62,24 @@ def test_sessao_ociosa_ou_velha_demais_perde_o_painel(cenario, fabrica_pessoa, c
     assert cliente.get('/painel/').status_code == 302  # sessão esvaziada, não só ignorada
 
 
-def test_revogar_o_acesso_fecha_o_painel_na_requisicao_seguinte(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
-    from django.utils import timezone
-
-    admin = fabrica_pessoa('Admin')
-    concessao = conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
-    cliente = entrar_no_painel(admin)
+def test_perder_a_plataforma_fecha_o_painel_na_requisicao_seguinte(plataforma, entrar_no_painel):
+    cliente = entrar_no_painel(plataforma)
     assert cliente.get('/painel/').status_code == 200
-    concessao.revogada_em, concessao.revogada_por = timezone.now(), admin
-    concessao.save(update_fields=['revogada_em', 'revogada_por'])
+    plataforma.administrador_plataforma = False
+    plataforma.save(update_fields=['administrador_plataforma'])
     assert cliente.get('/painel/').status_code == 302
 
 
-def test_troca_de_senha_do_admin_do_django_esta_fechada(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
-    cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x))
+def test_troca_de_senha_do_admin_do_django_esta_fechada(plataforma, entrar_no_painel):
+    cliente = entrar_no_painel(plataforma)
     assert cliente.get('/painel/password_change/').status_code == 403
     assert cliente.post('/painel/password_change/', {}).status_code == 403
 
 
-def test_acao_em_massa_de_apagar_nao_existe(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
+def test_acao_em_massa_de_apagar_nao_existe(cenario, plataforma, entrar_no_painel):
     from territorio.models import Fazenda
 
-    cliente = entrar_no_painel(_com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x))
+    cliente = entrar_no_painel(plataforma)
     resposta = cliente.post(
         '/painel/territorio/fazenda/', {'action': 'delete_selected', '_selected_action': [cenario.f1.pk], 'post': 'yes'}
     )
@@ -91,8 +87,8 @@ def test_acao_em_massa_de_apagar_nao_existe(cenario, fabrica_pessoa, conceder_di
     assert 'delete_selected' not in resposta.content.decode().split('name="action"')[-1][:2000]
 
 
-def test_entrada_invalida_de_quem_ja_esta_logado_nao_renova_o_teto_da_sessao(cenario, fabrica_pessoa, conceder_direto, entrar_no_painel):
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+def test_entrada_invalida_de_quem_ja_esta_logado_nao_renova_o_teto_da_sessao(plataforma, entrar_no_painel):
+    admin = plataforma
     cliente = entrar_no_painel(admin)
     sessao = cliente.session
     sessao['entrada_em'] -= 3600
@@ -102,10 +98,10 @@ def test_entrada_invalida_de_quem_ja_esta_logado_nao_renova_o_teto_da_sessao(cen
     assert cliente.session['entrada_em'] == antes
 
 
-def test_entrada_no_painel_com_senha_temporaria_nao_a_consome(cenario, fabrica_pessoa, conceder_direto):
+def test_entrada_no_painel_com_senha_temporaria_nao_a_consome(plataforma):
     from identidade import login
 
-    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    admin = plataforma
     cpf = modulo_cpf.decifrar(admin.cpf_cifrado)
     texto = senha.emitir_senha_temporaria(admin)
     Client().post('/painel/login/', {'username': cpf, 'password': texto})
@@ -136,7 +132,7 @@ def test_o_site_do_admin_e_o_painel_e_o_grupo_do_django_fica_fora():
 
 
 def test_painel_tem_o_link_de_volta_ao_phati(cenario, plataforma, entrar_no_painel):
-    # R24: "Ver o site" leva a `/` (ponte provisória; a 003 a remove).
+    # R24, A13: "Ver o site" leva a `/`.
     pagina = entrar_no_painel(plataforma).get('/painel/').content.decode()
     assert 'href="/"' in pagina
     assert 'Ver o site' in pagina

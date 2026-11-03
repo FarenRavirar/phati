@@ -10,6 +10,10 @@
 <ul class="lista-arquivadas">
 {% for item in arquivadas %}<li><a href="{{ item.consulta }}">{{ item.nome }}</a>{% if item.destino %} <a class="botao botao-secundario" href="{{ item.destino }}">Desarquivar</a>{% endif %}</li>
 {% endfor %}</ul>{% endif %}
-<h2>Camadas</h2>
-{% include "componentes/vazio.html" with texto="Sem camadas ainda." %}
+<div class="regioes">
+{% include "componentes/regiao.html" with id="mapa" titulo="Mapa" estado="vazio" texto="O mapa aparece quando a fazenda tiver camadas." %}
+{% include "componentes/regiao.html" with id="camadas" titulo="Camadas" estado="vazio" texto="Sem camadas ainda." recolhivel=True %}
+{% include "componentes/regiao.html" with id="consulta" titulo="Consulta" estado="vazio" texto="Escolha um ponto no mapa para consultar." recolhivel=True %}
+{% include "componentes/regiao.html" with id="ficha" titulo="Ficha técnica" estado="vazio" texto="A ficha, as fontes e as ressalvas aparecem aqui." recolhivel=True %}
+</div>
 {% endblock %}

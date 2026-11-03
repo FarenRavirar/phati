@@ -1,10 +1,14 @@
 """Painel de pessoas (T5.2): convite pelo serviço, lista só do escopo e redefinição com a regra do R5."""
 
+import pytest
+
 from django.contrib.messages import get_messages
 
 from identidade import cpf as modulo_cpf
 from identidade.models import PedidoRedefinicao, Pessoa
 from permissao.models import Concessao
+
+pytestmark = pytest.mark.usefixtures('painel_aberto_a_gestores')
 
 
 def _com(fabrica_pessoa, conceder_direto, cargo, escopo, nome='Pessoa'):

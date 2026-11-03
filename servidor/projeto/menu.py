@@ -6,7 +6,6 @@ Esconder o item não protege a rota: ela responde 404 a quem não pode (R3). A 0
 from dataclasses import dataclass, replace
 
 from permissao.pode import age_em_algum_escopo, escopos_da_acao, permissoes_efetivas
-from projeto.painel import ACOES_DE_GESTAO
 from territorio.listagem import empresas_autorizadas
 
 
@@ -15,7 +14,6 @@ class ItemDoMenu:
     nome: str
     caminho: str
     acoes: tuple[str, ...] = ()  # sem ação, o item é de toda pessoa autenticada
-    em_algum_escopo: bool = False  # vale a ação em qualquer lugar, não só no escopo atual
     prefixos: tuple[str, ...] = ()  # páginas filhas que também marcam o item como atual
     atual: str = ''  # `aria-current` do link: 'page' na própria página, 'true' numa página filha; vazio fora disso
 
@@ -23,8 +21,6 @@ class ItemDoMenu:
 ITENS = (
     ItemDoMenu('Início', '/'),
     ItemDoMenu('Fazendas', '/empresas/', prefixos=('/empresa/',)),
-    # Ponte provisória (R24): a mesma condição de `PainelSite.has_permission`. A 003 a remove com `site_url` do painel.
-    ItemDoMenu('Gestão ↗', '/painel/', ACOES_DE_GESTAO, em_algum_escopo=True),
 )
 
 
@@ -75,6 +71,4 @@ def _atual(item, caminho):
 def _visivel(item, pessoa, efetivas):
     if not item.acoes:
         return True
-    if item.em_algum_escopo:
-        return age_em_algum_escopo(pessoa, *item.acoes)
     return bool(efetivas & set(item.acoes))

@@ -6,6 +6,8 @@ from django.contrib.messages import get_messages
 from comum.models import EventoAuditoria
 from territorio.models import Empresa, Fazenda, SubArea
 
+pytestmark = pytest.mark.usefixtures('painel_aberto_a_gestores')
+
 
 def _com(fabrica_pessoa, conceder_direto, cargo, escopo, nome='Pessoa'):
     pessoa = fabrica_pessoa(nome)

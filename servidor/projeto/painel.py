@@ -1,6 +1,6 @@
 """Painel de administração (R17; T5.2): o Django admin atrás das mesmas regras da API.
 
-Entra só quem tem alguma ação de gestão em algum escopo, com a sessão vigente do R15 (ociosidade e teto de 12 h) e a
+Entra só o Administrador da plataforma (R21 da 003), com alguma ação de gestão, a sessão vigente do R15 (ociosidade e teto de 12 h) e a
 senha já trocada. Toda tela roda dentro de `com_permissao` e é renderizada ali dentro: a resposta preguiçosa do
 Django seria montada depois de a transação fechar, já sem o contexto assinado da RLS. A troca de senha do admin fica
 fechada: só `identidade.senha.trocar_senha` (via API) revoga sessões e acessos (R15).
@@ -45,14 +45,17 @@ class PainelSite(AdminSite):
     site_title = 'phati'
     index_title = 'Administração'
     login_form = FormularioEntrada
-    # Ponte provisória (R24): "Ver o site" leva de volta ao phati; a 003 a remove quando a última tela de gestão sair do painel.
-    site_url = '/'
+    site_url = '/'  # "Ver o site" leva de volta ao Phati (R24)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.disable_action('delete_selected')
 
     def has_permission(self, request):
+        # R21: só o Administrador da plataforma abre o painel; as telas do Phati cobrem os demais papéis.
+        return bool(getattr(request.user, 'administrador_plataforma', False) and self.sessao_de_gestao(request))
+
+    def sessao_de_gestao(self, request):
         pessoa = request.user
         return bool(
             pessoa.is_authenticated

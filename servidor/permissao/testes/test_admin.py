@@ -9,6 +9,8 @@ from comum.models import EventoAuditoria
 from permissao.models import Cargo, CargoPermissao, Concessao, Permissao
 from permissao.pode import com_permissao
 
+pytestmark = pytest.mark.usefixtures('painel_aberto_a_gestores')
+
 
 @pytest.fixture(autouse=True)
 def catalogo(db):
