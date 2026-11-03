@@ -37,6 +37,7 @@
     "permissao.delegacao.concessao_igual": "Sem tela: evita concessão repetida (clique duplo, convite repetido) — 003 Fase 4",
     "permissao.delegacao.travar_cargo_para_edicao": "Sem tela: trava exclusiva do cargo que `gerenciar_cargo` toma antes de trocar as permissões — 003 Fase 4",
     "permissao.delegacao.travar_cargo": "Sem tela: trava a linha do cargo antes de conceder, convidar ou aceitar convite — 003 Fase 4",
+    "permissao.delegacao.conceder_com_status": "Conceder cargo — 003 R19 (tela e API; a API responde 201 ao criar e 200 ao reaproveitar o acesso que a pessoa já tinha)",
     "permissao.delegacao.conceder": "Conceder cargo — 003 R19 (tela e API)",
     "permissao.delegacao.convidar": "Sem tela: a tela e a rota chamam convidar_por_cpf, que decide CPF novo ou existente — 003 R13",
     "permissao.delegacao.revogar_concessao": "Chamada por concessoes_revogar; tela 003 R14",

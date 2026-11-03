@@ -16,8 +16,8 @@ TRECHO_HTML = '<script>alert(1)</script>'
 
 
 def _sem_nonce(html):
-    """O `nonce` da política de conteúdo é aleatório e pode conter 'F2' ou 'FY': tira antes de procurar texto que não deve existir."""
-    return re.sub(r' nonce="[^"]*"', '', html)
+    """O `nonce` da política de conteúdo e o token CSRF dos formulários são aleatórios e podem conter 'F2', 'FY' ou 'G1': tira os dois antes de procurar texto que não deve existir."""
+    return re.sub(r'name="csrfmiddlewaretoken" value="[^"]+"| nonce="[^"]+"', '', html)
 
 
 def _casa(cenario):

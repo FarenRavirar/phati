@@ -80,7 +80,7 @@ Livre: editar arquivo local, criar e subir branch de trabalho, abrir PR, rodar t
 - Escolha que o critério escalável, robusto e dinâmico decide: o agente aplica e relata em uma linha. Opção mais barata que quebra um dos três só entra por ordem do mantenedor.
 - Ordem entre passos do agente: é do agente.
 
-**Dúvida de produto** chega pesquisada (doc oficial, mercado, código aberto, literatura): uma pergunta, 2 a 4 opções medidas com fonte (link), recomendação marcada "inferência a confirmar" e o que a pesquisa não confirmou. Pergunta seca é defeito. Número tirado de prática de mercado cita a referência e fica "a confirmar".
+**Dúvida de produto** chega pesquisada (doc oficial, mercado, código aberto, literatura): uma pergunta, 2 a 4 opções medidas com fonte (link), recomendação marcada "inferência a confirmar" e o que a pesquisa não confirmou. Pergunta seca é defeito. **Toda decisão pendente vai em pergunta com a ferramenta `AskUserQuestion`, nunca enterrada no texto do relatório:** decisão listada em relatório ninguém lê, e o agente não a trata como resolvida nem a aplica por conta própria. Até 4 perguntas por chamada, a recomendação como primeira opção; o que sobra vai na chamada seguinte. Número tirado de prática de mercado cita a referência e fica "a confirmar".
 
 **Pedido de aprovação:** uma mensagem, com tudo do agente feito e medido: o que foi feito, a medição, a ação pedida pelo nome (skill `pedir-aprovacao`).
 
@@ -173,7 +173,7 @@ Conclusão é afirmação e exige medição: busca final retorna o esperado, com
 
 ### Formato da resposta
 
-Sem teto de linhas. Entra o que o mantenedor precisa para decidir. Sem tabela, seção ou bullet, salvo pedido. Sem emoji decorativo. Erro próprio: uma linha, sem análise de causa.
+**Relatório curto: no máximo uns 10 linhas, que um humano lê inteiras.** Diz só o que foi feito, a medição que importa (comando e resultado), o que ficou sem fazer e o risco, cada um numa linha. Não repete o que o mantenedor já viu nem lista cada achado de bot: o detalhe vive no commit, na PR e nos arquivos. Decisão pendente não entra no relatório: vai em `AskUserQuestion` (§Decisão, pausa e dúvida). Sem tabela, seção ou bullet, salvo pedido. Sem emoji decorativo. Erro próprio: uma linha, sem análise de causa.
 
 ---
 

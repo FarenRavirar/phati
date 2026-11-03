@@ -9,7 +9,7 @@ from territorio.models import Empresa, Fazenda
 
 
 def _sem_nonce(resposta):
-    return re.sub(rb'nonce="[^"]*"', b'', resposta.content)
+    return re.sub(rb'name="csrfmiddlewaretoken" value="[^"]+"|nonce="[^"]+"', b'', resposta.content)
 
 
 @pytest.fixture

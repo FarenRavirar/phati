@@ -176,8 +176,10 @@ def _gravar(quem, proposta, pessoa, categorias):
     return proposta
 
 
-def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
-    """Concede `cargo` a `pessoa` em `escopo` (Empresa, Fazenda ou SubArea). Negado: `PermissionDenied`."""
+def conceder_com_status(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
+    """Concede `cargo` a `pessoa` em `escopo` (Empresa, Fazenda ou SubArea). Devolve `(concessao, criada)`: `criada` é falso quando
+    a pessoa já tinha o mesmo acesso e a concessão existente foi reaproveitada (mantenedor, 2026-11-02: a API responde 200).
+    Negado: `PermissionDenied`."""
     categorias = tuple(categorias)  # percorrido na checagem e na gravação: um gerador acabaria na primeira
     exigir_categoria_compativel(cargo, categorias)
     proposta = _proposta(quem, cargo, escopo, inicio, fim)
@@ -187,7 +189,15 @@ def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
         travar_cargo(cargo.pk)
         if not pode_conceder(quem, proposta, categorias):
             raise PermissionDenied
-        return concessao_igual(pessoa, proposta, categorias) or _gravar(quem, proposta, pessoa, categorias)
+        existente = concessao_igual(pessoa, proposta, categorias)
+        if existente is not None:
+            return existente, False
+        return _gravar(quem, proposta, pessoa, categorias), True
+
+
+def conceder(quem, pessoa, cargo, escopo, categorias=(), inicio=None, fim=None):
+    """Concede `cargo` a `pessoa` em `escopo`; devolve a concessão (a existente, se a pessoa já tinha o mesmo acesso)."""
+    return conceder_com_status(quem, pessoa, cargo, escopo, categorias, inicio, fim)[0]
 
 
 def criar_pessoa_e_conceder(quem, proposta, categorias, nome, email, cpf):

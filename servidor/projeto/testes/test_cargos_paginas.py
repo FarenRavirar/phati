@@ -20,7 +20,7 @@ def _telas(cenario, cargo_id):
 
 
 def _html(resposta):
-    return re.sub(r' nonce="[^"]*"', '', resposta.content.decode())
+    return re.sub(r'name="csrfmiddlewaretoken" value="[^"]+"| nonce="[^"]+"', '', resposta.content.decode())
 
 
 def _versao(resposta):

@@ -127,6 +127,21 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
     if not pode_conceder(quem, proposta, categorias):
         raise PermissionDenied
     busca = modulo_cpf.chave_de_busca(modulo_cpf.normalizar_cpf(cpf_texto))
+    try:
+        return _convidar_numa_transacao(quem, nome, email, cpf_texto, cargo, proposta, categorias, inicio, busca)
+    except _PessoaApareceu:
+        pass
+    # Outro convite criou a pessoa entre a consulta e a gravação. A transação anterior já voltou (e soltou as travas de escopo
+    # e de cargo): refaz com a pessoa existente, que agora é travada ANTES, na ordem de `conceder` (pessoa, escopo, cargo).
+    # Segurar escopo e cargo e esperar a pessoa fechava um ciclo com `aceitar` e `conceder` (Sourcery, PR #32).
+    return _convidar_numa_transacao(quem, nome, email, cpf_texto, cargo, proposta, categorias, inicio, busca)
+
+
+class _PessoaApareceu(Exception):
+    """O CPF virou pessoa durante a criação: o convite refaz a transação com a pessoa travada primeiro."""
+
+
+def _convidar_numa_transacao(quem, nome, email, cpf_texto, cargo, proposta, categorias, inicio, busca):
     with transaction.atomic():
         existente = Pessoa.objects.filter(cpf_busca=busca).first()
         if existente is not None:
@@ -142,7 +157,7 @@ def convidar_por_cpf(quem, nome, email, cpf_texto, cargo, escopo, categorias=(),
             except ValidationError as erro:
                 if erro.code != 'cpf_duplicado':
                     raise
-                existente = Pessoa.objects.get(cpf_busca=busca)  # outro convite criou a pessoa entre a consulta e a gravação
+                raise _PessoaApareceu from erro
         # CPF novo paga o Argon2 da senha temporária; o existente paga um equivalente, senão o tempo mostra o cadastro (T5.5c).
         check_password(cpf_texto, _HASH_FALSO)  # entrada qualquer: só o custo importa (Sonar S6437 recusa literal)
         _registrar(quem, existente, proposta, categorias, inicio)
