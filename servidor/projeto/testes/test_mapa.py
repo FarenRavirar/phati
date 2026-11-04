@@ -57,6 +57,11 @@ def test_flag_ligada_a_pagina_carrega_o_mapa_como_modulo_com_o_nonce_da_resposta
 
 
 @override_settings(MAPA_TESTE_ATIVO=True)
+def test_botao_de_recentralizar_nasce_desabilitado_ate_o_script_ligar_o_clique(pagina):
+    assert re.search(r'<button[^>]*data-recentralizar disabled>', pagina().content.decode())
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
 def test_flag_ligada_a_politica_do_mapa_so_acrescenta_blob_no_img(pagina):
     politica = _politica(pagina())
     assert _diretiva(politica, 'img-src') == "img-src 'self' data: blob:"

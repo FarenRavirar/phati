@@ -369,6 +369,8 @@ function ligarRecentralizar(mapa) {
     dizer('A posição do aparelho só funciona em conexão segura (HTTPS) e em navegador com localização.');
     return;
   }
+  // Nasce desabilitado no HTML e só habilita aqui, com o clique já ligado: em runner lento o toque cedo demais se perdia (CI da PR #36).
+  botaoPosicao.disabled = false;
   botaoPosicao.addEventListener('click', () => {
     dizer('');
     pedirPosicao(navigator.geolocation, (centro) => {

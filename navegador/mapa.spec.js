@@ -55,6 +55,7 @@ test('falha ao carregar o próprio mapa.js também deixa o aviso visível', asyn
   await page.route('**/projeto/mapa.js', (rota) => rota.abort());
   await entrar(page, dados.administradora_a.cpf);
   await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
+  await expect(page.getByRole('button', { name: 'Centralizar na minha posição' })).toBeDisabled(); // sem o script, o botão não promete o que não faz
   await expect(page.getByText('Não foi possível abrir o mapa neste navegador.')).toBeVisible();
   await expect(page.locator('[data-mapa]')).not.toHaveAttribute('data-mapa-pronto', /.*/);
   await acessivel(page);
@@ -397,10 +398,14 @@ test('rota que nunca responde vira erro no prazo, nas três regiões', async ({ 
 
 test('recentralizar antes de as camadas chegarem não é desfeito pelo enquadramento inicial', async ({ page, baseURL, context }) => {
   await page.route('**/camadas.geojson', async (rota) => { await new Promise((ok) => setTimeout(ok, 1500)); await rota.continue(); });
+  // Motor lento: o botão existe no HTML antes de o script ligar o clique. Nasce desabilitado, então o toque espera (falha do CI da PR #36).
+  await page.route('**/maplibre-gl.mjs', async (rota) => { await new Promise((ok) => setTimeout(ok, 2000)); await rota.continue(); });
   await context.grantPermissions(['geolocation'], { origin: new URL(baseURL).origin });
   await context.setGeolocation({ latitude: 0.41234, longitude: 0.42345 });
   await abrirMapa(page, baseURL);
-  await page.getByRole('button', { name: 'Centralizar na minha posição' }).click();
+  const botaoPosicao = page.getByRole('button', { name: 'Centralizar na minha posição' });
+  await expect(botaoPosicao).toBeDisabled();
+  await botaoPosicao.click(); // espera habilitar
   await expect.poll(() => noMapa(page, (m) => m.getCenter().lat.toFixed(4))).toBe('0.4123');
   await expect(page.locator('[data-camada]')).toHaveCount(3); // as camadas chegaram depois
   await esperarOcioso(page);
