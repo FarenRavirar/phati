@@ -83,11 +83,12 @@ test('sem acesso à fazenda, o mapa não existe por URL direta (404)', async ({ 
 });
 
 // ---- Fase 2 (T2.4 a T2.7): camadas sintéticas, ordem, transparência, consulta, estados e posição ----------------------
-// Pontos do dado sintético, deslocados em 0,3° (camadas_sinteticas.py): P1 em três camadas; P2, P3 e P4 em uma feição só.
-const P1 = [0.3, 0.3];
-const P2 = [0.273, 0.308];
-const P3 = [0.327, 0.308];
-const P4 = [0.3, 0.273];
+// Pontos do dado sintético, em torno de LON0, LAT0 (camadas_sinteticas.py): P1 em três camadas; P2, P3 e P4 em uma feição só.
+const [LON0, LAT0] = [-48.30, -10.75];
+const P1 = [LON0, LAT0];
+const P2 = [LON0 - 0.027, LAT0 + 0.008];
+const P3 = [LON0 + 0.027, LAT0 + 0.008];
+const P4 = [LON0, LAT0 - 0.027];
 
 // O mapa pode estar reenquadrando ou carregando fonte: tocar ou ler o estilo só depois de `loaded()`.
 async function esperarOcioso(page) {
@@ -127,10 +128,10 @@ test('as três camadas abrem ligadas, o mapa enquadra a extensão e a legenda li
   await expect(page.locator('[data-legenda] li')).toHaveText(['Camada A', 'Camada B', 'Camada C']);
   expect(await idsDasCamadas(page)).toEqual([
     'camada-c-preenchimento', 'camada-c-contorno', 'camada-b-preenchimento', 'camada-b-contorno', 'camada-a-preenchimento', 'camada-a-contorno']);
-  const cobre = await noMapa(page, (m) => {
+  const cobre = await noMapa(page, (m, pontos) => {
     const b = m.getBounds();
-    return [[0.266, 0.273], [0.334, 0.314]].every(([lon, lat]) => b.contains([lon, lat]));
-  });
+    return pontos.every((ponto) => b.contains(ponto));
+  }, [[LON0 - 0.034, LAT0 - 0.034], [LON0 + 0.034, LAT0 + 0.014]]);
   expect(cobre, 'a extensão sintética cabe no enquadramento').toBe(true);
   expect(violacoes).toEqual([]);
   expect(externas).toEqual([]);
@@ -190,7 +191,7 @@ test('tocar onde há duas camadas e uma em análise lista exatamente três itens
   await expect(itens.nth(0)).toContainText('Camada A: Teor de argila, 32 % (Vigente, Medição de campo)');
   await expect(itens.nth(1)).toContainText('Camada B: Acidez do solo, 5,8 pH (Vigente, Estimativa)');
   await expect(itens.nth(2)).toContainText('Camada C: Declividade, 0 % (Em análise, Medição de campo)');
-  await expect(page.locator('[data-coordenadas]')).toContainText(/Latitude 0,30\d+, longitude 0,30\d+/);
+  await expect(page.locator('[data-coordenadas]')).toContainText(/Latitude -10,7[45]\d+, longitude -48,(29|30)\d+/);
   await expect(page.locator('[data-campo="camada"]')).toHaveText('Camada A'); // a ficha abre no painel da 003, com o primeiro item
   await itens.nth(1).click();
   await expect(page.locator('[data-campo="origem"]')).toHaveText('Estimativa');
@@ -304,12 +305,12 @@ test('recentralizar: com permissão centraliza na posição e nenhuma requisiç�
   const urls = [];
   page.on('request', (r) => urls.push(r.url() + (r.postData() ?? '')));
   await context.grantPermissions(['geolocation'], { origin: new URL(baseURL).origin });
-  await context.setGeolocation({ latitude: 0.31234, longitude: 0.32345 });
+  await context.setGeolocation({ latitude: -10.71234, longitude: -48.32345 });
   await abrirComCamadas(page, baseURL);
   await page.getByRole('button', { name: 'Centralizar na minha posição' }).click();
-  await expect.poll(() => noMapa(page, (m) => m.getCenter().lat.toFixed(4))).toBe('0.3123');
-  expect(await noMapa(page, (m) => m.getCenter().lng.toFixed(4))).toBe('0.3235');
-  expect(urls.filter((u) => /0\.31234|0\.32345/.test(u))).toEqual([]);
+  await expect.poll(() => noMapa(page, (m) => m.getCenter().lat.toFixed(4))).toBe('-10.7123');
+  expect(await noMapa(page, (m) => m.getCenter().lng.toFixed(4))).toBe('-48.3235');
+  expect(urls.filter((u) => /10\.71234|48\.32345/.test(u))).toEqual([]);
   expect(externas).toEqual([]);
 });
 

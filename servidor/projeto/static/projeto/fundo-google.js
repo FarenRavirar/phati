@@ -1,6 +1,6 @@
 // Fundo online do mapa (004 R17 a R19): Map Tiles API do Google, sessão criada no navegador. Único arquivo do produto que
-// conhece o Google (A10). Sem service worker, IndexedDB nem arquivo de tile próprio: o Google proíbe pré-carregar e guardar
-// tile; o cache é só o do navegador, que segue os cabeçalhos da resposta. Doc lida em 2026-11-04:
+// conhece o Google (A10). O produto não guarda tile em lugar nenhum (nem em worker, nem em banco do navegador, nem em arquivo
+// próprio): o Google proíbe pré-carregar e guardar tile; o cache é só o do navegador, que segue os cabeçalhos da resposta. Doc lida em 2026-11-04:
 // https://developers.google.com/maps/documentation/tile/session_tokens (createSession)
 // https://developers.google.com/maps/documentation/tile/2d-tiles-overview (viewport, 2dtiles)
 // https://developers.google.com/maps/documentation/tile/policies (atribuição, cache)

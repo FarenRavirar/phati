@@ -65,14 +65,13 @@ def test_p2_p3_e_p4_caem_em_uma_feicao_so(ponto, situacao, valor):
     assert feicao['registro']['valor'] == valor
 
 
-def test_todas_as_coordenadas_ficam_a_menos_de_1_grau_de_0_0_e_fora_do_equador_e_do_meridiano_0():
+def test_todas_as_coordenadas_ficam_a_menos_de_0_1_grau_do_centro_em_terra_longe_do_oceano_de_0_0():
     for camada in sintetico.camadas():
         for feicao in camada['feicoes']:
             for lon, lat in feicao['geometria'][0]:
-                assert abs(lon) < 1
-                assert abs(lat) < 1
-                assert lon > 0.1  # um quadrante só: nada cruza a fronteira de tile em 0
-                assert lat > 0.1
+                assert abs(lon - sintetico.LON0) < 0.1
+                assert abs(lat - sintetico.LAT0) < 0.1
+    assert abs(sintetico.LON0) > 10 and abs(sintetico.LAT0) > 5  # nunca volta para o oceano em (0°, 0°)
 
 
 def test_geojson_e_feature_collection_serializavel_com_ids_unicos_e_texto_pronto():

@@ -32,9 +32,10 @@ def com_politica_do_mapa(resposta):
     if mapa_ativo():
         resposta._csp_config = settings.SECURE_CSP_MAPA_GOOGLE if fundo_google_ativo() else settings.SECURE_CSP_MAPA
         if fundo_google_ativo():
-            # A chave vem restrita por referenciador: sem `Referer` o Google a recusa. `origin-when-cross-origin` manda só a
-            # origem (nunca o caminho) a outro domínio e o caminho completo ao próprio site. Não medido com chave real (T3.6).
-            resposta['Referrer-Policy'] = 'origin-when-cross-origin'
+            # A chave vem restrita por referenciador: sem `Referer` o Google a recusa. `strict-origin-when-cross-origin` (R18,
+            # plano) manda só a origem (nunca o caminho) a outro domínio e nada em rebaixamento de HTTPS para HTTP. Efeito com
+            # chave real ainda não medido (T3.6).
+            resposta['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return resposta
 
 

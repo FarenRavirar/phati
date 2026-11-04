@@ -144,7 +144,7 @@ def test_flag_do_google_acrescenta_so_a_origem_dos_tiles_a_politica_do_mapa(pagi
 
 @com_google
 def test_flag_do_google_manda_so_a_origem_como_referenciador_e_o_resto_segue_same_origin(pagina, cliente_logado):
-    assert pagina()['Referrer-Policy'] == 'origin-when-cross-origin'
+    assert pagina()['Referrer-Policy'] == 'strict-origin-when-cross-origin'
     assert cliente_logado.get('/empresas/')['Referrer-Policy'] == 'same-origin'
 
 

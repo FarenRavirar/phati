@@ -30,7 +30,7 @@ test('fundo fora da forma é erro, não mapa em branco', async () => {
   }
 });
 
-test('criarMapa entrega ao motor o elemento, o estilo e o centro perto de (0°, 0°)', async () => {
+test('criarMapa entrega ao motor o elemento, o estilo e o centro em Porto Nacional (TO)', async () => {
   const { criarMapa, CENTRO_INICIAL, ZOOM_INICIAL } = await import('./mapa.js');
   const { fundo } = await import('./fundo-neutro.js');
   let recebido;
@@ -41,7 +41,7 @@ test('criarMapa entrega ao motor o elemento, o estilo e o centro perto de (0°, 
   assert.equal(recebido.style.version, 8);
   assert.deepEqual(recebido.center, CENTRO_INICIAL);
   assert.equal(recebido.zoom, ZOOM_INICIAL);
-  assert.ok(Math.abs(CENTRO_INICIAL[0]) < 1 && Math.abs(CENTRO_INICIAL[1]) < 1);
+  assert.deepEqual(CENTRO_INICIAL, [-48.30, -10.75]);
 });
 
 test('mostrarErro marca o mapa e revela o aviso da região; sem aviso, só marca', async () => {

@@ -3,8 +3,8 @@
 // Carrega o MapLibre embutido só quando a página tem o elemento `[data-mapa]`, então importar este módulo no Node é seguro.
 import { fundo as fundoNeutro } from './fundo-neutro.js';
 
-// Perto de (0°, 0°): nenhuma fazenda real cabe aqui (004 R5). Só vale até as camadas chegarem; depois o mapa enquadra a extensão delas.
-export const CENTRO_INICIAL = [0, 0];
+// Área rural de Porto Nacional (TO), em terra para o fundo Google ter imagem; mesmo ponto de LON0, LAT0 em camadas_sinteticas.py. Só vale até as camadas chegarem; depois o mapa enquadra a extensão delas.
+export const CENTRO_INICIAL = [-48.30, -10.75];
 export const ZOOM_INICIAL = 12;
 export const TRANSPARENCIA_INICIAL = 40; // percentual; a opacidade é o complemento (R9)
 
