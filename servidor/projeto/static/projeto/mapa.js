@@ -23,15 +23,27 @@ export function criarMapa(maplibre, elemento, fundo) {
 // ---- Lógica pura das camadas (sem MapLibre nem DOM; testada em `mapa.test.js`) -------------------------------------
 
 // Dado externo (a rota de camadas) é desconfiado até conferir a forma; o que falta é erro, nunca camada vazia calada.
+// Achado real (review PR #36, Greptile e Sourcery, média): confere também a geometria e todo campo que a ficha mostra.
+export const CAMPOS_DA_FICHA = ['camada', 'atributo', 'valor', 'fonte', 'data', 'situacao', 'ressalva', 'origem', 'metodo'];
+
+const ehPosicao = (p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90;
+const ehAnel = (anel) => Array.isArray(anel) && anel.length >= 4 && anel.every(ehPosicao);
+
 export function validarColecao(colecao) {
   if (typeof colecao !== 'object' || colecao === null || colecao.type !== 'FeatureCollection' || !Array.isArray(colecao.features)) {
     throw new Error('camadas fora da forma FeatureCollection');
   }
   for (const feicao of colecao.features) {
     const p = feicao?.properties;
-    if (typeof p !== 'object' || p === null || typeof p.camada_id !== 'string' || typeof p.camada !== 'string' || typeof p.cor !== 'string') {
+    if (typeof p !== 'object' || p === null || typeof p.camada_id !== 'string' || typeof p.cor !== 'string') {
       throw new Error('feição sem camada_id, camada ou cor');
     }
+    const g = feicao.geometry;
+    if (g?.type !== 'Polygon' || !Array.isArray(g.coordinates) || g.coordinates.length === 0 || !g.coordinates.every(ehAnel)) {
+      throw new Error('feição sem geometria Polygon válida');
+    }
+    const faltando = CAMPOS_DA_FICHA.find((campo) => typeof p[campo] !== 'string');
+    if (faltando) throw new Error(`feição sem camada_id, camada ou cor: falta o campo ${faltando} da ficha`);
   }
   return colecao;
 }
@@ -156,6 +168,17 @@ export function definirEstado(id, estado, texto) {
 
 const limparEstado = (id) => regiao(id).estado.replaceChildren();
 
+const TEXTO_CONSULTA = 'Escolha um ponto no mapa para consultar.';
+const TEXTO_FICHA = 'A ficha, as fontes e as ressalvas aparecem aqui.';
+
+// Achado real (review PR #36, Sourcery, média): consulta e ficha voltam ao vazio, porque o resultado antigo não vale para as camadas ligadas e a ordem de agora.
+function limparConsulta() {
+  for (const [id, texto] of [['consulta', TEXTO_CONSULTA], ['ficha', TEXTO_FICHA]]) {
+    definirEstado(id, 'vazio', texto);
+    regiao(id).conteudo.replaceChildren();
+  }
+}
+
 function elemento(tag, classe, texto) {
   const no = document.createElement(tag);
   if (classe) no.className = classe;
@@ -175,35 +198,50 @@ function montarPainelDeCamadas(estado, aoMudar) {
   const { conteudo } = regiao('camadas');
   const lista = elemento('ul', 'lista-camadas');
   const legenda = elemento('ul', 'legenda');
-  lista.setAttribute('data-lista-camadas', '');
-  legenda.setAttribute('data-legenda', '');
+  lista.dataset.listaCamadas = '';
+  legenda.dataset.legenda = '';
   conteudo.replaceChildren(lista, elemento('h3', 'legenda-titulo', 'Legenda (cores provisórias)'), legenda);
 
-  function desenhar() {
-    lista.replaceChildren(...estado.ordem.map((id, posicao) => {
-      const camada = estado.camadas.get(id);
-      const item = elemento('li', 'camada');
-      item.dataset.camada = id;
-      const rotulo = elemento('label', 'camada-nome');
-      const caixa = document.createElement('input');
-      caixa.type = 'checkbox';
-      caixa.checked = estado.ligadas.has(id);
-      caixa.addEventListener('change', () => aoMudar({ tipo: 'ligar', id, ligada: caixa.checked }));
-      rotulo.append(caixa, ' ', camada.nome);
-      const transparencia = document.createElement('input');
-      transparencia.type = 'range';
-      transparencia.min = '0';
-      transparencia.max = '100';
-      transparencia.value = String(estado.transparencia.get(id));
-      transparencia.setAttribute('aria-label', `Transparência de ${camada.nome}, em porcentagem`);
-      transparencia.addEventListener('input', () => aoMudar({ tipo: 'transparencia', id, valor: Number(transparencia.value) }));
-      const subir = botao('Subir', `Subir ${camada.nome} na ordem de desenho`, () => aoMudar({ tipo: 'mover', id, passo: -1 }));
-      const descer = botao('Descer', `Descer ${camada.nome} na ordem de desenho`, () => aoMudar({ tipo: 'mover', id, passo: 1 }));
+  // Achado real (review PR #36, Codex, Greptile, Sourcery e Qodo, alta): cada controle nasce uma vez; recriar o que está sendo arrastado ou focado interrompe o ajuste.
+  const itens = new Map(estado.ordem.map((id) => {
+    const camada = estado.camadas.get(id);
+    const item = elemento('li', 'camada');
+    item.dataset.camada = id;
+    const rotulo = elemento('label', 'camada-nome');
+    const caixa = document.createElement('input');
+    caixa.type = 'checkbox';
+    caixa.checked = estado.ligadas.has(id);
+    caixa.addEventListener('change', () => aoMudar({ tipo: 'ligar', id, ligada: caixa.checked }));
+    rotulo.append(caixa, ' ', camada.nome);
+    const transparencia = document.createElement('input');
+    transparencia.type = 'range';
+    transparencia.min = '0';
+    transparencia.max = '100';
+    transparencia.value = String(estado.transparencia.get(id));
+    transparencia.setAttribute('aria-label', `Transparência de ${camada.nome}, em porcentagem`);
+    transparencia.addEventListener('input', () => aoMudar({ tipo: 'transparencia', id, valor: Number(transparencia.value) }));
+    const subir = botao('Subir', `Subir ${camada.nome} na ordem de desenho`, () => aoMudar({ tipo: 'mover', id, passo: -1 }));
+    const descer = botao('Descer', `Descer ${camada.nome} na ordem de desenho`, () => aoMudar({ tipo: 'mover', id, passo: 1 }));
+    item.append(rotulo, transparencia, subir, descer);
+    return [id, { item, subir, descer }];
+  }));
+
+  function ordenarLista() {
+    const foco = document.activeElement;
+    estado.ordem.forEach((id, posicao) => {
+      const { item, subir, descer } = itens.get(id);
+      lista.append(item);
       subir.disabled = posicao === 0;
       descer.disabled = posicao === estado.ordem.length - 1;
-      item.append(rotulo, transparencia, subir, descer);
-      return item;
-    }));
+    });
+    // Mover o nó tira o foco do botão; devolve a ele, ou ao outro botão do item quando a ponta o desabilitou.
+    if (foco instanceof HTMLElement && lista.contains(foco)) {
+      const alvo = foco.disabled ? foco.closest('li')?.querySelector('button:not(:disabled)') : foco;
+      alvo?.focus();
+    }
+  }
+
+  function desenharLegenda() {
     legenda.replaceChildren(...ligadasNaOrdem(estado.ordem, estado.ligadas).map((id) => {
       const camada = estado.camadas.get(id);
       const item = elemento('li', 'legenda-item');
@@ -214,8 +252,13 @@ function montarPainelDeCamadas(estado, aoMudar) {
       return item;
     }));
   }
-  desenhar();
-  return desenhar;
+
+  ordenarLista();
+  desenharLegenda();
+  return (mudanca) => {
+    if (mudanca.tipo === 'mover') ordenarLista();
+    if (mudanca.tipo !== 'transparencia') desenharLegenda();
+  };
 }
 
 function mostrarFicha(propriedades) {
@@ -229,18 +272,18 @@ function mostrarFicha(propriedades) {
 function mostrarConsulta(itens, lngLat) {
   const { conteudo } = regiao('consulta');
   const coordenadas = elemento('p', 'consulta-coordenadas');
-  coordenadas.setAttribute('data-coordenadas', '');
+  coordenadas.dataset.coordenadas = '';
   coordenadas.textContent = `Latitude ${formatarCoordenada(lngLat.lat)}, longitude ${formatarCoordenada(lngLat.lng)}`;
   if (itens.length === 0) {
     conteudo.replaceChildren(coordenadas);
     definirEstado('consulta', 'sem_informacao');
-    definirEstado('ficha', 'vazio', 'A ficha, as fontes e as ressalvas aparecem aqui.');
+    definirEstado('ficha', 'vazio', TEXTO_FICHA);
     regiao('ficha').conteudo.replaceChildren();
     return;
   }
   limparEstado('consulta');
   const lista = elemento('ul', 'lista-consulta');
-  lista.setAttribute('data-lista-consulta', '');
+  lista.dataset.listaConsulta = '';
   for (const { properties: p } of itens) {
     const item = elemento('li', 'consulta-item');
     const b = elemento('button', 'botao botao-secundario consulta-botao', `${p.camada}: ${p.atributo}, ${p.valor} (${p.situacao}, ${p.origem})`);
@@ -283,6 +326,8 @@ function aplicar(mapa, estado, mudanca) {
   }
 }
 
+let recentralizado = false; // achado real (review PR #36, Sourcery, média): a pessoa já escolheu o centro, o enquadramento inicial não o desfaz
+
 function ligarCamadas(mapa, alvo, colecao) {
   const lista = camadasDaColecao(colecao);
   const estilo = getComputedStyle(document.documentElement);
@@ -296,10 +341,11 @@ function ligarCamadas(mapa, alvo, colecao) {
     transparencia: new Map(lista.map((c) => [c.id, TRANSPARENCIA_INICIAL])),
   };
   desenharCamadas(mapa, colecao, estado);
-  mapa.fitBounds(limitesDaColecao(colecao), { padding: 24, duration: 0 });
-  const redesenhar = montarPainelDeCamadas(estado, (mudanca) => {
+  if (!recentralizado) mapa.fitBounds(limitesDaColecao(colecao), { padding: 24, duration: 0 });
+  const atualizarPainel = montarPainelDeCamadas(estado, (mudanca) => {
     aplicar(mapa, estado, mudanca);
-    redesenhar();
+    atualizarPainel(mudanca);
+    if (mudanca.tipo !== 'transparencia') limparConsulta();
   });
   limparEstado('camadas');
   mapa.on('click', (e) => {
@@ -325,37 +371,50 @@ function ligarRecentralizar(mapa) {
   }
   botaoPosicao.addEventListener('click', () => {
     dizer('');
-    pedirPosicao(navigator.geolocation, (centro) => mapa.jumpTo({ center: centro }), dizer);
+    pedirPosicao(navigator.geolocation, (centro) => {
+      recentralizado = true;
+      mapa.jumpTo({ center: centro });
+    }, dizer);
   });
+}
+
+const TEMPO_LIMITE_PADRAO_MS = 15000;
+
+// Achado real (review PR #36, Qodo, média): falha de carregamento vale para as três regiões; consulta e ficha não ficam pedindo um toque que não responde.
+function falharRegioes(estado, texto) {
+  for (const id of ['camadas', 'consulta', 'ficha']) definirEstado(id, estado, texto);
 }
 
 async function carregarCamadas(mapa, alvo) {
   definirEstado('camadas', 'carregando');
-  let resposta;
+  const controle = new AbortController();
+  const prazo = Number(alvo.dataset.camadasTempoLimite) || TEMPO_LIMITE_PADRAO_MS;
+  const relogio = setTimeout(() => controle.abort(), prazo); // achado real (review PR #36, Sourcery, média): sem prazo o "Carregando…" nunca acabava
+  const FALHA = 'Não foi possível carregar as camadas.';
   try {
-    resposta = await fetch(alvo.dataset.camadasUrl, { credentials: 'same-origin', headers: { Accept: 'application/geo+json' } });
-  } catch {
-    definirEstado('camadas', 'erro', 'Não foi possível carregar as camadas.');
-    return;
-  }
-  let estado = estadoDaResposta(resposta.status);
-  let colecao;
-  if (estado === 'pronto') {
-    try {
+    // Achado real (review PR #36, Qodo e Sourcery, média): `manual`, porque sessão expirada responde redirecionamento ao login e seguir devolveria HTML com 200.
+    const resposta = await fetch(alvo.dataset.camadasUrl, {
+      credentials: 'same-origin', headers: { Accept: 'application/geo+json' }, redirect: 'manual', signal: controle.signal,
+    });
+    if (resposta.type === 'opaqueredirect') {
+      window.location.assign(`/entrar?proximo=${encodeURIComponent(window.location.pathname)}&expirou=1`);
+      return;
+    }
+    let estado = estadoDaResposta(resposta.status);
+    let colecao;
+    if (estado === 'pronto') {
       colecao = validarColecao(await resposta.json());
       estado = estadoDaResposta(resposta.status, colecao.features.length);
-    } catch {
-      estado = 'erro';
     }
-  }
-  if (estado !== 'pronto') {
-    definirEstado('camadas', estado, estado === 'erro' ? 'Não foi possível carregar as camadas.' : undefined);
-    return;
-  }
-  try {
+    if (estado !== 'pronto') {
+      falharRegioes(estado, estado === 'erro' ? FALHA : undefined);
+      return;
+    }
     ligarCamadas(mapa, alvo, colecao);
   } catch {
-    definirEstado('camadas', 'erro', 'Não foi possível desenhar as camadas.');
+    falharRegioes('erro', FALHA); // rede, prazo, JSON quebrado, forma errada ou erro ao desenhar
+  } finally {
+    clearTimeout(relogio);
   }
 }
 

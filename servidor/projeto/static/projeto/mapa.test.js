@@ -69,7 +69,8 @@ test('esconderAviso some com o aviso e mostrarErro o traz de volta; sem aviso ne
 
 // ---- Fase 2: camadas, ordem, transparência, consulta e posição ------------------------------------------------------
 
-const feicao = (id, camada_id, extra = {}) => ({ type: 'Feature', id, geometry: { type: 'Polygon', coordinates: [[[1, 2], [3, 2], [3, 4], [1, 2]]] }, properties: { camada_id, camada: camada_id.toUpperCase(), cor: '--c', ...extra } });
+const FICHA = { atributo: 'a', valor: 'v', fonte: 'f', data: 'd', situacao: 's', ressalva: 'r', origem: 'o', metodo: 'm' };
+const feicao = (id, camada_id, extra = {}) => ({ type: 'Feature', id, geometry: { type: 'Polygon', coordinates: [[[1, 2], [3, 2], [3, 4], [1, 2]]] }, properties: { ...FICHA, camada_id, camada: camada_id.toUpperCase(), cor: '--c', ...extra } });
 
 test('validarColecao aceita FeatureCollection e recusa o que foge da forma', async () => {
   const { validarColecao } = await import('./mapa.js');
@@ -80,6 +81,22 @@ test('validarColecao aceita FeatureCollection e recusa o que foge da forma', asy
     { type: 'FeatureCollection', features: [{ properties: { camada_id: 'a', camada: 'A' } }] }]) {
     assert.throws(() => validarColecao(ruim), /fora da forma|sem camada_id/);
   }
+});
+
+test('validarColecao confere a geometria e todos os campos que a ficha mostra', async () => {
+  const { validarColecao, CAMPOS_DA_FICHA } = await import('./mapa.js');
+  const com = (mudar) => { const f = feicao(1, 'a'); mudar(f); return { type: 'FeatureCollection', features: [f] }; };
+  assert.throws(() => validarColecao(com((f) => { delete f.geometry; })), /geometria Polygon/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry = { type: 'Point', coordinates: [1, 2] }; })), /geometria Polygon/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = []; })), /geometria Polygon/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = [[[1, 2], [3, 4]]]; })), /geometria Polygon/); // anel curto
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][0] = [999, 2]; })), /geometria Polygon/); // fora de WGS 84
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][1] = ['3', 2]; })), /geometria Polygon/); // texto no lugar de número
+  for (const campo of CAMPOS_DA_FICHA) {
+    assert.throws(() => validarColecao(com((f) => { delete f.properties[campo]; })), new RegExp(`campo ${campo}`));
+    assert.throws(() => validarColecao(com((f) => { f.properties[campo] = 3; })), new RegExp(`campo ${campo}`)); // número no lugar de texto
+  }
+  assert.doesNotThrow(() => validarColecao(com(() => {})));
 });
 
 test('camadasDaColecao lista cada camada uma vez, na ordem em que aparece', async () => {

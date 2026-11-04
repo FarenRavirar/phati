@@ -9,6 +9,7 @@ matriz adulterada, então remover a validação os reprova.
 import importlib
 import inspect
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -33,9 +34,21 @@ def _rotas_da_api():
     return {padrao.name for padrao in api.urls[0] if isinstance(padrao, URLPattern) and padrao.name and padrao.name != 'api-root'}
 
 
-def _rotas_de_dados_da_web():
+def _padroes_da_web(padroes, prefixo=''):
+    """Cada `URLPattern` de `projeto.urls`, entrando nos `include()` e pulando a API e o painel, que têm portão próprio
+    (Qodo, PR #36: rota de dado sob `include()` escapava da matriz)."""
+    for padrao in padroes:
+        caminho = prefixo + str(padrao.pattern)
+        if isinstance(padrao, URLResolver):
+            if not caminho.startswith(('api/', 'painel/')):
+                yield from _padroes_da_web(padrao.url_patterns, caminho)
+        else:
+            yield padrao
+
+
+def _rotas_de_dados_da_web(padroes=None):
     """Views da web que servem dado (GeoJSON), marcadas com `dados_da_web`: página HTML tem tela por definição e a varredura de views a cobre."""
-    return {p.name for p in get_resolver().url_patterns if isinstance(p, URLPattern) and p.name and getattr(p.callback, 'dados_da_web', False)}
+    return {p.name for p in _padroes_da_web(get_resolver().url_patterns if padroes is None else padroes) if p.name and getattr(p.callback, 'dados_da_web', False)}
 
 
 def _rotas_cobertas():
@@ -144,20 +157,17 @@ def test_rota_de_dados_da_web_marcada_exige_linha_na_matriz():
     assert _problemas_das_rotas(sem_linha) == ['rota sem linha: mapa_camadas']
 
 
-def _entregam_dado_sem_marca(padroes, prefixo=''):
-    """Views de `projeto.urls` (fora da API e do painel) cujo código devolve `JsonResponse` ou tipo `application/`, mas
-    sem `dados_da_web`: sem a marca a rota escaparia da matriz. Leitura estática do código da view, sem chamá-la."""
-    achadas = []
-    for padrao in padroes:
-        caminho = prefixo + str(padrao.pattern)
-        if isinstance(padrao, URLResolver):
-            if not caminho.startswith(('api/', 'painel/')):
-                achadas += _entregam_dado_sem_marca(padrao.url_patterns, caminho)
-        elif not getattr(padrao.callback, 'dados_da_web', False):
-            codigo = inspect.getsource(inspect.unwrap(padrao.callback))
-            if 'JsonResponse' in codigo or "'application/" in codigo:
-                achadas.append(padrao.name)
-    return achadas
+# `JsonResponse`, qualquer `content_type=` (aspas simples ou duplas) ou literal `application/`: sinais de view que entrega dado.
+SINAL_DE_DADO = re.compile(r"""JsonResponse|content_type\s*=|["']application/""")
+
+
+def _entregam_dado_sem_marca(padroes):
+    """Views da web cujo código tem sinal de dado, mas sem `dados_da_web`: sem a marca a rota escaparia da matriz.
+    Leitura estática do código da view, sem chamá-la."""
+    return [
+        p.name for p in _padroes_da_web(padroes)
+        if not getattr(p.callback, 'dados_da_web', False) and SINAL_DE_DADO.search(inspect.getsource(inspect.unwrap(p.callback)))
+    ]
 
 
 def test_toda_view_que_entrega_dado_na_web_leva_a_marca():
@@ -176,3 +186,23 @@ def test_view_que_entrega_dado_sem_a_marca_e_detectada():
     setattr(marcada, 'dados_da_web', True)
     padroes = [path('a', esquecida, name='esquecida'), path('b', marcada, name='marcada')]
     assert _entregam_dado_sem_marca(padroes) == ['esquecida']
+
+
+def test_view_de_dado_sob_include_e_com_http_response_tambem_e_vista():
+    from django.http import HttpResponse
+    from django.urls import include, path
+
+    def esquecida(requisicao):
+        return HttpResponse('{}', content_type="application/geo+json")
+
+    def marcada(requisicao):
+        return JsonResponse({})
+
+    setattr(marcada, 'dados_da_web', True)
+    padroes = [
+        path('fora/', include([path('esquecida', esquecida, name='esquecida')])),
+        path('dentro/', include([path('marcada', marcada, name='marcada')])),
+        path('api/v1/', include([path('da_api', esquecida, name='da_api')])),
+    ]
+    assert _entregam_dado_sem_marca(padroes) == ['esquecida']
+    assert _rotas_de_dados_da_web(padroes) == {'marcada'}

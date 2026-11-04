@@ -69,8 +69,10 @@ def test_todas_as_coordenadas_ficam_a_menos_de_1_grau_de_0_0_e_fora_do_equador_e
     for camada in sintetico.camadas():
         for feicao in camada['feicoes']:
             for lon, lat in feicao['geometria'][0]:
-                assert abs(lon) < 1 and abs(lat) < 1
-                assert lon > 0.1 and lat > 0.1  # um quadrante só: nada cruza a fronteira de tile em 0
+                assert abs(lon) < 1
+                assert abs(lat) < 1
+                assert lon > 0.1  # um quadrante só: nada cruza a fronteira de tile em 0
+                assert lat > 0.1
 
 
 def test_geojson_e_feature_collection_serializavel_com_ids_unicos_e_texto_pronto():

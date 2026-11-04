@@ -116,10 +116,12 @@ def test_camadas_com_alcance_devolvem_feature_collection_em_wgs84(camadas):
     corpo = resposta.json()
     assert resposta.status_code == 200
     assert resposta['Content-Type'] == 'application/geo+json'
-    assert corpo['type'] == 'FeatureCollection' and len(corpo['features']) == 6
+    assert corpo['type'] == 'FeatureCollection'
+    assert len(corpo['features']) == 6
     for feicao in corpo['features']:
         for lon, lat in feicao['geometry']['coordinates'][0]:
-            assert -180 <= lon <= 180 and -90 <= lat <= 90
+            assert -180 <= lon <= 180
+            assert -90 <= lat <= 90
 
 
 @override_settings(MAPA_TESTE_ATIVO=True)

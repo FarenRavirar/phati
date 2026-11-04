@@ -265,7 +265,7 @@ for (const [nome, resposta, texto] of [
     await page.route('**/camadas.geojson', (rota) => rota.fulfill(resposta));
     await abrirMapa(page, baseURL);
     await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-pronto', 'sim');
-    await expect(page.locator('[data-estado-de="camadas"]')).toContainText(texto);
+    for (const regiao of ['camadas', 'consulta', 'ficha']) await expect(page.locator(`[data-estado-de="${regiao}"]`)).toContainText(texto); // falha vale para as três regiões
     await expect(page.locator('[data-camada]')).toHaveCount(0);
     await semRolagemHorizontal(page);
     await acessivel(page);
@@ -332,4 +332,77 @@ test('recentralizar: o botão não pede a posição ao abrir a página', async (
   });
   await abrirComCamadas(page, baseURL);
   expect(await page.evaluate(() => window.__pedidosDePosicao)).toBe(0);
+});
+
+// ---- Achados da revisão da PR #36 ----------------------------------------------------------------------------------
+
+test('o controle de transparência segue vivo: duas setas seguidas mudam o valor e o foco fica nele', async ({ page, baseURL }) => {
+  await abrirComCamadas(page, baseURL);
+  const controle = page.getByRole('slider', { name: 'Transparência de Camada C, em porcentagem' });
+  await controle.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(controle).toBeFocused();
+  await expect(controle).toHaveValue('42');
+  expect(await noMapa(page, (m) => m.getPaintProperty('camada-c-preenchimento', 'fill-opacity'))).toBeCloseTo(0.58, 5);
+});
+
+test('subir mantém o foco: o botão ou, na ponta, o outro botão da mesma camada', async ({ page, baseURL }) => {
+  await abrirComCamadas(page, baseURL);
+  const subir = page.getByRole('button', { name: 'Subir Camada B na ordem de desenho' });
+  await subir.focus();
+  await page.keyboard.press('Enter'); // B vira a primeira: o Subir dela fica desabilitado
+  await expect(page.getByRole('button', { name: 'Descer Camada B na ordem de desenho' })).toBeFocused();
+  await page.keyboard.press('Enter'); // desce de novo
+  await expect(page.locator('[data-legenda] li')).toHaveText(['Camada A', 'Camada B', 'Camada C']);
+  await expect(page.getByRole('button', { name: 'Descer Camada B na ordem de desenho' })).toBeFocused();
+});
+
+test('desligar ou reordenar limpa a consulta e a ficha que já não valem', async ({ page, baseURL }) => {
+  await abrirComCamadas(page, baseURL);
+  await tocar(page, P1);
+  await expect(itensDaConsulta(page)).toHaveCount(3);
+  await page.getByRole('checkbox', { name: 'Camada C' }).uncheck();
+  await expect(itensDaConsulta(page)).toHaveCount(0);
+  await expect(page.locator('[data-estado-de="consulta"]')).toContainText('Escolha um ponto no mapa para consultar.');
+  await expect(page.locator('[data-campo="camada"]')).toHaveCount(0);
+  await tocar(page, P1);
+  await expect(itensDaConsulta(page)).toHaveCount(2);
+  await page.getByRole('button', { name: 'Subir Camada B na ordem de desenho' }).click();
+  await expect(itensDaConsulta(page)).toHaveCount(0);
+  await tocar(page, P1);
+  await page.getByRole('slider', { name: 'Transparência de Camada A, em porcentagem' }).fill('10'); // transparência não invalida a consulta
+  await expect(itensDaConsulta(page)).toHaveCount(2);
+});
+
+test('sessão expirada na rota de camadas leva ao login, não a um erro genérico', async ({ page, baseURL }) => {
+  await page.route('**/camadas.geojson', (rota) => rota.fulfill({ status: 302, headers: { location: '/entrar?proximo=%2F' } }));
+  await abrirMapa(page, baseURL);
+  await page.waitForURL(/\/entrar\?.*expirou=1/);
+  await expect(page.getByText('Sua sessão expirou.')).toBeVisible();
+});
+
+test('rota que nunca responde vira erro no prazo, nas três regiões', async ({ page, baseURL }) => {
+  await page.route('**/camadas.geojson', () => {}); // nunca responde nem falha
+  await page.route(url(dados.empresa_a, dados.fazendas_a[0]), async (rota) => {
+    const resposta = await rota.fetch();
+    await rota.fulfill({ response: resposta, body: (await resposta.text()).replace('data-camadas-tempo-limite="15000"', 'data-camadas-tempo-limite="800"') });
+  });
+  await abrirMapa(page, baseURL);
+  for (const regiao of ['camadas', 'consulta', 'ficha']) {
+    await expect(page.locator(`[data-estado-de="${regiao}"]`)).toContainText('Não foi possível carregar as camadas.');
+  }
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-pronto', 'sim');
+});
+
+test('recentralizar antes de as camadas chegarem não é desfeito pelo enquadramento inicial', async ({ page, baseURL, context }) => {
+  await page.route('**/camadas.geojson', async (rota) => { await new Promise((ok) => setTimeout(ok, 1500)); await rota.continue(); });
+  await context.grantPermissions(['geolocation'], { origin: new URL(baseURL).origin });
+  await context.setGeolocation({ latitude: 0.41234, longitude: 0.42345 });
+  await abrirMapa(page, baseURL);
+  await page.getByRole('button', { name: 'Centralizar na minha posição' }).click();
+  await expect.poll(() => noMapa(page, (m) => m.getCenter().lat.toFixed(4))).toBe('0.4123');
+  await expect(page.locator('[data-camada]')).toHaveCount(3); // as camadas chegaram depois
+  await esperarOcioso(page);
+  expect(await noMapa(page, (m) => m.getCenter().lat.toFixed(4))).toBe('0.4123');
 });

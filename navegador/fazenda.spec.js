@@ -22,6 +22,9 @@ test('mostra nome, empresa, árvore de três níveis e a região de camadas', as
 test('regiões do mapa não se sobrepõem e os painéis recolhem (R22)', async ({ page }) => {
   await entrar(page, dados.administradora_a.cpf);
   await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
+  // As camadas chegam depois da página e o painel cresce: medir as caixas antes disso dá layout de transição (intermitente na suíte inteira).
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-pronto', 'sim');
+  await expect(page.locator('.regiao-camadas [data-camada]').first()).toBeVisible();
   const nomes = ['mapa', 'camadas', 'consulta', 'ficha'];
   const caixas = [];
   for (const nome of nomes) {
@@ -39,7 +42,6 @@ test('regiões do mapa não se sobrepõem e os painéis recolhem (R22)', async (
   }
   const camadas = page.locator('.regiao-camadas');
   const conteudo = camadas.locator('[data-camada]').first();
-  await expect(conteudo).toBeVisible(); // as camadas sintéticas chegam com a flag do mapa
   await camadas.getByText('Mostrar ou ocultar camadas').click();
   await expect(conteudo).toBeHidden();
   await camadas.getByText('Mostrar ou ocultar camadas').click();
