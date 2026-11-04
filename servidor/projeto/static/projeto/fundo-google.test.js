@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, limitesParaViewport, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -45,6 +45,48 @@ test('buscarAtribuicao: devolve o copyright; erro e forma errada não viram text
   assert.ok(pedido.includes('/tile/v1/viewport?') && pedido.includes('zoom=12') && pedido.includes('north=1'));
   assert.equal(await buscarAtribuicao(async () => resposta({}), CHAVE, { token: 't' }, caixa), '');
   await assert.rejects(buscarAtribuicao(async () => resposta({}, false, 500), CHAVE, { token: 't' }, caixa), /500/);
+});
+
+test('limitesParaViewport: vista maior que o mundo vira o mundo todo, longitude volta ao intervalo, latitude é presa', () => {
+  const mundo = limitesParaViewport({ norte: 95, sul: -95, leste: 400, oeste: -300 });
+  assert.deepEqual(mundo, { norte: 89.999, sul: -89.999, leste: 179.999, oeste: -179.999 });
+  const deslocada = limitesParaViewport({ norte: 1, sul: -1, leste: 190, oeste: 170 }); // cruza o antimeridiano
+  assert.equal(deslocada.oeste, 170);
+  assert.equal(deslocada.leste, -170);
+  assert.deepEqual(limitesParaViewport({ norte: 1, sul: -1, leste: 2, oeste: -2 }), { norte: 1, sul: -1, leste: 2, oeste: -2 });
+  for (const v of [-720, -181, 0, 180, 181, 720]) {
+    const l = limitesParaViewport({ norte: 0, sul: 0, leste: v, oeste: v });
+    assert.ok(l.leste > -180 && l.leste < 180, String(v));
+  }
+});
+
+test('buscarAtribuicao pede com longitudes dentro do intervalo e com prazo', async () => {
+  let pedido;
+  let opcoes;
+  await buscarAtribuicao(async (u, o) => { pedido = u; opcoes = o; return resposta({ copyright: 'x' }); }, CHAVE, { token: 't' }, { norte: 1, sul: -1, leste: 500, oeste: -500, zoom: 1 });
+  assert.ok(pedido.includes('east=179.999') && pedido.includes('west=-179.999'));
+  assert.ok(opcoes.signal instanceof AbortSignal);
+});
+
+test('criarFundo: primeira busca de crédito que falha é repetida com espera crescente, sem mapa em movimento', async () => {
+  let viewport = 0;
+  const buscar = async (url) => {
+    if (url.includes('createSession')) return resposta(sessaoOk);
+    viewport += 1;
+    return viewport < 3 ? resposta({}, false, 503) : resposta({ copyright: 'Imagens © 2026' });
+  };
+  const agendados = [];
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) } });
+  const dados = { textContent: '' };
+  fundo.aoCriarMapa(mapaFalso(), { dados });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(dados.textContent, '');
+  assert.deepEqual(agendados.map((a) => a.ms).slice(1), [30000]); // [0] é a renovação da sessão
+  await agendados[1].f();
+  assert.deepEqual(agendados.map((a) => a.ms).slice(1), [30000, 60000]);
+  await agendados[2].f();
+  assert.equal(dados.textContent, 'Imagens © 2026');
+  assert.equal(agendados.length, 3); // sucesso: não agenda mais
 });
 
 function mapaFalso() {

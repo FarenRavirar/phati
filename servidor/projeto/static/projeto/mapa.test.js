@@ -201,6 +201,13 @@ test('aviso do fundo só para tile de fonte do fundo online, não de camada pró
   assert.equal(erroDeTileDoFundo(undefined, fontes), false);
 });
 
+test('comPrazo: devolve o valor a tempo e rejeita quando a promessa trava', async () => {
+  const { comPrazo } = await import('./mapa.js');
+  assert.equal(await comPrazo(Promise.resolve('ok'), 1000), 'ok');
+  await assert.rejects(comPrazo(new Promise(() => {}), 20), /prazo do fundo/);
+  await assert.rejects(comPrazo(Promise.reject(new Error('falhou')), 1000), /falhou/); // erro da própria promessa passa
+});
+
 test('erro de tile não é fatal; erro do motor sem tile é', async () => {
   const { erroDoMapaEhFatal } = await import('./mapa.js');
   assert.equal(erroDoMapaEhFatal({ tile: {}, sourceId: 'fundo-online' }), false);

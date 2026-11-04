@@ -432,6 +432,14 @@ async function carregarCamadas(mapa, alvo) {
   }
 }
 
+// Sem prazo, um módulo ou uma sessão presos seguram a criação do mapa inteiro, neutro e camadas incluídos (review PR #43).
+export const PRAZO_FUNDO_MS = 12000;
+export function comPrazo(promessa, ms) {
+  let relogio;
+  const estouro = new Promise((_, rejeitar) => { relogio = setTimeout(() => rejeitar(new Error('prazo do fundo esgotado')), ms); });
+  return Promise.race([promessa, estouro]).finally(() => clearTimeout(relogio));
+}
+
 // Fundo online opcional: a página só entrega chave e módulo com a flag ligada. O módulo vem do atributo, então este
 // arquivo não conhece o provedor (A10). Falha na sessão = fundo neutro e aviso, nunca mapa quebrado (R12).
 // Aviso do fundo em região própria: o `[data-mapa-mensagem]` é da posição do aparelho, que o apaga ao clicar (review PR #43, Qodo).
@@ -446,7 +454,7 @@ async function carregarFundoOnline(alvo) {
   const { fundoOnlineChave: chave, fundoOnlineModulo: modulo } = alvo.dataset;
   if (!chave || !modulo) return null;
   try {
-    return await (await import(modulo)).criarFundo({ chave });
+    return await comPrazo((async () => (await import(modulo)).criarFundo({ chave }))(), PRAZO_FUNDO_MS);
   } catch {
     alvo.dataset.fundoOnlineErro = 'sim';
     avisarFundo(alvo, 'O fundo do mapa está indisponível. Mostrando o fundo neutro.');

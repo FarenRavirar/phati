@@ -91,7 +91,7 @@ SECURE_CSP_MAPA = {**SECURE_CSP, 'img-src': [CSP.SELF, 'data:', 'blob:']}
 # Fundo Google (004 R17, R18, R21): flag e chave próprias. Só liga com o mapa de teste ligado e em ambiente de teste, e sem
 # chave não sobe (erro na partida, nunca fundo vazio calado). A chave é lida do ambiente e nunca vai a log nem a repositório.
 MAPA_FUNDO_GOOGLE_ATIVO = os.environ.get('PHATI_MAPA_FUNDO_GOOGLE_ATIVO') == '1'
-MAPA_GOOGLE_CHAVE = os.environ.get('PHATI_MAPA_GOOGLE_CHAVE', '')
+MAPA_GOOGLE_CHAVE = os.environ.get('PHATI_MAPA_GOOGLE_CHAVE', '').strip()  # só espaços = ausente
 if MAPA_FUNDO_GOOGLE_ATIVO:
     if not MAPA_TESTE_ATIVO:
         raise ImproperlyConfigured('PHATI_MAPA_FUNDO_GOOGLE_ATIVO=1 exige PHATI_MAPA_TESTE_ATIVO=1.')

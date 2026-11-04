@@ -259,7 +259,7 @@ def test_google_ligado_com_mapa_e_chave_nos_ambientes_de_teste_sobe(monkeypatch,
     assert configuracao['MAPA_GOOGLE_CHAVE'] == 'k'
 
 
-@pytest.mark.parametrize('chave', [None, ''])
+@pytest.mark.parametrize('chave', [None, '', '   ', '\t\n'])
 def test_google_ligado_sem_chave_derruba_o_servidor(monkeypatch, chave):
     with pytest.raises(ImproperlyConfigured, match='PHATI_MAPA_GOOGLE_CHAVE'):
         _com_google(monkeypatch, 'teste', '1', '1', chave)

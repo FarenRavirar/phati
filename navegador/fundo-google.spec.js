@@ -39,6 +39,24 @@ async function dublarGoogle(page, { segundosDeValidade = 14 * 24 * 3600, recusar
   return vistas;
 }
 
+// `elementFromPoint` devolve null fora da viewport (a atribuição fica abaixo do mapa, fora da tela em 1280×720 e 320×568,
+// medido em 2026-11-04): rola o elemento à vista antes de olhar o que está no ponto.
+async function centralizar(alvo) {
+  await alvo.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+}
+
+async function medirCobertura(alvo) {
+  await centralizar(alvo);
+  return alvo.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const x = r.x + 2;
+    const y = r.y + r.height / 2;
+    const topo = document.elementFromPoint(x, y);
+    const quem = (n) => (n ? `${n.tagName.toLowerCase()}.${n.className}[${Object.keys(n.dataset).join(',')}]` : null);
+    return { livre: el.contains(topo), ponto: [x, y], viewport: [window.innerWidth, window.innerHeight], noPonto: quem(topo) };
+  });
+}
+
 async function abrir(page) {
   const violacoes = [];
   const googleVisto = [];
@@ -79,14 +97,27 @@ test('logo e atribuição de dados ficam à vista, fora do mapa, sem nada por ci
   const atribuicao = page.locator('[data-mapa-atribuicao]');
   await expect(atribuicao).toContainText('Google Maps');
   await expect(atribuicao).toContainText('Imagens sintéticas de teste'); // vem do copyright do viewport
+  await centralizar(atribuicao); // as duas caixas são medidas na mesma rolagem
   const caixa = await atribuicao.boundingBox();
   const mapa = await page.locator('[data-mapa]').boundingBox();
   expect(caixa.y, 'a atribuição não sobrepõe o mapa').toBeGreaterThanOrEqual(mapa.y + mapa.height - 1);
-  const noTopo = await atribuicao.evaluate((el) => {
+  expect((await medirCobertura(atribuicao)).livre, 'algum elemento cobre a atribuição').toBe(true);
+});
+
+test('a checagem de cobertura reprova quando um elemento cobre a atribuição', async ({ page }) => {
+  await dublarGoogle(page);
+  await abrir(page);
+  const atribuicao = page.locator('[data-mapa-atribuicao]');
+  await expect(atribuicao).toContainText('Google Maps');
+  await atribuicao.evaluate((el) => {
     const r = el.getBoundingClientRect();
-    return el.contains(document.elementFromPoint(r.x + 2, r.y + r.height / 2));
+    const capa = document.createElement('div');
+    capa.style.cssText = `position:absolute;left:${r.x + window.scrollX}px;top:${r.y + window.scrollY}px;width:${r.width}px;height:${r.height}px;z-index:9999`;
+    document.body.append(capa);
   });
-  expect(noTopo, 'algum elemento cobre a atribuição').toBe(true);
+  const medida = await medirCobertura(atribuicao);
+  expect(medida.livre, JSON.stringify(medida)).toBe(false);
+  expect(medida.noPonto).toMatch(/^div/);
 });
 
 test('a sessão é renovada antes de vencer e os tiles novos usam a sessão nova', async ({ page }) => {

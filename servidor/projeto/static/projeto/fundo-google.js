@@ -46,9 +46,22 @@ export function msAteRenovar(sessao, agoraMs) {
 // Espera antes da próxima tentativa de renovação, dobrando a cada falha (`falhas` >= 1) até o teto.
 export const esperaAposFalha = (falhas) => Math.min(ESPERA_MAXIMA_MS, ESPERA_INICIAL_MS * 2 ** (falhas - 1));
 
+// O viewport do Google exige latitude em (-90, 90) e longitude em (-180, 180); o `getBounds()` do MapLibre passa disso com o
+// mundo repetido na tela. Vista de 360° ou mais vira o mundo todo; senão a longitude volta para o intervalo (oeste maior que
+// leste = vista que cruza o antimeridiano, forma que a doc aceita). Review PR #43, CodeRabbit.
+const LIMITE_LAT = 89.999;
+const LIMITE_LON = 179.999;
+const noIntervalo = (lon) => Math.min(LIMITE_LON, Math.max(-LIMITE_LON, ((((lon + 180) % 360) + 360) % 360) - 180));
+export function limitesParaViewport({ norte, sul, leste, oeste }) {
+  const lat = (v) => Math.min(LIMITE_LAT, Math.max(-LIMITE_LAT, v));
+  const inteiro = leste - oeste >= 360;
+  return { norte: lat(norte), sul: lat(sul), leste: inteiro ? LIMITE_LON : noIntervalo(leste), oeste: inteiro ? -LIMITE_LON : noIntervalo(oeste) };
+}
+
 // Atribuição de dados vem do `copyright` do viewport (não se escreve à mão). O texto entra por `textContent`.
-export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, leste, oeste, zoom }) {
-  const resposta = await buscar(url('/tile/v1/viewport', { session: sessao.token, key: chave, zoom: Math.round(zoom), north: norte, south: sul, east: leste, west: oeste }));
+export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, leste, oeste, zoom }, prazoMs = PRAZO_SESSAO_MS) {
+  const caixa = limitesParaViewport({ norte, sul, leste, oeste });
+  const resposta = await buscar(url('/tile/v1/viewport', { session: sessao.token, key: chave, zoom: Math.round(zoom), north: caixa.norte, south: caixa.sul, east: caixa.leste, west: caixa.oeste }), { signal: AbortSignal.timeout(prazoMs) });
   if (!resposta.ok) throw new Error(`viewport recusado (${resposta.status})`);
   const dados = await resposta.json();
   return typeof dados?.copyright === 'string' ? dados.copyright : '';
@@ -79,6 +92,7 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
       const agendar = () => relogio.setTimeout(renovar, msAteRenovar(sessao, Date.now()));
       agendar();
       let ultima = 0;
+      let falhasDeCredito = 0;
       const atualizar = async () => {
         const minha = ++ultima;
         const limites = mapa.getBounds();
@@ -87,8 +101,12 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
             norte: limites.getNorth(), sul: limites.getSouth(), leste: limites.getEast(), oeste: limites.getWest(), zoom: mapa.getZoom(),
           });
           if (minha === ultima) dados.textContent = texto;
+          falhasDeCredito = 0;
         } catch {
-          // Falha isolada não apaga o crédito das imagens que seguem à vista; o próximo `moveend` tenta de novo.
+          // Falha não apaga o crédito das imagens que seguem à vista. Com o mapa parado nenhum `moveend` viria, então tenta de
+          // novo com espera crescente e para no limite (mesma regra da renovação da sessão).
+          falhasDeCredito += 1;
+          if (minha === ultima && falhasDeCredito < TENTATIVAS_MAXIMAS) relogio.setTimeout(atualizar, esperaAposFalha(falhasDeCredito));
         }
       };
       mapa.on('moveend', atualizar);
