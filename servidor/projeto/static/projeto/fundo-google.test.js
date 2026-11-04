@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, limitesParaViewport, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -87,6 +87,47 @@ test('criarFundo: primeira busca de crédito que falha é repetida com espera cr
   await agendados[2].f();
   assert.equal(dados.textContent, 'Imagens © 2026');
   assert.equal(agendados.length, 3); // sucesso: não agenda mais
+});
+
+test('criarFundo: mover o mapa durante a espera cancela a repetição pendente, sem pedidos empilhados', async () => {
+  let viewport = 0;
+  const buscar = async (url) => {
+    if (url.includes('createSession')) return resposta(sessaoOk);
+    viewport += 1;
+    return viewport === 1 ? resposta({}, false, 503) : resposta({ copyright: 'Imagens © 2026' });
+  };
+  const agendados = [];
+  const cancelados = [];
+  const relogio = { setTimeout: (f, ms) => { agendados.push({ f, ms }); return agendados.length; }, clearTimeout: (h) => cancelados.push(h) };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio });
+  const dados = { textContent: '' };
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(agendados.length, 2); // [0] renovação da sessão, [1] repetição do crédito
+  await mapa.ouvintes.moveend(); // a pessoa move o mapa durante a espera, e o crédito carrega
+  assert.equal(dados.textContent, 'Imagens © 2026');
+  assert.ok(cancelados.includes(2), 'a repetição pendente (handle 2) precisa ser cancelada');
+});
+
+test('zoomDosTiles: segue o nível que o MapLibre pede (256 px soma 1), preso a 0..22', () => {
+  assert.equal(zoomDosTiles(11.960119199536273, 256), 13); // medido: getZoom 11,96 pede z=13
+  assert.equal(zoomDosTiles(12, 512), 12);
+  assert.equal(zoomDosTiles(21.6, 256), 22);
+  assert.equal(zoomDosTiles(-3, 256), 0);
+});
+
+test('criarFundo: o viewport é consultado no zoom dos tiles, não no zoom da vista', async () => {
+  const pedidos = [];
+  const buscar = async (url) => {
+    if (url.includes('createSession')) return resposta(sessaoOk); // tileWidth 256
+    pedidos.push(new URL(url).searchParams.get('zoom'));
+    return resposta({ copyright: 'x' });
+  };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: () => 1 } });
+  fundo.aoCriarMapa(mapaFalso(), { dados: { textContent: '' } }); // getZoom() = 12
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(pedidos, ['13']);
 });
 
 function mapaFalso() {

@@ -58,6 +58,11 @@ export function limitesParaViewport({ norte, sul, leste, oeste }) {
   return { norte: lat(norte), sul: lat(sul), leste: inteiro ? LIMITE_LON : noIntervalo(leste), oeste: inteiro ? -LIMITE_LON : noIntervalo(oeste) };
 }
 
+// Zoom do tile que o MapLibre de fato pede: round(zoom + log2(512 / tileSize)), preso a 0..22 (doc do Google). Medido em
+// 2026-11-04 no Chromium: com tiles de 256 px, `getZoom()` 11,96 pede tiles em z=13, e o viewport tem de ser consultado em 13
+// para o crédito bater com as imagens à vista (review PR #43, Codex).
+export const zoomDosTiles = (zoom, largura) => Math.min(22, Math.max(0, Math.round(zoom + Math.log2(512 / largura))));
+
 // Atribuição de dados vem do `copyright` do viewport (não se escreve à mão). O texto entra por `textContent`.
 export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, leste, oeste, zoom }, prazoMs = PRAZO_SESSAO_MS) {
   const caixa = limitesParaViewport({ norte, sul, leste, oeste });
@@ -93,12 +98,15 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
       agendar();
       let ultima = 0;
       let falhasDeCredito = 0;
+      let repeticao; // temporizador da repetição pendente: uma só, nunca empilhadas (review PR #43, Greptile)
       const atualizar = async () => {
+        relogio.clearTimeout?.(repeticao);
+        repeticao = undefined;
         const minha = ++ultima;
         const limites = mapa.getBounds();
         try {
           const texto = await buscarAtribuicao(buscar, chave, sessao, {
-            norte: limites.getNorth(), sul: limites.getSouth(), leste: limites.getEast(), oeste: limites.getWest(), zoom: mapa.getZoom(),
+            norte: limites.getNorth(), sul: limites.getSouth(), leste: limites.getEast(), oeste: limites.getWest(), zoom: zoomDosTiles(mapa.getZoom(), sessao.largura),
           });
           if (minha === ultima) dados.textContent = texto;
           falhasDeCredito = 0;
@@ -106,7 +114,7 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
           // Falha não apaga o crédito das imagens que seguem à vista. Com o mapa parado nenhum `moveend` viria, então tenta de
           // novo com espera crescente e para no limite (mesma regra da renovação da sessão).
           falhasDeCredito += 1;
-          if (minha === ultima && falhasDeCredito < TENTATIVAS_MAXIMAS) relogio.setTimeout(atualizar, esperaAposFalha(falhasDeCredito));
+          if (minha === ultima && falhasDeCredito < TENTATIVAS_MAXIMAS) repeticao = relogio.setTimeout(atualizar, esperaAposFalha(falhasDeCredito));
         }
       };
       mapa.on('moveend', atualizar);

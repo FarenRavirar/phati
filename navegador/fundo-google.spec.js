@@ -12,7 +12,7 @@ const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers
 // Dublê: sessões numeradas (a renovação fica visível pelo número), copyright fixo, tile de 1 pixel.
 // `segundosDeValidade` curto faz a página renovar logo (renova uma hora antes de `expiry`, então 3600 s de folga + o prazo).
 async function dublarGoogle(page, { segundosDeValidade = 14 * 24 * 3600, recusarSessao = false } = {}) {
-  const vistas = { atendidas: 0, sessoes: [], tiles: [], viewports: [] };
+  const vistas = { atendidas: 0, sessoes: [], tiles: [], zoomsDosTiles: [], viewports: [] };
   let numero = 0;
   await page.route(`${ORIGEM}/**`, async (rota) => {
     const pedido = rota.request();
@@ -32,6 +32,7 @@ async function dublarGoogle(page, { segundosDeValidade = 14 * 24 * 3600, recusar
     }
     if (alvo.pathname.startsWith('/v1/2dtiles/')) {
       vistas.tiles.push(alvo.searchParams.get('session'));
+      vistas.zoomsDosTiles.push(alvo.pathname.split('/')[3]);
       return rota.fulfill({ status: 200, headers: { ...CORS, 'content-type': 'image/png' }, body: PNG_1X1 });
     }
     return rota.fulfill({ status: 404, headers: CORS });
@@ -45,16 +46,24 @@ async function centralizar(alvo) {
   await alvo.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
 }
 
-async function medirCobertura(alvo) {
+// `cobrir` põe um div fixo sobre a caixa atual do elemento na MESMA execução síncrona que mede, depois da rolagem: sem ida ao
+// navegador entre criar a capa e olhar o ponto, o layout não muda no meio (o teste do CI falhou uma vez com a capa fora do lugar).
+async function medirCobertura(alvo, { cobrir = false } = {}) {
   await centralizar(alvo);
-  return alvo.evaluate((el) => {
+  return alvo.evaluate((el, cobrirAgora) => {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
     const r = el.getBoundingClientRect();
+    if (cobrirAgora) {
+      const capa = document.createElement('div');
+      capa.style.cssText = `position:fixed;left:${r.x}px;top:${r.y}px;width:${r.width}px;height:${r.height}px;z-index:9999`;
+      document.body.append(capa);
+    }
     const x = r.x + 2;
     const y = r.y + r.height / 2;
     const topo = document.elementFromPoint(x, y);
     const quem = (n) => (n ? `${n.tagName.toLowerCase()}.${n.className}[${Object.keys(n.dataset).join(',')}]` : null);
-    return { livre: el.contains(topo), ponto: [x, y], viewport: [window.innerWidth, window.innerHeight], noPonto: quem(topo) };
-  });
+    return { livre: el.contains(topo), ponto: [x, y], viewport: [window.innerWidth, window.innerHeight], caixa: [r.x, r.y, r.width, r.height], noPonto: quem(topo) };
+  }, cobrir);
 }
 
 async function abrir(page) {
@@ -83,6 +92,10 @@ test('o fundo aparece por tiles da sessão, com política só para o domínio do
   await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-pronto', 'sim');
   await expect.poll(() => vistas.tiles.length, 'nenhum tile pedido').toBeGreaterThan(0);
   expect(new Set(vistas.tiles)).toEqual(new Set(['sessao-sintetica-1']));
+  // O crédito vale para o nível dos tiles à vista, que o MapLibre calcula com +1 para tiles de 256 px (medido: getZoom 11,96, tiles z=13).
+  await expect.poll(() => vistas.viewports.length).toBeGreaterThan(0);
+  const zoomDoCredito = new URLSearchParams(vistas.viewports[0]).get('zoom');
+  expect(vistas.zoomsDosTiles, 'o viewport foi consultado num nível sem tile à vista').toContain(zoomDoCredito);
   expect(await page.evaluate(() => document.querySelector('[data-mapa]').mapa.getSource('fundo-online') !== undefined)).toBe(true);
   expect(googleVisto.length, 'toda requisição ao domínio foi atendida pelo dublê').toBeGreaterThan(0);
   expect(vistas.atendidas).toBe(googleVisto.length);
@@ -108,14 +121,8 @@ test('a checagem de cobertura reprova quando um elemento cobre a atribuição', 
   await dublarGoogle(page);
   await abrir(page);
   const atribuicao = page.locator('[data-mapa-atribuicao]');
-  await expect(atribuicao).toContainText('Google Maps');
-  await atribuicao.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const capa = document.createElement('div');
-    capa.style.cssText = `position:absolute;left:${r.x + window.scrollX}px;top:${r.y + window.scrollY}px;width:${r.width}px;height:${r.height}px;z-index:9999`;
-    document.body.append(capa);
-  });
-  const medida = await medirCobertura(atribuicao);
+  await expect(atribuicao).toContainText('Imagens sintéticas de teste'); // o crédito já chegou: a caixa não muda mais
+  const medida = await medirCobertura(atribuicao, { cobrir: true });
   expect(medida.livre, JSON.stringify(medida)).toBe(false);
   expect(medida.noPonto).toMatch(/^div/);
 });
