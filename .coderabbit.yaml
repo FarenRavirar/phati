@@ -24,9 +24,9 @@ reviews:
   path_instructions:
     - path: "**/*"
       instructions: |
-        Idioma: identificadores de código (variável, função, classe, arquivo, tabela,
-        coluna, rota) devem estar em português. Apontar identificador em inglês novo,
-        exceto palavra reservada da linguagem e nome de API ou biblioteca externa.
+        Idioma: comentários e documentação devem estar em português. Não apontar
+        identificador de código em inglês (variável, função, classe, arquivo, tabela,
+        coluna, rota): o português nos nomes é só preferência, não regra.
         Todo código novo ou alterado precisa de teste automatizado; apontar a falta.
         Apontar segredo, chave, token, IP de infraestrutura ou dado real de cliente
         versionado: o repositório é público.
