@@ -15,7 +15,7 @@ Antes de modificar interfaces, leia `DESIGN.md` e `DOSSIE_PHATI.md`, se disponí
 - Nunca atribuir ao operador técnico acesso a produção; homologação sempre com dados totalmente sintéticos.
 - Nunca inserir nomes reais externos, CPF real, localizações proprietárias, prints, dados de produção, URLs privadas, credenciais e chaves no repositório público ou no contexto de ferramentas de design externas.
 - Não criar regras de negócio, métricas, integrações ou coleta offline que não foram especificadas.
-- Rasters analíticos e ortofotos apenas online. Pacote offline com mapa-base licenciado e camadas/fichas autorizadas.
+- Rasters analíticos e documentos apenas online. A ortofoto de drone entra no pacote offline com zoom máximo limitado (D089, Q2; spec 004b); acima do teto, só online. O mapa-base do Google nunca entra no pacote (cláusula 3.2.3, D086). Pacote offline com fundo aberto, ortofoto até o teto e camadas/fichas autorizadas.
 - Usuário deve conseguir reconhecer fonte, data, ressalvas, versão e documentos pertinentes a uma feição.
 
 ## Protocolo em cada tarefa

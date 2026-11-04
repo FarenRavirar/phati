@@ -161,6 +161,8 @@ jobs:
             echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
             echo "PHATI_BANCO_APP_USUARIO=app"
             echo "PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_AMBIENTE=teste"
+            echo "PHATI_MAPA_TESTE_ATIVO=1"
           } >> "$GITHUB_ENV"
       - name: Sobe o compose (app, banco, nginx) e popula o dado inventado
         working-directory: servidor
@@ -171,7 +173,9 @@ jobs:
             sleep 2
           done
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200
-          docker compose run --rm --no-deps -T -e PHATI_AMBIENTE_TESTE=1 migracao python manage.py popular_sintetico > ../navegador/dados.json
+          # Módulo ES só carrega com MIME de JavaScript; o nginx não conhece `.mjs` sem a regra do `default.conf`.
+          curl -sI http://127.0.0.1:8080/static/projeto/terceiros/maplibre/maplibre-gl.mjs | grep -i '^content-type: text/javascript'
+          docker compose run --rm --no-deps -T migracao python manage.py popular_sintetico > ../navegador/dados.json
       # Versões e hashes vêm do `package-lock.json`; nenhum pacote da cadeia tem script de instalação (D072), então `--ignore-scripts` não perde nada.
       - run: npm ci --ignore-scripts
       - run: ./node_modules/.bin/playwright install --with-deps chromium

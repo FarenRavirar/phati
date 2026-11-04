@@ -79,6 +79,14 @@ SECURE_CSP = {
     'frame-ancestors': [CSP.NONE],
     'base-uri': [CSP.SELF],
 }
+# Ambiente (R21, spec 004): `producao` por padrão. Flag de teste só liga fora de produção; erro na partida, nunca em silêncio.
+AMBIENTE = os.environ.get('PHATI_AMBIENTE', 'producao')
+AMBIENTES_DE_TESTE = ('local', 'homologacao', 'teste')
+MAPA_TESTE_ATIVO = os.environ.get('PHATI_MAPA_TESTE_ATIVO') == '1'
+if MAPA_TESTE_ATIVO and AMBIENTE not in AMBIENTES_DE_TESTE:
+    raise ImproperlyConfigured(f'PHATI_MAPA_TESTE_ATIVO=1 só vale com PHATI_AMBIENTE em {", ".join(AMBIENTES_DE_TESTE)}.')
+# Só a resposta da página do mapa usa esta política (R3): o MapLibre cria imagens e worker por `blob:` (doc do MapLibre).
+SECURE_CSP_MAPA = {**SECURE_CSP, 'img-src': [CSP.SELF, 'data:', 'blob:'], 'worker-src': [CSP.SELF, 'blob:']}
 # As páginas de erro e de falha de CSRF recebem a requisição (o padrão do Django não a passa), para levar o nonce.
 CSRF_FAILURE_VIEW = 'projeto.paginas.falha_csrf'
 

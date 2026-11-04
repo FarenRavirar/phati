@@ -41,6 +41,16 @@ test('specs de navegador não exigem par; auxiliares, a config do Playwright e J
   assert.equal(parEsperado('playwright.config.mjs'), 'playwright.config.test.mjs');
 });
 
+test('terceiros embutidos ficam isentos; JS do produto no mesmo static continua exigindo o par', () => {
+  const base = 'servidor/projeto/static/projeto';
+  assert.equal(parEsperado(`${base}/terceiros/maplibre/maplibre-gl.mjs`), null);
+  assert.equal(parEsperado(`${base}/terceiros/maplibre/maplibre-gl-worker.mjs`), null);
+  assert.equal(parEsperado(`${base}/mapa.js`), `${base}/mapa.test.js`);
+  assert.equal(parEsperado(`${base}/fundo-neutro.js`), `${base}/fundo-neutro.test.js`);
+  assert.equal(parEsperado(`${base}/terceiros/outra-lib/x.mjs`), `${base}/terceiros/outra-lib/x.test.mjs`);
+  assert.equal(parEsperado(`${base}/outro-terceiros/x.mjs`), `${base}/outro-terceiros/x.test.mjs`);
+});
+
 test('apagar o teste de um auxiliar de navegador ainda rastreado bloqueia', () => {
   const achados = verificar({ caminhos: [], removidos: ['navegador/axe.test.js'], rastreados: ['navegador/axe.js'] });
   assert.deepEqual(achados, [{ arquivo: 'navegador/axe.js', par: 'navegador/axe.test.js' }]);

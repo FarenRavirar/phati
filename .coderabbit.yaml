@@ -16,6 +16,7 @@ reviews:
     - "!.agents/**"
     - "!**/node_modules/**"
     - "!**/dist/**"
+    - "!**/static/projeto/terceiros/**"
     - "!**/build/**"
     - "!**/*.lock"
     - "!**/pnpm-lock.yaml"

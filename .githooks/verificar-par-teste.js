@@ -6,7 +6,7 @@
 // - Python em `servidor/`: `servidor/<app>/<modulo>.py` ↔ `servidor/<app>/testes/test_<modulo>.py`
 //   (módulo aninhado usa o nome do arquivo: o par fica em `servidor/<app>/testes/`);
 // - JS/TS: `<nome>.test.<ext>` ao lado.
-// Isentos: só a lista fixa do AGENTS.md (`__init__.py`, `migrations/`, `manage.py`, `apps.py`,
+// Isentos: `static/projeto/terceiros/maplibre/` (código embutido, coberto pelo teste de hash) e a lista fixa do AGENTS.md (`__init__.py`, `migrations/`, `manage.py`, `apps.py`,
 // `wsgi.py`, `asgi.py`) e os próprios testes. `conftest.py` exige par (achado do Codex no PR #1).
 // Arquivo na raiz de `servidor/` tem o par em `servidor/projeto/testes/`.
 // O inverso também vale: apagar ou renomear um teste que ainda é o par de um módulo rastreado bloqueia
@@ -36,6 +36,9 @@ function parEsperado(caminho) {
   // Specs do Playwright (`navegador/*.spec.js`) são o próprio teste (spec 002, T5.0). Auxiliares em `navegador/`
   // (`axe.js`, `apoio.js`) e `playwright.config.js` seguem exigindo o `.test.js` irmão (Codex e Sourcery, PR #22).
   if (/^navegador\/[^/]+\.spec\.js$/.test(c)) return null;
+  // Código de terceiros embutido (MapLibre, spec 004 T1.3) não tem teste irmão: `test_maplibre_terceiros.py` fixa o hash de cada arquivo.
+  // Só `terceiros/maplibre/`: biblioteca nova em outra pasta precisa do próprio par ou do próprio teste de hash.
+  if (/^servidor\/projeto\/static\/projeto\/terceiros\/maplibre\//.test(c)) return null;
   if (EXTENSOES_JS.test(nome) && !/\.test\.[^.]+$/.test(nome) && !nome.endsWith('.d.ts')) {
     return c.replace(EXTENSOES_JS, (ext) => `.test${ext}`);
   }
