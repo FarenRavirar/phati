@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from django.contrib.auth.hashers import identify_hasher
 from django.core.exceptions import ValidationError
-from django.db import connection
+from django.db import connection, connections
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -157,7 +157,7 @@ def test_duas_trocas_com_a_mesma_senha_atual_so_uma_vale(pessoa):
         except ValidationError as erro:
             resultados.append(erro.code)
         finally:
-            connection.close()
+            connections.close_all()
 
     fios = [threading.Thread(target=trocar, args=(nova,)) for nova in ('primeira-senha-bem-longa', 'segunda-senha-bem-longa')]
     for fio in fios:
@@ -179,14 +179,14 @@ def test_troca_de_senha_e_renovacao_de_acesso_nao_deixam_acesso_vivo(pessoa):
         try:
             novos.append(renovar_acesso(segredo))
         finally:
-            connection.close()
+            connections.close_all()
 
     def trocar():
         largada.wait()
         try:
             senha.trocar_senha(Pessoa.objects.get(pk=pessoa.pk), SENHA, 'outra-senha-bem-longa')
         finally:
-            connection.close()
+            connections.close_all()
 
     fios = [threading.Thread(target=f) for f in (renovar, trocar)]
     for fio in fios:

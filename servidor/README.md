@@ -9,10 +9,12 @@ O git não versiona essa configuração, então o hook só vale depois deste com
 
 ## Banco local
 
-Subir o PostgreSQL 17 (binário portátil, porta 5433). No Windows, `pg_ctl start` pelo Git Bash trava o terminal;
-usar PowerShell (`E001` em `.specify/memory/errors.md`):
+Subir o PostgreSQL 18 num contêiner (porta 5433, mesma imagem do compose). O volume vai em `/var/lib/postgresql`,
+não em `/var/lib/postgresql/data`: o PG18 grava o cluster em `/var/lib/postgresql/18/docker` e recusa o layout antigo,
+então um volume criado pelo PG17 não sobe na imagem 18 (dump/restore ou `pg_upgrade`). Quem sobe, desliga ao terminar.
 
-    Start-Process -WindowStyle Hidden -FilePath <pgsql>\bin\pg_ctl.exe -ArgumentList @('-D','<dados>','-l','<log>','-o','"-p 5433"','start')
+    docker run -d --name phati-pg18-local -e POSTGRES_PASSWORD=<superusuario> -p 127.0.0.1:5433:5432 -v phati-pg18-local:/var/lib/postgresql postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+    docker stop phati-pg18-local
 
 Depois, uma vez como superusuário, criar papéis e banco e migrar:
 

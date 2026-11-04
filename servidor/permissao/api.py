@@ -8,7 +8,7 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.validators import validate_email
 from django.db.models import Q
 from django.utils import timezone
-from ninja import Field, Query, Router, Schema
+from ninja import Field, Query, Router, Schema, Status
 from pydantic import AwareDatetime, field_validator, model_validator
 
 from identidade import redefinicao
@@ -206,9 +206,9 @@ def convidar_pessoa(request, dados: EntradaConvite):
         _categorias(dados, escopo), dados.inicio, dados.fim,
     )
     if pessoa is None:  # CPF que já existe: convite pendente, nada da pessoa na resposta (R24)
-        return 201, {'pendente': True}
+        return Status(201, {'pendente': True})
     concessao = Concessao.objects.filter(pessoa=pessoa).get()
-    return 201, {'pendente': False, 'id': pessoa.pk, 'concessao_id': concessao.pk, 'senha_temporaria': temporaria}
+    return Status(201, {'pendente': False, 'id': pessoa.pk, 'concessao_id': concessao.pk, 'senha_temporaria': temporaria})
 
 
 @roteador.post('pessoas/{pessoa_id}/concessoes', url_name='concessoes_criar', response={200: SaidaConcessao, 201: SaidaConcessao})
@@ -222,21 +222,21 @@ def conceder(request, pessoa_id: int, dados: EntradaConcessao):
         request.user, pessoa, Cargo.objects.get(pk=dados.cargo_id), escopo,
         _categorias(dados, escopo), dados.inicio, dados.fim,
     )
-    return (201 if criada else 200), _concessao_saida(concessao)  # 200: a pessoa já tinha o mesmo acesso, nada foi criado
+    return Status(201 if criada else 200, _concessao_saida(concessao))  # 200: a pessoa já tinha o mesmo acesso, nada foi criado
 
 
 @roteador.delete('pessoas/{pessoa_id}/concessoes/{concessao_id}', url_name='concessoes_revogar', response={204: None})
 @exige_permissao('revogar_acesso', _alvo_da_revogacao)
 def revogar(request, pessoa_id: int, concessao_id: int):
     delegacao.revogar_concessao(request.user, Concessao.objects.get(pk=concessao_id, pessoa_id=pessoa_id))
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('pessoas/{pessoa_id}/redefinir-senha', url_name='pessoas_redefinir_senha', response={204: None})
 @exige_permissao('redefinir_senha', _alvo_da_redefinicao)
 def redefinir_senha(request, pessoa_id: int):
     redefinicao.pedir_redefinicao_de_outra_pessoa(request.user, Pessoa.objects.get(pk=pessoa_id))
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.get('cargos', url_name='cargos_listar', response=list[SaidaCargo])
@@ -280,13 +280,13 @@ def listar_convites(request):
 @roteador.post('convites/{convite_id}/aceitar', url_name='convites_aceitar', response={204: None})
 def aceitar_convite(request, convite_id: int):
     convite.aceitar(request.user, convite_id)
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('convites/{convite_id}/recusar', url_name='convites_recusar', response={204: None})
 def recusar_convite(request, convite_id: int):
     convite.recusar(request.user, convite_id)
-    return 204, None
+    return Status(204, None)
 
 
 # Convites de quem convidou: listar, cancelar e reenviar (padrão de GitHub e Entra). Só os próprios; a resposta não
@@ -305,11 +305,11 @@ def listar_convites_enviados(request):
 @exige_permissao('convidar_pessoa', _alvo_do_convite_enviado)
 def cancelar_convite_enviado(request, convite_id: int):
     convite.cancelar(request.user, convite_id)
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('convites-enviados/{convite_id}/reenviar', url_name='convites_enviados_reenviar', response={204: None})
 @exige_permissao('convidar_pessoa', _alvo_do_convite_enviado)
 def reenviar_convite_enviado(request, convite_id: int):
     convite.reenviar(request.user, convite_id)
-    return 204, None
+    return Status(204, None)

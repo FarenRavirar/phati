@@ -8,7 +8,7 @@ from typing import Literal
 
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
-from ninja import Field, Router, Schema
+from ninja import Field, Router, Schema, Status
 from pydantic import field_validator
 
 from permissao.pode import exige_permissao
@@ -109,14 +109,14 @@ def criar_empresa(request, dados: EntradaEmpresa):
     empresa, administrador, temporaria = cadastro.criar_empresa(
         request.user, dados.nome, dados.nome_administrador, dados.email_administrador, dados.cpf_administrador
     )
-    return 201, {'id': empresa.pk, 'nome': empresa.nome, 'administrador_id': administrador.pk, 'senha_temporaria': temporaria}
+    return Status(201, {'id': empresa.pk, 'nome': empresa.nome, 'administrador_id': administrador.pk, 'senha_temporaria': temporaria})
 
 
 @roteador.post('empresas/{empresa_id}/fazendas', url_name='fazendas_criar', response={201: SaidaFazenda})
 @exige_permissao('criar_fazenda', _empresa)
 def criar_fazenda(request, empresa_id: int, dados: EntradaNome):
     fazenda = cadastro.criar_fazenda(request.user, _empresa(empresa_id=empresa_id), dados.nome)
-    return 201, {'id': fazenda.pk, 'nome': fazenda.nome, 'empresa_id': fazenda.empresa_id}
+    return Status(201, {'id': fazenda.pk, 'nome': fazenda.nome, 'empresa_id': fazenda.empresa_id})
 
 
 @roteador.get('fazendas', url_name='fazendas_listar', response=list[SaidaFazenda])
@@ -130,7 +130,7 @@ def listar_fazendas(request):
 def criar_sub_area(request, fazenda_id: int, dados: EntradaSubArea):
     pai = SubArea.objects.get(pk=dados.pai_id) if dados.pai_id is not None else None
     sub_area = cadastro.criar_sub_area(request.user, _fazenda(fazenda_id=fazenda_id), dados.nome, pai)
-    return 201, {'id': sub_area.pk, 'nome': sub_area.nome, 'nivel': sub_area.nivel, 'fazenda_id': sub_area.fazenda_id}
+    return Status(201, {'id': sub_area.pk, 'nome': sub_area.nome, 'nivel': sub_area.nivel, 'fazenda_id': sub_area.fazenda_id})
 
 
 @roteador.patch('territorio/{tipo}/{alvo_id}', url_name='territorio_renomear', response=SaidaTerritorio)
