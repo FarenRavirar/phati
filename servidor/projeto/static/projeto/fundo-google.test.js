@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, lerSessaoGuardada, guardarSessao, esquecerSessao, CHAVE_ARMAZEM, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, zoomDoCredito, lerSessaoGuardada, guardarSessao, esquecerSessao, CHAVE_ARMAZEM, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -118,6 +118,25 @@ test('zoomDosTiles: segue o nível que o MapLibre pede (256 px soma 1), preso a 
   assert.equal(zoomDosTiles(-3, 256), 0);
 });
 
+test('zoomDoCredito: sempre o zoom de 256 px, também com sessão de 512 px (o crédito vem vazio até o zoom 12)', () => {
+  assert.equal(zoomDoCredito(11.93), 13); // a 512 px o tile é z12, mas o crédito de z12 vem vazio: pede-se z13
+  assert.equal(zoomDoCredito(12), 13);
+  assert.equal(zoomDoCredito(22), 22);
+});
+
+test('criarFundo com tiles de 512 px: o viewport é consultado no zoom do crédito, não no zoom do tile', async () => {
+  const pedidos = [];
+  const buscar = async (url) => {
+    if (url.includes('createSession')) return resposta({ ...sessaoOk, tileWidth: 512, tileHeight: 512 });
+    pedidos.push(new URL(url).searchParams.get('zoom'));
+    return resposta({ copyright: 'x' });
+  };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: () => 1 }, armazem: undefined });
+  fundo.aoCriarMapa(mapaFalso(), { dados: { textContent: '' } }); // getZoom() = 12
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(pedidos, ['13']); // o tile seria z12, que tem crédito vazio
+});
+
 test('criarFundo: o viewport é consultado no zoom dos tiles, não no zoom da vista', async () => {
   const pedidos = [];
   const buscar = async (url) => {
@@ -140,6 +159,7 @@ function mapaFalso() {
     getBounds: () => ({ getNorth: () => 1, getSouth: () => -1, getEast: () => 2, getWest: () => -2 }),
     getZoom: () => 12,
     on: (evento, f) => { ouvintes[evento] = f; },
+    off: (evento, f) => { if (ouvintes[evento] === f) delete ouvintes[evento]; },
   };
 }
 
@@ -306,6 +326,43 @@ test('descartarSessao: esquece a sessão guardada e a ativação seguinte cria o
   const segunda = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
   assert.equal(n, 2);
   assert.ok(segunda.fontes[ID_FONTE].tiles[0].includes('session=tok2'));
-  assert.doesNotThrow(() => esquecerSessao(undefined));
-  assert.doesNotThrow(() => esquecerSessao({ removeItem: () => { throw new Error('bloqueado'); } }));
+  assert.doesNotThrow(() => esquecerSessao(undefined, 'x'));
+  assert.doesNotThrow(() => esquecerSessao({ getItem: () => null, removeItem: () => { throw new Error('bloqueado'); } }, 'x'));
+});
+
+test('descartarSessao: não apaga a sessão nova que outra aba guardou depois', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  armazem.removeItem = (k) => { delete armazem.m[k]; };
+  const abaAntiga = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  guardarSessao(armazem, CHAVE, { token: 'outra', expira: 2000000000, largura: 256 }); // a outra aba grava a sua
+  abaAntiga.descartarSessao(); // o 401 chegou na aba antiga
+  assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'outra');
+});
+
+test('parar: o fundo que saiu do mapa não renova sessão, não consulta crédito e solta o ouvinte de movimento', async () => {
+  let sessoes = 0;
+  let viewports = 0;
+  const buscar = async (url) => {
+    if (url.includes('createSession')) { sessoes += 1; return resposta({ ...sessaoOk, session: `tok${sessoes}` }); }
+    viewports += 1;
+    return resposta({ copyright: '' });
+  };
+  const agendados = [];
+  const limpos = [];
+  const relogio = { setTimeout: (f, ms) => { agendados.push({ f, ms }); return agendados.length; }, clearTimeout: (id) => limpos.push(id) };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio, armazem: armazemFalso() });
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados: { textContent: '' } });
+  await new Promise((r) => setImmediate(r));
+  const movimento = mapa.ouvintes.moveend;
+  assert.equal(typeof movimento, 'function');
+  const antes = { sessoes, viewports };
+  fundo.parar();
+  assert.equal(mapa.ouvintes.moveend, undefined, 'o ouvinte de moveend continuou ligado');
+  assert.ok(limpos.length >= 1, 'o temporizador de renovação não foi cancelado');
+  await agendados[0].f(); // mesmo que o temporizador dispare, não renova
+  await movimento();      // mesmo que o ouvinte dispare, não consulta
+  assert.deepEqual({ sessoes, viewports }, antes);
 });

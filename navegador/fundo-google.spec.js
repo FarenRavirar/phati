@@ -135,6 +135,15 @@ test('logo e atribuição de dados ficam à vista, fora do mapa, sem nada por ci
   const atribuicao = page.locator('[data-mapa-atribuicao]');
   await expect(atribuicao).toContainText('Google Maps');
   await expect(atribuicao).toContainText('Imagens sintéticas de teste'); // vem do copyright do viewport
+  // Logo oficial (T3.8): visível, carregado, com rótulo de acessibilidade, 16 a 19 dp de altura e área livre mínima (10, 10, 10 e 5).
+  const logo = atribuicao.getByRole('img', { name: 'Google Maps' });
+  await expect(logo).toBeVisible();
+  expect(await logo.evaluate((img) => img.complete && img.naturalWidth > 0), 'o logo não carregou').toBe(true);
+  const altura = (await logo.boundingBox()).height;
+  expect(altura, `altura do logo ${altura}`).toBeGreaterThanOrEqual(16);
+  expect(altura).toBeLessThanOrEqual(19);
+  const livre = await atribuicao.evaluate((el) => { const c = getComputedStyle(el); return [c.paddingLeft, c.paddingRight, c.paddingTop, c.paddingBottom].map(parseFloat); });
+  expect(livre.slice(0, 3).every((v) => v >= 10) && livre[3] >= 5, `área livre ${livre}`).toBe(true);
   await centralizar(atribuicao); // as duas caixas são medidas na mesma rolagem
   const caixa = await atribuicao.boundingBox();
   const mapa = await page.locator('[data-mapa]').boundingBox();
@@ -180,28 +189,65 @@ test('sessão recusada e depois aceita: o segundo clique liga o satélite e o er
   await ativarSatelite(page);
   await expect(mapa).toHaveAttribute('data-fundo-online-erro', 'sim');
   await ativarSatelite(page); // botão voltou a habilitar
-  await expect(mapa).toHaveAttribute('data-satelite', 'sim');
+  await expect(mapa).toHaveAttribute('data-mapa-satelite', 'sim');
   await expect(mapa).not.toHaveAttribute('data-fundo-online-erro', /.*/);
   await expect(page.getByText('O fundo do mapa está indisponível. Mostrando o fundo neutro.')).toBeHidden();
 });
 
-test('tile com 401 (sessão recusada): esquece a sessão guardada, avisa para recarregar e as camadas seguem', async ({ page }) => {
-  await dublarGoogle(page);
+test('tile com 401 (sessão recusada): desliga o satélite, esquece a sessão guardada e deixa ligar de novo', async ({ page }) => {
+  const vistas = await dublarGoogle(page);
   await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => rota.fulfill({ status: 401, headers: CORS }));
   await abrir(page);
   await ativarSatelite(page);
-  await expect(page.getByText('A sessão do satélite não vale mais. Recarregue a página e ative o satélite de novo.')).toBeVisible();
+  await expect(page.getByText('A sessão do satélite não vale mais. Ative o satélite de novo.')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('phati.fundo-google.sessao')), 'a sessão recusada ficou guardada').toBeNull();
+  await expect(page.locator('[data-satelite]')).toBeEnabled();
+  await expect(page.locator('[data-satelite]')).toHaveText('Ativar satélite');
+  expect(await page.evaluate(() => document.querySelector('[data-mapa]').mapa.getSource('fundo-online')), 'o Google ficou no mapa').toBeUndefined();
+  await expect(page.locator('[data-mapa-atribuicao]')).toBeHidden();
   await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-camadas', '3');
+  expect(vistas.sessoes.length).toBe(1);
 });
 
-test('tile que falha na rede não derruba o mapa nem as camadas', async ({ page }) => {
+test('sem rede: o satélite se desliga inteiro, o fundo neutro fica sozinho e as camadas seguem', async ({ page }) => {
   await dublarGoogle(page);
   await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => rota.abort());
   await abrir(page);
   const mapa = page.locator('[data-mapa]');
   await ativarSatelite(page);
+  await expect(page.getByText('Sem rede ou sem resposta do fundo online: o satélite foi desligado e o mapa voltou ao fundo neutro.')).toBeVisible();
+  await expect(mapa).toHaveAttribute('data-mapa-satelite', 'nao');
   await expect(mapa).toHaveAttribute('data-mapa-camadas', '3');
   await expect(mapa).not.toHaveAttribute('data-mapa-erro', /.*/); // tile mudo não marca o mapa como quebrado
-  await expect(page.getByText('Parte do fundo do mapa não carregou. As camadas seguem normais.')).toBeVisible();
+  expect(await page.evaluate(() => { const m = document.querySelector('[data-mapa]').mapa; return [m.getSource('fundo-online'), m.getLayer('fundo-online-tiles')]; }), 'Google e neutro juntos').toEqual([undefined, undefined]);
+  await expect(page.locator('[data-mapa-atribuicao]')).toBeHidden();
+  await expect(page.locator('[data-satelite]')).toBeEnabled();
+});
+
+test('depois de desligar por falta de rede, o mesmo botão liga o satélite de novo, sem duplicar fonte nem camada', async ({ page }) => {
+  const vistas = await dublarGoogle(page);
+  let falhar = true;
+  await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => (falhar ? rota.abort() : rota.fallback())); // fallback: cai no dublê
+  await abrir(page);
+  await ativarSatelite(page);
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-satelite', 'nao');
+  falhar = false;
+  await ativarSatelite(page);
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-satelite', 'sim');
+  await expect(page.locator('[data-mapa-atribuicao]')).toBeVisible();
+  const camadas = await page.evaluate(() => document.querySelector('[data-mapa]').mapa.getStyle().layers.filter((l) => l.id === 'fundo-online-tiles').length);
+  expect(camadas).toBe(1);
+  await expect.poll(() => vistas.tiles.length).toBeGreaterThan(0);
+});
+
+test('tile 404 (sem imagem naquele ponto) não derruba o satélite nem avisa: o MapLibre trata como tile vazio', async ({ page }) => {
+  await dublarGoogle(page);
+  await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => rota.fulfill({ status: 404, headers: CORS }));
+  await abrir(page);
+  await ativarSatelite(page);
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-satelite', 'sim');
+  await page.waitForTimeout(2500); // dá tempo de um desligamento indevido aparecer
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-satelite', 'sim');
+  await expect(page.locator('[data-mapa-atribuicao]')).toBeVisible();
+  await expect(page.locator('[data-mapa-fundo-aviso]')).toBeHidden();
 });

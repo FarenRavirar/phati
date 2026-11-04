@@ -129,6 +129,7 @@ def test_flag_do_google_entrega_chave_modulo_e_atribuicao_na_pagina(pagina):
     assert 'data-fundo-online-chave="chave-sintetica-de-teste"' in html
     assert re.search(r'data-fundo-online-modulo="/static/projeto/fundo-google\.js"', html)
     assert re.search(r'<p class="mapa-atribuicao" data-mapa-atribuicao hidden>.*Google Maps', html, re.S)  # só aparece depois de ligar o satélite
+    assert re.search(r'<img[^>]*data-atribuicao-logo[^>]*src="/static/projeto/google-maps-logo[^"]*\.svg"[^>]*alt="Google Maps"', html)  # logo oficial, com rótulo de acessibilidade
     assert re.search(r'<button[^>]*data-satelite disabled[^>]*>Ativar satélite</button>', html)  # nasce desabilitado: habilita com o mapa pronto
     assert re.search(r'<div data-mapa-fundo-aviso hidden>', html)  # aviso próprio: o da posição do aparelho o apagaria
 

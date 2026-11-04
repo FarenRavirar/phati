@@ -189,6 +189,13 @@ test('antesDaPrimeiraCamada: o satélite entra logo abaixo da camada mais baixa 
   assert.equal(antesDaPrimeiraCamada([]), undefined);
 });
 
+test('motivoParaDesligar: sem status, 401, 403, 429 e 5xx derrubam o satélite; 404 e 400 só avisam', async () => {
+  const { motivoParaDesligar } = await import('./mapa.js');
+  assert.equal(motivoParaDesligar(401), 'sessao');
+  for (const s of [undefined, 0, 403, 429, 500, 503]) assert.equal(motivoParaDesligar(s), 'servico', String(s));
+  for (const s of [400, 404]) assert.equal(motivoParaDesligar(s), 'parcial', String(s)); // 404: o provedor não tem imagem ali
+});
+
 test('aviso do fundo só para tile de fonte do fundo online, não de camada própria nem erro sem tile', async () => {
   const { erroDeTileDoFundo } = await import('./mapa.js');
   const fontes = { 'fundo-online': {} };
@@ -211,4 +218,9 @@ test('erro de tile não é fatal; erro do motor sem tile é', async () => {
   assert.equal(erroDoMapaEhFatal({ tile: {}, sourceId: 'fundo-online' }), false);
   assert.equal(erroDoMapaEhFatal({ error: new Error('x') }), true);
   assert.equal(erroDoMapaEhFatal(undefined), true);
+});
+
+test('A10: o adaptador do mapa não conhece o provedor do fundo (só o módulo do fundo online cita o nome)', () => {
+  const texto = require('node:fs').readFileSync(require('node:path').join(__dirname, 'mapa.js'), 'utf8');
+  assert.doesNotMatch(texto, /google/i);
 });

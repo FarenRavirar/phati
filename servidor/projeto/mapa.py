@@ -36,9 +36,9 @@ def com_politica_do_mapa(resposta):
     if mapa_ativo():
         resposta._csp_config = settings.SECURE_CSP_MAPA_GOOGLE if fundo_google_ativo() else settings.SECURE_CSP_MAPA
         if fundo_google_ativo():
-            # A chave vem restrita por referenciador: sem `Referer` o Google a recusa. `strict-origin-when-cross-origin` (R18,
-            # plano) manda só a origem (nunca o caminho) a outro domínio e nada em rebaixamento de HTTPS para HTTP. Efeito com
-            # chave real ainda não medido (T3.6).
+            # A chave vem restrita por referenciador. Medido com a chave real (T3.6, 2026-11-04): origem permitida 200, origem
+            # não permitida 403, e sem `Referer` ainda 200 (o `fetch` entre origens leva o cabeçalho `Origin`, que o Google aceita).
+            # `strict-origin-when-cross-origin` (R18) manda só a origem, nunca o caminho, a outro domínio.
             resposta['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return resposta
 

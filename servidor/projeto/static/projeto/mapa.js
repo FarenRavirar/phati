@@ -3,7 +3,7 @@
 // Carrega o MapLibre embutido só quando a página tem o elemento `[data-mapa]`, então importar este módulo no Node é seguro.
 import { fundo as fundoNeutro } from './fundo-neutro.js';
 
-// Área rural de Porto Nacional (TO), em terra para o fundo Google ter imagem; mesmo ponto de LON0, LAT0 em camadas_sinteticas.py. Só vale até as camadas chegarem; depois o mapa enquadra a extensão delas.
+// Área rural de Porto Nacional (TO), em terra para o fundo online ter imagem; mesmo ponto de LON0, LAT0 em camadas_sinteticas.py. Só vale até as camadas chegarem; depois o mapa enquadra a extensão delas.
 export const CENTRO_INICIAL = [-48.30, -10.75];
 export const ZOOM_INICIAL = 12;
 export const TRANSPARENCIA_INICIAL = 40; // percentual; a opacidade é o complemento (R9)
@@ -148,6 +148,14 @@ export function esconderAviso(elemento) {
 export const erroDoMapaEhFatal = (evento) => !evento?.tile;
 
 // Tile que falhou numa fonte do fundo online (não de camada própria): o fundo some ou fica incompleto, então a pessoa é avisada.
+// Status do erro de tile do fundo online -> o que fazer. Sem status = falha de rede; 401 = sessão recusada; 403, 429 e 5xx = serviço
+// ou cota. 404 e 400 só dizem que não há imagem ali (o provedor responde 404 sem cobertura): não derrubam o satélite todo.
+export function motivoParaDesligar(status) {
+  if (status === 401) return 'sessao';
+  if (status === undefined || status === 0 || status === 403 || status === 429 || status >= 500) return 'servico';
+  return 'parcial';
+}
+
 export const erroDeTileDoFundo = (evento, fontesDoFundo) => Boolean(evento?.tile) && Object.hasOwn(fontesDoFundo ?? {}, evento.sourceId);
 
 // Falha de WebGL2, do módulo ou do motor: marca o elemento e mostra o aviso da região.
@@ -459,14 +467,17 @@ async function carregarFundoOnline(alvo) {
   }
 }
 
-// O satélite só carrega quando a pessoa o liga: cada tile do Google é cobrado, então quem abre a fazenda para outra coisa não paga.
-// Antes do clique o mapa tem só o fundo neutro (0 sessão, 0 tile). Só liga, não desliga: o que fica registrado no navegador é a
-// sessão, não a escolha, então cada visita pede o clique de novo. Devolve a função que habilita o botão quando o mapa está pronto.
+// O satélite só carrega quando a pessoa o liga: cada tile do fundo online é cobrado, então quem abre a fazenda para outra coisa não paga.
+// Antes do clique o mapa tem só o fundo neutro (0 sessão, 0 tile). Depois de ligado, o cache que o provedor autoriza (HTTP, pelos
+// cabeçalhos, 24 h) segue valendo: tile fresco aparece mesmo sem rede. Faltando serviço (sem rede, sessão recusada, cota), o
+// satélite se desliga inteiro e o fundo neutro, que nunca saiu de baixo, fica sozinho: fundo online e fundo próprio nunca juntos
+// (D088; R9, R10, R22 da 004b). A pessoa liga de novo pelo mesmo botão. Devolve `habilitar` (mapa pronto) e `desligar(texto)`.
 function prepararSatelite(mapa, alvo, aoLigar) {
   const botao = document.querySelector('[data-satelite]');
-  if (!botao) return () => {};
+  if (!botao) return { habilitar() {}, desligar() {} };
   const atribuicao = alvo.parentElement.querySelector('[data-mapa-atribuicao]');
-  botao.addEventListener('click', async () => {
+  let ativo;
+  async function ligar() {
     botao.disabled = true;
     const online = await carregarFundoOnline(alvo);
     if (!online) {
@@ -480,11 +491,30 @@ function prepararSatelite(mapa, alvo, aoLigar) {
     online.aoCriarMapa(mapa, { dados: atribuicao.querySelector('[data-atribuicao-dados]') });
     alvo.parentElement.querySelector('[data-mapa-fundo-aviso]')?.setAttribute('hidden', '');
     delete alvo.dataset.fundoOnlineErro; // recuperou: o erro da tentativa anterior não vale mais (achado Sourcery, baixa)
+    delete alvo.dataset.fundoOnlineSessao;
+    ativo = online;
     aoLigar(online);
-    alvo.dataset.satelite = 'sim';
+    alvo.dataset.mapaSatelite = 'sim';
     botao.textContent = 'Satélite ativado';
-  });
-  return () => { botao.disabled = false; };
+  }
+  botao.addEventListener('click', ligar);
+  return {
+    habilitar() { botao.disabled = false; },
+    desligar(texto) {
+      if (!ativo) return;
+      const online = ativo;
+      ativo = undefined;
+      online.parar?.(); // sem renovar sessão nem consultar crédito de um fundo que saiu
+      for (const camada of online.camadas) mapa.removeLayer(camada.id);
+      for (const id of Object.keys(online.fontes)) mapa.removeSource(id);
+      atribuicao.hidden = true;
+      aoLigar(undefined);
+      alvo.dataset.mapaSatelite = 'nao';
+      botao.textContent = 'Ativar satélite';
+      botao.disabled = false;
+      avisarFundo(alvo, texto);
+    },
+  };
 }
 
 async function iniciar() {
@@ -494,7 +524,7 @@ async function iniciar() {
     const maplibre = await import('./terceiros/maplibre/maplibre-gl.mjs');
     const mapa = criarMapa(maplibre, alvo, fundoNeutro());
     let fundoOnline;
-    const habilitarSatelite = prepararSatelite(mapa, alvo, (fundo) => { fundoOnline = fundo; });
+    const satelite = prepararSatelite(mapa, alvo, (fundo) => { fundoOnline = fundo; });
     alvo.mapa = mapa; // os testes de navegador projetam coordenadas e consultam o estilo por aqui
     esconderAviso(alvo);
     ligarRecentralizar(mapa);
@@ -502,19 +532,20 @@ async function iniciar() {
       alvo.dataset.mapaFundo = mapa.getPaintProperty('fundo-neutro', 'background-color');
       await carregarCamadas(mapa, alvo);
       alvo.dataset.mapaPronto = 'sim';
-      habilitarSatelite();
+      satelite.habilitar();
     });
     mapa.on('error', (e) => {
       if (erroDeTileDoFundo(e, fundoOnline?.fontes)) {
         alvo.dataset.fundoOnlineErro = 'sim';
-        // 401 = sessão recusada: esquece a guardada (a próxima ativação cria outra) e manda recarregar (review PR #44, CodeRabbit).
-        if (e.error?.status === 401) {
-          fundoOnline.descartarSessao?.();
-          alvo.dataset.fundoOnlineSessao = 'recusada';
+        const motivo = motivoParaDesligar(e.error?.status);
+        if (motivo === 'sessao') {
+          fundoOnline.descartarSessao?.(); // 401: esquece a guardada, a próxima ativação cria outra (review PR #44, CodeRabbit)
+          satelite.desligar('A sessão do satélite não vale mais. Ative o satélite de novo.');
+        } else if (motivo === 'servico') {
+          satelite.desligar('Sem rede ou sem resposta do fundo online: o satélite foi desligado e o mapa voltou ao fundo neutro. Ative o satélite de novo quando quiser.');
+        } else {
+          avisarFundo(alvo, 'Parte do fundo do mapa não carregou. As camadas seguem normais.'); // 400 e 404: sem imagem naquele ponto
         }
-        avisarFundo(alvo, alvo.dataset.fundoOnlineSessao
-          ? 'A sessão do satélite não vale mais. Recarregue a página e ative o satélite de novo.'
-          : 'Parte do fundo do mapa não carregou. As camadas seguem normais.');
       }
       if (erroDoMapaEhFatal(e)) mostrarErro(alvo);
     });
