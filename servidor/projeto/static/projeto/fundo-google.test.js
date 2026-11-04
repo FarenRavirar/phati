@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, ORIGEM, ID_FONTE } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -86,20 +86,54 @@ test('criarFundo: renova a sessão antes de expirar e troca os tiles da fonte', 
   assert.equal(agendados.length, 2); // reagendou
 });
 
-test('criarFundo: renovação que falha não derruba o mapa e tenta de novo', async () => {
+test('esperaAposFalha dobra a cada falha e para no teto', () => {
+  assert.deepEqual([1, 2, 3].map(esperaAposFalha), [30000, 60000, 120000]);
+  assert.equal(esperaAposFalha(50), ESPERA_MAXIMA_MS);
+});
+
+test('criarFundo: renovação que falha não derruba o mapa, espera cada vez mais e para no limite', async () => {
   let primeira = true;
   const buscar = async (url) => {
     if (!url.includes('createSession')) return resposta({ copyright: '' });
     if (primeira) { primeira = false; return resposta(sessaoOk); }
-    return resposta({}, false, 500);
+    return resposta({}, false, 503);
   };
   const agendados = [];
   const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) } });
   const mapa = mapaFalso();
   fundo.aoCriarMapa(mapa, { dados: { textContent: '' } });
-  await agendados[0].f();
+  for (let i = 0; i < TENTATIVAS_MAXIMAS + 2 && agendados[i]; i += 1) await agendados[i].f();
   assert.equal(mapa.fonte.tiles, null);
-  assert.equal(agendados.length, 2);
+  assert.deepEqual(agendados.slice(1).map((a) => a.ms), [30000, 60000, 120000, 240000]); // nunca zero: sem rajada de pedidos
+  assert.equal(agendados.length, TENTATIVAS_MAXIMAS); // 1 agendamento inicial + 4 esperas; parou
+});
+
+test('criarFundo: falha ao buscar a atribuição mantém o crédito já exibido', async () => {
+  let viewport = 0;
+  const buscar = async (url) => {
+    if (url.includes('createSession')) return resposta(sessaoOk);
+    viewport += 1;
+    return viewport === 1 ? resposta({ copyright: 'Imagens © 2026' }) : resposta({}, false, 500);
+  };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: () => {} } });
+  const dados = { textContent: '' };
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(dados.textContent, 'Imagens © 2026');
+  await mapa.ouvintes.moveend();
+  assert.equal(dados.textContent, 'Imagens © 2026');
+});
+
+test('criarSessao: tileWidth inválido é recusado, ausente cai no padrão e a requisição leva prazo', async () => {
+  const comLargura = (tileWidth) => async () => resposta({ session: 's', expiry: '1', tileWidth });
+  await assert.rejects(criarSessao(comLargura(-256), CHAVE), /tileWidth/);
+  await assert.rejects(criarSessao(comLargura(0), CHAVE), /tileWidth/);
+  await assert.rejects(criarSessao(comLargura('x'), CHAVE), /tileWidth/);
+  assert.equal((await criarSessao(comLargura(undefined), CHAVE)).largura, 256);
+  let sinal;
+  await criarSessao(async (_u, o) => { sinal = o.signal; return resposta(sessaoOk); }, CHAVE);
+  assert.ok(sinal instanceof AbortSignal);
 });
 
 test('criarFundo: sessão recusada na criação rejeita (o mapa.js cai para o fundo neutro)', async () => {

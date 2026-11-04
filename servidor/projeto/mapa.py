@@ -31,6 +31,10 @@ def com_politica_do_mapa(resposta):
     Os domínios do Google (R18) entram só com a flag do Google."""
     if mapa_ativo():
         resposta._csp_config = settings.SECURE_CSP_MAPA_GOOGLE if fundo_google_ativo() else settings.SECURE_CSP_MAPA
+        if fundo_google_ativo():
+            # A chave vem restrita por referenciador: sem `Referer` o Google a recusa. `origin-when-cross-origin` manda só a
+            # origem (nunca o caminho) a outro domínio e o caminho completo ao próprio site. Não medido com chave real (T3.6).
+            resposta['Referrer-Policy'] = 'origin-when-cross-origin'
     return resposta
 
 

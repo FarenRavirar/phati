@@ -111,6 +111,7 @@ def test_sem_a_flag_do_google_a_pagina_nao_traz_chave_modulo_nem_dominio(pagina)
     assert 'data-fundo-online' not in html
     assert 'chave-sintetica-de-teste' not in html
     assert 'data-mapa-atribuicao' not in html
+    assert 'data-mapa-fundo-aviso' not in html
     assert 'googleapis' not in _politica(resposta)
 
 
@@ -128,6 +129,7 @@ def test_flag_do_google_entrega_chave_modulo_e_atribuicao_na_pagina(pagina):
     assert 'data-fundo-online-chave="chave-sintetica-de-teste"' in html
     assert re.search(r'data-fundo-online-modulo="/static/projeto/fundo-google\.js"', html)
     assert re.search(r'<p class="mapa-atribuicao" data-mapa-atribuicao>.*Google Maps', html, re.S)
+    assert re.search(r'<div data-mapa-fundo-aviso hidden>', html)  # aviso próprio: o da posição do aparelho o apagaria
 
 
 @com_google
@@ -138,6 +140,17 @@ def test_flag_do_google_acrescenta_so_a_origem_dos_tiles_a_politica_do_mapa(pagi
     assert politica.count('googleapis') == 2
     for sem in ('unsafe-eval', 'unsafe-inline'):
         assert sem not in politica
+
+
+@com_google
+def test_flag_do_google_manda_so_a_origem_como_referenciador_e_o_resto_segue_same_origin(pagina, cliente_logado):
+    assert pagina()['Referrer-Policy'] == 'origin-when-cross-origin'
+    assert cliente_logado.get('/empresas/')['Referrer-Policy'] == 'same-origin'
+
+
+def test_sem_a_flag_do_google_o_referenciador_segue_same_origin(pagina):
+    with override_settings(MAPA_TESTE_ATIVO=True):
+        assert pagina()['Referrer-Policy'] == 'same-origin'
 
 
 @com_google

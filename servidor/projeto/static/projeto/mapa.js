@@ -150,6 +150,9 @@ export function esconderAviso(elemento) {
 // Tile que não chega (rede, cota, 403 do fundo online) não derruba o mapa nem as camadas: o motor emite `error` com `tile`.
 export const erroDoMapaEhFatal = (evento) => !evento?.tile;
 
+// Tile que falhou numa fonte do fundo online (não de camada própria): o fundo some ou fica incompleto, então a pessoa é avisada.
+export const erroDeTileDoFundo = (evento, fontesDoFundo) => Boolean(evento?.tile) && Object.hasOwn(fontesDoFundo ?? {}, evento.sourceId);
+
 // Falha de WebGL2, do módulo ou do motor: marca o elemento e mostra o aviso da região.
 export function mostrarErro(elemento) {
   elemento.dataset.mapaErro = 'sim';
@@ -431,6 +434,14 @@ async function carregarCamadas(mapa, alvo) {
 
 // Fundo online opcional: a página só entrega chave e módulo com a flag ligada. O módulo vem do atributo, então este
 // arquivo não conhece o provedor (A10). Falha na sessão = fundo neutro e aviso, nunca mapa quebrado (R12).
+// Aviso do fundo em região própria: o `[data-mapa-mensagem]` é da posição do aparelho, que o apaga ao clicar (review PR #43, Qodo).
+function avisarFundo(alvo, texto) {
+  const caixa = alvo.parentElement.querySelector('[data-mapa-fundo-aviso]');
+  if (!caixa) return;
+  caixa.querySelector('.aviso-texto').textContent = texto;
+  caixa.hidden = false;
+}
+
 async function carregarFundoOnline(alvo) {
   const { fundoOnlineChave: chave, fundoOnlineModulo: modulo } = alvo.dataset;
   if (!chave || !modulo) return null;
@@ -438,11 +449,7 @@ async function carregarFundoOnline(alvo) {
     return await (await import(modulo)).criarFundo({ chave });
   } catch {
     alvo.dataset.fundoOnlineErro = 'sim';
-    const mensagem = document.querySelector('[data-mapa-mensagem]');
-    if (mensagem) {
-      mensagem.querySelector('.aviso-texto').textContent = 'O fundo do mapa está indisponível. Mostrando o fundo neutro.';
-      mensagem.hidden = false;
-    }
+    avisarFundo(alvo, 'O fundo do mapa está indisponível. Mostrando o fundo neutro.');
     return null;
   }
 }
@@ -463,7 +470,13 @@ async function iniciar() {
       await carregarCamadas(mapa, alvo);
       alvo.dataset.mapaPronto = 'sim';
     });
-    mapa.on('error', (e) => { if (erroDoMapaEhFatal(e)) mostrarErro(alvo); });
+    mapa.on('error', (e) => {
+      if (erroDeTileDoFundo(e, online?.fontes)) {
+        alvo.dataset.fundoOnlineErro = 'sim';
+        avisarFundo(alvo, 'Parte do fundo do mapa não carregou. As camadas seguem normais.');
+      }
+      if (erroDoMapaEhFatal(e)) mostrarErro(alvo);
+    });
   } catch {
     mostrarErro(alvo);
   }

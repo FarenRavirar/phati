@@ -43,7 +43,7 @@ async function abrir(page) {
   const violacoes = [];
   const googleVisto = [];
   page.on('console', (m) => { if (/Content Security Policy/i.test(m.text())) violacoes.push(m.text()); });
-  page.on('request', (r) => { if (r.url().startsWith(ORIGEM)) googleVisto.push(r.url()); });
+  page.on('request', (r) => { if (new URL(r.url()).origin === ORIGEM) googleVisto.push(r.url()); });
   await entrar(page, dados.administradora_a.cpf);
   const resposta = await page.goto(`/empresa/${dados.empresa_a}/fazenda/${dados.fazendas_a[0]}/`);
   return { resposta, violacoes, googleVisto };
@@ -114,4 +114,6 @@ test('tile que falha na rede não derruba o mapa nem as camadas', async ({ page 
   const mapa = page.locator('[data-mapa]');
   await expect(mapa).toHaveAttribute('data-mapa-pronto', 'sim');
   await expect(mapa).toHaveAttribute('data-mapa-camadas', '3');
+  await expect(mapa).not.toHaveAttribute('data-mapa-erro', /.*/); // tile mudo não marca o mapa como quebrado
+  await expect(page.getByText('Parte do fundo do mapa não carregou. As camadas seguem normais.')).toBeVisible();
 });

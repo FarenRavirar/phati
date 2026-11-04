@@ -40,9 +40,10 @@ test('os dois projetos lançam o Chromium com WebGL2 por software (spec 004 R16)
 
 test('o zoom roda só no projeto computador, sem skip', () => {
   const [computador, celular] = carregar().projects;
-  assert.equal(computador.testIgnore, undefined);
-  assert.ok(celular.testIgnore.test('zoom.spec.js'));
-  assert.equal(celular.testIgnore.test('entrar.spec.js'), false);
+  const ignora = (projeto, arquivo) => [].concat(projeto.testIgnore ?? []).some((r) => r.test(arquivo));
+  assert.equal(ignora(computador, 'zoom.spec.js'), false);
+  assert.ok(ignora(celular, 'zoom.spec.js'));
+  assert.equal(ignora(celular, 'entrar.spec.js'), false);
 });
 
 test('a prova do Google roda à parte: fora da rodada comum, e sozinha com PHATI_PROVA_GOOGLE=1', () => {
@@ -51,12 +52,18 @@ test('a prova do Google roda à parte: fora da rodada comum, e sozinha com PHATI
     delete process.env.PHATI_PROVA_GOOGLE;
     const comum = carregar();
     assert.equal(comum.testMatch, '*.spec.js');
-    assert.ok(comum.testIgnore.test('navegador/fundo-google.spec.js'));
-    assert.ok(!comum.testIgnore.test('navegador/mapa.spec.js'));
+    // Cada projeto tem o próprio `testIgnore` (o de projeto substitui o da raiz): os dois têm de excluir a prova do Google.
+    for (const projeto of comum.projects) {
+      const ignorados = [].concat(projeto.testIgnore);
+      assert.ok(ignorados.some((r) => r.test('navegador/fundo-google.spec.js')), projeto.name);
+      assert.ok(!ignorados.some((r) => r.test('navegador/mapa.spec.js')), projeto.name);
+    }
     process.env.PHATI_PROVA_GOOGLE = '1';
     const so = carregar();
     assert.equal(so.testMatch, 'fundo-google.spec.js');
-    assert.equal(so.testIgnore, undefined);
+    for (const projeto of so.projects) {
+      assert.ok(![].concat(projeto.testIgnore ?? []).some((r) => r.test('navegador/fundo-google.spec.js')), projeto.name);
+    }
     process.env.PHATI_PROVA_GOOGLE = 'true'; // só o valor 1 liga
     assert.equal(carregar().testMatch, '*.spec.js');
   } finally {

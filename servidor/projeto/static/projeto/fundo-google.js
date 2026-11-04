@@ -9,15 +9,20 @@ export const ID_FONTE = 'fundo-online';
 export const ID_CAMADA = 'fundo-online-tiles';
 const MARGEM_RENOVACAO_S = 3600; // renova uma hora antes de `expiry`
 const MAXIMO_TEMPORIZADOR_MS = 2 ** 31 - 1; // setTimeout estoura acima disto e dispararia na hora
+export const PRAZO_SESSAO_MS = 10000; // sem prazo, um Google lento seguraria o mapa inteiro (review PR #43)
+export const ESPERA_INICIAL_MS = 30000; // renovação que falha: 30 s, 60 s, 120 s... até o teto
+export const ESPERA_MAXIMA_MS = 600000;
+export const TENTATIVAS_MAXIMAS = 5; // depois disto para de pedir sessão; o mapa segue até o Google recusar o tile (R12)
 
 const url = (caminho, parametros) => `${ORIGEM}${caminho}?${new URLSearchParams(parametros)}`;
 
 // Dado externo: a resposta do Google é desconfiada até conferir a forma (`session` e `expiry` em segundos de época).
-export async function criarSessao(buscar, chave) {
+export async function criarSessao(buscar, chave, prazoMs = PRAZO_SESSAO_MS) {
   const resposta = await buscar(url('/v1/createSession', { key: chave }), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mapType: 'satellite', language: 'pt-BR', region: 'BR', imageFormat: 'jpeg' }),
+    signal: AbortSignal.timeout(prazoMs),
   });
   if (!resposta.ok) throw new Error(`sessão recusada (${resposta.status})`);
   const dados = await resposta.json();
@@ -25,7 +30,9 @@ export async function criarSessao(buscar, chave) {
   if (typeof dados?.session !== 'string' || dados.session === '' || !Number.isFinite(expira)) {
     throw new Error('sessão fora da forma {session, expiry}');
   }
-  return { token: dados.session, expira, largura: Number(dados.tileWidth) || 256 };
+  const largura = dados.tileWidth === undefined ? 256 : Number(dados.tileWidth);
+  if (!Number.isFinite(largura) || largura <= 0) throw new Error('sessão com tileWidth inválido');
+  return { token: dados.session, expira, largura };
 }
 
 export const urlDosTiles = (sessao, chave) => `${ORIGEM}/v1/2dtiles/{z}/{x}/{y}?${new URLSearchParams({ session: sessao.token, key: chave })}`;
@@ -35,6 +42,9 @@ export function msAteRenovar(sessao, agoraMs) {
   const falta = (sessao.expira - MARGEM_RENOVACAO_S) * 1000 - agoraMs;
   return Math.min(MAXIMO_TEMPORIZADOR_MS, Math.max(0, falta));
 }
+
+// Espera antes da próxima tentativa de renovação, dobrando a cada falha (`falhas` >= 1) até o teto.
+export const esperaAposFalha = (falhas) => Math.min(ESPERA_MAXIMA_MS, ESPERA_INICIAL_MS * 2 ** (falhas - 1));
 
 // Atribuição de dados vem do `copyright` do viewport (não se escreve à mão). O texto entra por `textContent`.
 export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, leste, oeste, zoom }) {
@@ -52,14 +62,19 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
     fontes: { [ID_FONTE]: { type: 'raster', tiles: [urlDosTiles(sessao, chave)], tileSize: sessao.largura } },
     camadas: [{ id: ID_CAMADA, type: 'raster', source: ID_FONTE }],
     aoCriarMapa(mapa, { dados }) {
+      let falhas = 0;
       const renovar = async () => {
         try {
           sessao = await criarSessao(buscar, chave);
           mapa.getSource(ID_FONTE)?.setTiles([urlDosTiles(sessao, chave)]);
+          falhas = 0;
+          agendar();
         } catch {
-          // sessão não renovada: os tiles seguem até o Google recusar e o mapa mostra o erro de tile (R12)
+          // Sessão não renovada: o prazo da velha já passou, então a espera cresce em vez de repetir sem pausa. Passado o
+          // limite, para; os tiles seguem até o Google recusar e o mapa mostra o erro de tile (R12).
+          falhas += 1;
+          if (falhas < TENTATIVAS_MAXIMAS) relogio.setTimeout(renovar, esperaAposFalha(falhas));
         }
-        agendar();
       };
       const agendar = () => relogio.setTimeout(renovar, msAteRenovar(sessao, Date.now()));
       agendar();
@@ -73,7 +88,7 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
           });
           if (minha === ultima) dados.textContent = texto;
         } catch {
-          if (minha === ultima) dados.textContent = '';
+          // Falha isolada não apaga o crédito das imagens que seguem à vista; o próximo `moveend` tenta de novo.
         }
       };
       mapa.on('moveend', atualizar);

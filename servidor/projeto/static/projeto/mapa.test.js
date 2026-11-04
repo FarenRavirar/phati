@@ -191,6 +191,16 @@ test('combinarFundos: o neutro fica embaixo e o online por cima, sem perder font
   assert.deepEqual(neutro.camadas, [{ id: 'n' }]); // entradas intactas
 });
 
+test('aviso do fundo só para tile de fonte do fundo online, não de camada própria nem erro sem tile', async () => {
+  const { erroDeTileDoFundo } = await import('./mapa.js');
+  const fontes = { 'fundo-online': {} };
+  assert.equal(erroDeTileDoFundo({ tile: {}, sourceId: 'fundo-online' }, fontes), true);
+  assert.equal(erroDeTileDoFundo({ tile: {}, sourceId: 'camada-a' }, fontes), false);
+  assert.equal(erroDeTileDoFundo({ sourceId: 'fundo-online' }, fontes), false);
+  assert.equal(erroDeTileDoFundo({ tile: {}, sourceId: 'fundo-online' }, undefined), false);
+  assert.equal(erroDeTileDoFundo(undefined, fontes), false);
+});
+
 test('erro de tile não é fatal; erro do motor sem tile é', async () => {
   const { erroDoMapaEhFatal } = await import('./mapa.js');
   assert.equal(erroDoMapaEhFatal({ tile: {}, sourceId: 'fundo-online' }), false);
