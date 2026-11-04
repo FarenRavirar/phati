@@ -11,9 +11,14 @@ const baseURL = process.env.PHATI_URL_NAVEGADOR || 'http://127.0.0.1:8080';
 // O que o runner Linux de fato precisa fica registrado na T1.11.
 const argumentosWebgl = ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'];
 
+// Fundo Google (spec 004 Fase 3): a prova exige o servidor com a flag do Google ligada, então roda à parte
+// (`PHATI_PROVA_GOOGLE=1`) e fica fora da rodada comum, que sobe sem a flag.
+const soGoogle = process.env.PHATI_PROVA_GOOGLE === '1';
+
 module.exports = defineConfig({
   testDir: 'navegador',
-  testMatch: '*.spec.js',
+  testMatch: soGoogle ? 'fundo-google.spec.js' : '*.spec.js',
+  testIgnore: soGoogle ? undefined : /fundo-google\.spec\.js$/,
   fullyParallel: false,
   retries: 0,
   reporter: process.env.CI ? [['list'], ['github']] : 'list',

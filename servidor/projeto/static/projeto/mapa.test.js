@@ -180,3 +180,20 @@ test('posição: ok centraliza, negada e esgotada mostram a mensagem, e a falta 
   assert.equal(geolocalizacaoDisponivel({ isSecureContext: false, navigator: { geolocation: {} } }), false);
   assert.equal(geolocalizacaoDisponivel({ isSecureContext: true, navigator: {} }), false);
 });
+
+test('combinarFundos: o neutro fica embaixo e o online por cima, sem perder fonte nenhuma', async () => {
+  const { combinarFundos } = await import('./mapa.js');
+  const neutro = { fontes: {}, camadas: [{ id: 'n' }] };
+  const online = { fontes: { f: { type: 'raster' } }, camadas: [{ id: 'o' }] };
+  const junto = combinarFundos(neutro, online);
+  assert.deepEqual(junto.camadas.map((c) => c.id), ['n', 'o']);
+  assert.deepEqual(Object.keys(junto.fontes), ['f']);
+  assert.deepEqual(neutro.camadas, [{ id: 'n' }]); // entradas intactas
+});
+
+test('erro de tile não é fatal; erro do motor sem tile é', async () => {
+  const { erroDoMapaEhFatal } = await import('./mapa.js');
+  assert.equal(erroDoMapaEhFatal({ tile: {}, sourceId: 'fundo-online' }), false);
+  assert.equal(erroDoMapaEhFatal({ error: new Error('x') }), true);
+  assert.equal(erroDoMapaEhFatal(undefined), true);
+});

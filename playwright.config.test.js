@@ -44,3 +44,23 @@ test('o zoom roda só no projeto computador, sem skip', () => {
   assert.ok(celular.testIgnore.test('zoom.spec.js'));
   assert.equal(celular.testIgnore.test('entrar.spec.js'), false);
 });
+
+test('a prova do Google roda à parte: fora da rodada comum, e sozinha com PHATI_PROVA_GOOGLE=1', () => {
+  const anterior = process.env.PHATI_PROVA_GOOGLE;
+  try {
+    delete process.env.PHATI_PROVA_GOOGLE;
+    const comum = carregar();
+    assert.equal(comum.testMatch, '*.spec.js');
+    assert.ok(comum.testIgnore.test('navegador/fundo-google.spec.js'));
+    assert.ok(!comum.testIgnore.test('navegador/mapa.spec.js'));
+    process.env.PHATI_PROVA_GOOGLE = '1';
+    const so = carregar();
+    assert.equal(so.testMatch, 'fundo-google.spec.js');
+    assert.equal(so.testIgnore, undefined);
+    process.env.PHATI_PROVA_GOOGLE = 'true'; // só o valor 1 liga
+    assert.equal(carregar().testMatch, '*.spec.js');
+  } finally {
+    if (anterior === undefined) delete process.env.PHATI_PROVA_GOOGLE;
+    else process.env.PHATI_PROVA_GOOGLE = anterior;
+  }
+});

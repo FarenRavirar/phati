@@ -16,6 +16,12 @@ export function montarEstilo(fundo) {
   return { version: 8, sources: { ...fundo.fontes }, layers: [...fundo.camadas] };
 }
 
+// Fundo neutro embaixo, fundo online (se houver) por cima: o neutro nunca sai, então a falha do online deixa o mapa de pé (R12).
+export const combinarFundos = (base, online) => ({
+  fontes: { ...base.fontes, ...online.fontes },
+  camadas: [...base.camadas, ...online.camadas],
+});
+
 export function criarMapa(maplibre, elemento, fundo) {
   return new maplibre.Map({ container: elemento, style: montarEstilo(fundo), center: CENTRO_INICIAL, zoom: ZOOM_INICIAL });
 }
@@ -140,6 +146,9 @@ export function esconderAviso(elemento) {
   const caixa = aviso(elemento);
   if (caixa) caixa.hidden = true;
 }
+
+// Tile que não chega (rede, cota, 403 do fundo online) não derruba o mapa nem as camadas: o motor emite `error` com `tile`.
+export const erroDoMapaEhFatal = (evento) => !evento?.tile;
 
 // Falha de WebGL2, do módulo ou do motor: marca o elemento e mostra o aviso da região.
 export function mostrarErro(elemento) {
@@ -420,12 +429,32 @@ async function carregarCamadas(mapa, alvo) {
   }
 }
 
+// Fundo online opcional: a página só entrega chave e módulo com a flag ligada. O módulo vem do atributo, então este
+// arquivo não conhece o provedor (A10). Falha na sessão = fundo neutro e aviso, nunca mapa quebrado (R12).
+async function carregarFundoOnline(alvo) {
+  const { fundoOnlineChave: chave, fundoOnlineModulo: modulo } = alvo.dataset;
+  if (!chave || !modulo) return null;
+  try {
+    return await (await import(modulo)).criarFundo({ chave });
+  } catch {
+    alvo.dataset.fundoOnlineErro = 'sim';
+    const mensagem = document.querySelector('[data-mapa-mensagem]');
+    if (mensagem) {
+      mensagem.querySelector('.aviso-texto').textContent = 'O fundo do mapa está indisponível. Mostrando o fundo neutro.';
+      mensagem.hidden = false;
+    }
+    return null;
+  }
+}
+
 async function iniciar() {
   const alvo = document.querySelector('[data-mapa]');
   if (!alvo) return;
   try {
     const maplibre = await import('./terceiros/maplibre/maplibre-gl.mjs');
-    const mapa = criarMapa(maplibre, alvo, fundoNeutro());
+    const online = await carregarFundoOnline(alvo);
+    const mapa = criarMapa(maplibre, alvo, online ? combinarFundos(fundoNeutro(), online) : fundoNeutro());
+    online?.aoCriarMapa(mapa, { dados: alvo.parentElement.querySelector('[data-atribuicao-dados]') });
     alvo.mapa = mapa; // os testes de navegador projetam coordenadas e consultam o estilo por aqui
     esconderAviso(alvo);
     ligarRecentralizar(mapa);
@@ -434,7 +463,7 @@ async function iniciar() {
       await carregarCamadas(mapa, alvo);
       alvo.dataset.mapaPronto = 'sim';
     });
-    mapa.on('error', () => mostrarErro(alvo));
+    mapa.on('error', (e) => { if (erroDoMapaEhFatal(e)) mostrarErro(alvo); });
   } catch {
     mostrarErro(alvo);
   }

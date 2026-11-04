@@ -98,6 +98,62 @@ def test_flag_ligada_deslogado_vai_para_a_entrada(cenario):
     assert resposta['Location'].startswith('/entrar')
 
 
+# --- Fundo Google (004 R17, R18; A12) ----------------------------------------------------------------------------
+
+GOOGLE = 'https://tile.googleapis.com'
+com_google = override_settings(MAPA_TESTE_ATIVO=True, MAPA_FUNDO_GOOGLE_ATIVO=True, MAPA_GOOGLE_CHAVE='chave-sintetica-de-teste')
+
+
+def test_sem_a_flag_do_google_a_pagina_nao_traz_chave_modulo_nem_dominio(pagina):
+    with override_settings(MAPA_TESTE_ATIVO=True, MAPA_GOOGLE_CHAVE='chave-sintetica-de-teste'):
+        resposta = pagina()
+    html = resposta.content.decode()
+    assert 'data-fundo-online' not in html
+    assert 'chave-sintetica-de-teste' not in html
+    assert 'data-mapa-atribuicao' not in html
+    assert 'googleapis' not in _politica(resposta)
+
+
+@override_settings(MAPA_FUNDO_GOOGLE_ATIVO=True, MAPA_GOOGLE_CHAVE='chave-sintetica-de-teste')
+def test_flag_do_google_sem_o_mapa_de_teste_nao_liga_nada(pagina):
+    resposta = pagina()
+    assert mapa.fundo_google_ativo() is False
+    assert 'chave-sintetica-de-teste' not in resposta.content.decode()
+    assert 'googleapis' not in _politica(resposta)
+
+
+@com_google
+def test_flag_do_google_entrega_chave_modulo_e_atribuicao_na_pagina(pagina):
+    html = pagina().content.decode()
+    assert 'data-fundo-online-chave="chave-sintetica-de-teste"' in html
+    assert re.search(r'data-fundo-online-modulo="/static/projeto/fundo-google\.js"', html)
+    assert re.search(r'<p class="mapa-atribuicao" data-mapa-atribuicao>.*Google Maps', html, re.S)
+
+
+@com_google
+def test_flag_do_google_acrescenta_so_a_origem_dos_tiles_a_politica_do_mapa(pagina):
+    politica = _politica(pagina())
+    assert _diretiva(politica, 'connect-src') == f"connect-src 'self' {GOOGLE}"
+    assert _diretiva(politica, 'img-src') == f"img-src 'self' data: blob: {GOOGLE}"
+    assert politica.count('googleapis') == 2
+    for sem in ('unsafe-eval', 'unsafe-inline'):
+        assert sem not in politica
+
+
+@com_google
+def test_flag_do_google_nao_vaza_o_dominio_para_as_outras_respostas(cliente_logado):
+    for caminho in ('/', '/empresas/', '/entrar'):
+        assert 'googleapis' not in _politica(cliente_logado.get(caminho)), caminho
+
+
+@com_google
+def test_flag_do_google_sem_alcance_nao_entrega_a_chave(cliente_logado, cenario):
+    resposta = cliente_logado.get(_caminho(cenario.x, cenario.f1))
+    assert resposta.status_code == 404
+    assert b'chave-sintetica-de-teste' not in resposta.content
+    assert 'googleapis' not in _politica(resposta)
+
+
 # --- Rota das camadas (004 R4; A4) ---------------------------------------------------------------------------------
 
 def _camadas(empresa, fazenda):

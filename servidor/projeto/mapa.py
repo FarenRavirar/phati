@@ -16,10 +16,21 @@ def mapa_ativo():
     return settings.MAPA_TESTE_ATIVO
 
 
+def fundo_google_ativo():
+    """Fundo Google (R17): só com o mapa de teste ligado; `settings.py` já barra a flag fora dos ambientes de teste."""
+    return mapa_ativo() and settings.MAPA_FUNDO_GOOGLE_ATIVO
+
+
+def chave_google():
+    """Chave restrita por referenciador (R18): vai à página só com a flag do Google; sem ela, string vazia."""
+    return settings.MAPA_GOOGLE_CHAVE if fundo_google_ativo() else ''
+
+
 def com_politica_do_mapa(resposta):
-    """Troca a CSP só desta resposta (`csp_override` substitui a política, não soma; a de `SECURE_CSP_MAPA` já é completa)."""
+    """Troca a CSP só desta resposta (`csp_override` substitui a política, não soma; as de `SECURE_CSP_MAPA*` já são completas).
+    Os domínios do Google (R18) entram só com a flag do Google."""
     if mapa_ativo():
-        resposta._csp_config = settings.SECURE_CSP_MAPA
+        resposta._csp_config = settings.SECURE_CSP_MAPA_GOOGLE if fundo_google_ativo() else settings.SECURE_CSP_MAPA
     return resposta
 
 

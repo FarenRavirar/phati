@@ -1,0 +1,107 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, ORIGEM, ID_FONTE } from './fundo-google.js';
+
+const CHAVE = 'chave-de-teste';
+const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
+const sessaoOk = { session: 'tok1', expiry: '2000000000', tileWidth: 256, tileHeight: 256, imageFormat: 'jpeg' };
+
+test('criarSessao: POST com o corpo exigido e leitura de session/expiry', async () => {
+  const chamadas = [];
+  const buscar = async (url, opcoes) => { chamadas.push({ url, opcoes }); return resposta(sessaoOk); };
+  const sessao = await criarSessao(buscar, CHAVE);
+  assert.deepEqual(sessao, { token: 'tok1', expira: 2000000000, largura: 256 });
+  assert.equal(chamadas[0].url, `${ORIGEM}/v1/createSession?key=${CHAVE}`);
+  assert.equal(chamadas[0].opcoes.method, 'POST');
+  const corpo = JSON.parse(chamadas[0].opcoes.body);
+  assert.deepEqual([corpo.mapType, corpo.language, corpo.region], ['satellite', 'pt-BR', 'BR']);
+});
+
+test('criarSessao: recusa resposta com erro, sem token ou sem expiry (dado externo)', async () => {
+  await assert.rejects(criarSessao(async () => resposta({}, false, 403), CHAVE), /403/);
+  await assert.rejects(criarSessao(async () => resposta({ expiry: '1' }), CHAVE), /fora da forma/);
+  await assert.rejects(criarSessao(async () => resposta({ session: '', expiry: '1' }), CHAVE), /fora da forma/);
+  await assert.rejects(criarSessao(async () => resposta({ session: 'x', expiry: 'abc' }), CHAVE), /fora da forma/);
+  await assert.rejects(criarSessao(async () => resposta(null), CHAVE), /fora da forma/);
+});
+
+test('urlDosTiles: placeholders z/x/y intactos e sessão codificada', () => {
+  const url = urlDosTiles({ token: 'a b&c' }, CHAVE);
+  assert.ok(url.startsWith(`${ORIGEM}/v1/2dtiles/{z}/{x}/{y}?`));
+  assert.ok(url.includes('session=a+b%26c'));
+});
+
+test('msAteRenovar: antes do vencimento, nunca negativa, nunca acima do teto do temporizador', () => {
+  assert.equal(msAteRenovar({ expira: 10000 }, 0), (10000 - 3600) * 1000);
+  assert.equal(msAteRenovar({ expira: 100 }, 1e9), 0); // já vencida
+  assert.equal(msAteRenovar({ expira: 1e12 }, 0), 2 ** 31 - 1);
+});
+
+test('buscarAtribuicao: devolve o copyright; erro e forma errada não viram texto inventado', async () => {
+  const caixa = { norte: 1, sul: -1, leste: 2, oeste: -2, zoom: 12.4 };
+  let pedido;
+  const texto = await buscarAtribuicao(async (u) => { pedido = u; return resposta({ copyright: 'Imagens © 2026' }); }, CHAVE, { token: 't' }, caixa);
+  assert.equal(texto, 'Imagens © 2026');
+  assert.ok(pedido.includes('/tile/v1/viewport?') && pedido.includes('zoom=12') && pedido.includes('north=1'));
+  assert.equal(await buscarAtribuicao(async () => resposta({}), CHAVE, { token: 't' }, caixa), '');
+  await assert.rejects(buscarAtribuicao(async () => resposta({}, false, 500), CHAVE, { token: 't' }, caixa), /500/);
+});
+
+function mapaFalso() {
+  const fonte = { tiles: null, setTiles(t) { this.tiles = t; } };
+  const ouvintes = {};
+  return {
+    fonte, ouvintes,
+    getSource: (id) => (id === ID_FONTE ? fonte : undefined),
+    getBounds: () => ({ getNorth: () => 1, getSouth: () => -1, getEast: () => 2, getWest: () => -2 }),
+    getZoom: () => 12,
+    on: (evento, f) => { ouvintes[evento] = f; },
+  };
+}
+
+test('criarFundo: fonte raster, camada acima do neutro e atribuição escrita como texto', async () => {
+  const buscar = async (url) => (url.includes('createSession') ? resposta(sessaoOk) : resposta({ copyright: '<img src=x onerror=alert(1)>' }));
+  const agendados = [];
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) } });
+  assert.equal(fundo.fontes[ID_FONTE].type, 'raster');
+  assert.deepEqual(fundo.camadas.map((c) => c.source), [ID_FONTE]);
+  const dados = { textContent: '' };
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(dados.textContent, '<img src=x onerror=alert(1)>'); // textContent: o navegador não interpreta
+  assert.equal(agendados.length, 1);
+  assert.equal(typeof mapa.ouvintes.moveend, 'function');
+});
+
+test('criarFundo: renova a sessão antes de expirar e troca os tiles da fonte', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const agendados = [];
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) } });
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados: { textContent: '' } });
+  await agendados[0].f();
+  assert.ok(mapa.fonte.tiles[0].includes('session=tok2'));
+  assert.equal(agendados.length, 2); // reagendou
+});
+
+test('criarFundo: renovação que falha não derruba o mapa e tenta de novo', async () => {
+  let primeira = true;
+  const buscar = async (url) => {
+    if (!url.includes('createSession')) return resposta({ copyright: '' });
+    if (primeira) { primeira = false; return resposta(sessaoOk); }
+    return resposta({}, false, 500);
+  };
+  const agendados = [];
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) } });
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados: { textContent: '' } });
+  await agendados[0].f();
+  assert.equal(mapa.fonte.tiles, null);
+  assert.equal(agendados.length, 2);
+});
+
+test('criarFundo: sessão recusada na criação rejeita (o mapa.js cai para o fundo neutro)', async () => {
+  await assert.rejects(criarFundo({ chave: CHAVE, buscar: async () => resposta({}, false, 403), relogio: {} }), /403/);
+});
