@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 from django.conf import settings
-from django.core.mail import BadHeaderError, EmailMessage
+from django.core.mail import EmailMessage
 from django.db import transaction
 from django.utils import timezone
 
@@ -33,7 +33,7 @@ def _enviar_agora(pessoa, modelo, assunto, corpo):
     falha = None
     try:
         EmailMessage(assunto, corpo, to=[pessoa.email]).send()
-    except (smtplib.SMTPException, OSError, BadHeaderError) as erro:
+    except (smtplib.SMTPException, OSError, ValueError) as erro:  # ValueError: cabeçalho inválido (BadHeaderError, obsoleto no Django 6.1)
         falha = type(erro).__name__
     if falha is not None:
         # Fora do `except` e sem `exc_info`, de propósito: o texto da exceção do backend pode citar o endereço da

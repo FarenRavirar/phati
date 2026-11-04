@@ -1,7 +1,7 @@
 """Rotas de identidade da API: entrar, sair, trocar senha, redefinir senha e renovar o acesso do aplicativo (R2 a R6, R15)."""
 
 from django.contrib.auth import logout
-from ninja import Field, Router, Schema
+from ninja import Field, Router, Schema, Status
 
 from identidade import acesso, redefinicao, senha, sessao
 
@@ -50,9 +50,9 @@ def entrar(request, dados: EntradaEntrar):
     # CPF inexistente, senha errada, conta bloqueada e senha temporária vencida: o mesmo 401 (A2).
     entrada = acesso.entrar(request, dados.cpf, dados.senha, dados.dispositivo)
     if entrada is None:
-        return 401, {'detalhe': 'credenciais_invalidas'}
+        return Status(401, {'detalhe': 'credenciais_invalidas'})
     pessoa, segredo = entrada
-    return 200, {'deve_trocar_senha': pessoa.deve_trocar_senha, 'segredo': segredo}
+    return Status(200, {'deve_trocar_senha': pessoa.deve_trocar_senha, 'segredo': segredo})
 
 
 @roteador.post('sair', url_name='sair', response={204: None})
@@ -64,31 +64,31 @@ def sair(request):
     if esquema.lower() == 'bearer' and segredo:
         sessao.revogar_acesso(segredo.strip())
     logout(request)
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('trocar-senha', url_name='trocar_senha', response={204: None})
 def trocar_senha(request, dados: EntradaTrocarSenha):
     # Troca revoga toda sessão e todo acesso da pessoa (R15): depois dela, o cliente entra de novo.
     senha.trocar_senha(request.user, dados.senha_atual, dados.senha_nova)
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('redefinir-senha/solicitar', auth=None, url_name='redefinir_senha_solicitar', response={204: None})
 def solicitar_redefinicao(request, dados: EntradaSolicitarRedefinicao):
     redefinicao.pedir_redefinicao_anonimo(dados.cpf)  # resposta neutra: CPF inexistente e existente são indistinguíveis (R5)
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('redefinir-senha/confirmar', auth=None, url_name='redefinir_senha_confirmar', response={204: None})
 def confirmar_redefinicao(request, dados: EntradaConfirmarRedefinicao):
     redefinicao.confirmar_redefinicao(dados.segredo, dados.senha_nova)
-    return 204, None
+    return Status(204, None)
 
 
 @roteador.post('acesso/renovar', auth=None, url_name='acesso_renovar', response={200: SaidaRenovar, 401: SaidaErro})
 def renovar_acesso(request, dados: EntradaRenovar):
     renovado = sessao.renovar_acesso(dados.segredo)
     if renovado is None:
-        return 401, {'detalhe': 'acesso_invalido'}
-    return 200, {'segredo': renovado[1]}
+        return Status(401, {'detalhe': 'acesso_invalido'})
+    return Status(200, {'segredo': renovado[1]})

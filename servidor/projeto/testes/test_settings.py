@@ -233,7 +233,7 @@ def test_politica_do_mapa_e_a_da_002_mais_blob_so_no_img():
 
 
 def test_nginx_entrega_mjs_como_javascript_sem_perder_os_outros_tipos():
-    # O mime.types do nginx 1.30 não tem `mjs`: sem a regra o MapLibre sai como octet-stream e o módulo é recusado (PR #35).
+    # O mime.types do nginx (1.30 e 1.31.8) não tem `mjs`: sem a regra o MapLibre sai como octet-stream e o módulo é recusado (PR #35).
     # `types` dentro do location substitui o mapa herdado, por isso o bloco inclui o padrão e acrescenta `mjs` ao lado.
     conf = (CAMINHO.parents[1] / 'nginx' / 'default.conf').read_text(encoding='utf-8')
     bloco = re.search(r'location /static/ \{(.*?)\n    \}', conf, re.S)

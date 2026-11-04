@@ -14,7 +14,7 @@ from django.contrib.auth import get_user
 from django.contrib.sessions.backends.db import SessionStore
 from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
-from django.db import connection
+from django.db import connection, connections
 from django.test.utils import CaptureQueriesContext
 from django.test import RequestFactory
 from django.utils import timezone
@@ -41,6 +41,8 @@ def _em_paralelo(*funcoes):
             funcao()
         except Exception as erro:
             erros.append(erro)
+        finally:
+            connections.close_all()  # conexão de thread aberta vira ResourceWarning no coletor
 
     fios = [threading.Thread(target=correr, args=(f,)) for f in funcoes]
     for fio in fios:
@@ -297,7 +299,7 @@ def test_dois_pedidos_simultaneos_deixam_um_link_de_pe(pessoa, mailoutbox):
         try:
             redefinicao.pedir_redefinicao(CPF)
         finally:
-            connection.close()
+            connections.close_all()
 
     _em_paralelo(pedir, pedir)
     assert PedidoRedefinicao.objects.filter(usado_em__isnull=True).count() == 1
@@ -343,7 +345,7 @@ def test_confirmacao_simultanea_a_outra_operacao_da_pessoa_nao_da_deadlock(pesso
             except Exception as erro:
                 resultados.append(f'erro {type(erro).__name__}')
             finally:
-                connection.close()
+                connections.close_all()
 
         def confirmar():
             redefinicao.confirmar_redefinicao(segredo, 'senha-vinda-da-confirmacao')

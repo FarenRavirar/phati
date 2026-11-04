@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 from django.conf import settings
-from django.core.mail import BadHeaderError
 from django.db import transaction
 from django.utils import timezone
 
@@ -125,14 +124,11 @@ def test_servicos_confirmados_enviam_o_email_so_no_commit(pessoa, mailoutbox, dj
     assert len(mailoutbox) == 1
 
 
-def test_endereco_malformado_na_hora_do_envio_vai_para_o_log_e_nao_estoura(pessoa, monkeypatch, caplog):
-    # Achado do Sourcery (PR #14): BadHeaderError no `on_commit` virava erro depois de a operação gravada.
-    def falha(*_):
-        raise BadHeaderError('cabecalho invalido')
-
-    monkeypatch.setattr(email.EmailMessage, 'send', falha)
+def test_endereco_malformado_na_hora_do_envio_vai_para_o_log_e_nao_estoura(pessoa, caplog):
+    # Achado do Sourcery (PR #14): cabeçalho inválido (antes BadHeaderError, hoje ValueError no Django 6.1) no `on_commit` virava erro depois de a operação gravada.
+    pessoa.email = 'a@exemplo.com\nBcc: b@exemplo.com'  #injeção de cabeçalho: o Django recusa com ValueError
     email.enviar_aviso_de_troca(pessoa)
-    assert 'ValueError' in caplog.text  # no Django 6.1 `BadHeaderError` é `ValueError`
+    assert 'ValueError' in caplog.text
 
 
 def test_aviso_de_convite_nao_leva_segredo_nem_link_de_acao(pessoa, mailoutbox):
