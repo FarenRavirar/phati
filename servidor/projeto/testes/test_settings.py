@@ -222,12 +222,12 @@ def test_flag_desligada_em_qualquer_ambiente_sobe(monkeypatch, ambiente):
     assert _com_ambiente(monkeypatch, ambiente, '0')['MAPA_TESTE_ATIVO'] is False
 
 
-def test_politica_do_mapa_e_a_da_002_mais_blob_no_img_e_worker():
+def test_politica_do_mapa_e_a_da_002_mais_blob_so_no_img():
     configuracao = runpy.run_path(str(CAMINHO))
     base, mapa = configuracao['SECURE_CSP'], configuracao['SECURE_CSP_MAPA']
-    assert {k: v for k, v in mapa.items() if k not in ('img-src', 'worker-src')} == {k: v for k, v in base.items() if k != 'img-src'}
+    assert {k: v for k, v in mapa.items() if k != 'img-src'} == {k: v for k, v in base.items() if k != 'img-src'}
     assert mapa['img-src'] == base['img-src'] + ['blob:']
-    assert mapa['worker-src'] == ["'self'", 'blob:']
+    assert 'worker-src' not in mapa  # worker do próprio site: herda de `script-src` (doc 6.16, T2.2)
     assert "'unsafe-inline'" not in [v for valores in mapa.values() for v in valores]
     assert "'unsafe-eval'" not in [v for valores in mapa.values() for v in valores]
 

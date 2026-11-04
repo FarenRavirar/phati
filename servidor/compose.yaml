@@ -24,7 +24,7 @@ x-ambiente-app: &ambiente_app
 
 services:
   banco:
-    image: postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe # PostgreSQL 17.11
+    image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81 # PostgreSQL 18
     environment:
       POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
@@ -33,7 +33,7 @@ services:
       PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
       PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
     volumes:
-      - dados_banco:/var/lib/postgresql/data
+      - dados_banco:/var/lib/postgresql  # PG18+: o PGDATA fica em /var/lib/postgresql/18/docker
       - ./banco/papeis.sql:/papeis.sql:ro
       - ./banco/inicializar-papeis.sh:/docker-entrypoint-initdb.d/inicializar-papeis.sh:ro
     healthcheck:
@@ -65,7 +65,7 @@ services:
       - estaticos:/estaticos
 
   nginx:
-    image: nginx:1.30-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
+    image: nginx:1.31-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

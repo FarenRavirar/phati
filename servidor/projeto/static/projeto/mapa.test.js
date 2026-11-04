@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 
 test('importar o módulo no Node não carrega o MapLibre nem exige DOM', async () => {
   const mapa = await import('./mapa.js');
-  assert.deepEqual(Object.keys(mapa).sort(), ['CENTRO_INICIAL', 'ZOOM_INICIAL', 'criarMapa', 'esconderAviso', 'montarEstilo', 'mostrarErro']);
+  for (const nome of ['CENTRO_INICIAL', 'ZOOM_INICIAL', 'criarMapa', 'esconderAviso', 'montarEstilo', 'mostrarErro', 'moverNaOrdem', 'ordenarConsulta', 'pedirPosicao']) {
+    assert.ok(nome in mapa, nome);
+  }
 });
 
 test('o estilo é o fundo abaixo de tudo, na versão 8 da especificação', async () => {
@@ -63,4 +65,118 @@ test('esconderAviso some com o aviso e mostrarErro o traz de volta; sem aviso ne
   mostrarErro(elemento);
   assert.equal(caixa.hidden, false);
   esconderAviso({ dataset: {}, parentElement: null });
+});
+
+// ---- Fase 2: camadas, ordem, transparência, consulta e posição ------------------------------------------------------
+
+const FICHA = { atributo: 'a', valor: 'v', fonte: 'f', data: 'd', situacao: 's', ressalva: 'r', origem: 'o', metodo: 'm' };
+const feicao = (id, camada_id, extra = {}) => ({ type: 'Feature', id, geometry: { type: 'Polygon', coordinates: [[[1, 2], [3, 2], [3, 4], [1, 2]]] }, properties: { ...FICHA, camada_id, camada: camada_id.toUpperCase(), cor: '--c', ...extra } });
+
+test('validarColecao aceita FeatureCollection e recusa o que foge da forma', async () => {
+  const { validarColecao } = await import('./mapa.js');
+  const boa = { type: 'FeatureCollection', features: [feicao(1, 'a')] };
+  assert.equal(validarColecao(boa), boa);
+  for (const ruim of [null, 'x', {}, { type: 'FeatureCollection' }, { type: 'Feature', features: [] },
+    { type: 'FeatureCollection', features: [{ properties: null }] },
+    { type: 'FeatureCollection', features: [{ properties: { camada_id: 'a', camada: 'A' } }] }]) {
+    assert.throws(() => validarColecao(ruim), /fora da forma|sem camada_id/);
+  }
+});
+
+test('validarColecao confere a geometria e todos os campos que a ficha mostra', async () => {
+  const { validarColecao, CAMPOS_DA_FICHA } = await import('./mapa.js');
+  const com = (mudar) => { const f = feicao(1, 'a'); mudar(f); return { type: 'FeatureCollection', features: [f] }; };
+  assert.throws(() => validarColecao(com((f) => { delete f.geometry; })), /geometria Polygon/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry = { type: 'Point', coordinates: [1, 2] }; })), /geometria Polygon/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = []; })), /geometria Polygon/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = [[[1, 2], [3, 4]]]; })), /geometria Polygon/); // anel curto
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][0] = [999, 2]; })), /geometria Polygon/); // fora de WGS 84
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][1] = ['3', 2]; })), /geometria Polygon/); // texto no lugar de número
+  for (const campo of CAMPOS_DA_FICHA) {
+    assert.throws(() => validarColecao(com((f) => { delete f.properties[campo]; })), new RegExp(`campo ${campo}`));
+    assert.throws(() => validarColecao(com((f) => { f.properties[campo] = 3; })), new RegExp(`campo ${campo}`)); // número no lugar de texto
+  }
+  assert.doesNotThrow(() => validarColecao(com(() => {})));
+});
+
+test('camadasDaColecao lista cada camada uma vez, na ordem em que aparece', async () => {
+  const { camadasDaColecao } = await import('./mapa.js');
+  const lista = camadasDaColecao({ features: [feicao(1, 'b'), feicao(2, 'a'), feicao(3, 'b')] });
+  assert.deepEqual(lista.map((c) => c.id), ['b', 'a']);
+  assert.equal(lista[0].nome, 'B');
+});
+
+test('transparência vira opacidade complementar, presa entre 0 e 1', async () => {
+  const { opacidadeDe } = await import('./mapa.js');
+  assert.equal(opacidadeDe(0), 1);
+  assert.equal(opacidadeDe(40), 0.6);
+  assert.equal(opacidadeDe(100), 0);
+  assert.equal(opacidadeDe(150), 0);
+  assert.equal(opacidadeDe(-10), 1);
+});
+
+test('o desenho vai de baixo para cima e o contorno fica logo acima do preenchimento', async () => {
+  const { ordemDeDesenho } = await import('./mapa.js');
+  assert.deepEqual(ordemDeDesenho(['a', 'b']), ['b-preenchimento', 'b-contorno', 'a-preenchimento', 'a-contorno']);
+  assert.deepEqual(ordemDeDesenho([]), []);
+});
+
+test('mover sobe e desce uma posição, e nas pontas não muda nem altera a lista original', async () => {
+  const { moverNaOrdem } = await import('./mapa.js');
+  const ordem = ['a', 'b', 'c'];
+  assert.deepEqual(moverNaOrdem(ordem, 'c', -1), ['a', 'c', 'b']);
+  assert.deepEqual(moverNaOrdem(ordem, 'a', 1), ['b', 'a', 'c']);
+  assert.deepEqual(moverNaOrdem(ordem, 'a', -1), ['a', 'b', 'c']);
+  assert.deepEqual(moverNaOrdem(ordem, 'c', 1), ['a', 'b', 'c']);
+  assert.deepEqual(moverNaOrdem(ordem, 'x', 1), ['a', 'b', 'c']);
+  assert.deepEqual(ordem, ['a', 'b', 'c']);
+});
+
+test('ligadasNaOrdem mantém a ordem de desenho e some com as desligadas', async () => {
+  const { ligadasNaOrdem } = await import('./mapa.js');
+  assert.deepEqual(ligadasNaOrdem(['a', 'b', 'c'], new Set(['c', 'a'])), ['a', 'c']);
+});
+
+test('a consulta ordena pela ordem de desenho do código, não pela do motor, e tira feição repetida', async () => {
+  const { ordenarConsulta } = await import('./mapa.js');
+  const achadas = [feicao(5, 'c'), feicao(1, 'a'), feicao(3, 'b'), feicao(1, 'a')];
+  assert.deepEqual(ordenarConsulta(achadas, ['a', 'b', 'c']).map((f) => f.id), [1, 3, 5]);
+  assert.deepEqual(ordenarConsulta(achadas, ['c', 'a']).map((f) => f.id), [5, 1]); // b desligada não entra
+});
+
+test('limites cobrem todos os vértices', async () => {
+  const { limitesDaColecao } = await import('./mapa.js');
+  assert.deepEqual(limitesDaColecao({ features: [feicao(1, 'a')] }), [[1, 2], [3, 4]]);
+});
+
+test('o estado da região vem do status: sem alcance é sem permissão, falha é erro, vazio é sem informação', async () => {
+  const { estadoDaResposta } = await import('./mapa.js');
+  assert.equal(estadoDaResposta(404), 'sem_permissao');
+  assert.equal(estadoDaResposta(403), 'sem_permissao');
+  assert.equal(estadoDaResposta(500), 'erro');
+  assert.equal(estadoDaResposta(302), 'erro');
+  assert.equal(estadoDaResposta(200, 0), 'sem_informacao');
+  assert.equal(estadoDaResposta(200, 3), 'pronto');
+});
+
+test('coordenada sai com vírgula e cinco casas', async () => {
+  const { formatarCoordenada } = await import('./mapa.js');
+  assert.equal(formatarCoordenada(0.3), '0,30000');
+});
+
+test('posição: ok centraliza, negada e esgotada mostram a mensagem, e a falta de API desabilita', async () => {
+  const { pedirPosicao, geolocalizacaoDisponivel, mensagemDeErroDePosicao } = await import('./mapa.js');
+  const falsa = (resultado) => ({ getCurrentPosition: (ok, erro) => (resultado.code ? erro(resultado) : ok(resultado)) });
+  let centro;
+  pedirPosicao(falsa({ coords: { longitude: 0.31, latitude: 0.32 } }), (c) => { centro = c; }, () => assert.fail());
+  assert.deepEqual(centro, [0.31, 0.32]);
+  const mensagens = [];
+  for (const code of [1, 2, 3]) pedirPosicao(falsa({ code }), () => assert.fail(), (m) => mensagens.push(m));
+  assert.match(mensagens[0], /negada/);
+  assert.match(mensagens[1], /Não foi possível/);
+  assert.match(mensagens[2], /Tempo esgotado/);
+  assert.equal(mensagemDeErroDePosicao(undefined), mensagens[1]);
+  assert.equal(geolocalizacaoDisponivel({ isSecureContext: true, navigator: { geolocation: {} } }), true);
+  assert.equal(geolocalizacaoDisponivel({ isSecureContext: false, navigator: { geolocation: {} } }), false);
+  assert.equal(geolocalizacaoDisponivel({ isSecureContext: true, navigator: {} }), false);
 });

@@ -1,6 +1,6 @@
 # servidor
 
-Django 6.1 sobre PostgreSQL 17. Python 3.12 ou mais. Versões fixadas em `requirements.lock.txt`.
+Django 6.1 sobre PostgreSQL 18 (compose e CI). Python 3.12 ou mais. Versões fixadas em `requirements.lock.txt`.
 
 ## Primeiro uso do clone
 
@@ -40,6 +40,6 @@ A suíte cria o banco `test_phati` com o papel `dono`; os papéis precisam exist
 
     docker compose up -d --build
 
-Sobe `banco` (`postgres:17`, sem porta publicada), roda `migracao` uma vez e sobe `app` (gunicorn em `127.0.0.1:8000`).
+Sobe `banco` (`postgres:18`, sem porta publicada), roda `migracao` uma vez e sobe `app` (gunicorn em `127.0.0.1:8000`).
 Além das variáveis de `.env.exemplo`, o compose exige `PHATI_BANCO_SUPER_SENHA` (senha do superusuário do contêiner `banco`,
 usada só na criação do volume). `banco/inicializar-papeis.sh` cria `dono`, `app` e o banco na primeira subida.

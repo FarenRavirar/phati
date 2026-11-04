@@ -57,10 +57,15 @@ def test_flag_ligada_a_pagina_carrega_o_mapa_como_modulo_com_o_nonce_da_resposta
 
 
 @override_settings(MAPA_TESTE_ATIVO=True)
-def test_flag_ligada_a_politica_do_mapa_so_acrescenta_blob_e_worker(pagina):
+def test_botao_de_recentralizar_nasce_desabilitado_ate_o_script_ligar_o_clique(pagina):
+    assert re.search(r'<button[^>]*data-recentralizar disabled>', pagina().content.decode())
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_flag_ligada_a_politica_do_mapa_so_acrescenta_blob_no_img(pagina):
     politica = _politica(pagina())
     assert _diretiva(politica, 'img-src') == "img-src 'self' data: blob:"
-    assert _diretiva(politica, 'worker-src') == "worker-src 'self' blob:"
+    assert 'worker-src' not in politica
     for sem in ('unsafe-eval', 'unsafe-inline'):
         assert sem not in politica
     assert "script-src 'self' 'nonce-" in politica
@@ -91,3 +96,54 @@ def test_flag_ligada_deslogado_vai_para_a_entrada(cenario):
     resposta = Client().get(_caminho(cenario.x, cenario.f1))
     assert resposta.status_code == 302
     assert resposta['Location'].startswith('/entrar')
+
+
+# --- Rota das camadas (004 R4; A4) ---------------------------------------------------------------------------------
+
+def _camadas(empresa, fazenda):
+    return f'/empresa/{empresa.pk}/fazenda/{fazenda.pk}/camadas.geojson'
+
+
+@pytest.fixture
+def camadas(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    return lambda: cliente_logado.get(_camadas(cenario.x, cenario.f1))
+
+
+def test_camadas_com_a_flag_desligada_da_404(camadas):
+    assert mapa.mapa_ativo() is False
+    assert camadas().status_code == 404
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_com_alcance_devolvem_feature_collection_em_wgs84(camadas):
+    resposta = camadas()
+    corpo = resposta.json()
+    assert resposta.status_code == 200
+    assert resposta['Content-Type'] == 'application/geo+json'
+    assert corpo['type'] == 'FeatureCollection'
+    assert len(corpo['features']) == 6
+    for feicao in corpo['features']:
+        for lon, lat in feicao['geometry']['coordinates'][0]:
+            assert -180 <= lon <= 180
+            assert -90 <= lat <= 90
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_sem_alcance_dao_o_mesmo_404_de_fazenda_inexistente(cliente_logado, cenario):
+    sem_alcance = cliente_logado.get(_camadas(cenario.x, cenario.f1))
+    inexistente = cliente_logado.get(f'/empresa/{cenario.x.pk}/fazenda/999999/camadas.geojson')
+    assert sem_alcance.status_code == inexistente.status_code == 404
+    assert b'FeatureCollection' not in sem_alcance.content
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_deslogado_vai_para_a_entrada(cenario):
+    resposta = Client().get(_camadas(cenario.x, cenario.f1))
+    assert resposta.status_code == 302
+    assert resposta['Location'].startswith('/entrar')
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_recusam_escrita_com_405(cliente_logado, cenario):
+    assert cliente_logado.post(_camadas(cenario.x, cenario.f1)).status_code == 405
