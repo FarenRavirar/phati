@@ -3,8 +3,12 @@
 Flag desligada: a página da fazenda é a da 003 e a CSP é a da 002. A flag nunca liga fora de `AMBIENTES_DE_TESTE`
 (trava na partida, `settings.py`)."""
 
+import hashlib
+
 from django.conf import settings
 from django.http import Http404, JsonResponse
+from django.utils.cache import get_conditional_response, patch_cache_control
+from django.utils.http import quote_etag
 from django.views.decorators.http import require_GET
 
 from projeto import camadas_sinteticas
@@ -48,7 +52,15 @@ def camadas(requisicao, empresa_id, fazenda_id):
     if not mapa_ativo():
         raise Http404
     resolver_escopo(requisicao.user, empresa_id, fazenda_id)
-    return JsonResponse(camadas_sinteticas.geojson(), content_type='application/geo+json')
+    resposta = JsonResponse(camadas_sinteticas.geojson(), content_type='application/geo+json')
+    # Cache do navegador e do aplicativo (dado próprio, sem cota): `private` veda proxy e CDN compartilhado (o dado é de uma
+    # fazenda) e `no-cache` obriga a revalidar a cada uso, então o acesso é checado no servidor sempre e o `ETag` só poupa o
+    # corpo (304). O 304 sai depois de `resolver_escopo`: quem perdeu o acesso recebe 404, nunca 304. Quando houver versão de
+    # camada na URL, trocar por `max-age` longo com `immutable`.
+    etag = quote_etag(hashlib.sha256(resposta.content).hexdigest())
+    resposta['ETag'] = etag
+    patch_cache_control(resposta, private=True, no_cache=True)
+    return get_conditional_response(requisicao, etag=etag, response=resposta) or resposta
 
 
 # Rota de dados da web: entra na matriz de cobertura (R22), que compara a API e as views marcadas assim.

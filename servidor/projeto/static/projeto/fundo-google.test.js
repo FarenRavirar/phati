@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, lerSessaoGuardada, guardarSessao, CHAVE_ARMAZEM, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -15,6 +15,7 @@ test('criarSessao: POST com o corpo exigido e leitura de session/expiry', async 
   assert.equal(chamadas[0].opcoes.method, 'POST');
   const corpo = JSON.parse(chamadas[0].opcoes.body);
   assert.deepEqual([corpo.mapType, corpo.language, corpo.region], ['satellite', 'pt-BR', 'BR']);
+  assert.deepEqual([corpo.scale, corpo.highDpi], ['scaleFactor2x', true]); // 512 px: menos tiles pela mesma nitidez
 });
 
 test('criarSessao: recusa resposta com erro, sem token ou sem expiry (dado externo)', async () => {
@@ -221,4 +222,63 @@ test('criarSessao: tileWidth inválido é recusado, ausente cai no padrão e a r
 
 test('criarFundo: sessão recusada na criação rejeita (o mapa.js cai para o fundo neutro)', async () => {
   await assert.rejects(criarFundo({ chave: CHAVE, buscar: async () => resposta({}, false, 403), relogio: {} }), /403/);
+});
+
+// Sessão reaproveitada entre visitas (custo dos tiles): o token está na URL, então token novo a cada visita derrota o cache do navegador.
+const armazemFalso = (inicial = {}) => { const m = { ...inicial }; return { m, getItem: (k) => m[k] ?? null, setItem: (k, v) => { m[k] = v; } }; };
+const relogioFalso = { setTimeout: () => 0 };
+
+test('criarFundo: duas visitas com o mesmo armazenamento criam uma sessão só e usam a mesma URL de tile', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  const a = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  const b = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  assert.equal(n, 1);
+  assert.deepEqual(b.fontes[ID_FONTE].tiles, a.fontes[ID_FONTE].tiles);
+  assert.ok(!armazem.m[CHAVE_ARMAZEM].includes(CHAVE), 'a chave do Google não vai para o armazenamento');
+});
+
+test('criarFundo: sessão guardada vencida, perto de vencer ou de outra chave vira sessão nova e é regravada', async () => {
+  const agora = Date.now();
+  const guardada = (extra) => armazemFalso({ [CHAVE_ARMAZEM]: JSON.stringify({ token: 'velho', expira: 2000000000, largura: 256, marca: 0, ...extra }) });
+  for (const [nome, armazem] of [
+    ['vencida', guardada({ expira: Math.floor(agora / 1000) - 10 })],
+    ['dentro da hora de renovar', guardada({ expira: Math.floor(agora / 1000) + 1800 })],
+    ['de outra chave', guardada({})],
+  ]) {
+    let n = 0;
+    const buscar = async () => { n += 1; return resposta({ ...sessaoOk, session: 'novo' }); };
+    const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+    assert.equal(n, 1, nome);
+    assert.ok(fundo.fontes[ID_FONTE].tiles[0].includes('session=novo'), nome);
+    assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'novo', nome);
+  }
+});
+
+test('lerSessaoGuardada: lixo, forma errada e armazenamento que lança viram null (dado externo)', () => {
+  for (const bruto of ['{nao-json', 'null', '"x"', '{}', JSON.stringify({ token: '', expira: 2e9, largura: 256, marca: 0 }),
+    JSON.stringify({ token: 't', expira: 'abc', largura: 256, marca: 0 }), JSON.stringify({ token: 't', expira: 2e9, largura: 0, marca: 0 })]) {
+    assert.equal(lerSessaoGuardada(armazemFalso({ [CHAVE_ARMAZEM]: bruto }), CHAVE, Date.now()), null, bruto);
+  }
+  assert.equal(lerSessaoGuardada({ getItem: () => { throw new Error('bloqueado'); } }, CHAVE, Date.now()), null);
+  assert.equal(lerSessaoGuardada(undefined, CHAVE, Date.now()), null);
+});
+
+test('guardarSessao e criarFundo seguem sem armazenamento (modo privado) ou com setItem que lança', async () => {
+  assert.doesNotThrow(() => guardarSessao({ setItem: () => { throw new Error('cheio'); } }, CHAVE, { token: 't', expira: 2e9, largura: 256 }));
+  const buscar = async (url) => (url.includes('createSession') ? resposta(sessaoOk) : resposta({ copyright: '' }));
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem: undefined });
+  assert.equal(fundo.fontes[ID_FONTE].type, 'raster');
+});
+
+test('criarFundo: a renovação grava a sessão nova no armazenamento', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  const agendados = [];
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) }, armazem });
+  fundo.aoCriarMapa(mapaFalso(), { dados: { textContent: '' } });
+  await agendados[0].f();
+  assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'tok2');
 });

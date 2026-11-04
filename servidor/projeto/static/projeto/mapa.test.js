@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 
 test('importar o módulo no Node não carrega o MapLibre nem exige DOM', async () => {
   const mapa = await import('./mapa.js');
-  for (const nome of ['CENTRO_INICIAL', 'ZOOM_INICIAL', 'criarMapa', 'esconderAviso', 'montarEstilo', 'mostrarErro', 'moverNaOrdem', 'ordenarConsulta', 'pedirPosicao']) {
+  for (const nome of ['CENTRO_INICIAL', 'ZOOM_INICIAL', 'criarMapa', 'esconderAviso', 'montarEstilo', 'mostrarErro', 'moverNaOrdem', 'ordenarConsulta', 'pedirPosicao', 'antesDaPrimeiraCamada']) {
     assert.ok(nome in mapa, nome);
   }
 });
@@ -181,14 +181,12 @@ test('posição: ok centraliza, negada e esgotada mostram a mensagem, e a falta 
   assert.equal(geolocalizacaoDisponivel({ isSecureContext: true, navigator: {} }), false);
 });
 
-test('combinarFundos: o neutro fica embaixo e o online por cima, sem perder fonte nenhuma', async () => {
-  const { combinarFundos } = await import('./mapa.js');
-  const neutro = { fontes: {}, camadas: [{ id: 'n' }] };
-  const online = { fontes: { f: { type: 'raster' } }, camadas: [{ id: 'o' }] };
-  const junto = combinarFundos(neutro, online);
-  assert.deepEqual(junto.camadas.map((c) => c.id), ['n', 'o']);
-  assert.deepEqual(Object.keys(junto.fontes), ['f']);
-  assert.deepEqual(neutro.camadas, [{ id: 'n' }]); // entradas intactas
+test('antesDaPrimeiraCamada: o satélite entra logo abaixo da camada mais baixa do produto, nunca por cima delas', async () => {
+  const { antesDaPrimeiraCamada } = await import('./mapa.js');
+  const estilo = [{ id: 'fundo-neutro' }, { id: 'camada-a-preenchimento' }, { id: 'camada-a-contorno' }];
+  assert.equal(antesDaPrimeiraCamada(estilo), 'camada-a-preenchimento');
+  assert.equal(antesDaPrimeiraCamada([{ id: 'fundo-neutro' }]), undefined); // sem camada do produto: vai para o topo
+  assert.equal(antesDaPrimeiraCamada([]), undefined);
 });
 
 test('aviso do fundo só para tile de fonte do fundo online, não de camada própria nem erro sem tile', async () => {

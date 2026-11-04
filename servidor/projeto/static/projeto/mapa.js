@@ -16,11 +16,8 @@ export function montarEstilo(fundo) {
   return { version: 8, sources: { ...fundo.fontes }, layers: [...fundo.camadas] };
 }
 
-// Fundo neutro embaixo, fundo online (se houver) por cima: o neutro nunca sai, então a falha do online deixa o mapa de pé (R12).
-export const combinarFundos = (base, online) => ({
-  fontes: { ...base.fontes, ...online.fontes },
-  camadas: [...base.camadas, ...online.camadas],
-});
+// Id da camada mais baixa do produto, ou `undefined` sem nenhuma: o fundo online entra logo abaixo dela e nunca cobre as camadas.
+export const antesDaPrimeiraCamada = (camadas) => camadas.find((c) => c.id.startsWith('camada-'))?.id;
 
 export function criarMapa(maplibre, elemento, fundo) {
   return new maplibre.Map({ container: elemento, style: montarEstilo(fundo), center: CENTRO_INICIAL, zoom: ZOOM_INICIAL });
@@ -462,14 +459,41 @@ async function carregarFundoOnline(alvo) {
   }
 }
 
+// O satélite só carrega quando a pessoa o liga: cada tile do Google é cobrado, então quem abre a fazenda para outra coisa não paga.
+// Antes do clique o mapa tem só o fundo neutro (0 sessão, 0 tile). Só liga, não desliga: o que fica registrado no navegador é a
+// sessão, não a escolha, então cada visita pede o clique de novo. Devolve a função que habilita o botão quando o mapa está pronto.
+function prepararSatelite(mapa, alvo, aoLigar) {
+  const botao = document.querySelector('[data-satelite]');
+  if (!botao) return () => {};
+  const atribuicao = alvo.parentElement.querySelector('[data-mapa-atribuicao]');
+  botao.addEventListener('click', async () => {
+    botao.disabled = true;
+    const online = await carregarFundoOnline(alvo);
+    if (!online) {
+      botao.disabled = false; // `carregarFundoOnline` já avisou; a pessoa pode tentar de novo
+      return;
+    }
+    for (const [id, fonte] of Object.entries(online.fontes)) mapa.addSource(id, fonte);
+    const antes = antesDaPrimeiraCamada(mapa.getStyle().layers);
+    for (const camada of online.camadas) mapa.addLayer(camada, antes);
+    atribuicao.hidden = false;
+    online.aoCriarMapa(mapa, { dados: atribuicao.querySelector('[data-atribuicao-dados]') });
+    alvo.parentElement.querySelector('[data-mapa-fundo-aviso]')?.setAttribute('hidden', '');
+    aoLigar(online.fontes);
+    alvo.dataset.satelite = 'sim';
+    botao.textContent = 'Satélite ativado';
+  });
+  return () => { botao.disabled = false; };
+}
+
 async function iniciar() {
   const alvo = document.querySelector('[data-mapa]');
   if (!alvo) return;
   try {
     const maplibre = await import('./terceiros/maplibre/maplibre-gl.mjs');
-    const online = await carregarFundoOnline(alvo);
-    const mapa = criarMapa(maplibre, alvo, online ? combinarFundos(fundoNeutro(), online) : fundoNeutro());
-    online?.aoCriarMapa(mapa, { dados: alvo.parentElement.querySelector('[data-atribuicao-dados]') });
+    const mapa = criarMapa(maplibre, alvo, fundoNeutro());
+    let fontesOnline;
+    const habilitarSatelite = prepararSatelite(mapa, alvo, (fontes) => { fontesOnline = fontes; });
     alvo.mapa = mapa; // os testes de navegador projetam coordenadas e consultam o estilo por aqui
     esconderAviso(alvo);
     ligarRecentralizar(mapa);
@@ -477,9 +501,10 @@ async function iniciar() {
       alvo.dataset.mapaFundo = mapa.getPaintProperty('fundo-neutro', 'background-color');
       await carregarCamadas(mapa, alvo);
       alvo.dataset.mapaPronto = 'sim';
+      habilitarSatelite();
     });
     mapa.on('error', (e) => {
-      if (erroDeTileDoFundo(e, online?.fontes)) {
+      if (erroDeTileDoFundo(e, fontesOnline)) {
         alvo.dataset.fundoOnlineErro = 'sim';
         avisarFundo(alvo, 'Parte do fundo do mapa não carregou. As camadas seguem normais.');
       }

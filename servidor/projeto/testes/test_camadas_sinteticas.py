@@ -71,7 +71,9 @@ def test_todas_as_coordenadas_ficam_a_menos_de_0_1_grau_do_centro_em_terra_longe
             for lon, lat in feicao['geometria'][0]:
                 assert abs(lon - sintetico.LON0) < 0.1
                 assert abs(lat - sintetico.LAT0) < 0.1
-    assert abs(sintetico.LON0) > 10 and abs(sintetico.LAT0) > 5  # nunca volta para o oceano em (0°, 0°)
+    # nunca volta para o oceano em (0°, 0°)
+    assert abs(sintetico.LON0) > 10
+    assert abs(sintetico.LAT0) > 5
 
 
 def test_geojson_e_feature_collection_serializavel_com_ids_unicos_e_texto_pronto():

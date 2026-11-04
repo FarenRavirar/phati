@@ -21,7 +21,10 @@ export async function criarSessao(buscar, chave, prazoMs = PRAZO_SESSAO_MS) {
   const resposta = await buscar(url('/v1/createSession', { key: chave }), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mapType: 'satellite', language: 'pt-BR', region: 'BR', imageFormat: 'jpeg' }),
+    // `scale` 2x com `highDpi` entrega tiles de 512 px sobre a mesma área (doc, createSession): o MapLibre pede um nível a menos
+    // com a mesma nitidez por pixel CSS. Medido em 2026-11-04 com o Google real, mesma vista: 8 → 6 tiles a 1280×720 e 8 → 4
+    // a 320×568, imagem igual à vista. `tileWidth` volta 512 e `zoomDosTiles` já segue a largura.
+    body: JSON.stringify({ mapType: 'satellite', language: 'pt-BR', region: 'BR', imageFormat: 'jpeg', scale: 'scaleFactor2x', highDpi: true }),
     signal: AbortSignal.timeout(prazoMs),
   });
   if (!resposta.ok) throw new Error(`sessão recusada (${resposta.status})`);
@@ -72,10 +75,39 @@ export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, lest
   return typeof dados?.copyright === 'string' ? dados.copyright : '';
 }
 
+// Sessão guardada no navegador (token, validade, largura e uma marca da chave; a chave nunca). O token faz parte da URL do
+// tile: sessão nova a cada visita muda a URL e o cache do navegador, que o Google libera por 24 h (`private, max-age=86400`,
+// ETag; medido em 2026-11-04), nunca acerta e cada visita paga a vista inteira (8 tiles). A doc permite reaproveitar o token
+// até `expiry`, cerca de duas semanas ("You can use the same session token across multiple clients"). Dado lido de volta é
+// desconfiado: forma errada, vencida, de outra chave ou armazenamento que lança (modo privado) vira sessão nova.
+// shortcut: a marca é um hash de 32 bits só para notar troca de chave, não é segurança; trocar por outra coisa se a chave rodar com frequência.
+export const CHAVE_ARMAZEM = 'phati.fundo-google.sessao';
+const marcaDaChave = (chave) => { let h = 0; for (const c of chave) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0; return h; };
+export function lerSessaoGuardada(armazem, chave, agoraMs) {
+  try {
+    const d = JSON.parse(armazem.getItem(CHAVE_ARMAZEM));
+    const forma = typeof d?.token === 'string' && d.token !== '' && Number.isFinite(d.expira) && Number.isFinite(d.largura) && d.largura > 0;
+    return forma && d.marca === marcaDaChave(chave) && msAteRenovar(d, agoraMs) > 0 ? { token: d.token, expira: d.expira, largura: d.largura } : null;
+  } catch {
+    return null;
+  }
+}
+export function guardarSessao(armazem, chave, sessao) {
+  try {
+    armazem.setItem(CHAVE_ARMAZEM, JSON.stringify({ ...sessao, marca: marcaDaChave(chave) }));
+  } catch {
+    // Sem armazenamento (modo privado, cheio): o mapa segue, só perde o reaproveitamento entre visitas.
+  }
+}
+
 // Mesma forma do `fundo-neutro.js` mais `aoCriarMapa`, que liga a atribuição e a renovação. `relogio` e `buscar` entram
 // de fora para o teste não depender de rede nem de tempo real.
-export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(globalThis), relogio = globalThis }) {
-  let sessao = await criarSessao(buscar, chave);
+export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(globalThis), relogio = globalThis, armazem = globalThis.localStorage }) {
+  let sessao = lerSessaoGuardada(armazem, chave, Date.now());
+  if (!sessao) {
+    sessao = await criarSessao(buscar, chave);
+    guardarSessao(armazem, chave, sessao);
+  }
   return {
     fontes: { [ID_FONTE]: { type: 'raster', tiles: [urlDosTiles(sessao, chave)], tileSize: sessao.largura } },
     camadas: [{ id: ID_CAMADA, type: 'raster', source: ID_FONTE }],
@@ -84,6 +116,7 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
       const renovar = async () => {
         try {
           sessao = await criarSessao(buscar, chave);
+          guardarSessao(armazem, chave, sessao);
           mapa.getSource(ID_FONTE)?.setTiles([urlDosTiles(sessao, chave)]);
           falhas = 0;
           agendar();
