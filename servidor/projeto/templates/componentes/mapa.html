@@ -1,10 +1,10 @@
 {% load static %}{% comment %}Mapa de teste de layout (004). Só entra na página com a flag ligada (`mapa_ativo`). O MapLibre vem embutido, sem CDN; `mapa.js` o carrega como módulo, esconde o aviso de falha (que nasce visível) e marca `data-mapa-pronto` quando o mapa abre. Os `<template>` são os modelos de estado e de ficha: o JavaScript só os clona e troca o texto por `textContent`.{% endcomment %}<section class="regiao regiao-mapa" aria-labelledby="regiao-mapa-titulo">
 <h2 class="regiao-titulo" id="regiao-mapa-titulo">Mapa</h2>
-<p class="mapa-ferramentas"><button type="button" class="botao botao-secundario" data-recentralizar disabled>Centralizar na minha posição</button></p>
+<p class="mapa-ferramentas"><button type="button" class="botao botao-secundario" data-recentralizar disabled>Centralizar na minha posição</button>{% if chave_google %} <button type="button" class="botao botao-secundario" data-satelite disabled>Ativar satélite</button>{% endif %}</p>
 <div data-mapa-mensagem hidden>{% include "componentes/aviso.html" with tipo="erro" texto="" %}</div>
 {% if chave_google %}<div data-mapa-fundo-aviso hidden>{% include "componentes/aviso.html" with tipo="aviso" texto="" %}</div>{% endif %}
 <section class="mapa" data-mapa data-camadas-url="{% url 'mapa_camadas' empresa_id=empresa.pk fazenda_id=fazenda.pk %}" data-camadas-tempo-limite="15000"{% if chave_google %} data-fundo-online-chave="{{ chave_google }}" data-fundo-online-modulo="{% static 'projeto/fundo-google.js' %}"{% endif %} aria-label="Mapa de teste de layout"></section>
-{% if chave_google %}<p class="mapa-atribuicao" data-mapa-atribuicao><span data-atribuicao-marca>Google Maps</span> <span data-atribuicao-dados></span></p>{% endif %}
+{% if chave_google %}<p class="mapa-atribuicao" data-mapa-atribuicao hidden><img class="mapa-logo-google" data-atribuicao-logo src="{% static 'projeto/google-maps-logo.svg' %}" alt="Google Maps" width="98" height="18"> <span data-atribuicao-marca>Google Maps</span> <span data-atribuicao-dados></span></p>{% endif %}
 <div data-mapa-aviso>{% include "componentes/aviso.html" with tipo="aviso" texto="Não foi possível abrir o mapa neste navegador." %}</div>
 <template data-modelo="vazio">{% include "componentes/vazio.html" with texto="" %}</template>
 <template data-modelo="sem_informacao">{% include "componentes/vazio.html" with texto="Sem informação." %}</template>

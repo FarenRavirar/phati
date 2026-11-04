@@ -21,7 +21,10 @@ export async function criarSessao(buscar, chave, prazoMs = PRAZO_SESSAO_MS) {
   const resposta = await buscar(url('/v1/createSession', { key: chave }), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mapType: 'satellite', language: 'pt-BR', region: 'BR', imageFormat: 'jpeg' }),
+    // `scale` 2x com `highDpi` entrega tiles de 512 px sobre a mesma área (doc, createSession): o MapLibre pede um nível a menos
+    // com a mesma nitidez por pixel CSS. Medido em 2026-11-04 com o Google real, mesma vista: 8 → 6 tiles a 1280×720 e 8 → 4
+    // a 320×568, imagem igual à vista. `tileWidth` volta 512 e o MapLibre segue a largura; o crédito, não (ver `zoomDoCredito`).
+    body: JSON.stringify({ mapType: 'satellite', language: 'pt-BR', region: 'BR', imageFormat: 'jpeg', scale: 'scaleFactor2x', highDpi: true }),
     signal: AbortSignal.timeout(prazoMs),
   });
   if (!resposta.ok) throw new Error(`sessão recusada (${resposta.status})`);
@@ -63,6 +66,12 @@ export function limitesParaViewport({ norte, sul, leste, oeste }) {
 // para o crédito bater com as imagens à vista (review PR #43, Codex).
 export const zoomDosTiles = (zoom, largura) => Math.min(22, Math.max(0, Math.round(zoom + Math.log2(512 / largura))));
 
+// Zoom em que se consulta o crédito dos dados. Medido em 2026-11-04 com o Google real (mesma caixa, sessões de 256 e de 512 px, resultado
+// idêntico): `copyright` vem vazio até o zoom 12 e traz "Imagens ©2026 Airbus, CNES / Airbus, Landsat / Copernicus, Maxar Technologies"
+// do 13 em diante, sem depender da escala da sessão. Tile de 512 px no nível z mostra a nitidez do 256 px no nível z+1, então o
+// crédito se pede sempre no zoom de 256 px: nunca subestima a origem da imagem à vista (a política manda exibir o que o viewport devolve).
+export const zoomDoCredito = (zoom) => zoomDosTiles(zoom, 256);
+
 // Atribuição de dados vem do `copyright` do viewport (não se escreve à mão). O texto entra por `textContent`.
 export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, leste, oeste, zoom }, prazoMs = PRAZO_SESSAO_MS) {
   const caixa = limitesParaViewport({ norte, sul, leste, oeste });
@@ -72,45 +81,116 @@ export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, lest
   return typeof dados?.copyright === 'string' ? dados.copyright : '';
 }
 
+// Sessão guardada no navegador (token, validade, largura e uma marca da chave; a chave nunca). O token faz parte da URL do
+// tile: sessão nova a cada visita muda a URL e o cache do navegador, que o Google libera por 24 h (`private, max-age=86400`,
+// ETag; medido em 2026-11-04), nunca acerta e cada visita paga a vista inteira (8 tiles). A doc permite reaproveitar o token
+// até `expiry`, cerca de duas semanas ("You can use the same session token across multiple clients"). Dado lido de volta é
+// desconfiado: forma errada, vencida, de outra chave ou armazenamento que lança (modo privado) vira sessão nova.
+// shortcut: a marca é um hash de 32 bits só para notar troca de chave (colisão ~2^-32, não é segurança). Um 401 do Google descarta a
+// sessão guardada e desliga o satélite, mas não o reativa sozinho (a pessoa liga de novo e a sessão nova é criada); qualquer outro
+// erro mantém a sessão guardada até o `expiry`. Trocar o hash se a chave rodar com frequência.
+export const CHAVE_ARMAZEM = 'phati.fundo-google.sessao';
+function marcaDaChave(chave) {
+  let h = 0;
+  for (const c of chave) {
+    h = (Math.imul(h, 31) + c.codePointAt(0)) | 0;
+  }
+  return h;
+}
+// Achado real (review PR #44, Codex e Qodo, média): só ler `localStorage` já lança SecurityError com o armazenamento bloqueado, antes
+// de qualquer try interno; o armazenamento é otimização, então a falha vira "sem armazenamento" e a sessão é criada do mesmo jeito.
+function armazemDoNavegador() {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+export function lerSessaoGuardada(armazem, chave, agoraMs) {
+  try {
+    const d = JSON.parse(armazem.getItem(CHAVE_ARMAZEM));
+    const forma = typeof d?.token === 'string' && d.token !== '' && Number.isFinite(d.expira) && Number.isFinite(d.largura) && d.largura > 0;
+    return forma && d.marca === marcaDaChave(chave) && msAteRenovar(d, agoraMs) > 0 ? { token: d.token, expira: d.expira, largura: d.largura } : null;
+  } catch {
+    return null;
+  }
+}
+export function guardarSessao(armazem, chave, sessao) {
+  try {
+    armazem.setItem(CHAVE_ARMAZEM, JSON.stringify({ ...sessao, marca: marcaDaChave(chave) }));
+  } catch {
+    // Sem armazenamento (modo privado, cheio): o mapa segue, só perde o reaproveitamento entre visitas.
+  }
+}
+
+// Sessão que o Google recusou (401: vencida antes da hora, relógio atrasado, chave trocada): esquece a guardada, para a próxima
+// ativação criar outra em vez de repetir a recusada a cada visita. Medido em 2026-11-04: sessão inválida dá 401 em todo tile.
+// Só apaga se a guardada for a recusada: outra aba pode já ter guardado uma sessão nova e válida (review PR #44, CodeRabbit baixa
+// e Greptile média).
+export function esquecerSessao(armazem, token) {
+  try {
+    if (JSON.parse(armazem.getItem(CHAVE_ARMAZEM))?.token === token) armazem.removeItem(CHAVE_ARMAZEM);
+  } catch {
+    // Sem armazenamento não há o que esquecer.
+  }
+}
+
 // Mesma forma do `fundo-neutro.js` mais `aoCriarMapa`, que liga a atribuição e a renovação. `relogio` e `buscar` entram
 // de fora para o teste não depender de rede nem de tempo real.
-export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(globalThis), relogio = globalThis }) {
-  let sessao = await criarSessao(buscar, chave);
-  return {
+export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(globalThis), relogio = globalThis, armazem = armazemDoNavegador() }) {
+  let sessao = lerSessaoGuardada(armazem, chave, Date.now());
+  if (!sessao) {
+    sessao = await criarSessao(buscar, chave);
+    guardarSessao(armazem, chave, sessao);
+  }
+  const fundo = {
+    descartarSessao: () => esquecerSessao(armazem, sessao.token), // `sessao` muda na renovação: vale a de agora
     fontes: { [ID_FONTE]: { type: 'raster', tiles: [urlDosTiles(sessao, chave)], tileSize: sessao.largura } },
     camadas: [{ id: ID_CAMADA, type: 'raster', source: ID_FONTE }],
     aoCriarMapa(mapa, { dados }) {
       let falhas = 0;
+      let parado = false;
+      let renovacao; // temporizador da renovação da sessão
       const renovar = async () => {
+        if (parado) return;
         try {
-          sessao = await criarSessao(buscar, chave);
+          const nova = await criarSessao(buscar, chave);
+          // Saiu do mapa durante o pedido: a resposta é de uma ativação encerrada e não mexe em sessão, armazenamento, fonte nem
+          // agenda (a fonte `ID_FONTE` é recriada na ativação seguinte). Achado real (review PR #44, Codex e Greptile, média).
+          if (parado) return;
+          sessao = nova;
+          guardarSessao(armazem, chave, sessao);
           mapa.getSource(ID_FONTE)?.setTiles([urlDosTiles(sessao, chave)]);
           falhas = 0;
           agendar();
         } catch {
+          if (parado) return;
           // Sessão não renovada: o prazo da velha já passou, então a espera cresce em vez de repetir sem pausa. Passado o
           // limite, para; os tiles seguem até o Google recusar e o mapa mostra o erro de tile (R12).
           falhas += 1;
-          if (falhas < TENTATIVAS_MAXIMAS) relogio.setTimeout(renovar, esperaAposFalha(falhas));
+          if (falhas < TENTATIVAS_MAXIMAS) renovacao = relogio.setTimeout(renovar, esperaAposFalha(falhas));
         }
       };
-      const agendar = () => relogio.setTimeout(renovar, msAteRenovar(sessao, Date.now()));
+      const agendar = () => { renovacao = relogio.setTimeout(renovar, msAteRenovar(sessao, Date.now())); };
       agendar();
       let ultima = 0;
       let falhasDeCredito = 0;
       let repeticao; // temporizador da repetição pendente: uma só, nunca empilhadas (review PR #43, Greptile)
       const atualizar = async () => {
+        if (parado) return;
         relogio.clearTimeout?.(repeticao);
         repeticao = undefined;
         const minha = ++ultima;
         const limites = mapa.getBounds();
         try {
           const texto = await buscarAtribuicao(buscar, chave, sessao, {
-            norte: limites.getNorth(), sul: limites.getSouth(), leste: limites.getEast(), oeste: limites.getWest(), zoom: zoomDosTiles(mapa.getZoom(), sessao.largura),
+            norte: limites.getNorth(), sul: limites.getSouth(), leste: limites.getEast(), oeste: limites.getWest(), zoom: zoomDoCredito(mapa.getZoom()),
           });
+          if (parado) return; // mesma regra da renovação: o crédito de uma ativação encerrada não sobrescreve o da nova
           if (minha === ultima) dados.textContent = texto;
           falhasDeCredito = 0;
         } catch {
+          if (parado) return;
           // Falha não apaga o crédito das imagens que seguem à vista. Com o mapa parado nenhum `moveend` viria, então tenta de
           // novo com espera crescente e para no limite (mesma regra da renovação da sessão).
           falhasDeCredito += 1;
@@ -119,6 +199,14 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
       };
       mapa.on('moveend', atualizar);
       void atualizar();
+      // O fundo saiu do mapa (troca para o neutro): sem renovar sessão, sem consultar crédito, sem repetir pedido.
+      fundo.parar = () => {
+        parado = true;
+        relogio.clearTimeout?.(renovacao);
+        relogio.clearTimeout?.(repeticao);
+        mapa.off('moveend', atualizar);
+      };
     },
   };
+  return fundo;
 }

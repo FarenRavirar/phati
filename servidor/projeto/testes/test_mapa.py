@@ -128,7 +128,9 @@ def test_flag_do_google_entrega_chave_modulo_e_atribuicao_na_pagina(pagina):
     html = pagina().content.decode()
     assert 'data-fundo-online-chave="chave-sintetica-de-teste"' in html
     assert re.search(r'data-fundo-online-modulo="/static/projeto/fundo-google\.js"', html)
-    assert re.search(r'<p class="mapa-atribuicao" data-mapa-atribuicao>.*Google Maps', html, re.S)
+    assert re.search(r'<p class="mapa-atribuicao" data-mapa-atribuicao hidden>.*Google Maps', html, re.S)  # só aparece depois de ligar o satélite
+    assert re.search(r'<img[^>]*data-atribuicao-logo[^>]*src="/static/projeto/google-maps-logo[^"]*\.svg"[^>]*alt="Google Maps"', html)  # logo oficial, com rótulo de acessibilidade
+    assert re.search(r'<button[^>]*data-satelite disabled[^>]*>Ativar satélite</button>', html)  # nasce desabilitado: habilita com o mapa pronto
     assert re.search(r'<div data-mapa-fundo-aviso hidden>', html)  # aviso próprio: o da posição do aparelho o apagaria
 
 
@@ -146,6 +148,13 @@ def test_flag_do_google_acrescenta_so_a_origem_dos_tiles_a_politica_do_mapa(pagi
 def test_flag_do_google_manda_so_a_origem_como_referenciador_e_o_resto_segue_same_origin(pagina, cliente_logado):
     assert pagina()['Referrer-Policy'] == 'strict-origin-when-cross-origin'
     assert cliente_logado.get('/empresas/')['Referrer-Policy'] == 'same-origin'
+
+
+def test_sem_a_flag_do_google_a_pagina_nao_traz_botao_nem_atribuicao_do_satelite(pagina):
+    with override_settings(MAPA_TESTE_ATIVO=True):
+        html = pagina().content.decode()
+    assert 'data-satelite' not in html
+    assert 'data-mapa-atribuicao' not in html
 
 
 def test_sem_a_flag_do_google_o_referenciador_segue_same_origin(pagina):
@@ -216,3 +225,57 @@ def test_camadas_deslogado_vai_para_a_entrada(cenario):
 @override_settings(MAPA_TESTE_ATIVO=True)
 def test_camadas_recusam_escrita_com_405(cliente_logado, cenario):
     assert cliente_logado.post(_camadas(cenario.x, cenario.f1)).status_code == 405
+
+
+# --- Cache do navegador e do aplicativo na rota das camadas (dado próprio) -------------------------------------------
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_levam_etag_e_cache_so_privado_com_revalidacao(camadas):
+    resposta = camadas()
+    diretivas = {d.strip() for d in resposta['Cache-Control'].split(',')}
+    assert {'private', 'no-cache'} <= diretivas
+    assert 'public' not in diretivas
+    assert 'no-store' not in diretivas, resposta['Cache-Control']  # achado Greptile: `never_cache` do exige_entrada sobrescrevia
+    assert resposta['ETag'].startswith('"')
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_com_etag_vigente_dao_304_sem_corpo_e_com_etag_velho_dao_200(cliente_logado, camadas, cenario):
+    etag = camadas()['ETag']
+    igual = cliente_logado.get(_camadas(cenario.x, cenario.f1), headers={'If-None-Match': etag})
+    assert igual.status_code == 304
+    assert igual.content == b''
+    assert igual['ETag'] == etag
+    assert 'private' in igual['Cache-Control']
+    velho = cliente_logado.get(_camadas(cenario.x, cenario.f1), headers={'If-None-Match': '"velho"'})
+    assert velho.status_code == 200
+    assert velho.json()['type'] == 'FeatureCollection'
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_etag_vigente_nao_abre_304_sem_alcance_nem_deslogado_nem_com_flag_desligada(cliente_logado, camadas, cenario):
+    etag = camadas()['ETag']
+    cabecalho = {'If-None-Match': etag}
+    # Fazenda que existe (de outra empresa) e a conta não alcança: o ETag vigente não abre 304 (achado Sourcery, média).
+    sem_alcance = cliente_logado.get(_camadas(cenario.y, cenario.fy), headers=cabecalho)
+    assert sem_alcance.status_code == 404
+    assert b'FeatureCollection' not in sem_alcance.content
+    assert Client().get(_camadas(cenario.x, cenario.f1), headers=cabecalho).status_code == 302
+    with override_settings(MAPA_TESTE_ATIVO=False):
+        assert cliente_logado.get(_camadas(cenario.x, cenario.f1), headers=cabecalho).status_code == 404
+
+
+def test_as_outras_paginas_e_o_redirecionamento_seguem_sem_cache(cliente_logado):
+    assert 'no-store' in cliente_logado.get('/')['Cache-Control']
+    assert 'no-store' in Client().get('/')['Cache-Control']  # deslogado: redirecionamento ao login, também sem cache
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_com_if_unmodified_since_valido_e_sem_last_modified_dao_200_e_nao_412(cliente_logado, cenario, camadas):
+    # A rota não tem data de modificação: a condição não se avalia (achado CodeRabbit, menor). If-Match que não bate segue 412.
+    cabecalho = {'If-Unmodified-Since': 'Wed, 21 Oct 2015 07:28:00 GMT'}
+    resposta = cliente_logado.get(_camadas(cenario.x, cenario.f1), headers=cabecalho)
+    assert resposta.status_code == 200
+    assert resposta.json()['type'] == 'FeatureCollection'
+    com_if_match = cliente_logado.get(_camadas(cenario.x, cenario.f1), headers={'If-Match': '"outro"'})
+    assert com_if_match.status_code == 412

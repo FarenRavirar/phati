@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, zoomDoCredito, lerSessaoGuardada, guardarSessao, esquecerSessao, CHAVE_ARMAZEM, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -15,6 +15,7 @@ test('criarSessao: POST com o corpo exigido e leitura de session/expiry', async 
   assert.equal(chamadas[0].opcoes.method, 'POST');
   const corpo = JSON.parse(chamadas[0].opcoes.body);
   assert.deepEqual([corpo.mapType, corpo.language, corpo.region], ['satellite', 'pt-BR', 'BR']);
+  assert.deepEqual([corpo.scale, corpo.highDpi], ['scaleFactor2x', true]); // 512 px: menos tiles pela mesma nitidez
 });
 
 test('criarSessao: recusa resposta com erro, sem token ou sem expiry (dado externo)', async () => {
@@ -117,6 +118,25 @@ test('zoomDosTiles: segue o nível que o MapLibre pede (256 px soma 1), preso a 
   assert.equal(zoomDosTiles(-3, 256), 0);
 });
 
+test('zoomDoCredito: sempre o zoom de 256 px, também com sessão de 512 px (o crédito vem vazio até o zoom 12)', () => {
+  assert.equal(zoomDoCredito(11.93), 13); // a 512 px o tile é z12, mas o crédito de z12 vem vazio: pede-se z13
+  assert.equal(zoomDoCredito(12), 13);
+  assert.equal(zoomDoCredito(22), 22);
+});
+
+test('criarFundo com tiles de 512 px: o viewport é consultado no zoom do crédito, não no zoom do tile', async () => {
+  const pedidos = [];
+  const buscar = async (url) => {
+    if (url.includes('createSession')) return resposta({ ...sessaoOk, tileWidth: 512, tileHeight: 512 });
+    pedidos.push(new URL(url).searchParams.get('zoom'));
+    return resposta({ copyright: 'x' });
+  };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: () => 1 }, armazem: undefined });
+  fundo.aoCriarMapa(mapaFalso(), { dados: { textContent: '' } }); // getZoom() = 12
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(pedidos, ['13']); // o tile seria z12, que tem crédito vazio
+});
+
 test('criarFundo: o viewport é consultado no zoom dos tiles, não no zoom da vista', async () => {
   const pedidos = [];
   const buscar = async (url) => {
@@ -139,6 +159,7 @@ function mapaFalso() {
     getBounds: () => ({ getNorth: () => 1, getSouth: () => -1, getEast: () => 2, getWest: () => -2 }),
     getZoom: () => 12,
     on: (evento, f) => { ouvintes[evento] = f; },
+    off: (evento, f) => { if (ouvintes[evento] === f) delete ouvintes[evento]; },
   };
 }
 
@@ -221,4 +242,157 @@ test('criarSessao: tileWidth inválido é recusado, ausente cai no padrão e a r
 
 test('criarFundo: sessão recusada na criação rejeita (o mapa.js cai para o fundo neutro)', async () => {
   await assert.rejects(criarFundo({ chave: CHAVE, buscar: async () => resposta({}, false, 403), relogio: {} }), /403/);
+});
+
+// Sessão reaproveitada entre visitas (custo dos tiles): o token está na URL, então token novo a cada visita derrota o cache do navegador.
+const armazemFalso = (inicial = {}) => { const m = { ...inicial }; return { m, getItem: (k) => m[k] ?? null, setItem: (k, v) => { m[k] = v; } }; };
+const relogioFalso = { setTimeout: () => 0 };
+
+test('criarFundo: duas visitas com o mesmo armazenamento criam uma sessão só e usam a mesma URL de tile', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  const a = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  const b = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  assert.equal(n, 1);
+  assert.deepEqual(b.fontes[ID_FONTE].tiles, a.fontes[ID_FONTE].tiles);
+  assert.ok(!armazem.m[CHAVE_ARMAZEM].includes(CHAVE), 'a chave do Google não vai para o armazenamento');
+});
+
+test('criarFundo: sessão guardada vencida, perto de vencer ou de outra chave vira sessão nova e é regravada', async () => {
+  const agora = Date.now();
+  const guardada = (extra) => armazemFalso({ [CHAVE_ARMAZEM]: JSON.stringify({ token: 'velho', expira: 2000000000, largura: 256, marca: 0, ...extra }) });
+  for (const [nome, armazem] of [
+    ['vencida', guardada({ expira: Math.floor(agora / 1000) - 10 })],
+    ['dentro da hora de renovar', guardada({ expira: Math.floor(agora / 1000) + 1800 })],
+    ['de outra chave', guardada({})],
+  ]) {
+    let n = 0;
+    const buscar = async () => { n += 1; return resposta({ ...sessaoOk, session: 'novo' }); };
+    const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+    assert.equal(n, 1, nome);
+    assert.ok(fundo.fontes[ID_FONTE].tiles[0].includes('session=novo'), nome);
+    assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'novo', nome);
+  }
+});
+
+test('lerSessaoGuardada: lixo, forma errada e armazenamento que lança viram null (dado externo)', () => {
+  for (const bruto of ['{nao-json', 'null', '"x"', '{}', JSON.stringify({ token: '', expira: 2e9, largura: 256, marca: 0 }),
+    JSON.stringify({ token: 't', expira: 'abc', largura: 256, marca: 0 }), JSON.stringify({ token: 't', expira: 2e9, largura: 0, marca: 0 })]) {
+    assert.equal(lerSessaoGuardada(armazemFalso({ [CHAVE_ARMAZEM]: bruto }), CHAVE, Date.now()), null, bruto);
+  }
+  assert.equal(lerSessaoGuardada({ getItem: () => { throw new Error('bloqueado'); } }, CHAVE, Date.now()), null);
+  assert.equal(lerSessaoGuardada(undefined, CHAVE, Date.now()), null);
+});
+
+test('guardarSessao e criarFundo seguem sem armazenamento (modo privado) ou com setItem que lança', async () => {
+  assert.doesNotThrow(() => guardarSessao({ setItem: () => { throw new Error('cheio'); } }, CHAVE, { token: 't', expira: 2e9, largura: 256 }));
+  const buscar = async (url) => (url.includes('createSession') ? resposta(sessaoOk) : resposta({ copyright: '' }));
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem: undefined });
+  assert.equal(fundo.fontes[ID_FONTE].type, 'raster');
+});
+
+test('criarFundo: a renovação grava a sessão nova no armazenamento', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  const agendados = [];
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: { setTimeout: (f, ms) => agendados.push({ f, ms }) }, armazem });
+  fundo.aoCriarMapa(mapaFalso(), { dados: { textContent: '' } });
+  await agendados[0].f();
+  assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'tok2');
+});
+
+test('criarFundo: localStorage cujo acesso lança (armazenamento bloqueado) não derruba o satélite', async () => {
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('SecurityError'); } });
+  try {
+    const buscar = async (url) => (url.includes('createSession') ? resposta(sessaoOk) : resposta({ copyright: '' }));
+    const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso });
+    assert.equal(fundo.fontes[ID_FONTE].type, 'raster');
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
+test('descartarSessao: esquece a sessão guardada e a ativação seguinte cria outra; sem armazenamento não lança', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  armazem.removeItem = (k) => { delete armazem.m[k]; };
+  const primeira = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  assert.ok(armazem.m[CHAVE_ARMAZEM]);
+  primeira.descartarSessao();
+  assert.equal(armazem.m[CHAVE_ARMAZEM], undefined);
+  const segunda = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  assert.equal(n, 2);
+  assert.ok(segunda.fontes[ID_FONTE].tiles[0].includes('session=tok2'));
+  assert.doesNotThrow(() => esquecerSessao(undefined, 'x'));
+  assert.doesNotThrow(() => esquecerSessao({ getItem: () => null, removeItem: () => { throw new Error('bloqueado'); } }, 'x'));
+});
+
+test('descartarSessao: não apaga a sessão nova que outra aba guardou depois', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  armazem.removeItem = (k) => { delete armazem.m[k]; };
+  const abaAntiga = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  guardarSessao(armazem, CHAVE, { token: 'outra', expira: 2000000000, largura: 256 }); // a outra aba grava a sua
+  abaAntiga.descartarSessao(); // o 401 chegou na aba antiga
+  assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'outra');
+});
+
+test('parar: o fundo que saiu do mapa não renova sessão, não consulta crédito e solta o ouvinte de movimento', async () => {
+  let sessoes = 0;
+  let viewports = 0;
+  const buscar = async (url) => {
+    if (url.includes('createSession')) { sessoes += 1; return resposta({ ...sessaoOk, session: `tok${sessoes}` }); }
+    viewports += 1;
+    return resposta({ copyright: '' });
+  };
+  const agendados = [];
+  const limpos = [];
+  const relogio = { setTimeout: (f, ms) => { agendados.push({ f, ms }); return agendados.length; }, clearTimeout: (id) => limpos.push(id) };
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio, armazem: armazemFalso() });
+  const mapa = mapaFalso();
+  fundo.aoCriarMapa(mapa, { dados: { textContent: '' } });
+  await new Promise((r) => setImmediate(r));
+  const movimento = mapa.ouvintes.moveend;
+  assert.equal(typeof movimento, 'function');
+  const antes = { sessoes, viewports };
+  fundo.parar();
+  assert.equal(mapa.ouvintes.moveend, undefined, 'o ouvinte de moveend continuou ligado');
+  assert.ok(limpos.length >= 1, 'o temporizador de renovação não foi cancelado');
+  await agendados[0].f(); // mesmo que o temporizador dispare, não renova
+  await movimento();      // mesmo que o ouvinte dispare, não consulta
+  assert.deepEqual({ sessoes, viewports }, antes);
+});
+
+test('parar: resposta que chega depois de parar não troca a fonte, o armazenamento nem o crédito da ativação seguinte', async () => {
+  const adiados = [];
+  const adiar = () => new Promise((resolver) => adiados.push(resolver));
+  let n = 0;
+  const buscar = (url) => {
+    if (url.includes('createSession')) {
+      n += 1;
+      return n === 1 ? Promise.resolve(resposta({ ...sessaoOk, session: 'tok1' })) : adiar().then(() => resposta({ ...sessaoOk, session: 'velha' }));
+    }
+    return adiar().then(() => resposta({ copyright: 'crédito velho' }));
+  };
+  const agendados = [];
+  const relogio = { setTimeout: (f, ms) => agendados.push({ f, ms }), clearTimeout: () => {} };
+  const armazem = armazemFalso();
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio, armazem });
+  const mapa = mapaFalso();
+  const dados = { textContent: 'crédito novo' };
+  fundo.aoCriarMapa(mapa, { dados }); // dispara a consulta de crédito, que fica pendente
+  const guardadaAntes = armazem.m[CHAVE_ARMAZEM];
+  const renovacao = agendados[0].f(); // dispara a renovação, que também fica pendente
+  fundo.parar(); // o satélite desliga com os dois pedidos em andamento
+  adiados.forEach((resolver) => resolver()); // as respostas chegam depois
+  await renovacao;
+  await new Promise((r) => setImmediate(r));
+  assert.equal(dados.textContent, 'crédito novo', 'o crédito antigo sobrescreveu o novo');
+  assert.equal(mapa.fonte.tiles, null, 'a renovação antiga trocou os tiles da fonte');
+  assert.equal(armazem.m[CHAVE_ARMAZEM], guardadaAntes, 'a renovação antiga regravou a sessão');
+  assert.equal(agendados.length, 1, 'a renovação antiga reagendou');
 });
