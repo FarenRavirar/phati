@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       banco:
-        image: postgres:17@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
+        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
         env:
           POSTGRES_PASSWORD: ${{ github.run_id }}-superusuario
         ports: ["5432:5432"]

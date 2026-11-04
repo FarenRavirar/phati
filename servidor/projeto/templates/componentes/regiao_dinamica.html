@@ -1,0 +1,7 @@
+{% comment %}Parâmetros: id (camadas, consulta, ficha), titulo, texto (estado vazio inicial). Região da 003 preenchida pelo `mapa.js` (004 R14): nasce no estado vazio, que o JavaScript troca por carregando, erro, sem permissão, sem informação ou pelo conteúdo. Sem JavaScript, o vazio fica à vista, nunca região em branco.{% endcomment %}<section class="regiao regiao-{{ id }}" aria-labelledby="regiao-{{ id }}-titulo">
+<h2 class="regiao-titulo" id="regiao-{{ id }}-titulo">{{ titulo }}</h2>
+<details class="regiao-recolhivel" open><summary>Mostrar ou ocultar {{ titulo|lower }}</summary>
+<div data-estado-de="{{ id }}" aria-live="polite">{% include "componentes/vazio.html" with texto=texto %}</div>
+<div data-conteudo-de="{{ id }}"></div>
+</details>
+</section>

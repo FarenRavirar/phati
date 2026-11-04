@@ -5,13 +5,14 @@ const { dados, entrar, semRolagemHorizontal, acessivel, abrirMenu } = require('.
 
 const url = (empresa, fazenda) => `/empresa/${empresa}/fazenda/${fazenda}/`;
 
-test('mostra nome, empresa, árvore de três níveis e "Sem camadas ainda."', async ({ page }) => {
+test('mostra nome, empresa, árvore de três níveis e a região de camadas', async ({ page }) => {
   await entrar(page, dados.administradora_a.cpf);
   await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
   await expect(page.getByRole('heading', { name: 'Fazenda Inventada A1', level: 1 })).toBeVisible();
   await expect(page.getByText('Empresa Inventada A').first()).toBeVisible();
   for (const nome of ['Talhao 1', 'Gleba 1', 'Lote 1']) await expect(page.getByText(nome)).toBeVisible();
-  await expect(page.getByText('Sem camadas ainda.')).toBeVisible();
+  // Com a flag do mapa ligada (job `navegador`) as camadas chegam e o "Sem camadas ainda." some; sem a flag ele fica (test_mapa.py).
+  await expect(page.getByRole('heading', { name: 'Camadas', level: 2 })).toBeVisible();
   await abrirMenu(page);
   await expect(page.getByRole('link', { name: 'Fazendas', exact: true })).toHaveAttribute('aria-current', 'true');
   await semRolagemHorizontal(page);
@@ -21,6 +22,9 @@ test('mostra nome, empresa, árvore de três níveis e "Sem camadas ainda."', as
 test('regiões do mapa não se sobrepõem e os painéis recolhem (R22)', async ({ page }) => {
   await entrar(page, dados.administradora_a.cpf);
   await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
+  // As camadas chegam depois da página e o painel cresce: medir as caixas antes disso dá layout de transição (intermitente na suíte inteira).
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-pronto', 'sim');
+  await expect(page.locator('.regiao-camadas [data-camada]').first()).toBeVisible();
   const nomes = ['mapa', 'camadas', 'consulta', 'ficha'];
   const caixas = [];
   for (const nome of nomes) {
@@ -37,10 +41,11 @@ test('regiões do mapa não se sobrepõem e os painéis recolhem (R22)', async (
     }
   }
   const camadas = page.locator('.regiao-camadas');
+  const conteudo = camadas.locator('[data-camada]').first();
   await camadas.getByText('Mostrar ou ocultar camadas').click();
-  await expect(camadas.getByText('Sem camadas ainda.')).toBeHidden();
+  await expect(conteudo).toBeHidden();
   await camadas.getByText('Mostrar ou ocultar camadas').click();
-  await expect(camadas.getByText('Sem camadas ainda.')).toBeVisible();
+  await expect(conteudo).toBeVisible();
   await semRolagemHorizontal(page);
   await acessivel(page);
 });

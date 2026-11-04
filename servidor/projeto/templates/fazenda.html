@@ -13,9 +13,13 @@
 {% endfor %}</ul>{% endif %}
 <div class="regioes">
 {% if mapa_ativo %}{% include "componentes/mapa.html" %}{% else %}{% include "componentes/regiao.html" with id="mapa" titulo="Mapa" estado="vazio" texto="O mapa aparece quando a fazenda tiver camadas." %}{% endif %}
-{% include "componentes/regiao.html" with id="camadas" titulo="Camadas" estado="vazio" texto="Sem camadas ainda." recolhivel=True %}
+{% if mapa_ativo %}{% include "componentes/regiao_dinamica.html" with id="camadas" titulo="Camadas" texto="Sem camadas ainda." %}
+{% include "componentes/regiao_dinamica.html" with id="consulta" titulo="Consulta" texto="Escolha um ponto no mapa para consultar." %}
+{% include "componentes/regiao_dinamica.html" with id="ficha" titulo="Ficha técnica" texto="A ficha, as fontes e as ressalvas aparecem aqui." %}
+{% else %}{% include "componentes/regiao.html" with id="camadas" titulo="Camadas" estado="vazio" texto="Sem camadas ainda." recolhivel=True %}
 {% include "componentes/regiao.html" with id="consulta" titulo="Consulta" estado="vazio" texto="Escolha um ponto no mapa para consultar." recolhivel=True %}
 {% include "componentes/regiao.html" with id="ficha" titulo="Ficha técnica" estado="vazio" texto="A ficha, as fontes e as ressalvas aparecem aqui." recolhivel=True %}
+{% endif %}
 </div>
 {% endblock %}
 {% block scripts %}{% if mapa_ativo %}<link rel="stylesheet" href="{% static 'projeto/terceiros/maplibre/maplibre-gl.css' %}" {% csp_nonce_attr %}>
