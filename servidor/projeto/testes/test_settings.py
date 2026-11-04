@@ -232,6 +232,62 @@ def test_politica_do_mapa_e_a_da_002_mais_blob_so_no_img():
     assert "'unsafe-eval'" not in [v for valores in mapa.values() for v in valores]
 
 
+def _com_google(monkeypatch, ambiente, mapa, google, chave):
+    for nome, valor in (('PHATI_AMBIENTE', ambiente), ('PHATI_MAPA_TESTE_ATIVO', mapa), ('PHATI_MAPA_FUNDO_GOOGLE_ATIVO', google), ('PHATI_MAPA_GOOGLE_CHAVE', chave)):
+        if valor is None:
+            monkeypatch.delenv(nome, raising=False)
+        else:
+            monkeypatch.setenv(nome, valor)
+    return runpy.run_path(str(CAMINHO))
+
+
+def test_google_desligado_e_o_padrao_e_nao_expoe_chave_sobrando(monkeypatch):
+    configuracao = _com_google(monkeypatch, None, None, None, None)
+    assert configuracao['MAPA_FUNDO_GOOGLE_ATIVO'] is False
+    assert configuracao['MAPA_GOOGLE_CHAVE'] == ''
+
+
+@pytest.mark.parametrize('flag', [None, '', '0', '2', 'true', ' 1'])
+def test_so_o_valor_1_liga_o_google(monkeypatch, flag):
+    assert _com_google(monkeypatch, 'teste', '1', flag, 'k')['MAPA_FUNDO_GOOGLE_ATIVO'] is False
+
+
+@pytest.mark.parametrize('ambiente', ['local', 'homologacao', 'teste'])
+def test_google_ligado_com_mapa_e_chave_nos_ambientes_de_teste_sobe(monkeypatch, ambiente):
+    configuracao = _com_google(monkeypatch, ambiente, '1', '1', 'k')
+    assert configuracao['MAPA_FUNDO_GOOGLE_ATIVO'] is True
+    assert configuracao['MAPA_GOOGLE_CHAVE'] == 'k'
+
+
+@pytest.mark.parametrize('chave', [None, '', '   ', '\t\n'])
+def test_google_ligado_sem_chave_derruba_o_servidor(monkeypatch, chave):
+    with pytest.raises(ImproperlyConfigured, match='PHATI_MAPA_GOOGLE_CHAVE'):
+        _com_google(monkeypatch, 'teste', '1', '1', chave)
+
+
+@pytest.mark.parametrize('mapa', [None, '0'])
+def test_google_ligado_sem_o_mapa_de_teste_derruba_o_servidor(monkeypatch, mapa):
+    with pytest.raises(ImproperlyConfigured, match='PHATI_MAPA_TESTE_ATIVO'):
+        _com_google(monkeypatch, 'teste', mapa, '1', 'k')
+
+
+@pytest.mark.parametrize('ambiente', [None, 'producao', 'qualquer'])
+def test_google_ligado_fora_dos_ambientes_de_teste_derruba_o_servidor(monkeypatch, ambiente):
+    # Cai na trava do mapa de teste, que vem antes: o Google nunca chega a ligar em produção.
+    with pytest.raises(ImproperlyConfigured):
+        _com_google(monkeypatch, ambiente, '1', '1', 'k')
+
+
+def test_politica_do_google_so_acrescenta_a_origem_dos_tiles_em_connect_e_img():
+    configuracao = runpy.run_path(str(CAMINHO))
+    mapa, google = configuracao['SECURE_CSP_MAPA'], configuracao['SECURE_CSP_MAPA_GOOGLE']
+    origem = 'https://tile.googleapis.com'
+    assert {k: v for k, v in google.items() if k not in ('connect-src', 'img-src')} == {k: v for k, v in mapa.items() if k != 'img-src'}
+    assert google['connect-src'] == ["'self'", origem]
+    assert google['img-src'] == mapa['img-src'] + [origem]
+    assert all('unsafe-' not in v and v != '*' for valores in google.values() for v in valores)
+
+
 def test_nginx_entrega_mjs_como_javascript_sem_perder_os_outros_tipos():
     # O mime.types do nginx (1.30 e 1.31.8) não tem `mjs`: sem a regra o MapLibre sai como octet-stream e o módulo é recusado (PR #35).
     # `types` dentro do location substitui o mapa herdado, por isso o bloco inclui o padrão e acrescenta `mjs` ao lado.

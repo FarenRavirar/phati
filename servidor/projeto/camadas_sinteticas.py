@@ -1,7 +1,8 @@
 """Camadas sintéticas do mapa de teste (004 R4, R5): dado inventado, gerado em código, no registro do contrato da 003.
 
-Fica a menos de 1 grau de (0°, 0°), deslocado para fora do equador e do meridiano 0 (fronteira de tile do MapLibre em
-todo zoom), então nenhuma fazenda real cabe aqui. Cada camada traz retângulos; o ponto P1 cai em três camadas (vigente,
+Fica em área rural de Porto Nacional (TO), em terra, onde o fundo de satélite do Google tem imagem em zoom 13 ou mais
+(em (0°, 0°) é oceano e o Google responde 404). Os retângulos são pequenos (cerca de 3 km) e o centro não é nenhuma fazenda
+cadastrada. Cada camada traz retângulos; o ponto P1 cai em três camadas (vigente,
 vigente e em análise) e P2, P3 e P4 caem em uma feição só (substituída, arquivada, sem valor).
 
 shortcut: dado gerado em código, sem modelo nem migração; trocar pelo backend de camadas quando existir (spec de camadas).
@@ -12,21 +13,22 @@ from decimal import Decimal
 
 from projeto.ficha import montar_ficha
 
-DESLOCAMENTO = 0.3  # graus; mantém tudo longe do equador e do meridiano 0
+LON0, LAT0 = -48.30, -10.75  # centro do dado de teste; a câmera inicial do mapa usa o mesmo ponto (mapa.js)
 FONTE = 'Levantamento sintético'
 RESSALVA = 'Dado sintético de teste de layout.'
 DATA = date(2026, 1, 15)
 
-# Pontos de teste (lon, lat), já deslocados: P1 em três camadas; P2, P3 e P4 em uma feição só.
-P1 = (DESLOCAMENTO, DESLOCAMENTO)
-P2 = (DESLOCAMENTO - 0.027, DESLOCAMENTO + 0.008)
-P3 = (DESLOCAMENTO + 0.027, DESLOCAMENTO + 0.008)
-P4 = (DESLOCAMENTO, DESLOCAMENTO - 0.027)
+# Pontos de teste (lon, lat): P1 em três camadas; P2, P3 e P4 em uma feição só.
+P1 = (LON0, LAT0)
+P2 = (LON0 - 0.027, LAT0 + 0.008)
+P3 = (LON0 + 0.027, LAT0 + 0.008)
+P4 = (LON0, LAT0 - 0.027)
 
 
 def _retangulo(oeste, sul, leste, norte):
-    """Caixa em graus relativos ao deslocamento; anel fechado, sentido anti-horário (RFC 7946)."""
-    o, s, l, n = (DESLOCAMENTO + v for v in (oeste, sul, leste, norte))
+    """Caixa em graus relativos ao centro; anel fechado, sentido anti-horário (RFC 7946)."""
+    o, l = (LON0 + v for v in (oeste, leste))
+    s, n = (LAT0 + v for v in (sul, norte))
     return [[[o, s], [l, s], [l, n], [o, n], [o, s]]]
 
 

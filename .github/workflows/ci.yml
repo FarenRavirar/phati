@@ -180,6 +180,26 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: ./node_modules/.bin/playwright install --with-deps chromium
       - run: ./node_modules/.bin/playwright test
+      # Fundo Google (spec 004 Fase 3): recria só o app com a flag e uma chave sintética; o dublê de rede atende o domínio dos
+      # tiles, então nenhuma requisição chega ao Google. A rodada comum acima segue sem a flag.
+      - name: Fundo Google com dublê de rede
+        working-directory: servidor
+        env:
+          PHATI_MAPA_FUNDO_GOOGLE_ATIVO: "1"
+          PHATI_MAPA_GOOGLE_CHAVE: chave-sintetica-ci
+        run: |
+          docker compose up -d app
+          docker compose restart nginx
+          for _ in $(seq 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          for _ in $(seq 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
+            sleep 2
+          done
+          cd .. && PHATI_PROVA_GOOGLE=1 ./node_modules/.bin/playwright test
       - if: failure()
         working-directory: servidor
         run: docker compose logs

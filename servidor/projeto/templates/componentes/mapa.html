@@ -2,7 +2,9 @@
 <h2 class="regiao-titulo" id="regiao-mapa-titulo">Mapa</h2>
 <p class="mapa-ferramentas"><button type="button" class="botao botao-secundario" data-recentralizar disabled>Centralizar na minha posição</button></p>
 <div data-mapa-mensagem hidden>{% include "componentes/aviso.html" with tipo="erro" texto="" %}</div>
-<section class="mapa" data-mapa data-camadas-url="{% url 'mapa_camadas' empresa_id=empresa.pk fazenda_id=fazenda.pk %}" data-camadas-tempo-limite="15000" aria-label="Mapa de teste de layout"></section>
+{% if chave_google %}<div data-mapa-fundo-aviso hidden>{% include "componentes/aviso.html" with tipo="aviso" texto="" %}</div>{% endif %}
+<section class="mapa" data-mapa data-camadas-url="{% url 'mapa_camadas' empresa_id=empresa.pk fazenda_id=fazenda.pk %}" data-camadas-tempo-limite="15000"{% if chave_google %} data-fundo-online-chave="{{ chave_google }}" data-fundo-online-modulo="{% static 'projeto/fundo-google.js' %}"{% endif %} aria-label="Mapa de teste de layout"></section>
+{% if chave_google %}<p class="mapa-atribuicao" data-mapa-atribuicao><span data-atribuicao-marca>Google Maps</span> <span data-atribuicao-dados></span></p>{% endif %}
 <div data-mapa-aviso>{% include "componentes/aviso.html" with tipo="aviso" texto="Não foi possível abrir o mapa neste navegador." %}</div>
 <template data-modelo="vazio">{% include "componentes/vazio.html" with texto="" %}</template>
 <template data-modelo="sem_informacao">{% include "componentes/vazio.html" with texto="Sem informação." %}</template>

@@ -30,7 +30,7 @@ test('fundo fora da forma é erro, não mapa em branco', async () => {
   }
 });
 
-test('criarMapa entrega ao motor o elemento, o estilo e o centro perto de (0°, 0°)', async () => {
+test('criarMapa entrega ao motor o elemento, o estilo e o centro em Porto Nacional (TO)', async () => {
   const { criarMapa, CENTRO_INICIAL, ZOOM_INICIAL } = await import('./mapa.js');
   const { fundo } = await import('./fundo-neutro.js');
   let recebido;
@@ -41,7 +41,7 @@ test('criarMapa entrega ao motor o elemento, o estilo e o centro perto de (0°, 
   assert.equal(recebido.style.version, 8);
   assert.deepEqual(recebido.center, CENTRO_INICIAL);
   assert.equal(recebido.zoom, ZOOM_INICIAL);
-  assert.ok(Math.abs(CENTRO_INICIAL[0]) < 1 && Math.abs(CENTRO_INICIAL[1]) < 1);
+  assert.deepEqual(CENTRO_INICIAL, [-48.30, -10.75]);
 });
 
 test('mostrarErro marca o mapa e revela o aviso da região; sem aviso, só marca', async () => {
@@ -179,4 +179,38 @@ test('posição: ok centraliza, negada e esgotada mostram a mensagem, e a falta 
   assert.equal(geolocalizacaoDisponivel({ isSecureContext: true, navigator: { geolocation: {} } }), true);
   assert.equal(geolocalizacaoDisponivel({ isSecureContext: false, navigator: { geolocation: {} } }), false);
   assert.equal(geolocalizacaoDisponivel({ isSecureContext: true, navigator: {} }), false);
+});
+
+test('combinarFundos: o neutro fica embaixo e o online por cima, sem perder fonte nenhuma', async () => {
+  const { combinarFundos } = await import('./mapa.js');
+  const neutro = { fontes: {}, camadas: [{ id: 'n' }] };
+  const online = { fontes: { f: { type: 'raster' } }, camadas: [{ id: 'o' }] };
+  const junto = combinarFundos(neutro, online);
+  assert.deepEqual(junto.camadas.map((c) => c.id), ['n', 'o']);
+  assert.deepEqual(Object.keys(junto.fontes), ['f']);
+  assert.deepEqual(neutro.camadas, [{ id: 'n' }]); // entradas intactas
+});
+
+test('aviso do fundo só para tile de fonte do fundo online, não de camada própria nem erro sem tile', async () => {
+  const { erroDeTileDoFundo } = await import('./mapa.js');
+  const fontes = { 'fundo-online': {} };
+  assert.equal(erroDeTileDoFundo({ tile: {}, sourceId: 'fundo-online' }, fontes), true);
+  assert.equal(erroDeTileDoFundo({ tile: {}, sourceId: 'camada-a' }, fontes), false);
+  assert.equal(erroDeTileDoFundo({ sourceId: 'fundo-online' }, fontes), false);
+  assert.equal(erroDeTileDoFundo({ tile: {}, sourceId: 'fundo-online' }, undefined), false);
+  assert.equal(erroDeTileDoFundo(undefined, fontes), false);
+});
+
+test('comPrazo: devolve o valor a tempo e rejeita quando a promessa trava', async () => {
+  const { comPrazo } = await import('./mapa.js');
+  assert.equal(await comPrazo(Promise.resolve('ok'), 1000), 'ok');
+  await assert.rejects(comPrazo(new Promise(() => {}), 20), /prazo do fundo/);
+  await assert.rejects(comPrazo(Promise.reject(new Error('falhou')), 1000), /falhou/); // erro da própria promessa passa
+});
+
+test('erro de tile não é fatal; erro do motor sem tile é', async () => {
+  const { erroDoMapaEhFatal } = await import('./mapa.js');
+  assert.equal(erroDoMapaEhFatal({ tile: {}, sourceId: 'fundo-online' }), false);
+  assert.equal(erroDoMapaEhFatal({ error: new Error('x') }), true);
+  assert.equal(erroDoMapaEhFatal(undefined), true);
 });

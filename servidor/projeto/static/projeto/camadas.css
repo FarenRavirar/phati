@@ -28,3 +28,5 @@
 .legenda-item { display: flex; align-items: center; gap: var(--espaco-2); }
 .legenda-amostra { flex: none; width: 1rem; height: 1rem; border: 1px solid var(--cor-borda); }
 
+/* Atribuição do fundo online (004 R19): abaixo do mapa, em fluxo normal, para nenhum controle ou camada cobri-la. */
+.mapa-atribuicao { margin: var(--espaco-2) 0 0; font-size: 0.875rem; color: var(--cor-texto-suave); }

@@ -11,12 +11,15 @@ O git não versiona essa configuração, então o hook só vale depois deste com
 
 Subir o PostgreSQL 18 num contêiner (porta 5433, mesma imagem do compose). O volume vai em `/var/lib/postgresql`,
 não em `/var/lib/postgresql/data`: o PG18 grava o cluster em `/var/lib/postgresql/18/docker` e recusa o layout antigo,
-então um volume criado pelo PG17 não sobe na imagem 18 (dump/restore ou `pg_upgrade`). Quem sobe, desliga ao terminar.
+então um volume criado pelo PG17 não sobe na imagem 18 (dump/restore ou `pg_upgrade`).
+
+Primeira vez (cria o contêiner e o volume):
 
     docker run -d --name phati-pg18-local -e POSTGRES_PASSWORD=<superusuario> -p 127.0.0.1:5433:5432 -v phati-pg18-local:/var/lib/postgresql postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
-    docker stop phati-pg18-local
 
-Depois, uma vez como superusuário, criar papéis e banco e migrar:
+Nas sessões seguintes o nome já existe: `docker start phati-pg18-local`. Quem sobe, desliga ao terminar: `docker stop phati-pg18-local`.
+
+Com o contêiner no ar, uma vez como superusuário, criar papéis e banco e migrar:
 
     PHATI_BANCO_NOME=phati PHATI_BANCO_DONO_USUARIO=dono PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_USUARIO=app PHATI_BANCO_APP_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
 

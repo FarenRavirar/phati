@@ -88,6 +88,19 @@ if MAPA_TESTE_ATIVO and AMBIENTE not in AMBIENTES_DE_TESTE:
 # Só a resposta da página do mapa usa esta política (R3): a doc do MapLibre 6.16 pede `img-src data: blob: 'self'`. `blob:` em
 # `worker-src` só vale para o motor vindo de CDN; o nosso worker é arquivo do próprio site (T2.2: 0 violação sem ele).
 SECURE_CSP_MAPA = {**SECURE_CSP, 'img-src': [CSP.SELF, 'data:', 'blob:']}
+# Fundo Google (004 R17, R18, R21): flag e chave próprias. Só liga com o mapa de teste ligado e em ambiente de teste, e sem
+# chave não sobe (erro na partida, nunca fundo vazio calado). A chave é lida do ambiente e nunca vai a log nem a repositório.
+MAPA_FUNDO_GOOGLE_ATIVO = os.environ.get('PHATI_MAPA_FUNDO_GOOGLE_ATIVO') == '1'
+MAPA_GOOGLE_CHAVE = os.environ.get('PHATI_MAPA_GOOGLE_CHAVE', '').strip()  # só espaços = ausente
+if MAPA_FUNDO_GOOGLE_ATIVO:
+    if not MAPA_TESTE_ATIVO:
+        raise ImproperlyConfigured('PHATI_MAPA_FUNDO_GOOGLE_ATIVO=1 exige PHATI_MAPA_TESTE_ATIVO=1.')
+    if not MAPA_GOOGLE_CHAVE:
+        raise ImproperlyConfigured('PHATI_MAPA_FUNDO_GOOGLE_ATIVO=1 exige PHATI_MAPA_GOOGLE_CHAVE.')
+# Só a resposta do mapa com a flag do Google usa esta política: a Map Tiles API serve sessão, viewport e tiles em
+# `tile.googleapis.com`. O MapLibre busca o tile por fetch (`connect-src`) e o desenha como blob (`img-src blob:`, já na do mapa).
+GOOGLE_TILES = 'https://tile.googleapis.com'
+SECURE_CSP_MAPA_GOOGLE = {**SECURE_CSP_MAPA, 'connect-src': [CSP.SELF, GOOGLE_TILES], 'img-src': [*SECURE_CSP_MAPA['img-src'], GOOGLE_TILES]}
 # As páginas de erro e de falha de CSRF recebem a requisição (o padrão do Django não a passa), para levar o nonce.
 CSRF_FAILURE_VIEW = 'projeto.paginas.falha_csrf'
 
