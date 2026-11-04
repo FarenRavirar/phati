@@ -11,6 +11,20 @@
 /* Mapa de teste de layout (004): o MapLibre ocupa a região; o contêiner precisa de altura própria para abrir. */
 /* A região vira coluna e o mapa ocupa o que sobra abaixo do título; `height: 100%` não resolve com o pai só com `min-height`. */
 .regiao-mapa { position: relative; display: flex; flex-direction: column; } /* seletor simples: test_componentes limita a especificidade de regra com `display` */
-.mapa { flex: 1 1 auto; width: 100%; min-height: 14rem; }
+.mapa { flex: 1 1 auto; width: 100%; min-height: 20rem; }
 /* O aviso de falha nasce visível e some quando o mapa abre; sobreposto ao mapa (a região é `position: relative`), não desloca o layout ao sumir. */
 [data-mapa-aviso] { position: absolute; right: var(--espaco-4); bottom: var(--espaco-4); left: var(--espaco-4); }
+
+/* Camadas, legenda e consulta (004 R7 a R12): seletores simples nas regras com `display` (test_componentes). */
+.mapa-ferramentas { margin: 0 0 var(--espaco-3); }
+.lista-camadas, .legenda, .lista-consulta { margin: 0; padding: 0; list-style: none; }
+.camada { display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-2); padding: var(--espaco-2) 0; border-bottom: 1px solid var(--cor-borda); }
+.camada-nome { flex: 1 1 100%; }
+.camada input[type="range"] { flex: 1 1 100%; min-width: 0; }
+.botao-camada, .consulta-botao { min-width: 44px; min-height: 44px; }
+.consulta-botao { width: 100%; text-align: left; }
+.consulta-item { margin-bottom: var(--espaco-2); }
+.legenda-titulo { margin: var(--espaco-3) 0 var(--espaco-2); font-size: var(--fonte-base); }
+.legenda-item { display: flex; align-items: center; gap: var(--espaco-2); }
+.legenda-amostra { flex: none; width: 1rem; height: 1rem; border: 1px solid var(--cor-borda); }
+

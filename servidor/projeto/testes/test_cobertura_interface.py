@@ -12,7 +12,8 @@ import json
 from pathlib import Path
 
 import pytest
-from django.urls import URLPattern
+from django.http import JsonResponse
+from django.urls import URLPattern, URLResolver, get_resolver
 
 from permissao.models import Permissao
 from projeto.api import api
@@ -30,6 +31,15 @@ def _matriz():
 
 def _rotas_da_api():
     return {padrao.name for padrao in api.urls[0] if isinstance(padrao, URLPattern) and padrao.name and padrao.name != 'api-root'}
+
+
+def _rotas_de_dados_da_web():
+    """Views da web que servem dado (GeoJSON), marcadas com `dados_da_web`: página HTML tem tela por definição e a varredura de views a cobre."""
+    return {p.name for p in get_resolver().url_patterns if isinstance(p, URLPattern) and p.name and getattr(p.callback, 'dados_da_web', False)}
+
+
+def _rotas_cobertas():
+    return _rotas_da_api() | _rotas_de_dados_da_web()
 
 
 def _importa(caminho):
@@ -59,8 +69,8 @@ def _funcoes_publicas(modulos):
 
 
 def _problemas_das_rotas(rotas):
-    problemas = [f'rota sem linha: {nome}' for nome in sorted(_rotas_da_api() - set(rotas))]
-    problemas += [f'linha sem rota: {nome}' for nome in sorted(set(rotas) - _rotas_da_api())]
+    problemas = [f'rota sem linha: {nome}' for nome in sorted(_rotas_cobertas() - set(rotas))]
+    problemas += [f'linha sem rota: {nome}' for nome in sorted(set(rotas) - _rotas_cobertas())]
     return problemas + [f'rota sem texto: {nome}' for nome, texto in rotas.items() if not texto.strip()]
 
 
@@ -125,3 +135,44 @@ def test_acao_sem_linha_ou_linha_sem_acao_ou_sem_texto_e_detectada():
     assert _problemas_das_acoes(sem_linha) == ['ação do catálogo sem linha: ver']
     assert _problemas_das_acoes({**acoes, 'acao_que_nao_existe': 'x'}) == ['linha sem ação no catálogo: acao_que_nao_existe']
     assert _problemas_das_acoes({**acoes, 'ver': ''}) == ['ação sem texto: ver']
+
+
+def test_rota_de_dados_da_web_marcada_exige_linha_na_matriz():
+    assert _rotas_de_dados_da_web() == {'mapa_camadas'}
+    rotas = _matriz()['rotas']
+    sem_linha = {nome: texto for nome, texto in rotas.items() if nome != 'mapa_camadas'}
+    assert _problemas_das_rotas(sem_linha) == ['rota sem linha: mapa_camadas']
+
+
+def _entregam_dado_sem_marca(padroes, prefixo=''):
+    """Views de `projeto.urls` (fora da API e do painel) cujo código devolve `JsonResponse` ou tipo `application/`, mas
+    sem `dados_da_web`: sem a marca a rota escaparia da matriz. Leitura estática do código da view, sem chamá-la."""
+    achadas = []
+    for padrao in padroes:
+        caminho = prefixo + str(padrao.pattern)
+        if isinstance(padrao, URLResolver):
+            if not caminho.startswith(('api/', 'painel/')):
+                achadas += _entregam_dado_sem_marca(padrao.url_patterns, caminho)
+        elif not getattr(padrao.callback, 'dados_da_web', False):
+            codigo = inspect.getsource(inspect.unwrap(padrao.callback))
+            if 'JsonResponse' in codigo or "'application/" in codigo:
+                achadas.append(padrao.name)
+    return achadas
+
+
+def test_toda_view_que_entrega_dado_na_web_leva_a_marca():
+    assert _entregam_dado_sem_marca(get_resolver().url_patterns) == []
+
+
+def test_view_que_entrega_dado_sem_a_marca_e_detectada():
+    from django.urls import path
+
+    def esquecida(requisicao):
+        return JsonResponse({})
+
+    def marcada(requisicao):
+        return JsonResponse({})
+
+    setattr(marcada, 'dados_da_web', True)
+    padroes = [path('a', esquecida, name='esquecida'), path('b', marcada, name='marcada')]
+    assert _entregam_dado_sem_marca(padroes) == ['esquecida']

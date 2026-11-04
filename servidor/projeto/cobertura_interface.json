@@ -26,7 +26,8 @@
     "sub_areas_criar": "Criar sub-área — 003 R9 e R10 (tela /empresa/<id>/fazenda/<id>/sub-area/nova)",
     "territorio_renomear": "Renomear empresa, fazenda e sub-área — 003 R9 (telas `*_editar`)",
     "territorio_arquivar": "Arquivar empresa, fazenda e sub-área — 003 R11 (telas `*_arquivar`)",
-    "territorio_desarquivar": "Desarquivar empresa, fazenda e sub-área — 003 R11 (telas `*_desarquivar` e seção Arquivadas)"
+    "territorio_desarquivar": "Desarquivar empresa, fazenda e sub-área — 003 R11 (telas `*_desarquivar` e seção Arquivadas)",
+    "mapa_camadas": "Painel de camadas, legenda e consulta do mapa de teste (004 R4, R12); dado sintético em GeoJSON, só com a flag ligada."
   },
   "funcoes": {
     "permissao.uso.registrar_uso": "Contador dos atalhos do Início — 003 R26 (sem tela própria: roda depois de convidar, criar ou editar cargo e criar fazenda)",

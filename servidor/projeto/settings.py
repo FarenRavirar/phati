@@ -85,8 +85,9 @@ AMBIENTES_DE_TESTE = ('local', 'homologacao', 'teste')
 MAPA_TESTE_ATIVO = os.environ.get('PHATI_MAPA_TESTE_ATIVO') == '1'
 if MAPA_TESTE_ATIVO and AMBIENTE not in AMBIENTES_DE_TESTE:
     raise ImproperlyConfigured(f'PHATI_MAPA_TESTE_ATIVO=1 só vale com PHATI_AMBIENTE em {", ".join(AMBIENTES_DE_TESTE)}.')
-# Só a resposta da página do mapa usa esta política (R3): o MapLibre cria imagens e worker por `blob:` (doc do MapLibre).
-SECURE_CSP_MAPA = {**SECURE_CSP, 'img-src': [CSP.SELF, 'data:', 'blob:'], 'worker-src': [CSP.SELF, 'blob:']}
+# Só a resposta da página do mapa usa esta política (R3): a doc do MapLibre 6.16 pede `img-src data: blob: 'self'`. `blob:` em
+# `worker-src` só vale para o motor vindo de CDN; o nosso worker é arquivo do próprio site (T2.2: 0 violação sem ele).
+SECURE_CSP_MAPA = {**SECURE_CSP, 'img-src': [CSP.SELF, 'data:', 'blob:']}
 # As páginas de erro e de falha de CSRF recebem a requisição (o padrão do Django não a passa), para levar o nonce.
 CSRF_FAILURE_VIEW = 'projeto.paginas.falha_csrf'
 
