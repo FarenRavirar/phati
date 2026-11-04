@@ -268,3 +268,14 @@ def test_camadas_etag_vigente_nao_abre_304_sem_alcance_nem_deslogado_nem_com_fla
 def test_as_outras_paginas_e_o_redirecionamento_seguem_sem_cache(cliente_logado):
     assert 'no-store' in cliente_logado.get('/')['Cache-Control']
     assert 'no-store' in Client().get('/')['Cache-Control']  # deslogado: redirecionamento ao login, também sem cache
+
+
+@override_settings(MAPA_TESTE_ATIVO=True)
+def test_camadas_com_if_unmodified_since_valido_e_sem_last_modified_dao_200_e_nao_412(cliente_logado, cenario, camadas):
+    # A rota não tem data de modificação: a condição não se avalia (achado CodeRabbit, menor). If-Match que não bate segue 412.
+    cabecalho = {'If-Unmodified-Since': 'Wed, 21 Oct 2015 07:28:00 GMT'}
+    resposta = cliente_logado.get(_camadas(cenario.x, cenario.f1), headers=cabecalho)
+    assert resposta.status_code == 200
+    assert resposta.json()['type'] == 'FeatureCollection'
+    com_if_match = cliente_logado.get(_camadas(cenario.x, cenario.f1), headers={'If-Match': '"outro"'})
+    assert com_if_match.status_code == 412

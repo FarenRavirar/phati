@@ -366,3 +366,33 @@ test('parar: o fundo que saiu do mapa não renova sessão, não consulta crédit
   await movimento();      // mesmo que o ouvinte dispare, não consulta
   assert.deepEqual({ sessoes, viewports }, antes);
 });
+
+test('parar: resposta que chega depois de parar não troca a fonte, o armazenamento nem o crédito da ativação seguinte', async () => {
+  const adiados = [];
+  const adiar = () => new Promise((resolver) => adiados.push(resolver));
+  let n = 0;
+  const buscar = (url) => {
+    if (url.includes('createSession')) {
+      n += 1;
+      return n === 1 ? Promise.resolve(resposta({ ...sessaoOk, session: 'tok1' })) : adiar().then(() => resposta({ ...sessaoOk, session: 'velha' }));
+    }
+    return adiar().then(() => resposta({ copyright: 'crédito velho' }));
+  };
+  const agendados = [];
+  const relogio = { setTimeout: (f, ms) => agendados.push({ f, ms }), clearTimeout: () => {} };
+  const armazem = armazemFalso();
+  const fundo = await criarFundo({ chave: CHAVE, buscar, relogio, armazem });
+  const mapa = mapaFalso();
+  const dados = { textContent: 'crédito novo' };
+  fundo.aoCriarMapa(mapa, { dados }); // dispara a consulta de crédito, que fica pendente
+  const guardadaAntes = armazem.m[CHAVE_ARMAZEM];
+  const renovacao = agendados[0].f(); // dispara a renovação, que também fica pendente
+  fundo.parar(); // o satélite desliga com os dois pedidos em andamento
+  adiados.forEach((resolver) => resolver()); // as respostas chegam depois
+  await renovacao;
+  await new Promise((r) => setImmediate(r));
+  assert.equal(dados.textContent, 'crédito novo', 'o crédito antigo sobrescreveu o novo');
+  assert.equal(mapa.fonte.tiles, null, 'a renovação antiga trocou os tiles da fonte');
+  assert.equal(armazem.m[CHAVE_ARMAZEM], guardadaAntes, 'a renovação antiga regravou a sessão');
+  assert.equal(agendados.length, 1, 'a renovação antiga reagendou');
+});

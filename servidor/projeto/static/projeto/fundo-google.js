@@ -86,8 +86,9 @@ export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, lest
 // ETag; medido em 2026-11-04), nunca acerta e cada visita paga a vista inteira (8 tiles). A doc permite reaproveitar o token
 // até `expiry`, cerca de duas semanas ("You can use the same session token across multiple clients"). Dado lido de volta é
 // desconfiado: forma errada, vencida, de outra chave ou armazenamento que lança (modo privado) vira sessão nova.
-// shortcut: a marca é um hash de 32 bits só para notar troca de chave (colisão ~2^-32, não é segurança), e uma sessão que o Google
-// invalide antes do `expiry` fica guardada até vencer, sem recuperação automática; trocar se a chave rodar com frequência.
+// shortcut: a marca é um hash de 32 bits só para notar troca de chave (colisão ~2^-32, não é segurança). Um 401 do Google descarta a
+// sessão guardada e desliga o satélite, mas não o reativa sozinho (a pessoa liga de novo e a sessão nova é criada); qualquer outro
+// erro mantém a sessão guardada até o `expiry`. Trocar o hash se a chave rodar com frequência.
 export const CHAVE_ARMAZEM = 'phati.fundo-google.sessao';
 function marcaDaChave(chave) {
   let h = 0;
@@ -153,12 +154,17 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
       const renovar = async () => {
         if (parado) return;
         try {
-          sessao = await criarSessao(buscar, chave);
+          const nova = await criarSessao(buscar, chave);
+          // Saiu do mapa durante o pedido: a resposta é de uma ativação encerrada e não mexe em sessão, armazenamento, fonte nem
+          // agenda (a fonte `ID_FONTE` é recriada na ativação seguinte). Achado real (review PR #44, Codex e Greptile, média).
+          if (parado) return;
+          sessao = nova;
           guardarSessao(armazem, chave, sessao);
           mapa.getSource(ID_FONTE)?.setTiles([urlDosTiles(sessao, chave)]);
           falhas = 0;
           agendar();
         } catch {
+          if (parado) return;
           // Sessão não renovada: o prazo da velha já passou, então a espera cresce em vez de repetir sem pausa. Passado o
           // limite, para; os tiles seguem até o Google recusar e o mapa mostra o erro de tile (R12).
           falhas += 1;
@@ -180,9 +186,11 @@ export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(global
           const texto = await buscarAtribuicao(buscar, chave, sessao, {
             norte: limites.getNorth(), sul: limites.getSouth(), leste: limites.getEast(), oeste: limites.getWest(), zoom: zoomDoCredito(mapa.getZoom()),
           });
+          if (parado) return; // mesma regra da renovação: o crédito de uma ativação encerrada não sobrescreve o da nova
           if (minha === ultima) dados.textContent = texto;
           falhasDeCredito = 0;
         } catch {
+          if (parado) return;
           // Falha não apaga o crédito das imagens que seguem à vista. Com o mapa parado nenhum `moveend` viria, então tenta de
           // novo com espera crescente e para no limite (mesma regra da renovação da sessão).
           falhasDeCredito += 1;

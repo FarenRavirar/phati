@@ -17,6 +17,7 @@ from projeto.paginas_autenticadas import cache_proprio, exige_acao, exige_entrad
 
 
 def mapa_ativo():
+    """Mapa de teste de layout ligado (`PHATI_MAPA_TESTE_ATIVO`); a trava de ambiente já barrou a flag fora dos ambientes de teste."""
     return settings.MAPA_TESTE_ATIVO
 
 
@@ -61,7 +62,12 @@ def camadas(requisicao, empresa_id, fazenda_id):
     etag = quote_etag(hashlib.sha256(resposta.content).hexdigest())
     resposta['ETag'] = etag
     patch_cache_control(resposta, private=True, no_cache=True)
-    return get_conditional_response(requisicao, etag=etag, response=resposta) or resposta
+    condicional = get_conditional_response(requisicao, etag=etag, response=resposta)
+    # Sem `Last-Modified`, o Django trata um `If-Unmodified-Since` válido como falha (412); a rota não tem data de modificação, então
+    # essa condição é ignorada. `If-Match` que não bate segue 412. Achado real (review PR #44, CodeRabbit, menor).
+    if condicional is not None and condicional.status_code == 412 and 'HTTP_IF_MATCH' not in requisicao.META:
+        condicional = None
+    return condicional or resposta
 
 
 # Rota de dados da web: entra na matriz de cobertura (R22), que compara a API e as views marcadas assim.
