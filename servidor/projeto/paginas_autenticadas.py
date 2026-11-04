@@ -7,8 +7,8 @@ from urllib.parse import urlencode
 
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
+from django.utils.cache import add_never_cache_headers
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods
 
 from identidade import sessao
@@ -58,20 +58,33 @@ def exige_acao(acao):
     return declarar
 
 
+def cache_proprio(visao):
+    """Marca a view que define o próprio `Cache-Control` (hoje, só a rota das camadas, com `ETag` privado): `exige_entrada`
+    não põe `no-store` por cima da resposta dela. Achado real (review PR #44, Greptile, média): sem a marca o `never_cache`
+    sobrescrevia o cabeçalho e o navegador nunca guardava o corpo. Fica na view mais interna: `wraps` leva o atributo adiante."""
+    setattr(visao, 'cache_proprio', True)
+    return visao
+
+
 def exige_entrada(visao):
     """Sem sessão vigente vai ao login, com a página pedida em `proximo`; senha temporária só vê a troca."""
+    proprio = getattr(visao, 'cache_proprio', False)
 
     @wraps(visao)
-    @never_cache
     def interna(requisicao, *args, **kwargs):
         pessoa = requisicao.user
         estava_logada = pessoa.is_authenticated
         if not (estava_logada and sessao.sessao_vigente(requisicao)):
             # A tela de login mostra "Sua sessão expirou." (R8)
-            return redirect(_com_proximo(CAMINHO_ENTRAR, requisicao, **({'expirou': '1'} if estava_logada else {})))
-        if pessoa.deve_trocar_senha and requisicao.path != CAMINHO_TROCAR_SENHA:
-            return redirect(_com_proximo(CAMINHO_TROCAR_SENHA, requisicao))
-        return visao(requisicao, *args, **kwargs)
+            resposta = redirect(_com_proximo(CAMINHO_ENTRAR, requisicao, **({'expirou': '1'} if estava_logada else {})))
+        elif pessoa.deve_trocar_senha and requisicao.path != CAMINHO_TROCAR_SENHA:
+            resposta = redirect(_com_proximo(CAMINHO_TROCAR_SENHA, requisicao))
+        else:
+            resposta = visao(requisicao, *args, **kwargs)
+            if proprio:
+                return resposta  # só a resposta da própria view; redirecionamentos seguem sem cache
+        add_never_cache_headers(resposta)
+        return resposta
 
     setattr(interna, 'exige_entrada', True)  # marca para a varredura de views (o pyright não admite atributo em função)
     return interna

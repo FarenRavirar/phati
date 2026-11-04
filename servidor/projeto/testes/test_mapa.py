@@ -234,6 +234,7 @@ def test_camadas_levam_etag_e_cache_so_privado_com_revalidacao(camadas):
     diretivas = {d.strip() for d in resposta['Cache-Control'].split(',')}
     assert {'private', 'no-cache'} <= diretivas
     assert 'public' not in diretivas
+    assert 'no-store' not in diretivas, resposta['Cache-Control']  # achado Greptile: `never_cache` do exige_entrada sobrescrevia
     assert resposta['ETag'].startswith('"')
 
 
@@ -254,8 +255,15 @@ def test_camadas_com_etag_vigente_dao_304_sem_corpo_e_com_etag_velho_dao_200(cli
 def test_camadas_etag_vigente_nao_abre_304_sem_alcance_nem_deslogado_nem_com_flag_desligada(cliente_logado, camadas, cenario):
     etag = camadas()['ETag']
     cabecalho = {'If-None-Match': etag}
-    sem_alcance = cliente_logado.get(f'/empresa/{cenario.x.pk}/fazenda/999999/camadas.geojson', headers=cabecalho)
+    # Fazenda que existe (de outra empresa) e a conta não alcança: o ETag vigente não abre 304 (achado Sourcery, média).
+    sem_alcance = cliente_logado.get(_camadas(cenario.y, cenario.fy), headers=cabecalho)
     assert sem_alcance.status_code == 404
+    assert b'FeatureCollection' not in sem_alcance.content
     assert Client().get(_camadas(cenario.x, cenario.f1), headers=cabecalho).status_code == 302
     with override_settings(MAPA_TESTE_ATIVO=False):
         assert cliente_logado.get(_camadas(cenario.x, cenario.f1), headers=cabecalho).status_code == 404
+
+
+def test_as_outras_paginas_e_o_redirecionamento_seguem_sem_cache(cliente_logado):
+    assert 'no-store' in cliente_logado.get('/')['Cache-Control']
+    assert 'no-store' in Client().get('/')['Cache-Control']  # deslogado: redirecionamento ao login, também sem cache

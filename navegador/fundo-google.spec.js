@@ -11,8 +11,8 @@ const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers
 
 // Dublê: sessões numeradas (a renovação fica visível pelo número), copyright fixo, tile de 1 pixel.
 // `segundosDeValidade` curto faz a página renovar logo (renova uma hora antes de `expiry`, então 3600 s de folga + o prazo).
-async function dublarGoogle(page, { segundosDeValidade = 14 * 24 * 3600, recusarSessao = false } = {}) {
-  const vistas = { atendidas: 0, sessoes: [], tiles: [], zoomsDosTiles: [], viewports: [] };
+async function dublarGoogle(page, { segundosDeValidade = 14 * 24 * 3600, recusarSessao = false, recusarPrimeiras = 0 } = {}) {
+  const vistas = { recusadas: 0, atendidas: 0, sessoes: [], tiles: [], zoomsDosTiles: [], viewports: [] };
   let numero = 0;
   await page.route(`${ORIGEM}/**`, async (rota) => {
     const pedido = rota.request();
@@ -20,7 +20,10 @@ async function dublarGoogle(page, { segundosDeValidade = 14 * 24 * 3600, recusar
     vistas.atendidas += 1;
     if (pedido.method() === 'OPTIONS') return rota.fulfill({ status: 204, headers: CORS });
     if (alvo.pathname === '/v1/createSession') {
-      if (recusarSessao) return rota.fulfill({ status: 403, headers: CORS, json: { error: 'recusado' } });
+      if (recusarSessao || vistas.recusadas < recusarPrimeiras) {
+        vistas.recusadas += 1;
+        return rota.fulfill({ status: 403, headers: CORS, json: { error: 'recusado' } });
+      }
       numero += 1;
       vistas.sessoes.push(numero);
       const expiry = String(Math.floor(Date.now() / 1000) + segundosDeValidade);
@@ -168,6 +171,28 @@ test('sessão recusada: o mapa fica de pé no fundo neutro e a página avisa', a
   await expect(page.locator('[data-satelite]'), 'a pessoa pode tentar de novo').toBeEnabled();
   await expect(mapa).toHaveAttribute('data-mapa-fundo', '#e8ecef');
   await expect(page.getByText('O fundo do mapa está indisponível. Mostrando o fundo neutro.')).toBeVisible();
+});
+
+test('sessão recusada e depois aceita: o segundo clique liga o satélite e o erro da tentativa anterior some', async ({ page }) => {
+  await dublarGoogle(page, { recusarPrimeiras: 1 });
+  await abrir(page);
+  const mapa = page.locator('[data-mapa]');
+  await ativarSatelite(page);
+  await expect(mapa).toHaveAttribute('data-fundo-online-erro', 'sim');
+  await ativarSatelite(page); // botão voltou a habilitar
+  await expect(mapa).toHaveAttribute('data-satelite', 'sim');
+  await expect(mapa).not.toHaveAttribute('data-fundo-online-erro', /.*/);
+  await expect(page.getByText('O fundo do mapa está indisponível. Mostrando o fundo neutro.')).toBeHidden();
+});
+
+test('tile com 401 (sessão recusada): esquece a sessão guardada, avisa para recarregar e as camadas seguem', async ({ page }) => {
+  await dublarGoogle(page);
+  await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => rota.fulfill({ status: 401, headers: CORS }));
+  await abrir(page);
+  await ativarSatelite(page);
+  await expect(page.getByText('A sessão do satélite não vale mais. Recarregue a página e ative o satélite de novo.')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('phati.fundo-google.sessao')), 'a sessão recusada ficou guardada').toBeNull();
+  await expect(page.locator('[data-mapa]')).toHaveAttribute('data-mapa-camadas', '3');
 });
 
 test('tile que falha na rede não derruba o mapa nem as camadas', async ({ page }) => {

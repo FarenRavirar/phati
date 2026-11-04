@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, lerSessaoGuardada, guardarSessao, CHAVE_ARMAZEM, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
+import { criarSessao, urlDosTiles, msAteRenovar, buscarAtribuicao, criarFundo, lerSessaoGuardada, guardarSessao, esquecerSessao, CHAVE_ARMAZEM, esperaAposFalha, limitesParaViewport, zoomDosTiles, ORIGEM, ID_FONTE, TENTATIVAS_MAXIMAS, ESPERA_MAXIMA_MS } from './fundo-google.js';
 
 const CHAVE = 'chave-de-teste';
 const resposta = (corpo, ok = true, status = 200) => ({ ok, status, json: async () => corpo });
@@ -281,4 +281,31 @@ test('criarFundo: a renovação grava a sessão nova no armazenamento', async ()
   fundo.aoCriarMapa(mapaFalso(), { dados: { textContent: '' } });
   await agendados[0].f();
   assert.equal(JSON.parse(armazem.m[CHAVE_ARMAZEM]).token, 'tok2');
+});
+
+test('criarFundo: localStorage cujo acesso lança (armazenamento bloqueado) não derruba o satélite', async () => {
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('SecurityError'); } });
+  try {
+    const buscar = async (url) => (url.includes('createSession') ? resposta(sessaoOk) : resposta({ copyright: '' }));
+    const fundo = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso });
+    assert.equal(fundo.fontes[ID_FONTE].type, 'raster');
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
+test('descartarSessao: esquece a sessão guardada e a ativação seguinte cria outra; sem armazenamento não lança', async () => {
+  let n = 0;
+  const buscar = async (url) => (url.includes('createSession') ? resposta({ ...sessaoOk, session: `tok${++n}` }) : resposta({ copyright: '' }));
+  const armazem = armazemFalso();
+  armazem.removeItem = (k) => { delete armazem.m[k]; };
+  const primeira = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  assert.ok(armazem.m[CHAVE_ARMAZEM]);
+  primeira.descartarSessao();
+  assert.equal(armazem.m[CHAVE_ARMAZEM], undefined);
+  const segunda = await criarFundo({ chave: CHAVE, buscar, relogio: relogioFalso, armazem });
+  assert.equal(n, 2);
+  assert.ok(segunda.fontes[ID_FONTE].tiles[0].includes('session=tok2'));
+  assert.doesNotThrow(() => esquecerSessao(undefined));
+  assert.doesNotThrow(() => esquecerSessao({ removeItem: () => { throw new Error('bloqueado'); } }));
 });

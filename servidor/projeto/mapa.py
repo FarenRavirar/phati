@@ -13,7 +13,7 @@ from django.views.decorators.http import require_GET
 
 from projeto import camadas_sinteticas
 from projeto.escopo import resolver_escopo
-from projeto.paginas_autenticadas import exige_acao, exige_entrada
+from projeto.paginas_autenticadas import cache_proprio, exige_acao, exige_entrada
 
 
 def mapa_ativo():
@@ -46,6 +46,7 @@ def com_politica_do_mapa(resposta):
 @require_GET
 @exige_entrada
 @exige_acao('ver')
+@cache_proprio
 def camadas(requisicao, empresa_id, fazenda_id):
     """Camadas sintéticas em GeoJSON (R4). Flag desligada: 404; sem alcance: o 404 de fazenda inexistente (D063), da
     mesma `resolver_escopo` da página. Mesmo acesso de ver a fazenda; permissão por sub-área é da spec de camadas."""

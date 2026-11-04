@@ -479,7 +479,8 @@ function prepararSatelite(mapa, alvo, aoLigar) {
     atribuicao.hidden = false;
     online.aoCriarMapa(mapa, { dados: atribuicao.querySelector('[data-atribuicao-dados]') });
     alvo.parentElement.querySelector('[data-mapa-fundo-aviso]')?.setAttribute('hidden', '');
-    aoLigar(online.fontes);
+    delete alvo.dataset.fundoOnlineErro; // recuperou: o erro da tentativa anterior não vale mais (achado Sourcery, baixa)
+    aoLigar(online);
     alvo.dataset.satelite = 'sim';
     botao.textContent = 'Satélite ativado';
   });
@@ -492,8 +493,8 @@ async function iniciar() {
   try {
     const maplibre = await import('./terceiros/maplibre/maplibre-gl.mjs');
     const mapa = criarMapa(maplibre, alvo, fundoNeutro());
-    let fontesOnline;
-    const habilitarSatelite = prepararSatelite(mapa, alvo, (fontes) => { fontesOnline = fontes; });
+    let fundoOnline;
+    const habilitarSatelite = prepararSatelite(mapa, alvo, (fundo) => { fundoOnline = fundo; });
     alvo.mapa = mapa; // os testes de navegador projetam coordenadas e consultam o estilo por aqui
     esconderAviso(alvo);
     ligarRecentralizar(mapa);
@@ -504,9 +505,16 @@ async function iniciar() {
       habilitarSatelite();
     });
     mapa.on('error', (e) => {
-      if (erroDeTileDoFundo(e, fontesOnline)) {
+      if (erroDeTileDoFundo(e, fundoOnline?.fontes)) {
         alvo.dataset.fundoOnlineErro = 'sim';
-        avisarFundo(alvo, 'Parte do fundo do mapa não carregou. As camadas seguem normais.');
+        // 401 = sessão recusada: esquece a guardada (a próxima ativação cria outra) e manda recarregar (review PR #44, CodeRabbit).
+        if (e.error?.status === 401) {
+          fundoOnline.descartarSessao?.();
+          alvo.dataset.fundoOnlineSessao = 'recusada';
+        }
+        avisarFundo(alvo, alvo.dataset.fundoOnlineSessao
+          ? 'A sessão do satélite não vale mais. Recarregue a página e ative o satélite de novo.'
+          : 'Parte do fundo do mapa não carregou. As camadas seguem normais.');
       }
       if (erroDoMapaEhFatal(e)) mostrarErro(alvo);
     });

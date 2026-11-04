@@ -80,9 +80,25 @@ export async function buscarAtribuicao(buscar, chave, sessao, { norte, sul, lest
 // ETag; medido em 2026-11-04), nunca acerta e cada visita paga a vista inteira (8 tiles). A doc permite reaproveitar o token
 // até `expiry`, cerca de duas semanas ("You can use the same session token across multiple clients"). Dado lido de volta é
 // desconfiado: forma errada, vencida, de outra chave ou armazenamento que lança (modo privado) vira sessão nova.
-// shortcut: a marca é um hash de 32 bits só para notar troca de chave, não é segurança; trocar por outra coisa se a chave rodar com frequência.
+// shortcut: a marca é um hash de 32 bits só para notar troca de chave (colisão ~2^-32, não é segurança), e uma sessão que o Google
+// invalide antes do `expiry` fica guardada até vencer, sem recuperação automática; trocar se a chave rodar com frequência.
 export const CHAVE_ARMAZEM = 'phati.fundo-google.sessao';
-const marcaDaChave = (chave) => { let h = 0; for (const c of chave) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0; return h; };
+function marcaDaChave(chave) {
+  let h = 0;
+  for (const c of chave) {
+    h = (Math.imul(h, 31) + c.codePointAt(0)) | 0;
+  }
+  return h;
+}
+// Achado real (review PR #44, Codex e Qodo, média): só ler `localStorage` já lança SecurityError com o armazenamento bloqueado, antes
+// de qualquer try interno; o armazenamento é otimização, então a falha vira "sem armazenamento" e a sessão é criada do mesmo jeito.
+function armazemDoNavegador() {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
 export function lerSessaoGuardada(armazem, chave, agoraMs) {
   try {
     const d = JSON.parse(armazem.getItem(CHAVE_ARMAZEM));
@@ -100,15 +116,27 @@ export function guardarSessao(armazem, chave, sessao) {
   }
 }
 
+// Sessão que o Google recusou (401: vencida antes da hora, relógio atrasado, chave trocada): esquece a guardada, para a próxima
+// ativação criar outra em vez de repetir a recusada a cada visita. Medido em 2026-11-04: sessão inválida dá 401 em todo tile.
+// Achado real (review PR #44, CodeRabbit, baixa).
+export function esquecerSessao(armazem) {
+  try {
+    armazem.removeItem(CHAVE_ARMAZEM);
+  } catch {
+    // Sem armazenamento não há o que esquecer.
+  }
+}
+
 // Mesma forma do `fundo-neutro.js` mais `aoCriarMapa`, que liga a atribuição e a renovação. `relogio` e `buscar` entram
 // de fora para o teste não depender de rede nem de tempo real.
-export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(globalThis), relogio = globalThis, armazem = globalThis.localStorage }) {
+export async function criarFundo({ chave, buscar = globalThis.fetch?.bind(globalThis), relogio = globalThis, armazem = armazemDoNavegador() }) {
   let sessao = lerSessaoGuardada(armazem, chave, Date.now());
   if (!sessao) {
     sessao = await criarSessao(buscar, chave);
     guardarSessao(armazem, chave, sessao);
   }
   return {
+    descartarSessao: () => esquecerSessao(armazem),
     fontes: { [ID_FONTE]: { type: 'raster', tiles: [urlDosTiles(sessao, chave)], tileSize: sessao.largura } },
     camadas: [{ id: ID_CAMADA, type: 'raster', source: ID_FONTE }],
     aoCriarMapa(mapa, { dados }) {
