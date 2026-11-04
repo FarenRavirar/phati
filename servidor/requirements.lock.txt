@@ -30,7 +30,7 @@ pytest==9.1.1
 pytest-cov==7.1.0
 pytest-django==4.14.0
 sqlparse==0.6.0
-types-PyYAML==6.0.12.20260906
+types-PyYAML==6.0.12.20261030
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.5
