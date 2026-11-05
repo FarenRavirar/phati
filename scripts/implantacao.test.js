@@ -57,6 +57,8 @@ function criarVm({ comEnv = true } = {}) {
       'echo "$*" >> "$CHAMADAS"',
       'case "$*" in',
       '  *" build"*) [[ "${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"up -d --no-deps app"*) [[ "${DUBLE_APP_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"exec -T banco"*pg_restore*) [[ "${DUBLE_RESTAURA_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"ps -q banco"*) [[ "${DUBLE_BANCO:-1}" == 1 ]] && echo banco1 ;;',
       '  *"ps -q app"*) echo app1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
@@ -68,10 +70,30 @@ function criarVm({ comEnv = true } = {}) {
     ].join('\n'),
     { mode: 0o755 },
   );
+  // `flock` de mentira, com a mesma linha de comando (`-w T -E N arquivo comando...`): "ocupado" é o arquivo `<trava>.ocupado`.
+  // O `flock` de verdade tem o passo próprio do CI (`trava-flock.test.sh`); aqui se prova o que o script faz com ele.
+  const flockChamadas = path.join(raiz, 'flock.log');
+  const flockDuble = path.join(raiz, 'flock-dubles.sh');
+  fs.writeFileSync(
+    flockDuble,
+    [
+      '#!/usr/bin/env bash',
+      'echo "$*" >> "$FLOCK_CHAMADAS"',
+      't=0; e=1',
+      'while [[ "${1:-}" == -* ]]; do case "$1" in -w) t="$2"; shift 2 ;; -E) e="$2"; shift 2 ;; *) shift ;; esac; done',
+      'arquivo="$1"; shift',
+      'if [[ -e "$arquivo.ocupado" ]]; then sleep "$t"; exit "$e"; fi',
+      'exec "$@"',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
   const ambiente = {
     ...process.env,
     PHATI_DIR: unix(vm),
     DOCKER: unix(dublê),
+    PHATI_FLOCK: unix(flockDuble),
+    FLOCK_CHAMADAS: unix(flockChamadas),
     CHAMADAS: unix(chamadas),
     PHATI_ESPERA: '0',
     PHATI_TENTATIVAS: '2',
@@ -80,12 +102,13 @@ function criarVm({ comEnv = true } = {}) {
     spawnSync('bash', [unix(script), ...argumentos], { env: { ...ambiente, ...extra }, encoding: 'utf8' });
   const lerChamadas = () => (fs.existsSync(chamadas) ? fs.readFileSync(chamadas, 'utf8').split('\n').filter(Boolean) : []);
   const indice = (trecho) => lerChamadas().findIndex((linha) => linha.includes(trecho));
+  const lerFlock = () => (fs.existsSync(flockChamadas) ? fs.readFileSync(flockChamadas, 'utf8').split('\n').filter(Boolean) : []);
   const registro = () => {
     const arquivo = path.join(vm, 'implantacoes.log');
     return fs.existsSync(arquivo) ? fs.readFileSync(arquivo, 'utf8') : '';
   };
   const limpar = () => fs.rmSync(raiz, { recursive: true, force: true });
-  return { vm, repo, promovido, foraDeMain, rodar, lerChamadas, indice, registro, limpar };
+  return { vm, repo, promovido, foraDeMain, rodar, lerChamadas, lerFlock, indice, registro, limpar };
 }
 
 test('implantar recusa SHA mal formado, opção estranha e injeção de comando, sem chamar o Docker', () => {
@@ -277,24 +300,10 @@ test('restaurar exige a palavra RESTAURAR, arquivo existente e dentro de backups
   }
 });
 
-// O `flock` do util-linux existe na VM e no CI (Linux), não no Git Bash do Windows: lá o script segue sem trava, com aviso.
-const TEM_FLOCK = spawnSync('bash', ['-c', 'command -v flock']).status === 0;
-const SEM_FLOCK = TEM_FLOCK ? false : 'sem flock neste sistema; roda no CI Linux';
-
-// Quem segura a trava: um processo com o `flock` do arquivo `.trava`, que o sistema solta quando ele morre.
-function seguraATrava(vm) {
-  return new Promise((resolver) => {
-    const filho = spawn('bash', ['-c', 'exec 9>"$1"; flock -x 9; echo pronto; exec sleep 60', 'bash', unix(path.join(vm, '.trava'))], {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    filho.stdout.once('data', () => resolver({ soltar: () => new Promise((fim) => { filho.once('exit', fim); filho.kill(); }) }));
-  });
-}
-
-test('trava: com outra implantação ou restauração segurando o flock, implantar e restaurar desistem sem tocar o Docker', { skip: SEM_FLOCK }, async () => {
+test('trava: com outra implantação ou restauração segurando a trava, implantar e restaurar desistem sem tocar o Docker', () => {
   const v = criarVm();
-  const dono = await seguraATrava(v.vm);
   try {
+    fs.writeFileSync(path.join(v.vm, '.trava.ocupado'), '');
     const curto = { PHATI_TRAVA_LIMITE: '1' };
     const implantar = v.rodar(IMPLANTAR, [v.promovido], curto);
     assert.equal(implantar.status, 1);
@@ -306,26 +315,95 @@ test('trava: com outra implantação ou restauração segurando o flock, implant
     assert.equal(restaurar.status, 1);
     assert.match(restaurar.stderr, /segue rodando/);
     assert.deepEqual(v.lerChamadas(), []);
+    assert.equal(v.lerFlock().length, 2);
   } finally {
-    await dono.soltar();
     v.limpar();
   }
 });
 
-test('trava: quando quem a segurava morre o sistema a solta, e a implantação seguinte roda e não deixa trava presa', { skip: SEM_FLOCK }, async () => {
+test('trava: o script se reexecuta sob `flock -w <limite> -E 75 <dir>/.trava`, repassa o código de saída e o trabalho roda uma vez', () => {
   const v = criarVm();
-  const dono = await seguraATrava(v.vm);
   try {
-    await dono.soltar(); // matar o processo é o "morreu sem limpar": não há arquivo de PID para ficar velho
-    const ok = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '5' });
+    const ok = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '7' });
     assert.equal(ok.status, 0, ok.stderr);
-    const falha = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy', PHATI_TRAVA_LIMITE: '5' });
-    assert.equal(falha.status, 1);
-    const outra = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '5' });
-    assert.equal(outra.status, 0, 'falha anterior não deixou a trava presa');
+    assert.equal(v.lerFlock().length, 1, 'só uma chamada: o filho não pede a trava de novo');
+    assert.ok(v.lerFlock()[0].startsWith(`-w 7 -E 75 ${unix(v.vm)}/.trava bash `), v.lerFlock()[0]);
+    assert.equal(v.lerChamadas().filter((c) => c.includes('run --rm migracao')).length, 1);
+    const falha = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy' });
+    assert.equal(falha.status, 1, 'a falha do filho atravessa o flock');
+    assert.match(falha.stderr, /não ficou saudável/);
   } finally {
     v.limpar();
   }
+});
+
+test('trava: sem o comando flock o script avisa e segue sem trava', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { PHATI_FLOCK: 'flock-que-nao-existe' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stderr, /sem flock neste sistema/);
+    assert.deepEqual(v.lerFlock(), []);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar guarda só os 14 backups mais recentes', () => {
+  const v = criarVm();
+  try {
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    const antigos = Array.from({ length: 15 }, (_, i) => path.join(pasta, `phati-antigo-${String(i).padStart(2, '0')}.dump`));
+    antigos.forEach((arquivo, i) => {
+      fs.writeFileSync(arquivo, 'dados');
+      const data = new Date(Date.now() - (30 - i) * 86400000); // i = 0 é o mais velho
+      fs.utimesSync(arquivo, data, data);
+    });
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    const restam = fs.readdirSync(pasta);
+    assert.equal(restam.length, 14);
+    assert.ok(!restam.includes('phati-antigo-00.dump') && !restam.includes('phati-antigo-01.dump'), 'os dois mais velhos saem');
+    assert.ok(restam.includes('phati-antigo-14.dump'), 'o mais recente dos antigos fica');
+    assert.ok(restam.some((nome) => !nome.startsWith('phati-antigo')), 'o backup novo fica');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('restaurar diz a verdade sobre o estado do banco conforme o passo que falhou', () => {
+  const v = criarVm();
+  try {
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    const dump = unix(path.join(pasta, 'phati-1.dump'));
+    fs.writeFileSync(dump, 'dados');
+    const noPsql = v.rodar(RESTAURAR, [dump, 'RESTAURAR'], { DUBLE_RESTAURA_FALHA: '1' });
+    assert.equal(noPsql.status, 1);
+    assert.match(noPsql.stderr, /passo restaurar-dump/);
+    assert.match(noPsql.stderr, /o banco ficou como estava/);
+    const aoSubir = v.rodar(RESTAURAR, [dump, 'RESTAURAR'], { DUBLE_APP_FALHA: '1' });
+    assert.equal(aoSubir.status, 1);
+    assert.match(aoSubir.stderr, /o banco foi restaurado, mas o app não subiu/);
+    assert.doesNotMatch(aoSubir.stderr, /como estava/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('workflow implantar: dispara à mão, só em main, com revisor, SSH com host fixado, só o SHA e o smoke ao fim', () => {
+  const texto = fs.readFileSync(path.join(PASTA, '..', '.github', 'workflows', 'implantar.yml'), 'utf8').replace(/\r\n/g, '\n');
+  assert.match(texto, /on:\n {2}workflow_dispatch:\n {4}inputs:\n {6}sha:/);
+  assert.match(texto, /\npermissions:\n {2}contents: read\n/);
+  assert.match(texto, /concurrency:\n {2}group: implantar\n {2}cancel-in-progress: false/);
+  assert.match(texto, /environment: homologacao/);
+  assert.match(texto, /bash scripts\/guardar-implantacao\.sh "\$REF" "\$PRIVADO" "\$SHA"/);
+  assert.match(texto, /ssh -i ~\/\.ssh\/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "\$VM_USUARIO@\$VM_HOST" "\$SHA"/);
+  assert.match(texto, /bash scripts\/smoke-implantacao\.sh "https:\/\/\$FQDN"/);
+  assert.match(texto, /persist-credentials: false/);
+  assert.doesNotMatch(texto, /StrictHostKeyChecking=no/);
+  assert.doesNotMatch(texto, /run: .*\$\{\{/, 'valor de fora entra por env, nunca dentro do comando');
 });
 
 test('guarda: só main, só repositório público e só SHA que está em origin/main', () => {
@@ -393,7 +471,7 @@ test('smoke passa com o app saudável e reprova cada defeito sozinho', async () 
 
 // `curl` de mentira no PATH para o ramo https, que o servidor local (http) não alcança: responde por caminho e só
 // devolve o HSTS quando FAKE_HSTS=1.
-function smokeHttps(hsts) {
+function smokeHttps(hsts, codigoDeSaida = 0) {
   const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'curl-falso-'));
   fs.writeFileSync(
     path.join(pasta, 'curl'),
@@ -403,7 +481,7 @@ function smokeHttps(hsts) {
       'if [[ " $* " == *" -D "* ]]; then',
       '  printf "HTTP/2 200\\r\\ncontent-security-policy: default-src self\\r\\n"',
       '  [[ "${FAKE_HSTS:-0}" == 1 ]] && printf "strict-transport-security: max-age=1\\r\\n"',
-      '  exit 0',
+      '  exit "${FAKE_CURL_FALHA:-0}"',
       'fi',
       'if [[ " $* " == *" -w "* ]]; then',
       '  case "$url" in */painel/) printf 302 ;; */api/v1/pessoas) printf 401 ;; *) printf 200 ;; esac',
@@ -415,7 +493,7 @@ function smokeHttps(hsts) {
     { mode: 0o755 },
   );
   const r = spawnSync('bash', [unix(SMOKE), 'https://phati.exemplo.test'], {
-    env: { ...process.env, PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0' },
+    env: { ...process.env, PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0', FAKE_CURL_FALHA: String(codigoDeSaida) },
     encoding: 'utf8',
   });
   fs.rmSync(pasta, { recursive: true, force: true });
@@ -430,6 +508,13 @@ test('smoke em https exige o HSTS: com o cabeçalho passa, sem ele reprova só e
   assert.equal(sem.status, 1);
   assert.match(sem.stderr, /FALHA HSTS presente/);
   assert.doesNotMatch(sem.stderr, /FALHA \/saude|FALHA API/);
+});
+
+test('smoke: curl que falha depois de emitir cabeçalhos não vale como "achei o cabeçalho"', () => {
+  const r = smokeHttps(true, 56);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /FALHA \/entrar leva Content-Security-Policy/);
+  assert.match(r.stderr, /FALHA HSTS presente/);
 });
 
 test('smoke recusa URL com caminho, sem esquema e HTTP puro fora do computador local', async () => {

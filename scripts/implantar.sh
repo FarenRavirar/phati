@@ -37,17 +37,25 @@ erro() {
   exit 1
 }
 
-# Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O `flock` no
-# descritor 9 é liberado pelo sistema quando o processo morre: sem trava presa e sem corrida na limpeza (Greptile, PR #46;
-# a versão com `mkdir` e `kill -0` apagava a trava nova de quem a tinha acabado de tomar). A espera é de 1 h.
+# Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O script roda
+# de novo dentro de `flock -w <limite> -E 75 <arquivo> comando`: o sistema solta a trava quando o processo morre, sem trava
+# presa e sem corrida na limpeza (Greptile, PR #46; a versão com `mkdir` e `kill -0` apagava a trava nova de quem a
+# tinha acabado de tomar). O comando `flock` vem de PHATI_FLOCK (os testes trocam por um dublê); o 75 marca "ocupado".
 # shortcut: sem `flock` (só o Git Bash dos testes locais) segue sem trava e avisa; a VM e o CI são Linux e o têm.
 travar() {
-  if ! command -v flock >/dev/null 2>&1; then
+  local flock_cmd="${PHATI_FLOCK:-flock}" rc=0
+  [[ -z "${PHATI_TRAVADO:-}" ]] || return 0
+  if ! command -v "$flock_cmd" >/dev/null 2>&1; then
     echo "AVISO: sem flock neste sistema; seguindo sem trava" >&2
     return 0
   fi
-  exec 9>"$dir/.trava"
-  flock -w "${PHATI_TRAVA_LIMITE:-3600}" 9 || erro "outra implantação ou restauração segue rodando (trava em $dir/.trava)"
+  export PHATI_TRAVADO=1
+  "$flock_cmd" -w "${PHATI_TRAVA_LIMITE:-3600}" -E 75 "$dir/.trava" bash "$0" "$@" || rc=$?
+  if [[ "$rc" == 75 ]]; then
+    echo "ERRO: outra implantação ou restauração segue rodando (trava em $dir/.trava)" >&2
+    exit 1
+  fi
+  exit "$rc"
 }
 
 # O único dado vindo de fora é o SHA: nada dele chega a um shell além desta regra de 40 hexadecimais.
@@ -55,7 +63,7 @@ travar() {
 [[ -z "$opcao" || "$opcao" == "--sem-migracao" ]] || erro "opção desconhecida: só --sem-migracao"
 [[ -f "$dir/.env" ]] || erro "$dir/.env ausente (segredos ficam só na VM)"
 [[ -d "$dir/repo/.git" ]] || erro "$dir/repo não é um clone do repositório"
-travar
+travar "$@"
 
 cd "$dir/repo"
 git fetch -q origin

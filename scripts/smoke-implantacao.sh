@@ -26,14 +26,18 @@ corpo="$(curl -s --max-time 10 "$base/saude" || true)"
 confere "/saude devolve estado ok" "$ok"
 [[ "$(status "$base/entrar")" == 200 ]] && ok=0 || ok=1
 confere "/entrar responde 200" "$ok"
-cabecalhos "$base/entrar" | grep -qi '^content-security-policy:' && ok=0 || ok=1
+# Cabeçalhos capturados antes de procurar: `grep -q` num pipe fecharia o curl no meio e, com `pipefail`, reprovaria um
+# smoke válido; e a falha do curl depois de emitir cabeçalhos não pode valer como "achei" (CodeRabbit, PR #46).
+cab_ok=1
+cab="$(cabecalhos "$base/entrar")" && cab_ok=0
+[[ "$cab_ok" == 0 ]] && grep -qi '^content-security-policy:' <<<"$cab" && ok=0 || ok=1
 confere "/entrar leva Content-Security-Policy" "$ok"
 [[ "$(status "$base/painel/")" =~ ^(301|302|403)$ ]] && ok=0 || ok=1
 confere "/painel/ sem sessão não abre" "$ok"
 [[ "$(status "$base/api/v1/pessoas")" =~ ^(401|403)$ ]] && ok=0 || ok=1  # 404 seria rota ausente, não negação
 confere "API sem sessão nega" "$ok"
 if [[ "$base" == https://* ]]; then
-  cabecalhos "$base/entrar" | grep -qi '^strict-transport-security:' && ok=0 || ok=1
+  [[ "$cab_ok" == 0 ]] && grep -qi '^strict-transport-security:' <<<"$cab" && ok=0 || ok=1
   confere "HSTS presente" "$ok"
 fi
 
