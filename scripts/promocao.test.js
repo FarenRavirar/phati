@@ -165,6 +165,9 @@ test('workflow de promoção: dispatch com confirmacao, só chama o script e nun
   assert.match(texto, /contents: write/);
   assert.match(texto, /actions: write/);
   assert.match(texto, /gh workflow run codeql\.yml --ref main/);
+  // Promover pede a implantação, que espera a aprovação do Environment (spec 006): o SHA promovido é o que segue adiante.
+  assert.match(texto, /SHA_APROVADO: \$\{\{ inputs\.sha_aprovado \}\}/);
+  assert.match(texto, /gh workflow run implantar\.yml --ref main -f sha="\$SHA_APROVADO"/);
   assert.doesNotMatch(texto, /git push/);
 });
 

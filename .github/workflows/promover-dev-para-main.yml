@@ -2,7 +2,8 @@ name: promover-dev-para-main
 
 # Promoção canônica dev -> main preservando a invariante main ⊆ dev (AGENTS.md §Git).
 # Não cria commit de merge nem de squash: main avança por fast-forward até dev.
-# Promover não é publicar: este workflow só move o ponteiro Git, não builda nem faz deploy.
+# Promover não é publicar: este workflow só move o ponteiro Git; no fim pede a implantação (`implantar.yml`), que
+# espera a aprovação do Environment `homologacao` antes de tocar a VM.
 # A lógica (confirmação, SHA aprovado, invariante, push) fica em scripts/promover-dev-para-main.sh, com teste.
 on:
   workflow_dispatch:
@@ -45,3 +46,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run codeql.yml --ref main
+
+      # Promover não publica sozinho: o workflow `implantar` para no Environment `homologacao` até o mantenedor aprovar.
+      - name: Pedir a implantação (aguarda a aprovação do Environment)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA_APROVADO: ${{ inputs.sha_aprovado }}
+        run: gh workflow run implantar.yml --ref main -f sha="$SHA_APROVADO"

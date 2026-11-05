@@ -65,6 +65,10 @@ jobs:
       - name: Hooks do git
         working-directory: .
         run: node --test .githooks/*.test.js scripts/*.test.js servidor/projeto/static/projeto/*.test.js navegador/*.test.js playwright.config.test.js
+      # Os testes de Node usam um dublê do `flock`; aqui o de verdade, com a mesma linha de comando dos scripts (spec 006).
+      - name: Trava com flock real
+        working-directory: .
+        run: bash scripts/trava-flock.test.sh
       - name: Par arquivo–teste
         if: github.event_name == 'pull_request'
         working-directory: .
