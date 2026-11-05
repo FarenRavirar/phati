@@ -20,7 +20,8 @@ def test_saude_responde_503_sem_vazar_detalhe_quando_o_banco_cai(monkeypatch):
     resposta = Client().get('/saude')
     assert resposta.status_code == 503
     assert resposta.json() == {'estado': 'indisponivel'}
-    assert b'password' not in resposta.content and b'banco' not in resposta.content
+    assert b'password' not in resposta.content
+    assert b'banco' not in resposta.content
 
 
 def test_saude_so_aceita_consulta():
