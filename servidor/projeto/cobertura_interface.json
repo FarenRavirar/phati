@@ -27,7 +27,8 @@
     "territorio_renomear": "Renomear empresa, fazenda e sub-área — 003 R9 (telas `*_editar`)",
     "territorio_arquivar": "Arquivar empresa, fazenda e sub-área — 003 R11 (telas `*_arquivar`)",
     "territorio_desarquivar": "Desarquivar empresa, fazenda e sub-área — 003 R11 (telas `*_desarquivar` e seção Arquivadas)",
-    "mapa_camadas": "Painel de camadas, legenda e consulta do mapa de teste (004 R4, R12); dado sintético em GeoJSON, só com a flag ligada."
+    "mapa_camadas": "Painel de camadas, legenda e consulta do mapa de teste (004 R4, R12); dado sintético em GeoJSON, só com a flag ligada.",
+    "saude": "Sonda do healthcheck e da conferência pós-deploy — 006 R10; sem tela de propósito, devolve só o estado."
   },
   "funcoes": {
     "permissao.uso.registrar_uso": "Contador dos atalhos do Início — 003 R26 (sem tela própria: roda depois de convidar, criar ou editar cargo e criar fazenda)",

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import path
 
-from projeto import cargos_paginas, empresas, fazenda, inicio, mapa, paginas, paginas_acesso, pessoas_paginas, territorio_paginas
+from projeto import cargos_paginas, empresas, fazenda, inicio, mapa, paginas, paginas_acesso, pessoas_paginas, saude, territorio_paginas
 from projeto.api import api
 
 _EMPRESA = 'empresa/<int:empresa_id>/'
@@ -45,6 +45,7 @@ CARGOS = [
 
 urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('redefinir-senha', paginas.redefinir_senha, name='redefinir_senha'),
+               path('saude', saude.saude, name='saude'),
                path('entrar', paginas_acesso.entrar, name='entrar'),
                path('sair', paginas_acesso.sair, name='sair'),
                path('trocar-senha', paginas_acesso.trocar_senha, name='trocar_senha'),

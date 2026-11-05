@@ -1,6 +1,7 @@
 import base64
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.csp import CSP
@@ -147,6 +148,21 @@ DATABASES = {
 AUTH_USER_MODEL = 'identidade.Pessoa'
 PASSWORD_HASHERS = ['identidade.senha.GeradorHashArgon2']
 URL_BASE = os.environ.get('PHATI_URL_BASE', 'http://localhost:8000')  # link de redefinição nunca usa o cabeçalho Host (R5)
+
+# Implantação atrás de proxy com TLS (spec 006 R3): o túnel entrega HTTPS ao nginx e este repassa `X-Forwarded-Proto`
+# ao app. Só é seguro porque nenhum serviço do compose de implantação publica porta: o único caminho até o app é o túnel.
+# Sem a flag (CI, desenvolvimento) nada disto vale. Partida recusada, nunca configuração calada pela metade.
+IMPLANTACAO = os.environ.get('PHATI_IMPLANTACAO') == '1'
+if IMPLANTACAO:
+    _origem = urlsplit(URL_BASE)
+    if _origem.scheme != 'https' or not _origem.hostname:
+        raise ImproperlyConfigured('PHATI_IMPLANTACAO=1 exige PHATI_URL_BASE com https e host.')
+    if _origem.hostname not in ALLOWED_HOSTS:
+        raise ImproperlyConfigured('PHATI_IMPLANTACAO=1 exige o host de PHATI_URL_BASE em PHATI_HOSTS_PERMITIDOS.')
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    CSRF_TRUSTED_ORIGINS = [f'https://{_origem.netloc}']
+    # shortcut: 30 dias sem `includeSubDomains` nem `preload`; subir para 1 ano quando o domínio estiver estável.
+    SECURE_HSTS_SECONDS = 30 * 24 * 3600
 
 # Raiz da chave do CPF (plan.md §Autenticação): 32 bytes em base64 urlsafe; as subchaves de busca e de cifra saem
 # dela por HKDF (identidade/cpf.py). Gerar: python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"

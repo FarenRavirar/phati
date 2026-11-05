@@ -1,0 +1,24 @@
+# Implantação (spec 006): `docker compose -f compose.yaml -f compose.implantacao.yaml up -d`. Soma-se ao compose de
+# desenvolvimento e só muda o que a VM exige: nenhum serviço publica porta no host (R1), o túnel Cloudflare é a única
+# entrada (R2), tudo volta sozinho depois de reinício da VM e o app liga a configuração de proxy com TLS (R3).
+# Valores (token do túnel, segredos, FQDN) vêm do `.env` da VM, `0600`, fora do repositório (R4).
+services:
+  banco:
+    restart: unless-stopped
+  app:
+    restart: unless-stopped
+    ports: !reset []
+    environment:
+      PHATI_IMPLANTACAO: "1"
+  nginx:
+    restart: unless-stopped
+    ports: !reset []
+  # Imagem fixada por versão e digest do índice (amd64 e arm64), conferidos no Docker Hub em 2026-11-04.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    command: tunnel --no-autoupdate run
+    restart: unless-stopped
+    environment:
+      TUNNEL_TOKEN: ${PHATI_TUNEL_TOKEN:?}
+    depends_on:
+      nginx: {condition: service_started}
