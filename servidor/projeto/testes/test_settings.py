@@ -27,6 +27,11 @@ def test_processo_web_sem_senha_do_dono_usa_o_papel_app_como_padrao(monkeypatch)
     assert bancos['default']['PASSWORD'] == bancos['app']['PASSWORD']
 
 
+def test_conexao_com_o_banco_tem_prazo_para_abrir():
+    # Sem prazo, banco sem resposta prenderia um worker por requisição (CodeRabbit, PR #45).
+    assert {alias: banco['OPTIONS']['connect_timeout'] for alias, banco in settings.DATABASES.items()} == {'default': 5, 'app': 5}
+
+
 def test_dois_papeis_distintos():
     assert settings.DATABASES['default']['USER'] != settings.DATABASES['app']['USER']
 

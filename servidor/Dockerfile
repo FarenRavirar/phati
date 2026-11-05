@@ -14,7 +14,8 @@ WORKDIR /aplicacao
 COPY --chown=aplicacao . .
 USER aplicacao
 EXPOSE 8000
-# shortcut: só confere que a porta aceita conexão; trocar por rota HTTP de saúde quando a API existir (Fase 5).
+# Sonda `/saude` (006 R10): 200 só com o banco alcançável. O Host é o primeiro de PHATI_HOSTS_PERMITIDOS, senão o
+# `ALLOWED_HOSTS` recusa a chamada (400) quando a lista não inclui `127.0.0.1`, como na implantação.
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-  CMD python -c "import socket; socket.create_connection(('127.0.0.1', 8000), 2)"
+  CMD python -c "import os,urllib.request as u;h=(os.environ.get('PHATI_HOSTS_PERMITIDOS') or 'localhost').split(',')[0];u.urlopen(u.Request('http://127.0.0.1:8000/saude',headers={'Host':h}),timeout=2)"
 CMD ["gunicorn", "projeto.wsgi", "--bind", "0.0.0.0:8000"]

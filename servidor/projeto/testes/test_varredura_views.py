@@ -11,8 +11,8 @@ from projeto.paginas_autenticadas import PROPRIA_PESSOA
 from projeto.urls import urlpatterns
 
 # Sem sessão por desenho: entrar, esqueci a senha e redefinição são de quem ainda não tem credencial; sair é POST com CSRF
-# e encerrar uma sessão que não existe é inofensivo.
-PUBLICAS = frozenset({'entrar', 'sair', 'esqueci_senha', 'redefinir_senha'})
+# e encerrar uma sessão que não existe é inofensivo; `saude` é a sonda do healthcheck (006 R10), sem dado nem sessão.
+PUBLICAS = frozenset({'entrar', 'sair', 'esqueci_senha', 'redefinir_senha', 'saude'})
 # A API e o painel têm portão próprio (varredura de rotas da API e admin do Django).
 DE_OUTRO_PORTAO = ('api/', 'painel/')
 
