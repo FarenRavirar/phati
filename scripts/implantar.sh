@@ -37,21 +37,17 @@ erro() {
   exit 1
 }
 
-# Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não): trava por
-# diretório, que o `mkdir` cria de forma atômica em qualquer sistema. Trava de processo morto é desfeita; a espera é de 1 h.
-# shortcut: `mkdir` no lugar de `flock`, que o Git Bash dos testes locais não tem; trocar por `flock` se a VM passar a ter só Linux.
+# Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O `flock` no
+# descritor 9 é liberado pelo sistema quando o processo morre: sem trava presa e sem corrida na limpeza (Greptile, PR #46;
+# a versão com `mkdir` e `kill -0` apagava a trava nova de quem a tinha acabado de tomar). A espera é de 1 h.
+# shortcut: sem `flock` (só o Git Bash dos testes locais) segue sem trava e avisa; a VM e o CI são Linux e o têm.
 travar() {
-  local trava="$dir/.trava" limite=$((SECONDS + ${PHATI_TRAVA_LIMITE:-3600}))
-  until mkdir "$trava" 2>/dev/null; do
-    if [[ -f "$trava/pid" ]] && ! kill -0 "$(cat "$trava/pid")" 2>/dev/null; then
-      rm -rf "$trava"
-      continue
-    fi
-    (( SECONDS < limite )) || erro "outra implantação ou restauração segue rodando (trava em $trava)"
-    sleep "${PHATI_ESPERA_TRAVA:-5}"
-  done
-  echo $$ > "$trava/pid"
-  trap 'rm -rf "$dir/.trava"' EXIT
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "AVISO: sem flock neste sistema; seguindo sem trava" >&2
+    return 0
+  fi
+  exec 9>"$dir/.trava"
+  flock -w "${PHATI_TRAVA_LIMITE:-3600}" 9 || erro "outra implantação ou restauração segue rodando (trava em $dir/.trava)"
 }
 
 # O único dado vindo de fora é o SHA: nada dele chega a um shell além desta regra de 40 hexadecimais.
@@ -123,10 +119,10 @@ passo=saude
 [[ "$estado" == healthy ]] || erro "o app não ficou saudável (estado: ${estado:-desconhecido})"
 
 passo=nginx-e-tunel
-compor up -d --no-deps nginx cloudflared
-# O nginx resolve `app` ao carregar a configuração: com o app recriado em outro IP ele seguiria no endereço velho (502).
-# O reload também aplica mudança do arquivo montado; o `up` acima não recria um nginx cuja imagem e configuração não mudaram.
-compor exec -T nginx nginx -s reload
+# Sempre recria o nginx (Codex, PR #46): ele resolve `app` ao carregar a configuração e seguiria no IP do app antigo (502), e
+# o `git checkout` troca o inode do `default.conf` montado como arquivo, então nem `reload` nem `up` sem recriar o veriam mudar.
+compor up -d --no-deps --force-recreate nginx
+compor up -d --no-deps cloudflared
 trap - ERR
 registrar "OK"
 echo "implantado=${sha:0:12}"

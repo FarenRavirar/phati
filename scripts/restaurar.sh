@@ -16,21 +16,17 @@ docker="${DOCKER:-docker}"
 [[ "$arquivo" == "$dir"/backups/*.dump && "$arquivo" != *..* ]] || { echo "ERRO: só restaura arquivo de $dir/backups" >&2; exit 1; }
 [[ -f "$dir/.env" ]] || { echo "ERRO: $dir/.env ausente" >&2; exit 1; }
 
-# Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não): trava por
-# diretório, que o `mkdir` cria de forma atômica em qualquer sistema. Trava de processo morto é desfeita; a espera é de 1 h.
-# shortcut: `mkdir` no lugar de `flock`, que o Git Bash dos testes locais não tem; trocar por `flock` se a VM passar a ter só Linux.
+# Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O `flock` no
+# descritor 9 é liberado pelo sistema quando o processo morre: sem trava presa e sem corrida na limpeza (Greptile, PR #46;
+# a versão com `mkdir` e `kill -0` apagava a trava nova de quem a tinha acabado de tomar). A espera é de 1 h.
+# shortcut: sem `flock` (só o Git Bash dos testes locais) segue sem trava e avisa; a VM e o CI são Linux e o têm.
 travar() {
-  local trava="$dir/.trava" limite=$((SECONDS + ${PHATI_TRAVA_LIMITE:-3600}))
-  until mkdir "$trava" 2>/dev/null; do
-    if [[ -f "$trava/pid" ]] && ! kill -0 "$(cat "$trava/pid")" 2>/dev/null; then
-      rm -rf "$trava"
-      continue
-    fi
-    (( SECONDS < limite )) || { echo "ERRO: outra implantação ou restauração segue rodando (trava em $trava)" >&2; exit 1; }
-    sleep "${PHATI_ESPERA_TRAVA:-5}"
-  done
-  echo $$ > "$trava/pid"
-  trap 'rm -rf "$dir/.trava"' EXIT
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "AVISO: sem flock neste sistema; seguindo sem trava" >&2
+    return 0
+  fi
+  exec 9>"$dir/.trava"
+  flock -w "${PHATI_TRAVA_LIMITE:-3600}" 9 || { echo "ERRO: outra implantação ou restauração segue rodando (trava em $dir/.trava)" >&2; exit 1; }
 }
 travar
 

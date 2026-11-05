@@ -150,7 +150,7 @@ test('implantar: backup, build, parar o app, migrar, estáticos, app e só entã
   try {
     const r = v.rodar(IMPLANTAR, [v.promovido]);
     assert.equal(r.status, 0, r.stderr);
-    const ordem = ['pg_dump', ' build', 'stop app', 'run --rm migracao', 'run --rm --no-deps estaticos', 'up -d --no-deps app', 'up -d --no-deps nginx cloudflared', 'exec -T nginx nginx -s reload'].map((t) => v.indice(t));
+    const ordem = ['pg_dump', ' build', 'stop app', 'run --rm migracao', 'run --rm --no-deps estaticos', 'up -d --no-deps app', 'up -d --no-deps --force-recreate nginx', 'up -d --no-deps cloudflared'].map((t) => v.indice(t));
     assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
     assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'passos fora de ordem');
     const dumps = fs.readdirSync(path.join(v.vm, 'backups'));
@@ -158,7 +158,6 @@ test('implantar: backup, build, parar o app, migrar, estáticos, app e só entã
     assert.match(fs.readFileSync(path.join(v.vm, 'backups', dumps[0]), 'utf8'), /dados-do-banco/);
     // O dump tem dado de cliente: só o dono lê. No Windows o sistema de arquivos não guarda esses bits.
     if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(v.vm, 'backups', dumps[0])).mode & 0o777, 0o600);
-    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), false, 'a trava some no fim');
     assert.match(v.registro(), /OK/);
     assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido);
   } finally {
@@ -211,8 +210,8 @@ test('implantar: app que não fica saudável para antes do nginx e do túnel e r
     assert.equal(r.status, 1);
     assert.match(r.stderr, /não ficou saudável/);
     assert.match(r.stderr, /app pode estar parado/);
-    assert.equal(v.indice('nginx cloudflared'), -1);
-    assert.equal(v.indice('nginx -s reload'), -1);
+    assert.equal(v.indice('cloudflared'), -1);
+    assert.equal(v.indice('--force-recreate nginx'), -1);
     assert.match(v.registro(), /FALHOU/);
   } finally {
     v.limpar();
@@ -278,21 +277,25 @@ test('restaurar exige a palavra RESTAURAR, arquivo existente e dentro de backups
   }
 });
 
-// Processo vivo que o `kill -0` do bash enxerga (o pid do Node, no Windows, é de outro espaço de números): `sleep` por `exec`.
-function processoVivo() {
+// O `flock` do util-linux existe na VM e no CI (Linux), não no Git Bash do Windows: lá o script segue sem trava, com aviso.
+const TEM_FLOCK = spawnSync('bash', ['-c', 'command -v flock']).status === 0;
+const SEM_FLOCK = TEM_FLOCK ? false : 'sem flock neste sistema; roda no CI Linux';
+
+// Quem segura a trava: um processo com o `flock` do arquivo `.trava`, que o sistema solta quando ele morre.
+function seguraATrava(vm) {
   return new Promise((resolver) => {
-    const filho = spawn('bash', ['-c', 'echo $$; exec sleep 60'], { stdio: ['ignore', 'pipe', 'ignore'] });
-    filho.stdout.once('data', (dado) => resolver({ pid: String(dado).trim(), encerrar: () => filho.kill() }));
+    const filho = spawn('bash', ['-c', 'exec 9>"$1"; flock -x 9; echo pronto; exec sleep 60', 'bash', unix(path.join(vm, '.trava'))], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    filho.stdout.once('data', () => resolver({ soltar: () => new Promise((fim) => { filho.once('exit', fim); filho.kill(); }) }));
   });
 }
 
-test('trava: com outra implantação ou restauração viva, implantar e restaurar esperam e desistem sem tocar o Docker', async () => {
+test('trava: com outra implantação ou restauração segurando o flock, implantar e restaurar desistem sem tocar o Docker', { skip: SEM_FLOCK }, async () => {
   const v = criarVm();
-  const vivo = await processoVivo();
+  const dono = await seguraATrava(v.vm);
   try {
-    fs.mkdirSync(path.join(v.vm, '.trava'));
-    fs.writeFileSync(path.join(v.vm, '.trava', 'pid'), vivo.pid);
-    const curto = { PHATI_TRAVA_LIMITE: '1', PHATI_ESPERA_TRAVA: '0.2' };
+    const curto = { PHATI_TRAVA_LIMITE: '1' };
     const implantar = v.rodar(IMPLANTAR, [v.promovido], curto);
     assert.equal(implantar.status, 1);
     assert.match(implantar.stderr, /segue rodando/);
@@ -303,25 +306,23 @@ test('trava: com outra implantação ou restauração viva, implantar e restaura
     assert.equal(restaurar.status, 1);
     assert.match(restaurar.stderr, /segue rodando/);
     assert.deepEqual(v.lerChamadas(), []);
-    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), true, 'quem desistiu não apaga a trava de outro');
   } finally {
-    vivo.encerrar();
+    await dono.soltar();
     v.limpar();
   }
 });
 
-test('trava de processo morto é desfeita e a implantação segue; a trava some mesmo quando a implantação falha', () => {
+test('trava: quando quem a segurava morre o sistema a solta, e a implantação seguinte roda e não deixa trava presa', { skip: SEM_FLOCK }, async () => {
   const v = criarVm();
+  const dono = await seguraATrava(v.vm);
   try {
-    const morto = spawnSync('bash', ['-c', 'echo $$; exec true'], { encoding: 'utf8' }).stdout.trim(); // processo que já saiu
-    fs.mkdirSync(path.join(v.vm, '.trava'));
-    fs.writeFileSync(path.join(v.vm, '.trava', 'pid'), morto);
-    const ok = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '5', PHATI_ESPERA_TRAVA: '0.2' });
+    await dono.soltar(); // matar o processo é o "morreu sem limpar": não há arquivo de PID para ficar velho
+    const ok = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '5' });
     assert.equal(ok.status, 0, ok.stderr);
-    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), false);
-    const falha = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy' });
+    const falha = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy', PHATI_TRAVA_LIMITE: '5' });
     assert.equal(falha.status, 1);
-    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), false, 'falha também solta a trava');
+    const outra = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '5' });
+    assert.equal(outra.status, 0, 'falha anterior não deixou a trava presa');
   } finally {
     v.limpar();
   }
