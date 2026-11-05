@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { execFile, execFileSync, spawnSync } = require('node:child_process');
+const { execFile, execFileSync, spawn, spawnSync } = require('node:child_process');
 const { promisify } = require('node:util');
 
 const ASSINCRONO = promisify(execFile);
@@ -56,10 +56,12 @@ function criarVm({ comEnv = true } = {}) {
       '#!/usr/bin/env bash',
       'echo "$*" >> "$CHAMADAS"',
       'case "$*" in',
+      '  *" build"*) [[ "${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"ps -q banco"*) [[ "${DUBLE_BANCO:-1}" == 1 ]] && echo banco1 ;;',
       '  *"ps -q app"*) echo app1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
       '  inspect*) echo "${DUBLE_SAUDE:-healthy}" ;;',
+      '  "volume inspect"*) [[ "${DUBLE_VOLUME:-0}" == 1 ]] || exit 1 ;;',
       'esac',
       'exit 0',
       '',
@@ -148,12 +150,15 @@ test('implantar: backup, build, parar o app, migrar, estáticos, app e só entã
   try {
     const r = v.rodar(IMPLANTAR, [v.promovido]);
     assert.equal(r.status, 0, r.stderr);
-    const ordem = ['pg_dump', ' build', 'stop app', 'up -d --wait banco', 'run --rm migracao', 'run --rm --no-deps estaticos', 'up -d --no-deps app', 'up -d --no-deps nginx cloudflared'].map((t) => v.indice(t));
+    const ordem = ['pg_dump', ' build', 'stop app', 'run --rm migracao', 'run --rm --no-deps estaticos', 'up -d --no-deps app', 'up -d --no-deps nginx cloudflared', 'exec -T nginx nginx -s reload'].map((t) => v.indice(t));
     assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
     assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'passos fora de ordem');
     const dumps = fs.readdirSync(path.join(v.vm, 'backups'));
     assert.equal(dumps.length, 1);
     assert.match(fs.readFileSync(path.join(v.vm, 'backups', dumps[0]), 'utf8'), /dados-do-banco/);
+    // O dump tem dado de cliente: só o dono lê. No Windows o sistema de arquivos não guarda esses bits.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(v.vm, 'backups', dumps[0])).mode & 0o777, 0o600);
+    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), false, 'a trava some no fim');
     assert.match(v.registro(), /OK/);
     assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido);
   } finally {
@@ -161,10 +166,24 @@ test('implantar: backup, build, parar o app, migrar, estáticos, app e só entã
   }
 });
 
-test('implantar sem banco no ar é a primeira implantação: sem backup, e segue', () => {
+test('implantar com o banco parado mas com volume é instalação existente: sobe o banco e faz o backup antes de migrar', () => {
   const v = criarVm();
   try {
-    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0' });
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    const ordem = ['up -d --wait banco', 'pg_dump', 'run --rm migracao'].map((t) => v.indice(t));
+    assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
+    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'o backup tem de vir antes da migração');
+    assert.equal(fs.readdirSync(path.join(v.vm, 'backups')).length, 1);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar sem banco nem volume é a primeira implantação: sem backup, e segue', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '0' });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(v.indice('pg_dump'), -1);
     assert.equal(fs.existsSync(path.join(v.vm, 'backups')), false);
@@ -191,8 +210,23 @@ test('implantar: app que não fica saudável para antes do nginx e do túnel e r
     const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /não ficou saudável/);
+    assert.match(r.stderr, /app pode estar parado/);
     assert.equal(v.indice('nginx cloudflared'), -1);
+    assert.equal(v.indice('nginx -s reload'), -1);
     assert.match(v.registro(), /FALHOU/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar: falha antes de parar o app (build) não avisa de app parado nem toca o banco', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BUILD_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /falhou no passo: build/);
+    assert.doesNotMatch(r.stderr, /app pode estar parado/);
+    assert.equal(v.indice('stop app'), -1);
   } finally {
     v.limpar();
   }
@@ -234,6 +268,60 @@ test('restaurar exige a palavra RESTAURAR, arquivo existente e dentro de backups
     const ordem = ['stop app', 'up -d --wait banco', 'pg_restore', 'up -d --no-deps app'].map((t) => v.indice(t));
     assert.ok(ordem.every((i) => i >= 0));
     assert.deepEqual([...ordem].sort((a, b) => a - b), ordem);
+    // O dump é validado antes de apagar o schema, e a troca roda numa transação única.
+    const restauracao = v.lerChamadas()[v.indice('pg_restore')];
+    assert.ok(restauracao.indexOf('pg_restore') < restauracao.indexOf('DROP SCHEMA public CASCADE'));
+    assert.match(restauracao, /--single-transaction/);
+    assert.match(restauracao, /ON_ERROR_STOP=1/);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Processo vivo que o `kill -0` do bash enxerga (o pid do Node, no Windows, é de outro espaço de números): `sleep` por `exec`.
+function processoVivo() {
+  return new Promise((resolver) => {
+    const filho = spawn('bash', ['-c', 'echo $$; exec sleep 60'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    filho.stdout.once('data', (dado) => resolver({ pid: String(dado).trim(), encerrar: () => filho.kill() }));
+  });
+}
+
+test('trava: com outra implantação ou restauração viva, implantar e restaurar esperam e desistem sem tocar o Docker', async () => {
+  const v = criarVm();
+  const vivo = await processoVivo();
+  try {
+    fs.mkdirSync(path.join(v.vm, '.trava'));
+    fs.writeFileSync(path.join(v.vm, '.trava', 'pid'), vivo.pid);
+    const curto = { PHATI_TRAVA_LIMITE: '1', PHATI_ESPERA_TRAVA: '0.2' };
+    const implantar = v.rodar(IMPLANTAR, [v.promovido], curto);
+    assert.equal(implantar.status, 1);
+    assert.match(implantar.stderr, /segue rodando/);
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    fs.writeFileSync(path.join(pasta, 'phati-1.dump'), 'dados');
+    const restaurar = v.rodar(RESTAURAR, [unix(path.join(pasta, 'phati-1.dump')), 'RESTAURAR'], curto);
+    assert.equal(restaurar.status, 1);
+    assert.match(restaurar.stderr, /segue rodando/);
+    assert.deepEqual(v.lerChamadas(), []);
+    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), true, 'quem desistiu não apaga a trava de outro');
+  } finally {
+    vivo.encerrar();
+    v.limpar();
+  }
+});
+
+test('trava de processo morto é desfeita e a implantação segue; a trava some mesmo quando a implantação falha', () => {
+  const v = criarVm();
+  try {
+    const morto = spawnSync('bash', ['-c', 'echo $$; exec true'], { encoding: 'utf8' }).stdout.trim(); // processo que já saiu
+    fs.mkdirSync(path.join(v.vm, '.trava'));
+    fs.writeFileSync(path.join(v.vm, '.trava', 'pid'), morto);
+    const ok = v.rodar(IMPLANTAR, [v.promovido], { PHATI_TRAVA_LIMITE: '5', PHATI_ESPERA_TRAVA: '0.2' });
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), false);
+    const falha = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy' });
+    assert.equal(falha.status, 1);
+    assert.equal(fs.existsSync(path.join(v.vm, '.trava')), false, 'falha também solta a trava');
   } finally {
     v.limpar();
   }
@@ -293,6 +381,7 @@ test('smoke passa com o app saudável e reprova cada defeito sozinho', async () 
     'entrar quebrado': { ...ROTAS_OK, '/entrar': { status: 500, cabecalhos: { 'Content-Security-Policy': "default-src 'self'" } } },
     'painel aberto': { ...ROTAS_OK, '/painel/': { status: 200 } },
     'API aberta': { ...ROTAS_OK, '/api/v1/pessoas': { status: 200 } },
+    'API ausente (404 não é negação)': { ...ROTAS_OK, '/api/v1/pessoas': { status: 404 } },
   };
   for (const [nome, rotas] of Object.entries(defeitos)) {
     const r = await comServidor(rotas, smoke);
@@ -301,8 +390,49 @@ test('smoke passa com o app saudável e reprova cada defeito sozinho', async () 
   }
 });
 
-test('smoke recusa URL com caminho ou sem esquema', async () => {
-  for (const ruim of ['', 'host.exemplo', 'https://host/caminho']) {
+// `curl` de mentira no PATH para o ramo https, que o servidor local (http) não alcança: responde por caminho e só
+// devolve o HSTS quando FAKE_HSTS=1.
+function smokeHttps(hsts) {
+  const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'curl-falso-'));
+  fs.writeFileSync(
+    path.join(pasta, 'curl'),
+    [
+      '#!/usr/bin/env bash',
+      'url="${*: -1}"',
+      'if [[ " $* " == *" -D "* ]]; then',
+      '  printf "HTTP/2 200\\r\\ncontent-security-policy: default-src self\\r\\n"',
+      '  [[ "${FAKE_HSTS:-0}" == 1 ]] && printf "strict-transport-security: max-age=1\\r\\n"',
+      '  exit 0',
+      'fi',
+      'if [[ " $* " == *" -w "* ]]; then',
+      '  case "$url" in */painel/) printf 302 ;; */api/v1/pessoas) printf 401 ;; *) printf 200 ;; esac',
+      '  exit 0',
+      'fi',
+      'echo \'{"estado": "ok"}\'',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  const r = spawnSync('bash', [unix(SMOKE), 'https://phati.exemplo.test'], {
+    env: { ...process.env, PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0' },
+    encoding: 'utf8',
+  });
+  fs.rmSync(pasta, { recursive: true, force: true });
+  return r;
+}
+
+test('smoke em https exige o HSTS: com o cabeçalho passa, sem ele reprova só essa verificação', () => {
+  const com = smokeHttps(true);
+  assert.equal(com.status, 0, com.stderr);
+  assert.match(com.stdout, /HSTS presente/);
+  const sem = smokeHttps(false);
+  assert.equal(sem.status, 1);
+  assert.match(sem.stderr, /FALHA HSTS presente/);
+  assert.doesNotMatch(sem.stderr, /FALHA \/saude|FALHA API/);
+});
+
+test('smoke recusa URL com caminho, sem esquema e HTTP puro fora do computador local', async () => {
+  for (const ruim of ['', 'host.exemplo', 'https://host/caminho', 'http://phati.exemplo.test', 'http://127.0.0.1.exemplo.test']) {
     const r = await smoke(ruim);
     assert.equal(r.status, 1, ruim);
     assert.match(r.stderr, /URL base/);
