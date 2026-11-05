@@ -16,12 +16,13 @@ test('sem a flag a fazenda abre sem mapa, sem MapLibre e com o aviso de região 
   await expect(page.getByText('O mapa aparece quando a fazenda tiver camadas.')).toBeVisible();
   await expect(page.locator('[data-mapa]')).toHaveCount(0);
   await expect(page.locator('.maplibregl-canvas')).toHaveCount(0);
-  expect(pedidos.filter((u) => /maplibre|projeto\/mapa\.js|camadas\.geojson/.test(u))).toEqual([]);
   const politica = resposta.headers()['content-security-policy'];
   expect(politica).not.toContain('blob:');
   expect(politica).not.toContain('worker-src');
   await semRolagemHorizontal(page);
   await acessivel(page);
+  // Depois dos auxiliares: eles também mexem na página, e nenhuma requisição de mapa pode ter saído durante eles (CodeRabbit, PR #49).
+  expect(pedidos.filter((u) => /maplibre|projeto\/mapa\.js|camadas\.geojson/.test(u))).toEqual([]);
 });
 
 test('sem a flag o acesso negado segue negado e sem mapa', async ({ page }) => {
