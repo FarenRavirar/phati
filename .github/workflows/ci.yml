@@ -211,6 +211,21 @@ jobs:
             sleep 2
           done
           cd .. && PHATI_PROVA_GOOGLE=1 ./node_modules/.bin/playwright test
+      # Mapa desligado (spec 004 T5.3, achado do Qodo na PR #35): o padrão de produção também passa pelo navegador. Recria só o
+      # app com a flag em 0; o passo de cima já terminou, então não há dublê nem flag do Google em jogo.
+      - name: Fazenda com o mapa desligado
+        working-directory: servidor
+        env:
+          PHATI_MAPA_TESTE_ATIVO: "0"
+        run: |
+          docker compose up -d app
+          docker compose restart nginx
+          for _ in $(seq 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          cd .. && PHATI_PROVA_MAPA_DESLIGADO=1 ./node_modules/.bin/playwright test
       - if: failure()
         working-directory: servidor
         run: docker compose logs

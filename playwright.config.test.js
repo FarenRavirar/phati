@@ -71,3 +71,26 @@ test('a prova do Google roda à parte: fora da rodada comum, e sozinha com PHATI
     else process.env.PHATI_PROVA_GOOGLE = anterior;
   }
 });
+
+test('a prova do mapa desligado roda à parte: fora da rodada comum, e sozinha com PHATI_PROVA_MAPA_DESLIGADO=1', () => {
+  const anterior = process.env.PHATI_PROVA_MAPA_DESLIGADO;
+  try {
+    delete process.env.PHATI_PROVA_MAPA_DESLIGADO;
+    const comum = carregar();
+    assert.equal(comum.testMatch, '*.spec.js');
+    for (const projeto of comum.projects) {
+      assert.ok([].concat(projeto.testIgnore).some((r) => r.test('navegador/mapa-desligado.spec.js')), projeto.name);
+    }
+    process.env.PHATI_PROVA_MAPA_DESLIGADO = '1';
+    const so = carregar();
+    assert.equal(so.testMatch, 'mapa-desligado.spec.js');
+    for (const projeto of so.projects) {
+      assert.ok(![].concat(projeto.testIgnore ?? []).some((r) => r.test('navegador/mapa-desligado.spec.js')), projeto.name);
+    }
+    process.env.PHATI_PROVA_MAPA_DESLIGADO = 'true'; // só o valor 1 liga
+    assert.equal(carregar().testMatch, '*.spec.js');
+  } finally {
+    if (anterior === undefined) delete process.env.PHATI_PROVA_MAPA_DESLIGADO;
+    else process.env.PHATI_PROVA_MAPA_DESLIGADO = anterior;
+  }
+});

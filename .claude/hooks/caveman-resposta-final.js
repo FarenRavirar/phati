@@ -70,12 +70,14 @@ lerPayload((bruto) => {
   // `caveman`. O nome do hook segue `caveman-resposta-final` para não quebrar o
   // `settings.json`.
   const motivo = [
-    '[resposta-final] `caveman ultra` e `ponytail full` são obrigatórios.',
-    'caveman: cortar artigo, filler, hedging, preâmbulo, recapitulação;',
-    'manter negação, número, unidade, termo técnico, caminho, comando.',
-    'ponytail: menor mudança completa; fechar com o que foi pulado e risco.',
-    'Prosa normal: aviso de segurança, ação irreversível, texto fora do chat',
-    '(código, commit, doc, PR). Já certo? Repetir igual.',
+    '[resposta-final] `caveman ultra` e `ponytail full` obrigatórios.',
+    // Pedido do mantenedor em 2026-11-05: resposta prática. Dizer o que fazer (abrir ARQUIVO, linha N, fazer X) ou dar o
+    // comando pronto; explicação e porquê só se ele pedir. O fecho "pulado e risco" virou uma linha, só quando o risco é novo.
+    'Prático: ação exata (abrir ARQUIVO, linha N, fazer X) ou comando pronto, sem porquê.',
+    'Cortar artigo, filler, hedging, recapitulação. Manter negação, número, caminho, comando.',
+    'Pergunta: `AskUserQuestion`. Erro ou falha: comando, saída, rc; nunca resumir.',
+    'Prosa normal: segurança, ação irreversível, commit/doc/PR.',
+    'Risco: só se novo.',
   ].join('\n');
 
   // Canal: `exit 2` + stderr. Ver o bloco POR QUE `Stop` no cabeçalho — é o
