@@ -1,0 +1,63 @@
+name: implantar
+
+# Implantação na VM de homologação (spec 006 R5, R6, R13). Disparado pela promoção de dev para main
+# (`promover-dev-para-main.yml`) ou à mão. O job para no Environment `homologacao`, que exige revisor: o clique em
+# Aprovar é a aprovação nominal daquele deploy (AGENTS.md §Git, "Promover não é publicar"), por ação e a cada vez.
+# A lógica fica em scripts/ (`guardar-implantacao.sh`, `implantar.sh` na VM, `smoke-implantacao.sh`), com teste.
+# Environment `homologacao`: Secrets SSH_CHAVE_PRIVADA e SSH_HOST_CONHECIDO; Variables VM_HOST, VM_USUARIO e FQDN.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "SHA completo (40 caracteres) de main a implantar"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Uma implantação por vez; a segunda espera a primeira terminar (nunca cancela uma implantação no meio).
+concurrency:
+  group: implantar
+  cancel-in-progress: false
+
+jobs:
+  implantar:
+    name: Implantar na VM de homologação
+    runs-on: ubuntu-24.04
+    environment: homologacao
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Guarda (main, repositório público, SHA promovido)
+        env:
+          REF: ${{ github.ref }}
+          PRIVADO: ${{ github.event.repository.private }}
+          SHA: ${{ inputs.sha }}
+        run: bash scripts/guardar-implantacao.sh "$REF" "$PRIVADO" "$SHA"
+
+      - name: Chave SSH e host conhecido
+        env:
+          CHAVE: ${{ secrets.SSH_CHAVE_PRIVADA }}
+          HOST_CONHECIDO: ${{ secrets.SSH_HOST_CONHECIDO }}
+        run: |
+          install -d -m 700 ~/.ssh
+          (umask 077; printf '%s\n' "$CHAVE" > ~/.ssh/deploy)
+          printf '%s\n' "$HOST_CONHECIDO" > ~/.ssh/known_hosts
+
+      # O único argumento é o SHA, já validado pela guarda; a chave só executa `implantar.sh` (comando forçado, R6).
+      - name: Implantar
+        env:
+          SHA: ${{ inputs.sha }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USUARIO: ${{ vars.VM_USUARIO }}
+        run: ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VM_USUARIO@$VM_HOST" "$SHA"
+
+      - name: Smoke externo
+        env:
+          FQDN: ${{ vars.FQDN }}
+        run: bash scripts/smoke-implantacao.sh "https://$FQDN"
