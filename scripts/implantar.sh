@@ -63,6 +63,8 @@ travar() {
 [[ -z "$opcao" || "$opcao" == "--sem-migracao" ]] || erro "opção desconhecida: só --sem-migracao"
 [[ -f "$dir/.env" ]] || erro "$dir/.env ausente (segredos ficam só na VM)"
 [[ -d "$dir/repo/.git" ]] || erro "$dir/repo não é um clone do repositório"
+# Falha cedo e com instrução, antes de qualquer passo: o implantar.sh instalado sem o backup.sh ao lado pararia no backup.
+[[ -f "$(dirname "$0")/backup.sh" ]] || erro "backup.sh ausente ao lado de $0; instale-o junto, como administrador"
 travar "$@"
 
 cd "$dir/repo"
