@@ -127,6 +127,9 @@ def _configuracao_banco(usuario, senha):
         'PORT': os.environ.get('PHATI_BANCO_PORTA', '5432'),
         'USER': os.environ[usuario],
         'PASSWORD': os.environ[senha],
+        # Sem prazo, banco sem resposta prenderia um worker do gunicorn por requisição (CodeRabbit, PR #45); a conexão é
+        # nova a cada requisição. Sem `statement_timeout` global: cortaria migração e consulta longa legítimas.
+        'OPTIONS': {'connect_timeout': 5},
     }
 
 
@@ -160,6 +163,10 @@ if IMPLANTACAO:
     if _origem.hostname not in ALLOWED_HOSTS:
         raise ImproperlyConfigured('PHATI_IMPLANTACAO=1 exige o host de PHATI_URL_BASE em PHATI_HOSTS_PERMITIDOS.')
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    # Defesa em profundidade além do "Sempre HTTPS" da Cloudflare (CodeRabbit, PR #45): pedido que chegue como http é
+    # redirecionado antes de qualquer credencial ser aceita. A sonda fica isenta porque o healthcheck chama o app direto, sem proxy.
+    SECURE_SSL_REDIRECT = True
+    SECURE_REDIRECT_EXEMPT = [r'^saude$']
     CSRF_TRUSTED_ORIGINS = [f'https://{_origem.netloc}']
     # shortcut: 30 dias sem `includeSubDomains` nem `preload`; subir para 1 ano quando o domínio estiver estável.
     SECURE_HSTS_SECONDS = 30 * 24 * 3600

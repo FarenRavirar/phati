@@ -2,6 +2,12 @@
 # desenvolvimento e só muda o que a VM exige: nenhum serviço publica porta no host (R1), o túnel Cloudflare é a única
 # entrada (R2), tudo volta sozinho depois de reinício da VM e o app liga a configuração de proxy com TLS (R3).
 # Valores (token do túnel, segredos, FQDN) vêm do `.env` da VM, `0600`, fora do repositório (R4).
+# Sub-rede fixa: o nginx só confia em `CF-Connecting-IP` vindo dela (`nginx/default.conf`, `set_real_ip_from`).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.250.0/24
 services:
   banco:
     restart: unless-stopped

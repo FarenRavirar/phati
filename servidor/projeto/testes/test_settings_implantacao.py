@@ -65,6 +65,31 @@ def _foi_recusada_por_csrf(resposta):
     return '403_csrf.html' in [molde.name for molde in resposta.templates]
 
 
+def _cliente_de_implantacao(settings, **cabecalhos):
+    settings.ALLOWED_HOSTS = [FQDN]
+    settings.SECURE_SSL_REDIRECT = True
+    settings.SECURE_REDIRECT_EXEMPT = [r'^saude$']
+    settings.SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    return Client(HTTP_HOST=FQDN, **cabecalhos)
+
+
+def test_com_a_flag_o_settings_liga_o_redirecionamento_e_isenta_so_a_sonda(monkeypatch):
+    carregado = _implantacao(monkeypatch)
+    assert carregado['SECURE_SSL_REDIRECT'] is True
+    assert carregado['SECURE_REDIRECT_EXEMPT'] == [r'^saude$']
+
+
+def test_pedido_http_e_redirecionado_para_https_e_o_https_passa(db, settings):
+    http = _cliente_de_implantacao(settings).get('/entrar')
+    assert (http.status_code, http['Location']) == (301, f'https://{FQDN}/entrar')
+    https = _cliente_de_implantacao(settings, HTTP_X_FORWARDED_PROTO='https').get('/entrar')
+    assert https.status_code == 200
+
+
+def test_sonda_de_saude_responde_sem_cabecalho_de_proxy_e_sem_redirecionar(db, settings):
+    assert _cliente_de_implantacao(settings).get('/saude').status_code == 200
+
+
 def test_post_com_origem_do_fqdn_passa_o_csrf_e_com_outra_origem_e_recusado(db, settings, monkeypatch):
     monkeypatch.setenv('PHATI_IMPLANTACAO', '1')
     monkeypatch.setenv('PHATI_URL_BASE', f'https://{FQDN}')
@@ -78,9 +103,15 @@ RAIZ = Path(settings.DIRETORIO_BASE)
 
 def test_nginx_conta_o_ip_real_do_cliente_so_de_quem_esta_na_rede_privada():
     conf = (RAIZ / 'nginx' / 'default.conf').read_text(encoding='utf-8')
-    assert 'real_ip_header CF-Connecting-IP;' in conf
-    assert 'set_real_ip_from 172.16.0.0/12;' in conf
-    assert 'set_real_ip_from 0.0.0.0/0' not in conf  # confiar em qualquer origem deixaria forjar o cabeçalho
+    ativas = [linha.strip() for linha in conf.splitlines() if not linha.strip().startswith('#')]  # comentário não vale
+    assert 'real_ip_header CF-Connecting-IP;' in ativas
+    assert 'set_real_ip_from 172.29.250.0/24;' in ativas
+    assert 'set_real_ip_from 0.0.0.0/0;' not in ativas  # confiar em qualquer origem deixaria forjar o cabeçalho
+
+
+def test_sub_rede_confiada_pelo_nginx_e_a_fixada_no_compose_de_implantacao():
+    compose = (RAIZ / 'compose.implantacao.yaml').read_text(encoding='utf-8')
+    assert '        - subnet: 172.29.250.0/24' in compose.splitlines()
 
 
 def _bloco(texto, servico):
