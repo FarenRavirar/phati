@@ -298,6 +298,17 @@ test('backup.sh grava o dump com modo 0600 e o rótulo no nome, e guarda só 14'
   }
 });
 
+test('backup.sh usa o rótulo pedido no nome do dump', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(BACKUP, ['ab-1_x']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(path.basename(r.stdout.trim()), /^phati-\d{8}T\d{6}Z-ab-1_x\.dump$/);
+  } finally {
+    v.limpar();
+  }
+});
+
 test('backup.sh recusa rótulo hostil e .env ausente, sem chamar o Docker', () => {
   const v = criarVm();
   try {
@@ -356,12 +367,12 @@ test('backup.sh: uma falha no mesmo segundo não apaga o dump válido de mesmo n
   }
 });
 
-test('backup.sh: dump que trava passa do prazo, falha e não deixa arquivo', () => {
+test('backup.sh: dump que trava e ignora o TERM passa do prazo, é morto, falha e não deixa arquivo', () => {
   const v = criarVm();
   try {
-    fs.writeFileSync(path.join(path.dirname(v.vm), 'docker-dubles.sh'), '#!/usr/bin/env bash\nsleep 30\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(path.dirname(v.vm), 'docker-dubles.sh'), '#!/usr/bin/env bash\ntrap "" TERM\nexec sleep 30\n', { mode: 0o755 }); // ignora o TERM: só o KILL do `timeout -k` o encerra
     const inicio = Date.now();
-    const r = v.rodar(BACKUP, [], { PHATI_BACKUP_LIMITE: '1' });
+    const r = v.rodar(BACKUP, [], { PHATI_BACKUP_LIMITE: '1', PHATI_BACKUP_ABATE: '1' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /passou do prazo/);
     assert.ok(Date.now() - inicio < 15000, 'não esperou o dump travado inteiro');
