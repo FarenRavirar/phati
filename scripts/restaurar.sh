@@ -43,7 +43,10 @@ compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compo
 
 passo=inicio
 # A transação única só protege até o `psql`: falha depois dele deixa o banco já restaurado e o app parado.
-trap 'if [[ "$passo" == subir-app ]]; then echo "ERRO: o banco foi restaurado, mas o app não subiu; suba com: docker compose up -d --no-deps app" >&2; else echo "ERRO: a restauração falhou no passo $passo; o banco ficou como estava (transação única) e o app segue parado" >&2; fi' ERR
+# O comando de recuperação é o mesmo que `compor` roda, com os caminhos resolvidos: sem o projeto, o `--env-file` e o segundo
+# arquivo do compose, ele erraria a configuração ou subiria outro projeto (Greptile, PR #46).
+recuperar="COMPOSE_PROJECT_NAME=phati docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app"
+trap 'if [[ "$passo" == subir-app ]]; then echo "ERRO: o banco foi restaurado, mas o app não subiu; suba com: $recuperar" >&2; else echo "ERRO: a restauração falhou no passo $passo; o banco ficou como estava (transação única) e o app segue parado" >&2; fi' ERR
 
 passo=parar-app
 compor stop app

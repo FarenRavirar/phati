@@ -386,6 +386,9 @@ test('restaurar diz a verdade sobre o estado do banco conforme o passo que falho
     const aoSubir = v.rodar(RESTAURAR, [dump, 'RESTAURAR'], { DUBLE_APP_FALHA: '1' });
     assert.equal(aoSubir.status, 1);
     assert.match(aoSubir.stderr, /o banco foi restaurado, mas o app não subiu/);
+    // O comando de recuperação é o completo, igual ao que o script roda: projeto, .env e os dois arquivos do compose.
+    assert.ok(aoSubir.stderr.includes(`COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env`), aoSubir.stderr);
+    assert.ok(aoSubir.stderr.includes(`-f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml up -d --no-deps app`), aoSubir.stderr);
     assert.doesNotMatch(aoSubir.stderr, /como estava/);
   } finally {
     v.limpar();
