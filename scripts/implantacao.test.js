@@ -15,6 +15,7 @@ const ASSINCRONO = promisify(execFile);
 const PASTA = __dirname;
 const IMPLANTAR = path.join(PASTA, 'implantar.sh');
 const RESTAURAR = path.join(PASTA, 'restaurar.sh');
+const BACKUP = path.join(PASTA, 'backup.sh');
 const GUARDAR = path.join(PASTA, 'guardar-implantacao.sh');
 const SMOKE = path.join(PASTA, 'smoke-implantacao.sh');
 const unix = (caminho) => caminho.replace(/\\/g, '/');
@@ -266,6 +267,131 @@ test('implantar: backup vazio é falha e a migração não roda', () => {
     assert.equal(r.status, 1);
     assert.match(r.stderr, /backup vazio/);
     assert.equal(v.indice('run --rm migracao'), -1);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh grava o dump com modo 0600 e o rótulo no nome, e guarda só 14', () => {
+  const v = criarVm();
+  try {
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    for (let i = 0; i < 15; i++) {
+      const arquivo = path.join(pasta, `phati-antigo-${String(i).padStart(2, '0')}.dump`);
+      fs.writeFileSync(arquivo, 'dados');
+      const data = new Date(Date.now() - (30 - i) * 86400000);
+      fs.utimesSync(arquivo, data, data);
+    }
+    const r = v.rodar(BACKUP, []);
+    assert.equal(r.status, 0, r.stderr);
+    const novo = r.stdout.trim();
+    assert.match(path.basename(novo), /^phati-\d{8}T\d{6}Z-cron\.dump$/);
+    assert.match(fs.readFileSync(novo, 'utf8'), /dados-do-banco/);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(novo).mode & 0o777, 0o600);
+    assert.equal(fs.readdirSync(pasta).length, 14);
+    assert.ok(!fs.existsSync(path.join(pasta, 'phati-antigo-00.dump')), 'o mais velho sai');
+    assert.match(v.lerChamadas().join('\n'), /exec -T banco/);
+    assert.equal(v.indice('up '), -1, 'o backup não sobe nada');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh usa o rótulo pedido no nome do dump', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(BACKUP, ['ab-1_x']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(path.basename(r.stdout.trim()), /^phati-\d{8}T\d{6}Z-ab-1_x\.dump$/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh recusa rótulo hostil e .env ausente, sem chamar o Docker', () => {
+  const v = criarVm();
+  try {
+    for (const ruim of ['../x', 'a b', 'a;rm', 'x'.repeat(21)]) {
+      const r = v.rodar(BACKUP, [ruim]);
+      assert.equal(r.status, 1, ruim);
+      assert.match(r.stderr, /rótulo inválido/);
+    }
+    fs.rmSync(path.join(v.vm, '.env'));
+    const r = v.rodar(BACKUP, []);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /\.env ausente/);
+    assert.equal(v.lerChamadas().length, 0);
+    assert.equal(fs.existsSync(path.join(v.vm, 'backups')), false);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh: pg_dump que falha ou sai vazio é erro e não deixa arquivo', () => {
+  const v = criarVm();
+  try {
+    const pasta = path.join(v.vm, 'backups');
+    const duble = path.join(path.dirname(v.vm), 'docker-dubles.sh');
+    fs.writeFileSync(duble, '#!/usr/bin/env bash\necho "$*" >> "$CHAMADAS"\nexit 1\n', { mode: 0o755 });
+    const falhou = v.rodar(BACKUP, []);
+    assert.equal(falhou.status, 1);
+    assert.match(falhou.stderr, /pg_dump falhou/);
+    assert.deepEqual(fs.readdirSync(pasta), [], 'a falha não deixa arquivo nem parcial');
+    fs.writeFileSync(duble, '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+    const vazio = v.rodar(BACKUP, []);
+    assert.equal(vazio.status, 1);
+    assert.match(vazio.stderr, /backup vazio/);
+    assert.deepEqual(fs.readdirSync(pasta), []);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh: uma falha no mesmo segundo não apaga o dump válido de mesmo nome', () => {
+  const v = criarVm();
+  try {
+    // `date` fixo: as duas execuções caem no mesmo nome de arquivo.
+    const bin = path.join(path.dirname(v.vm), 'bin-date');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'date'), '#!/usr/bin/env bash\necho 20260101T000000Z\n', { mode: 0o755 });
+    const fixo = { PATH: `${unix(bin)}:${process.env.PATH}` };
+    const bom = v.rodar(BACKUP, [], fixo);
+    assert.equal(bom.status, 0, bom.stderr);
+    const dump = bom.stdout.trim();
+    fs.writeFileSync(path.join(path.dirname(v.vm), 'docker-dubles.sh'), '#!/usr/bin/env bash\nexit 1\n', { mode: 0o755 });
+    assert.equal(v.rodar(BACKUP, [], fixo).status, 1);
+    assert.match(fs.readFileSync(dump, 'utf8'), /dados-do-banco/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh: dump que trava e ignora o TERM passa do prazo, é morto, falha e não deixa arquivo', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(path.dirname(v.vm), 'docker-dubles.sh'), '#!/usr/bin/env bash\ntrap "" TERM\nexec sleep 30\n', { mode: 0o755 }); // ignora o TERM: só o KILL do `timeout -k` o encerra
+    const inicio = Date.now();
+    const r = v.rodar(BACKUP, [], { PHATI_BACKUP_LIMITE: '1', PHATI_BACKUP_ABATE: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /passou do prazo/);
+    assert.ok(Date.now() - inicio < 15000, 'não esperou o dump travado inteiro');
+    assert.deepEqual(fs.readdirSync(path.join(v.vm, 'backups')), []);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar sem o backup.sh ao lado falha cedo, com instrução, sem tocar o Docker', () => {
+  const v = criarVm();
+  try {
+    const solto = path.join(path.dirname(v.vm), 'instalado');
+    fs.mkdirSync(solto);
+    fs.copyFileSync(IMPLANTAR, path.join(solto, 'implantar.sh'));
+    const r = v.rodar(path.join(solto, 'implantar.sh'), [v.promovido]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /backup\.sh ausente/);
+    assert.equal(v.lerChamadas().length, 0);
   } finally {
     v.limpar();
   }
