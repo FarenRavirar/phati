@@ -74,7 +74,9 @@ test('a prova do Google roda à parte: fora da rodada comum, e sozinha com PHATI
 
 test('a prova do mapa desligado roda à parte: fora da rodada comum, e sozinha com PHATI_PROVA_MAPA_DESLIGADO=1', () => {
   const anterior = process.env.PHATI_PROVA_MAPA_DESLIGADO;
+  const anteriorGoogle = process.env.PHATI_PROVA_GOOGLE;
   try {
+    delete process.env.PHATI_PROVA_GOOGLE;
     delete process.env.PHATI_PROVA_MAPA_DESLIGADO;
     const comum = carregar();
     assert.equal(comum.testMatch, '*.spec.js');
@@ -89,8 +91,13 @@ test('a prova do mapa desligado roda à parte: fora da rodada comum, e sozinha c
     }
     process.env.PHATI_PROVA_MAPA_DESLIGADO = 'true'; // só o valor 1 liga
     assert.equal(carregar().testMatch, '*.spec.js');
+    process.env.PHATI_PROVA_MAPA_DESLIGADO = '1';
+    process.env.PHATI_PROVA_GOOGLE = '1'; // as duas juntas: falha clara, não prova calada
+    assert.throws(() => carregar(), /exclusivas/);
   } finally {
     if (anterior === undefined) delete process.env.PHATI_PROVA_MAPA_DESLIGADO;
     else process.env.PHATI_PROVA_MAPA_DESLIGADO = anterior;
+    if (anteriorGoogle === undefined) delete process.env.PHATI_PROVA_GOOGLE;
+    else process.env.PHATI_PROVA_GOOGLE = anteriorGoogle;
   }
 });

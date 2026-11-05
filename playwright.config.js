@@ -18,7 +18,11 @@ const soGoogle = process.env.PHATI_PROVA_GOOGLE === '1';
 // Página com o mapa desligado (padrão de produção; spec 004, T5.3): o servidor sobe com a flag em 0, então também roda à parte
 // (`PHATI_PROVA_MAPA_DESLIGADO=1`). O job `navegador` comum sobe com o mapa ligado e não enxerga essa página.
 const soDesligado = process.env.PHATI_PROVA_MAPA_DESLIGADO === '1';
-const proveSozinha = soGoogle ? 'fundo-google.spec.js' : soDesligado ? 'mapa-desligado.spec.js' : null;
+// O servidor sobe com uma flag de cada vez: as duas provas juntas não têm servidor que as atenda (achado do Sourcery, PR #49).
+if (soGoogle && soDesligado) throw new Error('PHATI_PROVA_GOOGLE e PHATI_PROVA_MAPA_DESLIGADO são exclusivas.');
+let proveSozinha = null;
+if (soGoogle) proveSozinha = 'fundo-google.spec.js';
+else if (soDesligado) proveSozinha = 'mapa-desligado.spec.js';
 
 // `testIgnore` de projeto substitui o da raiz (não soma), então cada projeto repete a exclusão das provas à parte.
 const foraDaRodadaComum = proveSozinha ? [] : [/fundo-google\.spec\.js$/, /mapa-desligado\.spec\.js$/];
