@@ -106,6 +106,24 @@ def test_caixa_invalida_e_recusada_sem_sobra(pacotes, cenario, plataforma, caixa
     assert not pacotes.exists() and not VersaoPacote.objects.exists()
 
 
+@pytest.mark.parametrize('zoom', [2.5, True, '15', None])
+def test_zoom_que_nao_e_inteiro_e_recusado_antes_de_chamar_a_ferramenta(pacotes, cenario, plataforma, zoom):
+    # Sourcery, PR #50: os zooms viram argumento de linha de comando; medido, 2.5 e True passavam na checagem de faixa.
+    for campo in ('zoom_maximo_fundo', 'zoom_minimo_ortofoto', 'zoom_maximo_ortofoto'):
+        with pytest.raises(ValidationError, match='Zoom'):
+            _gerar(plataforma, cenario.f1, **{campo: zoom})
+    assert not pacotes.exists()
+
+
+def test_arquivo_com_nome_de_opcao_vira_caminho_absoluto_e_nao_opcao(pacotes, cenario, plataforma, tmp_path, monkeypatch):
+    # O nome `--help` relativo vira `<pasta>/--help` pelo `resolve()`: a ferramenta nunca o lê como opção.
+    sombra = tmp_path / '--help'
+    sombra.write_bytes((REFERENCIA / 'fundo.pmtiles').read_bytes())
+    monkeypatch.chdir(tmp_path)
+    versao = geracao.gerar_pacote(plataforma, cenario.f1, CAIXA, fundo_origem='--help')
+    assert versao.numero == 1
+
+
 def test_entradas_invalidas_sao_recusadas(pacotes, cenario, plataforma, tmp_path):
     with pytest.raises(ValidationError, match='não existe'):
         geracao.gerar_pacote(plataforma, cenario.f1, CAIXA, fundo_origem=tmp_path / 'nao-existe.pmtiles')

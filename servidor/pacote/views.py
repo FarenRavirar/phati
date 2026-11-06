@@ -6,6 +6,7 @@ nunca montado a partir da URL. A leitura por faixa de bytes é própria: o `File
 shortcut: o arquivo passa pelo worker do gunicorn; trocar por `X-Accel-Redirect` do nginx quando o pacote passar de ~100 MB."""
 
 import re
+from functools import wraps
 from pathlib import Path
 
 from django.conf import settings
@@ -15,6 +16,7 @@ from django.utils.cache import get_conditional_response, patch_cache_control
 from django.utils.http import quote_etag
 from django.views.decorators.http import require_GET
 
+from identidade import sessao
 from pacote import manifesto as contrato
 from pacote.models import VersaoPacote
 from permissao.pode import com_permissao, pode
@@ -24,6 +26,29 @@ from projeto.paginas_autenticadas import cache_proprio, exige_acao, exige_entrad
 
 _FAIXA = re.compile(r'^bytes=(\d*)-(\d*)$')
 _BLOCO = 1 << 20
+
+
+def aceita_bearer(visao):
+    """O aplicativo Android não tem cookie: o `Authorization: Bearer` dele vale como a sessão do navegador, pela mesma
+    `sessao.pessoa_do_acesso` da API (`projeto/api.py`, `AutenticacaoAplicativo`). Sem o cabeçalho segue o portão de sessão
+    da web; token inválido dá 401 sem redirecionar. As URLs ficam as da R3."""
+    com_sessao = exige_entrada(visao)
+
+    @wraps(visao)
+    def interna(requisicao, *args, **kwargs):
+        partes = requisicao.headers.get('Authorization', '').split(' ')
+        if len(partes) != 2 or partes[0].lower() != 'bearer':
+            return com_sessao(requisicao, *args, **kwargs)
+        pessoa = sessao.pessoa_do_acesso(partes[1])
+        if pessoa is None:
+            return JsonResponse({'detalhe': 'nao_autenticado'}, status=401)
+        if pessoa.deve_trocar_senha:
+            return JsonResponse({'detalhe': 'troca_de_senha_obrigatoria'}, status=403)
+        requisicao.user = pessoa
+        return visao(requisicao, *args, **kwargs)
+
+    setattr(interna, 'exige_entrada', True)  # a varredura de views procura esta marca
+    return interna
 
 
 def _vigente(pessoa, fazenda) -> VersaoPacote:
@@ -49,7 +74,7 @@ def _privado(resposta, etag=None):
 
 
 @require_GET
-@exige_entrada
+@aceita_bearer
 @exige_acao('baixar_pacote_offline')
 @cache_proprio
 def pacote_manifesto(requisicao, empresa_id, fazenda_id):
@@ -60,7 +85,7 @@ def pacote_manifesto(requisicao, empresa_id, fazenda_id):
 
 
 @require_GET
-@exige_entrada
+@aceita_bearer
 @exige_acao('baixar_pacote_offline')
 @cache_proprio
 def pacote_camadas(requisicao, empresa_id, fazenda_id):
@@ -69,7 +94,7 @@ def pacote_camadas(requisicao, empresa_id, fazenda_id):
         raise Http404
     _, fazenda = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
     _exigir_download(requisicao.user, fazenda)
-    return _privado(JsonResponse(mapa.camadas_visiveis(requisicao.user, fazenda), content_type='application/geo+json'))
+    return _privado(JsonResponse(mapa.camadas_visiveis(), content_type='application/geo+json'))
 
 
 def _faixa(cabecalho: str | None, tamanho: int):
@@ -99,23 +124,31 @@ def _blocos(caminho: Path, inicio: int, fim: int):
 
 
 @require_GET
-@exige_entrada
+@aceita_bearer
 @exige_acao('ver')
 @cache_proprio
 def pacote_arquivo(requisicao, empresa_id, fazenda_id, nome):
     _, fazenda = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
+    # `resolver_escopo` também admite quem só tem uma sub-área; estes arquivos são da fazenda inteira (Greptile, PR #50).
+    if not pode(requisicao.user, 'ver', fazenda):
+        raise PermissionDenied
     versao = _vigente(requisicao.user, fazenda)
     arquivo = next((a for a in contrato.validar(versao.manifesto).arquivos if a.nome == nome), None)
     if arquivo is None:
         raise Http404
-    caminho = Path(settings.PACOTES_DIR) / str(fazenda_id) / f'v{versao.numero}' / arquivo.nome
-    if not caminho.is_file():
+    raiz = (Path(settings.PACOTES_DIR) / str(fazenda_id) / f'v{versao.numero}').resolve()
+    caminho = (raiz / arquivo.nome).resolve()
+    # O nome já vem do manifesto validado (sem barra); a conferência pega o que o nome não pega, como um link simbólico que sai da pasta.
+    if not caminho.is_relative_to(raiz) or not caminho.is_file():
         raise Http404
     etag = quote_etag(arquivo.sha256)
     condicional = get_conditional_response(requisicao, etag=etag)
     if condicional is not None and condicional.status_code in (304, 412):
         return _privado(condicional, etag)
-    faixa = _faixa(requisicao.headers.get('Range'), arquivo.bytes)
+    # RFC 9110 §13.1.5: `If-Range` com validador diferente do atual obriga a ignorar `Range` e mandar o arquivo inteiro,
+    # para a retomada de um download nunca misturar duas versões.
+    se_faixa = requisicao.headers.get('If-Range')
+    faixa = None if se_faixa not in (None, etag) else _faixa(requisicao.headers.get('Range'), arquivo.bytes)
     if faixa == 'invalida':
         resposta = HttpResponse(status=416)
         resposta['Content-Range'] = f'bytes */{arquivo.bytes}'

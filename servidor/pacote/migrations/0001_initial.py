@@ -1,11 +1,18 @@
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+from psycopg import sql
 
 import importlib
 
 # Mesma leitura de escopo da tabela `concessao` (permissao 0003 e 0004): a plataforma, a empresa inteira ou a fazenda.
 POLITICA = "app_lista_contem('app.empresas', empresa_id) OR app_lista_contem('app.fazendas', fazenda_id)"
+
+
+def papel_app(schema_editor):
+    """Nome do papel `app` como identificador SQL escapado. `quote_name` do Django não escapa aspas dentro do nome
+    (medido: `a"b` volta `"a"b"`), e o nome vem de variável de ambiente; `psycopg.sql.Identifier` escapa de verdade."""
+    return sql.Identifier(settings.DATABASES['app']['USER']).as_string(schema_editor.connection.connection)
 
 
 def proteger(apps, schema_editor):
@@ -14,7 +21,7 @@ def proteger(apps, schema_editor):
     O `app` só atualiza `vigente` e nunca apaga: `manifesto` e `numero` são imutáveis e o histórico fica (limpeza de versões
     antigas é outra rotina). A chave composta impede empresa e fazenda de andar separadas, como em `sub_area`."""
     contexto = importlib.import_module('permissao.migrations.0004_contexto_assinado')
-    app = schema_editor.quote_name(settings.DATABASES['app']['USER'])
+    app = papel_app(schema_editor)
     schema_editor.execute(
         'ALTER TABLE versao_pacote ADD CONSTRAINT versao_pacote_fazenda_da_empresa '
         'FOREIGN KEY (fazenda_id, empresa_id) REFERENCES fazenda (id, empresa_id)'
@@ -28,7 +35,7 @@ def proteger(apps, schema_editor):
 
 
 def desproteger(apps, schema_editor):
-    app = schema_editor.quote_name(settings.DATABASES['app']['USER'])
+    app = papel_app(schema_editor)
     schema_editor.execute(f'REVOKE UPDATE (vigente) ON versao_pacote FROM {app}')
     schema_editor.execute(f'GRANT UPDATE, DELETE, TRUNCATE ON versao_pacote TO {app}')
     schema_editor.execute('DROP POLICY escopo ON versao_pacote')

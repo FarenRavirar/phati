@@ -144,3 +144,54 @@ def test_o_servidor_nunca_mostra_o_caminho_do_disco(usuario, cenario, pacotes, r
 
 def test_so_get_e_aceito(usuario, cenario, referencia_instalada):
     assert usuario.post(_url(cenario, cenario.f1, 'manifesto.json')).status_code == 405
+
+
+def _bearer(pessoa):
+    from identidade import sessao
+
+    return {'Authorization': f'Bearer {sessao.emitir_acesso(pessoa, "celular sintetico")}'}
+
+
+def test_aplicativo_com_bearer_e_sem_cookie_baixa_manifesto_e_arquivo(cenario, fabrica_pessoa, conceder_direto, referencia_instalada):
+    # Greptile, PR #50, P1: o Android não tem cookie, só `Authorization: Bearer`.
+    pessoa = fabrica_pessoa('Aplicativo')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)
+    cabecalho = _bearer(pessoa)
+    manifesto = Client().get(_url(cenario, cenario.f1, 'manifesto.json'), headers=cabecalho)
+    assert manifesto.status_code == 200
+    assert json.loads(manifesto.content)['versao'] == 1
+    arquivo = Client().get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles'), headers={**cabecalho, 'Range': 'bytes=0-6'})
+    assert arquivo.status_code == 206
+    assert _corpo(arquivo) == b'PMTiles'
+
+
+@pytest.mark.parametrize('cabecalho', [
+    {'Authorization': 'Bearer token-que-nao-existe'}, {'Authorization': 'Bearer'}, {'Authorization': 'Basic abc'},
+])
+def test_bearer_invalido_nao_entra(cenario, referencia_instalada, cabecalho):
+    resposta = Client().get(_url(cenario, cenario.f1, 'manifesto.json'), headers=cabecalho)
+    assert resposta.status_code in (401, 302)  # 401 com Bearer inválido; sem Bearer o portão de sessão manda ao login
+    assert b'versao' not in resposta.content
+
+
+def test_bearer_de_pessoa_sem_alcance_leva_404_como_o_navegador(cenario, fabrica_pessoa, conceder_direto, referencia_instalada):
+    de_y = fabrica_pessoa('Aplicativo de Y')
+    conceder_direto(de_y, cenario.cargos_y['administrador'], cenario.y)
+    assert Client().get(_url(cenario, cenario.f1, 'manifesto.json'), headers=_bearer(de_y)).status_code == 404
+
+
+def test_quem_so_tem_uma_sub_area_nao_baixa_os_arquivos_da_fazenda(entrar, cenario, referencia_instalada):
+    # Greptile, PR #50, P1: `resolver_escopo` admite a sub-área, mas fundo e ortofoto são da fazenda inteira.
+    so_sub_area = entrar(cenario.cargos_x['usuario'], cenario.g1)
+    for resto in ('arquivo/fundo.pmtiles', 'arquivo/ortofoto.pmtiles', 'manifesto.json'):
+        assert so_sub_area.get(_url(cenario, cenario.f1, resto)).status_code in (403, 404), resto
+
+
+def test_if_range_de_outra_versao_devolve_o_arquivo_inteiro(usuario, cenario, referencia_instalada):
+    # RFC 9110 §13.1.5: validador que não bate obriga a ignorar `Range`.
+    etag = usuario.get(_url(cenario, cenario.f1, 'arquivo/ortofoto.pmtiles'))['ETag']
+    velho = usuario.get(_url(cenario, cenario.f1, 'arquivo/ortofoto.pmtiles'), headers={'Range': 'bytes=0-9', 'If-Range': '"versao-antiga"'})
+    assert velho.status_code == 200
+    assert len(_corpo(velho)) == TAMANHO
+    igual = usuario.get(_url(cenario, cenario.f1, 'arquivo/ortofoto.pmtiles'), headers={'Range': 'bytes=0-9', 'If-Range': etag})
+    assert igual.status_code == 206

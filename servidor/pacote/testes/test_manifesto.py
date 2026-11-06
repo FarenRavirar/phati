@@ -91,3 +91,13 @@ def test_recusa_incoerencias(bruto):
 def test_esquema_exportado_para_o_aplicativo_nao_saiu_do_modelo():
     # Drift: o arquivo versionado é o que o aplicativo lê; mudou o modelo, regenere (`manifesto.esquema_exportado()`).
     assert manifesto.ESQUEMA_JSON.read_text(encoding='utf-8') == manifesto.esquema_exportado()
+
+
+def test_o_esquema_exportado_carrega_a_regra_do_nome_e_recusa_o_que_o_servidor_recusa():
+    # Greptile, PR #50: o cliente que só lê o JSON Schema precisa da mesma regra que o servidor aplica.
+    import re
+
+    padrao = json.loads(manifesto.ESQUEMA_JSON.read_text(encoding='utf-8'))['$defs']['Arquivo']['properties']['nome']['pattern']
+    assert re.match(padrao, 'fundo.pmtiles')
+    for nome in ('../fora.pmtiles', 'a/b.pmtiles', 'FUNDO.pmtiles', 'fundo.txt'):
+        assert not re.match(padrao, nome), nome

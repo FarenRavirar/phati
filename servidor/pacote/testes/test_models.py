@@ -18,6 +18,16 @@ def _versao(cenario, numero, vigente=False, fazenda=None):
     )
 
 
+def test_papel_app_e_escapado_como_identificador(settings):
+    # `quote_name` do Django devolveria `"a"b"`; o identificador escapado dobra as aspas.
+    from importlib import import_module
+
+    settings.DATABASES = {**settings.DATABASES, 'app': {**settings.DATABASES['app'], 'USER': 'a"b; DROP TABLE x; --'}}
+    migracao = import_module('pacote.migrations.0001_initial')
+    editor = type('Editor', (), {'connection': connection})()
+    assert migracao.papel_app(editor) == '"a""b; DROP TABLE x; --"'
+
+
 def test_numero_repetido_na_mesma_fazenda_e_recusado(cenario):
     _versao(cenario, 1)
     with pytest.raises(IntegrityError), transaction.atomic():

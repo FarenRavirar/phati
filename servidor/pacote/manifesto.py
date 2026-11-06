@@ -5,27 +5,20 @@ desconhecido: documento nunca entra no pacote (RF-09, A1), e um aplicativo antig
 
 import hashlib
 import json
-import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 FORMATO_VERSAO = 1
 NOME_DO_MANIFESTO = 'manifesto.json'
 ESQUEMA_JSON = Path(__file__).with_name('esquema_manifesto.json')
-_NOME = re.compile(r'^[a-z0-9][a-z0-9_-]*\.pmtiles$')  # nunca barra nem `..`: o nome é só um arquivo do diretório da versão
+PADRAO_DO_NOME = r'^[a-z0-9][a-z0-9_-]*\.pmtiles$'  # nunca barra nem `..`: o nome é só um arquivo do diretório da versão
 
 
 class ManifestoInvalido(ValueError):
     """Manifesto fora do esquema, ou arquivo que não bate com ele."""
-
-
-def _nome_simples(nome: str) -> str:
-    if not _NOME.match(nome):
-        raise ValueError('nome de arquivo inválido')
-    return nome
 
 
 class _Estrito(BaseModel):
@@ -33,7 +26,7 @@ class _Estrito(BaseModel):
 
 
 class Arquivo(_Estrito):
-    nome: Annotated[str, AfterValidator(_nome_simples)]
+    nome: str = Field(pattern=PADRAO_DO_NOME)  # no esquema exportado também: o cliente valida sem repetir a regra
     papel: Literal['fundo', 'ortofoto']
     bytes: int = Field(ge=0)
     sha256: str = Field(pattern=r'^[0-9a-f]{64}$')

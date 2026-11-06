@@ -1,6 +1,7 @@
 """Pacote de referência e estilo base (004b R6, R19, R23; A6, A16)."""
 
 import json
+import struct
 from pathlib import Path
 
 from pacote import manifesto
@@ -16,13 +17,21 @@ def test_o_pacote_de_referencia_passa_no_esquema_e_confere_os_arquivos():
     assert lido.arquivos and lido.formato_versao == 1
 
 
+def _limites(arquivo):
+    """(oeste, sul, leste, norte) do cabeçalho PMTiles v3: quatro int32 little-endian em e7 a partir do byte 102."""
+    cabecalho = arquivo.read_bytes()[:127]
+    assert cabecalho[:7] == b'PMTiles' and cabecalho[7] == 3
+    return tuple(valor / 1e7 for valor in struct.unpack_from('<4i', cabecalho, 102))
+
+
 def test_a_caixa_da_referencia_fica_a_menos_de_0_1_grau_do_centro_de_teste():
-    # R19: o dado sintético fica no centro de teste da 004 (em terra, para o fundo online ter imagem).
+    # R19: o dado sintético fica no centro de teste da 004 (em terra, para o fundo online ter imagem). Lê os limites de cada
+    # arquivo; trocar a referência por outra região faz este teste falhar (Greptile, PR #50).
     for arquivo in (REFERENCIA / 'fundo.pmtiles', REFERENCIA / 'ortofoto.pmtiles'):
-        corpo = arquivo.read_bytes()
-        assert corpo[:7] == b'PMTiles'
-    lon0, lat0 = camadas_sinteticas.LON0, camadas_sinteticas.LAT0
-    assert abs(lon0 - -48.30) < 0.1 and abs(lat0 - -10.75) < 0.1  # as constantes que a referência usa
+        oeste, sul, leste, norte = _limites(arquivo)
+        assert oeste < leste and sul < norte, arquivo.name
+        assert abs((oeste + leste) / 2 - camadas_sinteticas.LON0) < 0.1, arquivo.name
+        assert abs((sul + norte) / 2 - camadas_sinteticas.LAT0) < 0.1, arquivo.name
 
 
 def test_estilo_e_manifesto_nao_citam_o_google_nem_documentos():

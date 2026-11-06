@@ -20,7 +20,16 @@
       "Bash(ssh maruko docker exec phati-app-1 sh -c 'test -n \"$PHATI_MAPA_GOOGLE_CHAVE\" && echo chave=presente || echo chave=ausente')"
     ],
     "deny": [
-      "Bash(*shutdown*)",
+      "Bash(shutdown*)",
+      "Bash(*; shutdown*)",
+      "Bash(*&& shutdown*)",
+      "Bash(*| shutdown*)",
+      "Bash(*shutdown.exe*)",
+      "Bash(*shutdown /*)",
+      "Bash(*shutdown -*)",
+      "Bash(*ssh maruko*shutdown*)",
+      "Bash(*Stop-Computer*)",
+      "Bash(*Restart-Computer*)",
       "Bash(*reboot*)",
       "Bash(*poweroff*)",
       "Bash(*commit --amend*)",
@@ -69,6 +78,14 @@
           {
             "type": "command",
             "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/sync-p.ps1\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/recursos-locais-gate.js\""
           }
         ]
       }

@@ -29,7 +29,8 @@ const REGRAS_CAMINHO = [
   {
     regra: 'dado geoespacial',
     teste: /\.(tiff?|shp|shx|dbf|prj|gpkg|kml|kmz|mbtiles|pmtiles|las|laz|ecw|jp2)$/i,
-    exceto: /^servidor\/pacote\/referencia\/[^/]+\.pmtiles$/i,
+    // Só os dois arquivos da referência, pelo nome (Qodo e Sourcery, PR #50): outro `.pmtiles` na mesma pasta segue barrado.
+    exceto: /^servidor\/pacote\/referencia\/(fundo|ortofoto)\.pmtiles$/i,
   },
   { regra: 'banco ou dump local', teste: /\.(dump|bak|sqlite3?|db)$/i },
   { regra: 'dump compactado', teste: /\.sql\.gz$/i },
@@ -56,8 +57,9 @@ const REGRAS_CONTEUDO = [
   { regra: 'string de conexão com senha', teste: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/i },
 ];
 
-// `==1.1.1.2` é versão fixada de pacote (requirements), não endereço: ignora o que vem logo depois de `==`, `>=`, `~=`.
-const REGEX_IPV4 = /(?<![\w.]|[=~<>]=)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
+const REGEX_IPV4 = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
+const ARQUIVO_DE_REQUISITOS = /(^|\/)(requirements|constraints)[^/]*\.txt$/i;
+const LINHA_DE_VERSAO_FIXADA = /^\s*[A-Za-z0-9][\w.-]*(\[[\w,.-]+\])?\s*(===?|~=|>=|<=|!=|<|>)\s*\d+(\.\d+)*\s*(;[^#]*)?\s*\\?\s*$/;
 
 function ipv4Publico(octetos) {
   const [a, b, c] = octetos;
@@ -104,7 +106,10 @@ function verificarConteudo(caminho, texto, termos) {
     for (const r of REGRAS_CONTEUDO) {
       if (r.teste.test(linha)) achados.push({ arquivo: caminho, linha: numero, regra: r.regra });
     }
-    for (const m of linha.matchAll(REGEX_IPV4)) {
+    // Versão fixada de pacote com quatro números (`nome==a.b.c.d`) não é endereço, mas só vale em arquivo de requisitos e na linha que
+    // é exatamente isso: em qualquer outro texto `ip>=<IP>` segue examinado (Qodo e Sourcery, PR #50).
+    const versaoFixada = ARQUIVO_DE_REQUISITOS.test(caminho) && LINHA_DE_VERSAO_FIXADA.test(linha);
+    for (const m of versaoFixada ? [] : linha.matchAll(REGEX_IPV4)) {
       if (ipv4Publico(m.slice(1, 5).map(Number))) {
         achados.push({ arquivo: caminho, linha: numero, regra: 'endereço IP público' });
       }

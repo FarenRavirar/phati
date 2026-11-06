@@ -93,8 +93,10 @@ def gerar_pacote(
     if not (getattr(quem, 'administrador_plataforma', False) and pode(quem, 'ver', fazenda)):
         raise PermissionDenied
     oeste, sul, leste, norte = validar_caixa(caixa)
-    if not (0 <= zoom_maximo_fundo <= 24 and 0 <= zoom_minimo_ortofoto <= zoom_maximo_ortofoto <= 24):
-        raise ValidationError('Zoom fora de 0 a 24, ou mínimo maior que o máximo.')
+    zooms = (zoom_maximo_fundo, zoom_minimo_ortofoto, zoom_maximo_ortofoto)
+    # `bool` é `int` em Python e `2.5` passa na faixa: os zooms vão como texto para o comando externo, então só inteiro de verdade.
+    if not all(type(z) is int for z in zooms) or not (0 <= zoom_maximo_fundo <= 24 and 0 <= zoom_minimo_ortofoto <= zoom_maximo_ortofoto <= 24):
+        raise ValidationError('Zoom fora de 0 a 24, não inteiro, ou mínimo maior que o máximo.')
     fundo = _arquivo_existente(fundo_origem, 'O fundo de origem')
     foto = _arquivo_existente(ortofoto, 'A ortofoto') if ortofoto else None
 

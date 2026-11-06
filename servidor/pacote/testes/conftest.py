@@ -55,7 +55,7 @@ def entrar(db, cpf_novo):
 
     from identidade.models import Pessoa
     from permissao.models import Concessao
-    from territorio.models import Fazenda
+    from territorio.models import Fazenda, SubArea
 
     def abrir(cargo=None, escopo=None, administrador_plataforma=False):
         cpf = cpf_novo()
@@ -64,7 +64,12 @@ def entrar(db, cpf_novo):
         pessoa.administrador_plataforma = administrador_plataforma
         pessoa.save()
         if cargo is not None:
-            lugar = {'empresa': escopo.empresa, 'fazenda': escopo} if isinstance(escopo, Fazenda) else {'empresa': escopo}
+            if isinstance(escopo, SubArea):
+                lugar = {'empresa': escopo.empresa, 'fazenda': escopo.fazenda, 'sub_area': escopo}
+            elif isinstance(escopo, Fazenda):
+                lugar = {'empresa': escopo.empresa, 'fazenda': escopo}
+            else:
+                lugar = {'empresa': escopo}
             Concessao.objects.create(pessoa=pessoa, cargo=cargo, concedida_por=pessoa, **lugar)
         cliente = Client()
         assert cliente.post('/entrar', {'cpf': cpf, 'senha': SENHA}).status_code == 302

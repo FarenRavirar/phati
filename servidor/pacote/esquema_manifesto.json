@@ -32,6 +32,7 @@
           "type": "string"
         },
         "nome": {
+          "pattern": "^[a-z0-9][a-z0-9_-]*\\.pmtiles$",
           "title": "Nome",
           "type": "string"
         },

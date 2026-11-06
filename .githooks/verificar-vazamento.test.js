@@ -164,8 +164,23 @@ test('integração: commit com segredo falha, commit limpo passa, nada vaza na s
   }
 });
 
-test('versão fixada de pacote com quatro números não é IP; IP atribuído com = segue barrado', () => {
-  assert.deepEqual(sobre('click-plugins==1.1.1.2', 'servidor/requirements.txt'), []);
-  // IP montado: o literal seria barrado pelo próprio hook ao commitar este arquivo.
-  assert.ok(sobre('host=' + [8, 8, 4, 4].join('.')).length > 0);
+test('versão fixada de pacote não é IP; IP público em qualquer outro texto segue barrado', () => {
+  const publico = [8, 8, 4, 4].join('.'); // montado: o literal seria barrado pelo próprio hook ao commitar este arquivo
+  const pino = [1, 1, 1, 2].join('.'); // montados: os literais seriam barrados pelo próprio hook ao commitar este arquivo
+  const outro = [2, 3, 4, 5].join('.');
+  for (const linha of [`click-plugins==${pino}`, `click-plugins == ${pino} \\`, `pacote[extra]>=${outro} ; python_version >= "3.12"`]) {
+    assert.deepEqual(sobre(linha, 'servidor/requirements.pacote.txt'), [], linha);
+  }
+  assert.ok(sobre(`click-plugins==${pino}`, 'docs/nota.md').length > 0, 'a isenção vale só em arquivo de requisitos');
+  for (const linha of [`host=${publico}`, `ip_publico>=${publico}`, `# click==${publico}`, `servidor == ${publico} # nota`]) {
+    assert.ok(sobre(linha).length > 0, linha);
+    // `nome>=a.b.c.d` num arquivo de requisitos é, por definição, uma versão de pacote: ali a isenção vale.
+    if (!linha.startsWith('ip_publico')) assert.ok(sobre(linha, 'servidor/requirements.txt').length > 0, `${linha} (em requirements)`);
+  }
+});
+
+test('só os dois arquivos da referência passam; outro .pmtiles na mesma pasta é barrado', () => {
+  assert.deepEqual(verificarCaminho('servidor/pacote/referencia/fundo.pmtiles'), []);
+  assert.deepEqual(verificarCaminho('servidor/pacote/referencia/ortofoto.pmtiles'), []);
+  assert.ok(verificarCaminho('servidor/pacote/referencia/fazenda-real.pmtiles').length > 0);
 });
