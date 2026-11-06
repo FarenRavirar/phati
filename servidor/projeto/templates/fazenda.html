@@ -23,4 +23,5 @@
 </div>
 {% endblock %}
 {% block scripts %}{% if mapa_ativo %}<link rel="stylesheet" href="{% static 'projeto/terceiros/maplibre/maplibre-gl.css' %}" {% csp_nonce_attr %}>
+{% if pacote %}<script src="{% static 'projeto/terceiros/pmtiles/pmtiles.js' %}" {% csp_nonce_attr %}></script>{% endif %}
 <script type="module" src="{% static 'projeto/mapa.js' %}" {% csp_nonce_attr %}></script>{% endif %}{% endblock %}

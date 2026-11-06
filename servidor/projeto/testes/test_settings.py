@@ -57,7 +57,7 @@ def test_papel_app_nao_e_dono_e_papel_dono_e():
 
 @usa_app
 def test_papel_app_le_tabela_do_dono_mas_nao_cria_tabela():
-    assert _um('app', 'SELECT count(*) FROM permissao') == (30,)
+    assert _um('app', 'SELECT count(*) FROM permissao') == (31,)
     with pytest.raises(ProgrammingError, match='permission denied'), connections['app'].cursor() as consulta:
         consulta.execute('CREATE TABLE intrusa (id int)')
 
@@ -67,6 +67,47 @@ def test_compose_repassa_toda_variavel_que_o_settings_le():
     lidas = set(re.findall(r'PHATI_[A-Z_]+', CAMINHO.read_text(encoding='utf-8')))
     listadas = set(re.findall(r'PHATI_[A-Z_]+', (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')))
     assert lidas - listadas == set()
+
+
+@pytest.mark.parametrize('valor', [None, ''])
+def test_pacotes_e_ferramentas_usam_o_padrao_com_variavel_ausente_ou_vazia(monkeypatch, valor):
+    # CodeRabbit, PR #50: o `.env.exemplo` traz as três vazias; vazio não pode virar `Path('')` nem comando vazio.
+    for nome in ('PHATI_PACOTES_DIR', 'PHATI_PMTILES_BIN', 'PHATI_RIO_BIN'):
+        if valor is None:
+            monkeypatch.delenv(nome, raising=False)
+        else:
+            monkeypatch.setenv(nome, valor)
+    configuracao = runpy.run_path(str(CAMINHO))
+    assert configuracao['PACOTES_DIR'] == Path('/pacotes')
+    assert configuracao['PMTILES_BIN'] == 'pmtiles'
+    assert configuracao['RIO_BIN'] == 'rio'
+
+
+def test_pacotes_e_ferramentas_preservam_o_valor_explicito(monkeypatch):
+    monkeypatch.setenv('PHATI_PACOTES_DIR', '/dados/pacotes')
+    monkeypatch.setenv('PHATI_PMTILES_BIN', '/opt/pmtiles')
+    monkeypatch.setenv('PHATI_RIO_BIN', '/opt/rio')
+    configuracao = runpy.run_path(str(CAMINHO))
+    assert configuracao['PACOTES_DIR'] == Path('/dados/pacotes')
+    assert configuracao['PMTILES_BIN'] == '/opt/pmtiles'
+    assert configuracao['RIO_BIN'] == '/opt/rio'
+
+
+def test_volume_dos_pacotes_monta_no_mesmo_caminho_que_o_settings_usa():
+    # CodeRabbit, PR #50: com `PHATI_PACOTES_DIR` diferente de `/pacotes` o volume tem de acompanhar, senão a geração gravaria
+    # no sistema de arquivos efêmero do contêiner e perderia os pacotes ao recriá-lo.
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'pacotes:${PHATI_PACOTES_DIR:-/pacotes}' in compose
+    assert 'PHATI_PACOTES_DIR: ${PHATI_PACOTES_DIR:-/pacotes}' in compose
+
+
+def test_dono_do_volume_dos_pacotes_e_acertado_no_caminho_configurado():
+    # Greptile, PR #50: volume novo nasce de root; com `PHATI_PACOTES_DIR` fora de `/pacotes` o `aplicacao` não conseguiria gravar.
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'command: chown 10001 ${PHATI_PACOTES_DIR:-/pacotes}' in compose
+    assert 'pacotes_dono: {condition: service_completed_successfully}' in compose
+    dockerfile = (CAMINHO.parents[1] / 'Dockerfile').read_text(encoding='utf-8')
+    assert 'useradd --system --uid 10001' in dockerfile
 
 
 def test_estaticos_vao_para_o_volume_que_o_nginx_serve(monkeypatch):
@@ -303,3 +344,31 @@ def test_nginx_entrega_mjs_como_javascript_sem_perder_os_outros_tipos():
     assert re.search(r'^\s*types \{ text/javascript mjs; \}', bloco.group(1), re.M)
     # O `mime.types` do nginx já traz o próprio `types { }`: aninhar derruba o nginx na partida.
     assert not re.search(r'types \{[^}]*include', bloco.group(1))
+
+
+def _com_totais(monkeypatch, diaria, mensal):
+    for nome, valor in (('PHATI_MAPA_GOOGLE_COTA_DIARIA', diaria), ('PHATI_MAPA_GOOGLE_GRATIS_MENSAL', mensal)):
+        if valor is None:
+            monkeypatch.delenv(nome, raising=False)
+        else:
+            monkeypatch.setenv(nome, valor)
+    return runpy.run_path(str(CAMINHO))
+
+
+@pytest.mark.parametrize('valor', [None, '', '   '])
+def test_totais_do_monitor_usam_o_padrao_da_doc_do_google_se_ausentes(monkeypatch, valor):
+    configuracao = _com_totais(monkeypatch, valor, valor)
+    assert (configuracao['MAPA_GOOGLE_COTA_DIARIA'], configuracao['MAPA_GOOGLE_GRATIS_MENSAL']) == (15000, 100000)
+
+
+def test_totais_do_monitor_aceitam_o_valor_do_console_inclusive_zero(monkeypatch):
+    configuracao = _com_totais(monkeypatch, '9000', '0')
+    assert (configuracao['MAPA_GOOGLE_COTA_DIARIA'], configuracao['MAPA_GOOGLE_GRATIS_MENSAL']) == (9000, 0)
+
+
+@pytest.mark.parametrize('valor', ['abc', '-1', '1.5', '1e3', '²'])
+def test_total_do_monitor_invalido_derruba_o_servidor(monkeypatch, valor):
+    with pytest.raises(ImproperlyConfigured, match='PHATI_MAPA_GOOGLE_COTA_DIARIA'):
+        _com_totais(monkeypatch, valor, None)
+    with pytest.raises(ImproperlyConfigured, match='PHATI_MAPA_GOOGLE_GRATIS_MENSAL'):
+        _com_totais(monkeypatch, None, valor)

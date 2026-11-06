@@ -16,6 +16,7 @@ from django.db import transaction
 from comum.sintetico import cpf_sintetico
 from identidade import senha
 from identidade.models import Pessoa
+from pacote.sintetico import instalar_referencia
 from permissao import convite, delegacao
 from permissao.models import Cargo
 from territorio import cadastro
@@ -89,6 +90,7 @@ def popular():
         empresa_b, administrador_b = _empresa(plataforma, 'Empresa Inventada B', 'Administrador Beta', 3, credencial)
         fazendas_a = [cadastro.criar_fazenda(administrador_a, empresa_a, f'Fazenda Inventada A{n}') for n in (1, 2, 3)]
         fazenda_b = cadastro.criar_fazenda(administrador_b, empresa_b, 'Fazenda Inventada B1')
+        instalar_referencia(fazendas_a[1])  # pacote de referência só na A2: as fazendas A1 e A3 seguem sem pacote (testes do mapa da 004 e da 004b)
         raiz = cadastro.criar_sub_area(administrador_a, fazendas_a[0], 'Talhao 1')
         filha = cadastro.criar_sub_area(administrador_a, fazendas_a[0], 'Gleba 1', raiz)
         cadastro.criar_sub_area(administrador_a, fazendas_a[0], 'Lote 1', filha)

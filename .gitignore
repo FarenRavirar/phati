@@ -58,6 +58,7 @@ privado/
 *.gdb/
 *.mbtiles
 *.pmtiles
+!servidor/pacote/referencia/*.pmtiles
 *.las
 *.laz
 *.ecw

@@ -63,6 +63,8 @@ travar() {
 [[ -z "$opcao" || "$opcao" == "--sem-migracao" ]] || erro "opção desconhecida: só --sem-migracao"
 [[ -f "$dir/.env" ]] || erro "$dir/.env ausente (segredos ficam só na VM)"
 [[ -d "$dir/repo/.git" ]] || erro "$dir/repo não é um clone do repositório"
+# Falha cedo e com instrução, antes de qualquer passo: o implantar.sh instalado sem o backup.sh ao lado pararia no backup.
+[[ -f "$(dirname "$0")/backup.sh" ]] || erro "backup.sh ausente ao lado de $0; instale-o junto, como administrador"
 travar "$@"
 
 cd "$dir/repo"
@@ -91,12 +93,8 @@ if [[ -n "$(compor ps -q banco 2>/dev/null)" ]] || "$docker" volume inspect "${C
 fi
 if [[ "$tem_dados" == 1 ]]; then
   compor up -d --wait banco
-  mkdir -p "$dir/backups"
-  arquivo="$dir/backups/phati-$(date -u +%Y%m%dT%H%M%SZ)-${anterior:0:12}.dump"
-  # As credenciais ficam no ambiente do contêiner do banco; nada delas passa por este script nem pela saída.
-  (umask 077; compor exec -T banco sh -c 'PGPASSWORD="$PHATI_BANCO_DONO_SENHA" pg_dump -h 127.0.0.1 -U "$PHATI_BANCO_DONO_USUARIO" -Fc "$PHATI_BANCO_NOME"' > "$arquivo")
-  [[ -s "$arquivo" ]] || erro "backup vazio: $arquivo"
-  ls -1t "$dir"/backups/*.dump | tail -n +15 | xargs -r rm -f --
+  # backup.sh fica ao lado deste script (na VM, em /opt/phati/bin, de dono root, como ele).
+  PHATI_DIR="$dir" DOCKER="$docker" bash "$(dirname "$0")/backup.sh" "${anterior:0:12}" >/dev/null
 else
   echo "sem banco nem volume: primeira implantação, sem backup"
 fi

@@ -2,6 +2,8 @@
 // (`fundo-neutro.js` agora, o fundo online na Fase 3); trocá-lo não toca camada, painel nem ficha.
 // Carrega o MapLibre embutido só quando a página tem o elemento `[data-mapa]`, então importar este módulo no Node é seguro.
 import { fundo as fundoNeutro } from './fundo-neutro.js';
+import { ID_ORTOFOTO, dataPtBr, erroDeFontePropria, fundoAberto, ortofoto as ortofotoDoPacote, pacoteDaPagina, registrarProtocolo, validarEstilo } from './fundo-aberto.js';
+import { criarTroca } from './troca-fundo.js';
 
 // Área rural de Porto Nacional (TO), em terra para o fundo online ter imagem; mesmo ponto de LON0, LAT0 em camadas_sinteticas.py. Só vale até as camadas chegarem; depois o mapa enquadra a extensão delas.
 export const CENTRO_INICIAL = [-48.30, -10.75];
@@ -60,7 +62,8 @@ export function camadasDaColecao(colecao) {
   return [...vistas.values()];
 }
 
-export const idsDeDesenho = (id) => ({ preenchimento: `${id}-preenchimento`, contorno: `${id}-contorno` });
+// A ortofoto (004b R8) é uma camada raster só: um id de desenho, sem preenchimento nem contorno, e fora da consulta (sem valor de raster).
+export const idsDeDesenho = (id) => (id === ID_ORTOFOTO ? { imagem: id } : { preenchimento: `${id}-preenchimento`, contorno: `${id}-contorno` });
 
 export const opacidadeDe = (transparencia) => Math.min(1, Math.max(0, 1 - Number(transparencia) / 100));
 
@@ -262,10 +265,13 @@ function montarPainelDeCamadas(estado, aoMudar) {
     legenda.replaceChildren(...ligadasNaOrdem(estado.ordem, estado.ligadas).map((id) => {
       const camada = estado.camadas.get(id);
       const item = elemento('li', 'legenda-item');
-      const amostra = elemento('span', 'legenda-amostra');
-      amostra.style.backgroundColor = camada.corResolvida;
-      amostra.setAttribute('aria-hidden', 'true');
-      item.append(amostra, ' ', camada.nome);
+      if (!camada.raster) { // a ortofoto é imagem: não tem cor de legenda
+        const amostra = elemento('span', 'legenda-amostra');
+        amostra.style.backgroundColor = camada.corResolvida;
+        amostra.setAttribute('aria-hidden', 'true');
+        item.append(amostra, ' ');
+      }
+      item.append(camada.nome);
       return item;
     }));
   }
@@ -315,9 +321,14 @@ function mostrarConsulta(itens, lngLat) {
 
 // ---- Montagem -------------------------------------------------------------------------------------------------------
 
-function desenharCamadas(mapa, colecao, estado) {
+function desenharCamadas(mapa, colecao, estado, imagem) {
   mapa.addSource('camadas', { type: 'geojson', data: colecao });
   for (const id of [...estado.ordem].reverse()) {
+    if (id === ID_ORTOFOTO) { // a ortofoto entra desligada (`ortofotoDoPacote`) e com a opacidade do painel
+      for (const [fonte, definicao] of Object.entries(imagem.fontes)) mapa.addSource(fonte, definicao);
+      for (const camada of imagem.camadas) mapa.addLayer({ ...camada, paint: { ...camada.paint, 'raster-opacity': opacidadeDe(estado.transparencia.get(id)) } });
+      continue;
+    }
     const { preenchimento, contorno } = idsDeDesenho(id);
     const cor = estado.camadas.get(id).corResolvida;
     const opacidade = opacidadeDe(estado.transparencia.get(id));
@@ -329,14 +340,18 @@ function desenharCamadas(mapa, colecao, estado) {
 
 function aplicar(mapa, estado, mudanca) {
   const { id } = mudanca;
-  const { preenchimento, contorno } = idsDeDesenho(id);
+  const { preenchimento, contorno, imagem } = idsDeDesenho(id);
   if (mudanca.tipo === 'ligar') {
     estado.ligadas[mudanca.ligada ? 'add' : 'delete'](id);
-    for (const camada of [preenchimento, contorno]) mapa.setLayoutProperty(camada, 'visibility', mudanca.ligada ? 'visible' : 'none');
+    for (const camada of Object.values(idsDeDesenho(id))) mapa.setLayoutProperty(camada, 'visibility', mudanca.ligada ? 'visible' : 'none');
   } else if (mudanca.tipo === 'transparencia') {
     estado.transparencia.set(id, mudanca.valor);
-    mapa.setPaintProperty(preenchimento, 'fill-opacity', opacidadeDe(mudanca.valor));
-    mapa.setPaintProperty(contorno, 'line-opacity', opacidadeDe(mudanca.valor));
+    if (imagem) {
+      mapa.setPaintProperty(imagem, 'raster-opacity', opacidadeDe(mudanca.valor));
+    } else {
+      mapa.setPaintProperty(preenchimento, 'fill-opacity', opacidadeDe(mudanca.valor));
+      mapa.setPaintProperty(contorno, 'line-opacity', opacidadeDe(mudanca.valor));
+    }
   } else if (mudanca.tipo === 'mover') {
     estado.ordem = moverNaOrdem(estado.ordem, id, mudanca.passo);
     for (const camada of ordemDeDesenho(estado.ordem)) mapa.moveLayer(camada);
@@ -345,7 +360,15 @@ function aplicar(mapa, estado, mudanca) {
 
 let recentralizado = false; // achado real (review PR #36, Sourcery, média): a pessoa já escolheu o centro, o enquadramento inicial não o desfaz
 
-function ligarCamadas(mapa, alvo, colecao) {
+// Crédito da ortofoto (R8): aparece enquanto a camada está ligada, sobre qualquer fundo, abaixo do mapa como o do fundo.
+function mostrarAtribuicaoDaOrtofoto(alvo, imagem, ligada) {
+  const caixa = alvo.parentElement.querySelector('[data-atribuicao-ortofoto]');
+  if (!caixa) return;
+  caixa.textContent = imagem?.atribuicao ?? '';
+  caixa.hidden = !ligada || !imagem?.atribuicao;
+}
+
+function ligarCamadas(mapa, alvo, colecao, imagem) {
   const lista = camadasDaColecao(colecao);
   const estilo = getComputedStyle(document.documentElement);
   const camadas = new Map(lista.map((c) => {
@@ -357,16 +380,22 @@ function ligarCamadas(mapa, alvo, colecao) {
     camadas, ordem: lista.map((c) => c.id), ligadas: new Set(lista.map((c) => c.id)),
     transparencia: new Map(lista.map((c) => [c.id, TRANSPARENCIA_INICIAL])),
   };
-  desenharCamadas(mapa, colecao, estado);
+  if (imagem) { // ortofoto do pacote: a camada mais baixa do produto, desligada e opaca, até a pessoa ligar (R8)
+    camadas.set(ID_ORTOFOTO, { id: ID_ORTOFOTO, nome: imagem.nome, raster: true });
+    estado.ordem.push(ID_ORTOFOTO);
+    estado.transparencia.set(ID_ORTOFOTO, 0);
+  }
+  desenharCamadas(mapa, colecao, estado, imagem);
   if (!recentralizado) mapa.fitBounds(limitesDaColecao(colecao), { padding: 24, duration: 0 });
   const atualizarPainel = montarPainelDeCamadas(estado, (mudanca) => {
     aplicar(mapa, estado, mudanca);
+    if (mudanca.tipo === 'ligar' && mudanca.id === ID_ORTOFOTO) mostrarAtribuicaoDaOrtofoto(alvo, imagem, mudanca.ligada);
     atualizarPainel(mudanca);
     if (mudanca.tipo !== 'transparencia') limparConsulta();
   });
   limparEstado('camadas');
   mapa.on('click', (e) => {
-    const alcancaveis = ligadasNaOrdem(estado.ordem, estado.ligadas).map((id) => idsDeDesenho(id).preenchimento);
+    const alcancaveis = ligadasNaOrdem(estado.ordem, estado.ligadas).map((id) => idsDeDesenho(id).preenchimento).filter(Boolean);
     const achadas = alcancaveis.length ? mapa.queryRenderedFeatures(e.point, { layers: alcancaveis }) : [];
     mostrarConsulta(ordenarConsulta(achadas, ligadasNaOrdem(estado.ordem, estado.ligadas)), e.lngLat);
   });
@@ -404,7 +433,7 @@ function falharRegioes(estado, texto) {
   for (const id of ['camadas', 'consulta', 'ficha']) definirEstado(id, estado, texto);
 }
 
-async function carregarCamadas(mapa, alvo) {
+async function carregarCamadas(mapa, alvo, imagem) {
   definirEstado('camadas', 'carregando');
   const controle = new AbortController();
   const prazo = Number(alvo.dataset.camadasTempoLimite) || TEMPO_LIMITE_PADRAO_MS;
@@ -429,7 +458,7 @@ async function carregarCamadas(mapa, alvo) {
       falharRegioes(estado, estado === 'erro' ? FALHA : undefined);
       return;
     }
-    ligarCamadas(mapa, alvo, colecao);
+    ligarCamadas(mapa, alvo, colecao, imagem);
   } catch {
     falharRegioes('erro', FALHA); // rede, prazo, JSON quebrado, forma errada ou erro ao desenhar
   } finally {
@@ -455,66 +484,120 @@ function avisarFundo(alvo, texto) {
   caixa.hidden = false;
 }
 
-async function carregarFundoOnline(alvo) {
+// Nome do fundo que fica de pé quando o online cai ou nem abre: o do pacote da fazenda, ou o neutro sem pacote (R9).
+const nomeDoFundo = (troca) => (troca.estado().ativo === 'proprio' ? 'fundo do mapa da fazenda' : 'fundo neutro');
+
+async function carregarFundoOnline(alvo, troca) {
   const { fundoOnlineChave: chave, fundoOnlineModulo: modulo } = alvo.dataset;
   if (!chave || !modulo) return null;
   try {
     return await comPrazo((async () => (await import(modulo)).criarFundo({ chave }))(), PRAZO_FUNDO_MS);
   } catch {
     alvo.dataset.fundoOnlineErro = 'sim';
-    avisarFundo(alvo, 'O fundo do mapa está indisponível. Mostrando o fundo neutro.');
+    avisarFundo(alvo, `O fundo do mapa está indisponível. Mostrando o ${nomeDoFundo(troca)}.`);
     return null;
   }
 }
 
 // O satélite só carrega quando a pessoa o liga: cada tile do fundo online é cobrado, então quem abre a fazenda para outra coisa não paga.
-// Antes do clique o mapa tem só o fundo neutro (0 sessão, 0 tile). Depois de ligado, o cache que o provedor autoriza (HTTP, pelos
-// cabeçalhos, 24 h) segue valendo: tile fresco aparece mesmo sem rede. Faltando serviço (sem rede, sessão recusada, cota), o
-// satélite se desliga inteiro e o fundo neutro, que nunca saiu de baixo, fica sozinho: fundo online e fundo próprio nunca juntos
-// (D088; R9, R10, R22 da 004b). A pessoa liga de novo pelo mesmo botão. Devolve `habilitar` (mapa pronto) e `desligar(texto)`.
-function prepararSatelite(mapa, alvo, aoLigar) {
+// Antes do clique o mapa tem só o fundo da fazenda (ou o neutro, sem pacote): 0 sessão, 0 tile. Depois de ligado, o cache que o provedor
+// autoriza (HTTP, pelos cabeçalhos, 24 h) segue valendo: tile fresco aparece mesmo sem rede. Faltando serviço (sem rede, sessão
+// recusada, cota), o satélite se desliga inteiro e o fundo da fazenda volta; fundo online e fundo próprio nunca juntos (D088; R9, R10,
+// R22 da 004b), por `troca-fundo.js`. Com pacote, o mesmo botão volta ao fundo da fazenda (escolha manual nos dois sentidos, R9).
+// Devolve `habilitar` (mapa pronto) e `desligar(texto)`; `{fundo}` no texto vira o nome do fundo que ficou.
+function prepararSatelite(mapa, alvo, troca, aoMudar) {
   const botao = document.querySelector('[data-satelite]');
   if (!botao) return { habilitar() {}, desligar() {} };
   const atribuicao = alvo.parentElement.querySelector('[data-mapa-atribuicao]');
-  let ativo;
   async function ligar() {
     botao.disabled = true;
-    const online = await carregarFundoOnline(alvo);
+    const online = await carregarFundoOnline(alvo, troca);
     if (!online) {
       botao.disabled = false; // `carregarFundoOnline` já avisou; a pessoa pode tentar de novo
       return;
     }
-    for (const [id, fonte] of Object.entries(online.fontes)) mapa.addSource(id, fonte);
-    const antes = antesDaPrimeiraCamada(mapa.getStyle().layers);
-    for (const camada of online.camadas) mapa.addLayer(camada, antes);
+    troca.usarOnline(online);
     atribuicao.hidden = false;
     online.aoCriarMapa(mapa, { dados: atribuicao.querySelector('[data-atribuicao-dados]') });
     alvo.parentElement.querySelector('[data-mapa-fundo-aviso]')?.setAttribute('hidden', '');
     delete alvo.dataset.fundoOnlineErro; // recuperou: o erro da tentativa anterior não vale mais (achado Sourcery, baixa)
     delete alvo.dataset.fundoOnlineSessao;
-    ativo = online;
-    aoLigar(online);
     alvo.dataset.mapaSatelite = 'sim';
-    botao.textContent = 'Satélite ativado';
+    const temProprio = troca.temProprio(); // pacote ausente ou que já falhou: não há fundo da fazenda para onde voltar
+    botao.textContent = temProprio ? 'Voltar ao fundo da fazenda' : 'Satélite ativado';
+    botao.disabled = !temProprio; // o botão fica parado, como na 004
+    aoMudar();
   }
-  botao.addEventListener('click', ligar);
+  function voltar() {
+    troca.usarProprio({ manual: true });
+    atribuicao.hidden = true;
+    alvo.dataset.mapaSatelite = 'nao';
+    botao.textContent = 'Ativar satélite';
+    alvo.parentElement.querySelector('[data-mapa-fundo-aviso]')?.setAttribute('hidden', '');
+    aoMudar();
+  }
+  botao.addEventListener('click', () => (troca.estado().ativo === 'online' ? voltar() : ligar()));
   return {
     habilitar() { botao.disabled = false; },
     desligar(texto) {
-      if (!ativo) return;
-      const online = ativo;
-      ativo = undefined;
-      online.parar?.(); // sem renovar sessão nem consultar crédito de um fundo que saiu
-      for (const camada of online.camadas) mapa.removeLayer(camada.id);
-      for (const id of Object.keys(online.fontes)) mapa.removeSource(id);
+      if (troca.estado().ativo !== 'online') return;
+      troca.falhouOnline(); // para o fundo online (sem renovar sessão nem consultar crédito) e recoloca o da fazenda
       atribuicao.hidden = true;
-      aoLigar(undefined);
       alvo.dataset.mapaSatelite = 'nao';
       botao.textContent = 'Ativar satélite';
       botao.disabled = false;
-      avisarFundo(alvo, texto);
+      avisarFundo(alvo, texto.replace('{fundo}', nomeDoFundo(troca)));
+      aoMudar();
     },
   };
+}
+
+export const nomeDaOrtofoto = (ortofoto) => (ortofoto.capturadaEm ? `Ortofoto (captura em ${dataPtBr(ortofoto.capturadaEm)})` : 'Ortofoto');
+
+// Pacote da fazenda (004b R7, R8): protocolo `pmtiles://`, estilo compartilhado e as duas fontes. Qualquer falha aqui deixa o mapa no
+// fundo neutro com aviso, nunca quebrado (R9); sem `data-pacote-fundo` (sem pacote, sem permissão) nada disso roda.
+async function prepararPacote(maplibre, alvo) {
+  const pacote = pacoteDaPagina(alvo.dataset);
+  if (!pacote) return { proprio: null, imagem: null };
+  try {
+    return await comPrazo((async () => {
+      registrarProtocolo(maplibre, globalThis.pmtiles);
+      const resposta = await fetch(pacote.estilo, { credentials: 'same-origin' });
+      if (!resposta.ok) throw new Error(`estilo base ${resposta.status}`);
+      const estilo = validarEstilo(await resposta.json());
+      const origem = window.location.origin;
+      const proprio = fundoAberto({ estilo, url: pacote.fundo.url, origem });
+      const imagem = pacote.ortofoto ? { ...ortofotoDoPacote({ estilo, url: pacote.ortofoto.url, origem }), nome: nomeDaOrtofoto(pacote.ortofoto), atribuicao: pacote.ortofoto.atribuicao } : null;
+      return { proprio, imagem };
+    })(), PRAZO_FUNDO_MS);
+  } catch {
+    alvo.dataset.fundoProprioErro = 'sim';
+    avisarFundo(alvo, 'O fundo do mapa da fazenda está indisponível. Mostrando o fundo neutro.');
+    return { proprio: null, imagem: null };
+  }
+}
+
+// Atribuição do fundo ativo (R10): a do OpenStreetMap só enquanto o fundo da fazenda é o ativo; a do fundo online o `prepararSatelite` mostra.
+function mostrarAtribuicaoAberta(alvo, troca) {
+  const caixa = alvo.parentElement.querySelector('[data-atribuicao-aberta]');
+  alvo.dataset.fundoAtivo = troca.estado().ativo;
+  if (!caixa) return;
+  caixa.textContent = alvo.dataset.pacoteAtribuicao ?? '';
+  caixa.hidden = troca.estado().ativo !== 'proprio';
+}
+
+// Erro de fonte do pacote: sem `tile` é o arquivo que não abriu (403, 404, rede) e o fundo da fazenda sai; com `tile` é um pedaço que
+// falhou e só se avisa. A ortofoto nunca derruba o mapa.
+function tratarErroDoPacote(e, alvo, troca) {
+  const fundo = e.sourceId === 'fundo';
+  if (fundo && !e.tile) {
+    alvo.dataset.fundoProprioErro = 'sim';
+    troca.falhouProprio();
+    mostrarAtribuicaoAberta(alvo, troca);
+    avisarFundo(alvo, 'O fundo do mapa da fazenda não abriu. Mostrando o fundo neutro.');
+  } else {
+    avisarFundo(alvo, fundo ? 'Parte do fundo do mapa da fazenda não carregou. As camadas seguem normais.' : 'A ortofoto não carregou. As outras camadas seguem normais.');
+  }
 }
 
 async function iniciar() {
@@ -522,27 +605,34 @@ async function iniciar() {
   if (!alvo) return;
   try {
     const maplibre = await import('./terceiros/maplibre/maplibre-gl.mjs');
+    const { proprio, imagem } = await prepararPacote(maplibre, alvo);
     const mapa = criarMapa(maplibre, alvo, fundoNeutro());
-    let fundoOnline;
-    const satelite = prepararSatelite(mapa, alvo, (fundo) => { fundoOnline = fundo; });
+    const troca = criarTroca(mapa, { proprio, antes: () => antesDaPrimeiraCamada(mapa.getStyle().layers) });
+    const satelite = prepararSatelite(mapa, alvo, troca, () => mostrarAtribuicaoAberta(alvo, troca));
     alvo.mapa = mapa; // os testes de navegador projetam coordenadas e consultam o estilo por aqui
     esconderAviso(alvo);
     ligarRecentralizar(mapa);
     mapa.once('load', async () => {
       alvo.dataset.mapaFundo = mapa.getPaintProperty('fundo-neutro', 'background-color');
-      await carregarCamadas(mapa, alvo);
+      troca.usarProprio();
+      mostrarAtribuicaoAberta(alvo, troca);
+      await carregarCamadas(mapa, alvo, imagem);
       alvo.dataset.mapaPronto = 'sim';
       satelite.habilitar();
     });
     mapa.on('error', (e) => {
-      if (erroDeTileDoFundo(e, fundoOnline?.fontes)) {
+      if (erroDeFontePropria(e)) {
+        tratarErroDoPacote(e, alvo, troca);
+        return; // fonte do pacote nunca é fatal: o neutro e as camadas seguem
+      }
+      if (erroDeTileDoFundo(e, troca.online()?.fontes)) {
         alvo.dataset.fundoOnlineErro = 'sim';
         const motivo = motivoParaDesligar(e.error?.status);
         if (motivo === 'sessao') {
-          fundoOnline.descartarSessao?.(); // 401: esquece a guardada, a próxima ativação cria outra (review PR #44, CodeRabbit)
+          troca.online()?.descartarSessao?.(); // 401: esquece a guardada, a próxima ativação cria outra (review PR #44, CodeRabbit)
           satelite.desligar('A sessão do satélite não vale mais. Ative o satélite de novo.');
         } else if (motivo === 'servico') {
-          satelite.desligar('Sem rede ou sem resposta do fundo online: o satélite foi desligado e o mapa voltou ao fundo neutro. Ative o satélite de novo quando quiser.');
+          satelite.desligar('Sem rede ou sem resposta do fundo online: o satélite foi desligado e o mapa voltou ao {fundo}. Ative o satélite de novo quando quiser.');
         } else {
           avisarFundo(alvo, 'Parte do fundo do mapa não carregou. As camadas seguem normais.'); // 400 e 404: sem imagem naquele ponto
         }

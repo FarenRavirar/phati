@@ -45,6 +45,12 @@ test('caminhos proibidos são bloqueados', () => {
     '.claude/settings.local.json',
     'dados/qualquer.txt',
     'segredos/token.txt',
+    // exceção da referência é estreita: só `.pmtiles` direto na pasta dela (004b T1.7a)
+    'servidor/pacote/referencia/ortofoto.tif',
+    'servidor/pacote/referencia/sub/fundo.pmtiles',
+    'servidor/pacote/fundo.pmtiles',
+    'outro/servidor/pacote/referencia/fundo.pmtiles',
+    'mapas/fundo.pmtiles',
   ];
   for (const caminho of proibidos) {
     assert.ok(verificarCaminho(caminho).length > 0, `deveria bloquear: ${caminho}`);
@@ -61,6 +67,8 @@ test('caminhos legítimos passam', () => {
     'migracoes/001_criar_fazenda.sql',
     'docs/pesquisa/00-arquitetura-base.md',
     '.githooks/verificar-vazamento.js',
+    'servidor/pacote/referencia/fundo.pmtiles', // pacote sintético de referência (004b R6)
+    'servidor/pacote/referencia/ortofoto.pmtiles',
   ];
   for (const caminho of permitidos) {
     assert.deepEqual(verificarCaminho(caminho), [], `deveria passar: ${caminho}`);
@@ -154,4 +162,44 @@ test('integração: commit com segredo falha, commit limpo passa, nada vaza na s
   } finally {
     fs.rmSync(raiz, { recursive: true, force: true });
   }
+});
+
+test('versão fixada de pacote não é IP; IP público em qualquer outro texto segue barrado', () => {
+  const publico = [8, 8, 4, 4].join('.'); // montado: o literal seria barrado pelo próprio hook ao commitar este arquivo
+  const pino = [1, 1, 1, 2].join('.'); // montados: os literais seriam barrados pelo próprio hook ao commitar este arquivo
+  const outro = [2, 3, 4, 5].join('.');
+  for (const linha of [`click-plugins==${pino}`, `click-plugins == ${pino} \\`, `pacote[extra]>=${outro} ; python_version >= "3.12"`]) {
+    assert.deepEqual(sobre(linha, 'servidor/requirements.pacote.txt'), [], linha);
+  }
+  assert.ok(sobre(`click-plugins==${pino}`, 'docs/nota.md').length > 0, 'a isenção vale só em arquivo de requisitos');
+  for (const linha of [`host=${publico}`, `ip_publico>=${publico}`, `# click==${publico}`, `servidor == ${publico} # nota`]) {
+    assert.ok(sobre(linha).length > 0, linha);
+    // `nome>=a.b.c.d` num arquivo de requisitos é, por definição, uma versão de pacote: ali a isenção vale.
+    if (!linha.startsWith('ip_publico')) assert.ok(sobre(linha, 'servidor/requirements.txt').length > 0, `${linha} (em requirements)`);
+  }
+});
+
+test('só os dois arquivos da referência passam; outro .pmtiles na mesma pasta é barrado', () => {
+  assert.deepEqual(verificarCaminho('servidor/pacote/referencia/fundo.pmtiles'), []);
+  assert.deepEqual(verificarCaminho('servidor/pacote/referencia/ortofoto.pmtiles'), []);
+  assert.ok(verificarCaminho('servidor/pacote/referencia/fazenda-real.pmtiles').length > 0);
+  // Greptile, PR #50, P1: outra grafia do mesmo nome não pode escapar da exceção sem passar pela conferência do hash.
+  for (const variante of ['Fundo.pmtiles', 'FUNDO.PMTILES', 'Ortofoto.pmtiles', 'ortofoto.PMTILES']) {
+    assert.ok(verificarCaminho(`servidor/pacote/referencia/${variante}`).length > 0, variante);
+  }
+});
+
+test('referência do pacote: só os bytes fixados passam; o mesmo nome com outro conteúdo é barrado', () => {
+  const caminho = 'servidor/pacote/referencia/fundo.pmtiles';
+  const original = fs.readFileSync(path.join(__dirname, '..', caminho));
+  assert.deepEqual(verificar({ caminhos: [caminho], lerConteudo: () => original }), []);
+  const trocado = Buffer.concat([original, Buffer.from([1])]);
+  assert.deepEqual(regrasDe(verificar({ caminhos: [caminho], lerConteudo: () => trocado })), ['arquivo da referência diferente do fixado']);
+});
+
+test('em arquivo de requisitos só o trecho da versão sai da busca de IP; o marcador depois do ponto e vírgula segue examinado', () => {
+  const versao = [1, 2, 3, 4].join('.');
+  const linha = `pacote==${versao} ; platform_node == "${IP_PUBLICO}"`;
+  assert.ok(sobre(linha, 'servidor/requirements.pacote.txt').length > 0);
+  assert.deepEqual(sobre(`pacote==${versao} ; python_version >= "3.12"`, 'servidor/requirements.pacote.txt'), []);
 });

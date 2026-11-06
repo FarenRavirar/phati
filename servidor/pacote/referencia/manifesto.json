@@ -1,0 +1,32 @@
+{
+  "formato_versao": 1,
+  "fazenda_id": 1,
+  "versao": 1,
+  "gerado_em": "2026-11-06T02:00:24.567815Z",
+  "zoom_maximo_ortofoto": 17,
+  "arquivos": [
+    {
+      "nome": "fundo.pmtiles",
+      "papel": "fundo",
+      "bytes": 393,
+      "sha256": "cd40df51a93b2300e01d562bebd56db4c3264211a40bf42df07a7bef0f7da4ea",
+      "zoom_minimo": 0,
+      "zoom_maximo": 15,
+      "atribuicao": "© OpenStreetMap contributors",
+      "licenca": "ODbL 1.0",
+      "capturada_em": null
+    },
+    {
+      "nome": "ortofoto.pmtiles",
+      "papel": "ortofoto",
+      "bytes": 36826,
+      "sha256": "af029fb5898e1e68d70f50f874f72d812222d81e4d86d3d4f2e2c54233c83a5b",
+      "zoom_minimo": 14,
+      "zoom_maximo": 17,
+      "atribuicao": "Ortofoto da própria empresa",
+      "licenca": "Uso restrito à empresa",
+      "capturada_em": "2026-01-15"
+    }
+  ],
+  "camadas": []
+}

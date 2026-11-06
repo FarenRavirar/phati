@@ -32,6 +32,7 @@ Hierarquia do domínio: Empresa → Fazenda/Imóvel → Tema/Estudo → Camada/V
 - **Método: pesquisar, decidir, implementar, verificar, nessa ordem, sem preguiça e sem caminho feliz** (mantenedor, 2026-11-03). §Método.
 - **Agir por padrão; pausar só em aprovação nominal e em decisão de produto.** Decisão técnica é do agente, depois da pesquisa. §Decisão, pausa e dúvida
 - A VM `maruko` nunca é desligada, reiniciada ou suspensa pelo agente.
+- **Ao terminar, fechar o que subiu no PC do mantenedor (urgente, 2026-11-05):** o `vmmemWSL` (VM do WSL2/Docker Desktop) travou o PC. Contêiner do projeto que o agente subiu (nome começa com `phati`; `docker stop <nome>`, ex.: `phati-pg18-local`), servidor de desenvolvimento e Playwright fecham antes da resposta final; depois `wsl --shutdown`. Conferir com `docker ps` vazio e `tasklist` sem `vmmemWSL`. O hook `recursos-locais-gate` cobra no `Stop` só Docker e `vmmemWSL` (processo nativo é com o agente) e está registrado em `hooks.Stop` de `.claude/settings.json` (medido em 2026-11-06: cobrou o contêiner de pé). `wsl --shutdown` o agente roda sem pedir: `Bash(wsl --shutdown)` está em `allow` de `.claude/settings.local.json` (arquivo local da máquina) e nenhum `deny` de `shutdown` o casa (medido em 2026-11-06: `rc=0` e 0 processos `vmmemWSL`). Máquina sem essa regra local: o agente avisa o mantenedor. Os `deny` de `shutdown` seguem valendo para desligar a máquina e a VM `maruko`.
 - **Estado do código não se escreve em doc** (commitado, mergeado, SHA, branch, PR) — `git`/`gh` medem.
 - **Toda modificação da árvore entra no mesmo commit, exceto se o mantenedor disser o contrário** (§Git).
 - Validação repo-wide só no fim, um comando por vez.
@@ -72,7 +73,7 @@ Bloco único. Os outros trechos apontam para cá.
 - `git push origin dev|main`, `git push --delete`, merge. `push` em `dev` só via merge de PR.
 - Escrita na VM `maruko` (inclui `build`), DNS, túnel, segredo de produção, deploy.
 - Lib, pacote, imagem, plugin, skill ou MCP novo: perguntar antes de instalar.
-- Worktree `add|move|remove`. Acionar outro agente de IA.
+- Worktree `add|move|remove`. Acionar outro agente de IA, exceto o `ajudante-haiku` (§Ferramentas), que dispensa aprovação.
 - Alterar dado de fazenda, revisão vigente ou permissão de acesso em ambiente real.
 
 Livre: editar arquivo local, criar e subir branch de trabalho, abrir PR, rodar teste, lint e build local, comando read-only (`ls`, `cat`, `rg`, `git status|diff|log`, `curl -s` GET, `SELECT`). Filtrar `*SENHA*|*PASSWORD*|*TOKEN*|*SECRET*` por conteúdo. Segredo, chave privada e dado de cliente nunca são commitados, expostos ou impressos.
@@ -220,7 +221,9 @@ Documentação e segurança:
 - **21st.dev Magic (MCP `magic`, chave `API_KEY_21ST` no ambiente do usuário):** só para interface web; saída é rascunho, passa por revisão e teste como todo código.
 - **Skills `agent-skills` (plugin):** apoio de processo; em choque com este arquivo, este vence.
 
-`rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal.
+`rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal, com uma exceção.
+
+**`ajudante-haiku` é obrigatório e dispensa aprovação** (mantenedor, 2026-11-06; eficiência de longo prazo do projeto). Subagente de leitura por padrão (`~/.claude/agents/ajudante-haiku.md`); edita só texto de documentação (`specs/`, `.specify/`, `AGENTS.md`) e só quando o prompt pedir (mantenedor, 2026-11-06). Toda busca de arquivo, leitura de log e varredura de vários arquivos vai para ele, por padrão, sem pedir. Não delegar: edição de código, planejamento, decisão, depuração com raciocínio, revisão de código, nem arquivo ou símbolo já conhecido. O prompt leva caminho, objetivo e formato curto de resposta; ele não vê a conversa. A exceção vale só para ele: qualquer outro agente segue exigindo aprovação nominal.
 
 ## Review guidelines
 

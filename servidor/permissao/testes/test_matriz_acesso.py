@@ -18,13 +18,13 @@ ACOES = [
     'subir_documento', 'definir_validade_documento', 'convidar_pessoa', 'revogar_acesso', 'redefinir_senha',
     'configurar_prazos_escalada', 'configurar_categorias_campos', 'configurar_niveis_divisao',
     'ajustar_expiracao_pacote', 'criar_empresa', 'criar_fazenda', 'criar_sub_area', 'gerenciar_cargo',
-    'renomear', 'arquivar', 'desarquivar',
+    'renomear', 'arquivar', 'desarquivar', 'ver_monitor_google',
 ]  # fmt: skip
 BASES = ['administrador', 'curador', 'tecnico', 'usuario']
 _LEITURA = {'ver', 'baixar_pacote_offline'}
 _TECNICO = _LEITURA | {'baixar_documento', 'criar_registro_campo', 'propor_alteracao_atributo', 'revisar_trabalho_de_outro'}
 PERMITIDAS = {
-    'administrador': set(ACOES) - {'criar_empresa'},
+    'administrador': set(ACOES) - {'criar_empresa', 'ver_monitor_google'},
     'curador': _TECNICO | {
         'validar_registro', 'validar_atributo', 'conferir_revisao_enviada', 'aprovar_atributo', 'subir_documento',
         'definir_validade_documento', 'convidar_pessoa', 'revogar_acesso',
@@ -36,7 +36,7 @@ PERMITIDAS = {
 
 def test_a_lista_da_matriz_e_o_catalogo():
     assert set(Permissao.objects.values_list('codigo', flat=True)) == set(ACOES)
-    assert len(ACOES) == 30
+    assert len(ACOES) == 31
 
 
 @pytest.mark.parametrize('acao', ACOES)

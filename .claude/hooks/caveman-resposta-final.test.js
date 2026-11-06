@@ -68,9 +68,21 @@ const CASES = [
     // completo ja chega por `SessionStart` e `UserPromptSubmit` (hooks globais
     // `caveman-activate.js` e `caveman-mode-tracker.js`, este ultimo com 360
     // chars por prompt). Aqui basta o gatilho.
+    // Mensagem refeita em 2026-11-05 (pedido do mantenedor): mais curta, com
+    // pergunta por `AskUserQuestion` e erro dito claro, sem o "repetir igual".
     'cabe em 400 chars',
     {},
     (r) => r.stderr.length > 0 && r.stderr.length <= 400,
+  ],
+  [
+    'manda perguntar por AskUserQuestion',
+    {},
+    (r) => r.stderr.includes('AskUserQuestion'),
+  ],
+  [
+    'exige erro e falha claros',
+    {},
+    (r) => r.stderr.includes('Erro ou falha') && r.stderr.includes('nunca resumir'),
   ],
 ];
 

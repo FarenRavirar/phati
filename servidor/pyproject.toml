@@ -26,8 +26,8 @@ dev = [
 DJANGO_SETTINGS_MODULE = "projeto.settings"
 pythonpath = ["."]
 # testpaths explícito: o pytest coleta teste de qualquer pasta (armadilha medida na prova de conceito).
-testpaths = ["comum", "identidade", "territorio", "permissao", "projeto"]
+testpaths = ["comum", "identidade", "territorio", "permissao", "pacote", "projeto"]
 
 [tool.pyright]
-include = ["comum", "identidade", "territorio", "permissao", "projeto"]
+include = ["comum", "identidade", "territorio", "permissao", "pacote", "projeto"]
 exclude = ["**/migrations"]

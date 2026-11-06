@@ -40,6 +40,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: "pip install --only-binary=:all: -r requirements.lock.txt"
+      # Ferramentas da geração do pacote offline (004b): `rio pmtiles` (versões fixas) e o CLI `pmtiles` com o SHA-256 do release v1.31.2.
+      - run: "pip install --only-binary=:all: --require-hashes -r requirements.pacote.txt"
+      - name: CLI pmtiles
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o pmtiles.tar.gz https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz
+          echo "3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f  pmtiles.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pmtiles" && tar -xzf pmtiles.tar.gz -C "$RUNNER_TEMP/pmtiles" pmtiles
+          echo "PHATI_PMTILES_BIN=$RUNNER_TEMP/pmtiles/pmtiles" >> "$GITHUB_ENV"
       # Senhas efêmeras do banco descartável do job; nada disso é segredo do projeto.
       - name: Papéis e banco
         run: |
@@ -211,6 +219,26 @@ jobs:
             sleep 2
           done
           cd .. && PHATI_PROVA_GOOGLE=1 ./node_modules/.bin/playwright test
+      # Mapa desligado (spec 004 T5.3, achado do Qodo na PR #35): o padrão de produção também passa pelo navegador. Recria só o
+      # app com a flag em 0; o passo de cima já terminou, então não há dublê nem flag do Google em jogo.
+      - name: Fazenda com o mapa desligado
+        working-directory: servidor
+        env:
+          PHATI_MAPA_TESTE_ATIVO: "0"
+        run: |
+          docker compose up -d app
+          docker compose restart nginx
+          for _ in $(seq 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          for _ in $(seq 30); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
+            sleep 2
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200
+          cd .. && PHATI_PROVA_MAPA_DESLIGADO=1 ./node_modules/.bin/playwright test
       - if: failure()
         working-directory: servidor
         run: docker compose logs

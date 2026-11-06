@@ -1,0 +1,1 @@
+{% comment %}Rodapé com os links de Termos de uso e Política de privacidade; só entra a página que responde (`projeto.termos.disponiveis`).{% endcomment %}{% if termos_links %}<footer class="rodape-termos"><nav aria-label="Termos e privacidade"><ul>{% for caminho, rotulo in termos_links %}<li><a href="{{ caminho }}">{{ rotulo }}</a></li>{% endfor %}</ul></nav></footer>{% endif %}

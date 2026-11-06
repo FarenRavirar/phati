@@ -9,13 +9,15 @@ from django.core.management.base import CommandError
 
 from identidade import login
 from identidade.models import Pessoa
+from pacote.models import VersaoPacote
 from permissao.convite import convites_da_pessoa
 from territorio.listagem import fazendas_autorizadas
 from territorio.models import Empresa, Fazenda, SubArea
 
 
 @pytest.fixture
-def dados(db, monkeypatch):
+def dados(db, monkeypatch, settings, tmp_path):
+    settings.PACOTES_DIR = tmp_path / 'pacotes'  # o comando instala o pacote de referência numa fazenda
     monkeypatch.setenv('PHATI_AMBIENTE', 'teste')
     saida = StringIO()
     call_command('popular_sintetico', stdout=saida)
@@ -98,7 +100,8 @@ def test_fora_dos_ambientes_de_teste_recusa_e_nada_e_criado(db, monkeypatch, amb
 
 
 @pytest.mark.parametrize('ambiente', ['local', 'homologacao', 'teste'])
-def test_os_tres_ambientes_de_teste_populam(db, monkeypatch, ambiente):
+def test_os_tres_ambientes_de_teste_populam(db, monkeypatch, settings, tmp_path, ambiente):
+    settings.PACOTES_DIR = tmp_path / 'pacotes'
     monkeypatch.setenv('PHATI_AMBIENTE', ambiente)
     call_command('popular_sintetico', stdout=StringIO())
     assert Empresa.objects.count() == 2
@@ -123,3 +126,9 @@ def test_segunda_execucao_recusa_com_ja_populado(dados):
     saida = StringIO()
     with pytest.raises(CommandError, match='ja_populado'):
         call_command('popular_sintetico', stdout=saida)
+
+
+def test_so_a_segunda_fazenda_da_empresa_a_recebe_o_pacote_de_referencia(dados, settings):
+    com_pacote = list(VersaoPacote.objects.filter(vigente=True).values_list('fazenda_id', flat=True))
+    assert com_pacote == [dados['fazendas_a'][1]]
+    assert (settings.PACOTES_DIR / str(dados['fazendas_a'][1]) / 'v1' / 'fundo.pmtiles').is_file()

@@ -22,6 +22,7 @@ class ItemDoMenu:
 ITENS = (
     ItemDoMenu('Início', '/'),
     ItemDoMenu('Fazendas', '/empresas/', prefixos=('/empresa/',)),
+    ItemDoMenu('Uso do Google', '/monitor-google', acoes=('ver_monitor_google',)),  # só o Administrador da plataforma (004b R13)
 )
 
 

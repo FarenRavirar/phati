@@ -12,7 +12,7 @@ from projeto.urls import urlpatterns
 
 # Sem sessão por desenho: entrar, esqueci a senha e redefinição são de quem ainda não tem credencial; sair é POST com CSRF
 # e encerrar uma sessão que não existe é inofensivo; `saude` é a sonda do healthcheck (006 R10), sem dado nem sessão.
-PUBLICAS = frozenset({'entrar', 'sair', 'esqueci_senha', 'redefinir_senha', 'saude'})
+PUBLICAS = frozenset({'entrar', 'sair', 'esqueci_senha', 'redefinir_senha', 'saude', 'termos', 'privacidade'})
 # A API e o painel têm portão próprio (varredura de rotas da API e admin do Django).
 DE_OUTRO_PORTAO = ('api/', 'painel/')
 
@@ -64,7 +64,7 @@ def test_toda_view_autenticada_declara_a_acao_que_exige():
 def test_acao_declarada_existe_no_catalogo_ou_e_da_propria_pessoa():
     catalogo = {
         codigo
-        for migracao in ('0001_initial', '0007_acoes_territorio')
+        for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google')
         for codigo, _, _ in import_module(f'permissao.migrations.{migracao}').ACOES
     }
     assert {getattr(visao, 'acao_exigida') for _, visao, _ in _autenticadas()} <= catalogo | {PROPRIA_PESSOA}
@@ -91,7 +91,7 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
 def test_pagina_de_terceiro_com_alvo_na_url_nega_a_quem_nao_tem_acesso(cliente_logado, cenario):
     # A declaração sozinha não prova a checagem (Qodo, PR #21): quem declara uma ação do catálogo e recebe 200 de
     # quem não tem concessão está declarando sem checar.
-    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1, 'cargo_id': 1}
+    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1, 'cargo_id': 1, 'nome': 'fundo.pmtiles'}
     de_terceiro = [(nome, parametros) for nome, visao, parametros in _autenticadas()
                    if getattr(visao, 'acao_exigida') != PROPRIA_PESSOA and parametros]
     assert de_terceiro

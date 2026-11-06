@@ -15,12 +15,21 @@ const argumentosWebgl = ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--e
 // (`PHATI_PROVA_GOOGLE=1`) e fica fora da rodada comum, que sobe sem a flag.
 const soGoogle = process.env.PHATI_PROVA_GOOGLE === '1';
 
-// `testIgnore` de projeto substitui o da raiz (não soma), então cada projeto repete a exclusão da prova do Google.
-const foraDaRodadaComum = soGoogle ? [] : [/fundo-google\.spec\.js$/];
+// Página com o mapa desligado (padrão de produção; spec 004, T5.3): o servidor sobe com a flag em 0, então também roda à parte
+// (`PHATI_PROVA_MAPA_DESLIGADO=1`). O job `navegador` comum sobe com o mapa ligado e não enxerga essa página.
+const soDesligado = process.env.PHATI_PROVA_MAPA_DESLIGADO === '1';
+// O servidor sobe com uma flag de cada vez: as duas provas juntas não têm servidor que as atenda (achado do Sourcery, PR #49).
+if (soGoogle && soDesligado) throw new Error('PHATI_PROVA_GOOGLE e PHATI_PROVA_MAPA_DESLIGADO são exclusivas.');
+let proveSozinha = null;
+if (soGoogle) proveSozinha = 'fundo-google.spec.js';
+else if (soDesligado) proveSozinha = 'mapa-desligado.spec.js';
+
+// `testIgnore` de projeto substitui o da raiz (não soma), então cada projeto repete a exclusão das provas à parte.
+const foraDaRodadaComum = proveSozinha ? [] : [/fundo-google\.spec\.js$/, /mapa-desligado\.spec\.js$/];
 
 module.exports = defineConfig({
   testDir: 'navegador',
-  testMatch: soGoogle ? 'fundo-google.spec.js' : '*.spec.js',
+  testMatch: proveSozinha ?? '*.spec.js',
   testIgnore: foraDaRodadaComum,
   fullyParallel: false,
   retries: 0,

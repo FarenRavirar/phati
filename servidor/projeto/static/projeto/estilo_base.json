@@ -1,0 +1,22 @@
+{
+  "version": 8,
+  "name": "phati-base",
+  "sources": {
+    "fundo": {
+      "type": "vector",
+      "url": "pmtiles://file://{pacote}/fundo.pmtiles",
+      "attribution": "© OpenStreetMap contributors"
+    },
+    "ortofoto": {
+      "type": "raster",
+      "url": "pmtiles://file://{pacote}/ortofoto.pmtiles",
+      "tileSize": 256
+    }
+  },
+  "layers": [
+    { "id": "fundo-cor", "type": "background", "paint": { "background-color": "#e9ecef" } },
+    { "id": "fundo-terra", "type": "fill", "source": "fundo", "source-layer": "terra", "paint": { "fill-color": "#dde3d5", "fill-opacity": 1 } },
+    { "id": "fundo-estrada", "type": "line", "source": "fundo", "source-layer": "estrada", "paint": { "line-color": "#9aa0a6", "line-width": 1 } },
+    { "id": "camada-ortofoto", "type": "raster", "source": "ortofoto", "paint": { "raster-opacity": 1 } }
+  ]
+}

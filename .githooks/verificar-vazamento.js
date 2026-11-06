@@ -25,7 +25,13 @@ const REGRAS_CAMINHO = [
   { regra: 'arquivo de segredo', teste: /(^|\/)\.env(\.[^/]*)?$/i, exceto: /\.(example|exemplo)$/i },
   { regra: 'chave ou certificado', teste: /\.(key|pem|p12|pfx|jks|keystore|ppk)$/i },
   { regra: 'chave SSH', teste: /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/ },
-  { regra: 'dado geoespacial', teste: /\.(tiff?|shp|shx|dbf|prj|gpkg|kml|kmz|mbtiles|pmtiles|las|laz|ecw|jp2)$/i },
+  // Exceção estreita (004b T1.7a): o pacote de referência é sintético e minúsculo; `.pmtiles` em qualquer outro caminho segue barrado.
+  {
+    regra: 'dado geoespacial',
+    teste: /\.(tiff?|shp|shx|dbf|prj|gpkg|kml|kmz|mbtiles|pmtiles|las|laz|ecw|jp2)$/i,
+    // Só os dois arquivos da referência, pelo nome (Qodo e Sourcery, PR #50): outro `.pmtiles` na mesma pasta segue barrado.
+    exceto: /^servidor\/pacote\/referencia\/(fundo|ortofoto)\.pmtiles$/,  // grafia exata: a consulta do hash também é exata
+  },
   { regra: 'banco ou dump local', teste: /\.(dump|bak|sqlite3?|db)$/i },
   { regra: 'dump compactado', teste: /\.sql\.gz$/i },
   { regra: 'documento do cliente', teste: /\.(pdf|docx?|xlsx?|pptx?)$/i },
@@ -51,7 +57,17 @@ const REGRAS_CONTEUDO = [
   { regra: 'string de conexão com senha', teste: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/i },
 ];
 
+const crypto = require('node:crypto');
+
+// Referência sintética do pacote (spec 004b): a exceção de caminho só vale para estes bytes. Regerou a referência? Atualize o
+// hash aqui, de propósito (CodeRabbit e Qodo, PR #50: sem isto, dado real com este nome passaria).
+const REFERENCIA_PMTILES = {
+    'servidor/pacote/referencia/fundo.pmtiles': 'cd40df51a93b2300e01d562bebd56db4c3264211a40bf42df07a7bef0f7da4ea',
+    'servidor/pacote/referencia/ortofoto.pmtiles': 'af029fb5898e1e68d70f50f874f72d812222d81e4d86d3d4f2e2c54233c83a5b',
+};
 const REGEX_IPV4 = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
+const ARQUIVO_DE_REQUISITOS = /(^|\/)(requirements|constraints)[^/]*\.txt$/i;
+const LINHA_DE_VERSAO_FIXADA = /^\s*[A-Za-z0-9][\w.-]*(\[[\w,.-]+\])?\s*(===?|~=|>=|<=|!=|<|>)\s*(\d+(?:\.\d+)*)\s*(;[^#]*)?\s*\\?\s*$/;
 
 function ipv4Publico(octetos) {
   const [a, b, c] = octetos;
@@ -98,7 +114,12 @@ function verificarConteudo(caminho, texto, termos) {
     for (const r of REGRAS_CONTEUDO) {
       if (r.teste.test(linha)) achados.push({ arquivo: caminho, linha: numero, regra: r.regra });
     }
-    for (const m of linha.matchAll(REGEX_IPV4)) {
+    // Versão fixada de pacote com quatro números (`nome==a.b.c.d`) não é endereço, mas só vale em arquivo de requisitos e na linha que
+    // é exatamente isso: em qualquer outro texto `ip>=<IP>` segue examinado (Qodo e Sourcery, PR #50).
+    // Só o trecho da versão sai da busca: o resto da linha (o marcador depois do `;`) segue examinado.
+    const versaoFixada = ARQUIVO_DE_REQUISITOS.test(caminho) ? LINHA_DE_VERSAO_FIXADA.exec(linha) : null;
+    const examinada = versaoFixada ? linha.replace(versaoFixada[3], '') : linha;
+    for (const m of examinada.matchAll(REGEX_IPV4)) {
       if (ipv4Publico(m.slice(1, 5).map(Number))) {
         achados.push({ arquivo: caminho, linha: numero, regra: 'endereço IP público' });
       }
@@ -121,6 +142,10 @@ function verificar({ caminhos, lerConteudo, termos = [] }) {
     const termoNoNome = termos.map(normalizarNome).filter(Boolean).some((t) => nomeNormalizado.includes(t));
     if (termoNoNome) achados.push({ arquivo: caminho, linha: 0, regra: 'termo da lista sensível local no nome' });
     const buffer = lerConteudo(caminho);
+    const esperado = REFERENCIA_PMTILES[caminho.replace(/\\/g, '/')];
+    if (esperado && buffer && crypto.createHash('sha256').update(buffer).digest('hex') !== esperado) {
+      achados.push({ arquivo: caminho, linha: 0, regra: 'arquivo da referência diferente do fixado' });
+    }
     if (!buffer || ehBinario(buffer)) continue;
     achados.push(...verificarConteudo(caminho, buffer.toString('utf8'), termos));
   }

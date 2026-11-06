@@ -1,7 +1,7 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 
-from projeto import cargos_paginas, empresas, fazenda, inicio, mapa, paginas, paginas_acesso, pessoas_paginas, saude, territorio_paginas
+from projeto import cargos_paginas, empresas, fazenda, inicio, mapa, monitor_google, paginas, paginas_acesso, pessoas_paginas, saude, termos, territorio_paginas
 from projeto.api import api
 
 _EMPRESA = 'empresa/<int:empresa_id>/'
@@ -59,6 +59,10 @@ urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('arquivadas/', territorio_paginas.arquivadas, name='arquivadas'),
                path('empresa/<int:empresa_id>/', empresas.empresa, name='empresa'),
                path('empresa/<int:empresa_id>/fazenda/<int:fazenda_id>/', fazenda.fazenda, name='fazenda'),
+               path('termos', termos.pagina, {'secao': 'termos'}, name='termos'),
+               path('privacidade', termos.pagina, {'secao': 'privacidade'}, name='privacidade'),
+               path('monitor-google', monitor_google.monitor, name='monitor_google'),
+               path('', include('pacote.urls')),
                *TERRITORIO, *PESSOAS, *CARGOS]
 
 # O padrão do Django renderiza o 500 sem a requisição, e sem ela o molde não leva o nonce da política de conteúdo.
