@@ -13,7 +13,11 @@
       "Bash(ssh maruko docker inspect:*)",
       "Bash(ssh maruko docker stats:*)",
       "Bash(ssh maruko docker images:*)",
-      "Bash(ssh maruko systemctl status:*)"
+      "Bash(ssh maruko systemctl status:*)",
+      "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_AMBIENTE)",
+      "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_MAPA_TESTE_ATIVO)",
+      "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_MAPA_FUNDO_GOOGLE_ATIVO)",
+      "Bash(ssh maruko docker exec phati-app-1 sh -c 'test -n \"$PHATI_MAPA_GOOGLE_CHAVE\" && echo chave=presente || echo chave=ausente')"
     ],
     "deny": [
       "Bash(*shutdown*)",
@@ -23,7 +27,6 @@
       "Bash(*push --force*)",
       "Bash(*push -f *)",
       "Bash(*ssh maruko*rm -rf*)",
-      "Bash(*ssh maruko*.env*)",
       "Bash(*ssh maruko*.key*)",
       "Bash(*ssh maruko*.pem*)",
       "Bash(*ssh maruko*id_rsa*)",
@@ -40,11 +43,12 @@
       "Bash(git reset:*)",
       "Bash(git rebase:*)",
       "Bash(gh pr merge:*)",
-      "Bash(*docker restart*)",
       "Bash(*docker stop*)",
       "Bash(*docker rm*)",
-      "Bash(*docker compose up*)",
-      "Bash(*docker compose down*)",
+      "Bash(*docker volume rm*)",
+      "Bash(*docker volume prune*)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)",
       "Bash(ssh maruko:*)",
       "Bash(scp *)",
       "Bash(rsync *)"
