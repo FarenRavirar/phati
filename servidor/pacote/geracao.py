@@ -48,20 +48,30 @@ def validar_caixa(caixa) -> tuple[float, float, float, float]:
     return oeste, sul, leste, norte
 
 
-def _executar(argumentos: list[str]) -> str:
+def _executar(ferramenta: str, *argumentos: str) -> str:
+    """Roda `pmtiles` ou `rio` com lista de argumentos, nunca `shell=True`.
+
+    O primeiro elemento da lista é um literal (`'pmtiles'`, `'rio'`) e o programa que roda de fato vem de `executable=`
+    (`PHATI_PMTILES_BIN`, `PHATI_RIO_BIN`): é a forma que a regra `dangerous-subprocess-use-audit` do Semgrep não sinaliza
+    (medido, Sourcery PR #50) e não tira a configuração do operador. Os valores seguem validados em `gerar_pacote`."""
     try:
-        resultado = subprocess.run(argumentos, capture_output=True, text=True, timeout=PRAZO_DA_FERRAMENTA, check=False)
+        if ferramenta == 'pmtiles':
+            resultado = subprocess.run(['pmtiles', *argumentos], executable=settings.PMTILES_BIN, capture_output=True, text=True, timeout=PRAZO_DA_FERRAMENTA, check=False)
+        elif ferramenta == 'rio':
+            resultado = subprocess.run(['rio', *argumentos], executable=settings.RIO_BIN, capture_output=True, text=True, timeout=PRAZO_DA_FERRAMENTA, check=False)
+        else:
+            raise ValueError(f'ferramenta desconhecida: {ferramenta}')
     except (OSError, subprocess.TimeoutExpired) as erro:
-        raise ErroDeGeracao(f'{argumentos[0]} não rodou: {erro}') from erro
+        raise ErroDeGeracao(f'{ferramenta} não rodou: {erro}') from erro
     if resultado.returncode != 0:
-        raise ErroDeGeracao(f'{argumentos[0]} saiu com {resultado.returncode}: {resultado.stderr.strip()[-500:]}')
+        raise ErroDeGeracao(f'{ferramenta} saiu com {resultado.returncode}: {resultado.stderr.strip()[-500:]}')
     return resultado.stdout
 
 
 def _cabecalho(arquivo: Path) -> dict:
     """Verifica o arquivo (`pmtiles verify`) e devolve o cabeçalho (`minzoom`, `maxzoom`, `tile_type`)."""
-    _executar([settings.PMTILES_BIN, 'verify', str(arquivo)])
-    return json.loads(_executar([settings.PMTILES_BIN, 'show', str(arquivo), '--header-json']))
+    _executar('pmtiles', 'verify', str(arquivo))
+    return json.loads(_executar('pmtiles', 'show', str(arquivo), '--header-json'))
 
 
 def _arquivo_existente(caminho, descricao: str) -> Path:
@@ -106,17 +116,17 @@ def gerar_pacote(
     try:
         itens = []
         destino = temporario / 'fundo.pmtiles'
-        _executar([
-            settings.PMTILES_BIN, 'extract', str(fundo), str(destino),
+        _executar(
+            'pmtiles', 'extract', str(fundo), str(destino),
             f'--bbox={oeste},{sul},{leste},{norte}', f'--maxzoom={zoom_maximo_fundo}',
-        ])
+        )
         itens.append(_item(destino, 'fundo', _cabecalho(destino), ATRIBUICAO_FUNDO, LICENCA_FUNDO))
         if foto is not None:
             destino = temporario / 'ortofoto.pmtiles'
-            _executar([
-                settings.RIO_BIN, 'pmtiles', str(foto), str(destino), '--format', 'JPEG',
+            _executar(
+                'rio', 'pmtiles', str(foto), str(destino), '--format', 'JPEG',
                 '--zoom-levels', f'{zoom_minimo_ortofoto}..{zoom_maximo_ortofoto}',
-            ])
+            )
             cabecalho = _cabecalho(destino)
             if cabecalho['maxzoom'] > zoom_maximo_ortofoto:
                 raise ErroDeGeracao('a ortofoto passou do teto de zoom')
