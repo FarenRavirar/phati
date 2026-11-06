@@ -9,7 +9,7 @@ ACOES = frozenset({
     'redefinicao_pedida', 'redefinicao_confirmada', 'conta_bloqueada', 'acesso_reutilizado',
     'cargo_alterado', 'convite_criado', 'convite_aceito', 'convite_recusado', 'convite_cancelado',
     'empresa_renomeada', 'fazenda_renomeada', 'sub_area_renomeada', 'territorio_arquivado', 'territorio_desarquivado',
-    'nivel_definido',
+    'nivel_definido', 'pacote_gerado',
 })
 
 

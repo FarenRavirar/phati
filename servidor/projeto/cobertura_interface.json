@@ -28,6 +28,9 @@
     "territorio_arquivar": "Arquivar empresa, fazenda e sub-área — 003 R11 (telas `*_arquivar`)",
     "territorio_desarquivar": "Desarquivar empresa, fazenda e sub-área — 003 R11 (telas `*_desarquivar` e seção Arquivadas)",
     "mapa_camadas": "Painel de camadas, legenda e consulta do mapa de teste (004 R4, R12); dado sintético em GeoJSON, só com a flag ligada.",
+    "pacote_manifesto": "Sem tela própria: o aplicativo Android baixa o manifesto do pacote offline (004b R3); a web usa os arquivos por Range (Fase 2).",
+    "pacote_camadas": "Sem tela própria: o aplicativo Android baixa as camadas do pacote offline (004b R4); dado sintético, só com a flag do mapa.",
+    "pacote_arquivo": "Fundo e ortofoto do pacote lidos por Range: PMTiles do mapa da web (004b R7, R8, Fase 2) e download do aplicativo (R3).",
     "saude": "Sonda do healthcheck e da conferência pós-deploy — 006 R10; sem tela de propósito, devolve só o estado."
   },
   "funcoes": {

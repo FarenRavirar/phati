@@ -40,6 +40,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: "pip install --only-binary=:all: -r requirements.lock.txt"
+      # Ferramentas da geração do pacote offline (004b): `rio pmtiles` (versões fixas) e o CLI `pmtiles` com o SHA-256 do release v1.31.2.
+      - run: "pip install --only-binary=:all: --require-hashes -r requirements.pacote.txt"
+      - name: CLI pmtiles
+        run: |
+          curl --proto '=https' --tlsv1.2 -fsSL -o pmtiles.tar.gz https://github.com/protomaps/go-pmtiles/releases/download/v1.31.2/go-pmtiles_1.31.2_Linux_x86_64.tar.gz
+          echo "3ed7dbf4ec2e6dfe5e25b6f70d1ffc932729f93c86db353bf514dd71010a312f  pmtiles.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pmtiles" && tar -xzf pmtiles.tar.gz -C "$RUNNER_TEMP/pmtiles" pmtiles
+          echo "PHATI_PMTILES_BIN=$RUNNER_TEMP/pmtiles/pmtiles" >> "$GITHUB_ENV"
       # Senhas efêmeras do banco descartável do job; nada disso é segredo do projeto.
       - name: Papéis e banco
         run: |
