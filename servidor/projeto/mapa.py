@@ -44,6 +44,12 @@ def com_politica_do_mapa(resposta):
     return resposta
 
 
+def camadas_visiveis(pessoa, fazenda):
+    """Camadas que `pessoa` vê na `fazenda`: a única origem da API de camadas e do pacote offline (004b R4).
+    Hoje o dado é sintético e igual para todos; permissão por sub-área e categoria entra aqui, com a spec de camadas."""
+    return camadas_sinteticas.geojson()
+
+
 @require_GET
 @exige_entrada
 @exige_acao('ver')
@@ -53,8 +59,8 @@ def camadas(requisicao, empresa_id, fazenda_id):
     mesma `resolver_escopo` da página. Mesmo acesso de ver a fazenda; permissão por sub-área é da spec de camadas."""
     if not mapa_ativo():
         raise Http404
-    resolver_escopo(requisicao.user, empresa_id, fazenda_id)
-    resposta = JsonResponse(camadas_sinteticas.geojson(), content_type='application/geo+json')
+    _, fazenda = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
+    resposta = JsonResponse(camadas_visiveis(requisicao.user, fazenda), content_type='application/geo+json')
     # Cache do navegador e do aplicativo (dado próprio, sem cota): `private` veda proxy e CDN compartilhado (o dado é de uma
     # fazenda) e `no-cache` obriga a revalidar a cada uso, então o acesso é checado no servidor sempre e o `ETag` só poupa o
     # corpo (304). O 304 sai depois de `resolver_escopo`: quem perdeu o acesso recebe 404, nunca 304. Quando houver versão de

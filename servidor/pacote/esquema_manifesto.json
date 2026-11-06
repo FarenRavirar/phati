@@ -1,0 +1,160 @@
+{
+  "$defs": {
+    "Arquivo": {
+      "additionalProperties": false,
+      "properties": {
+        "atribuicao": {
+          "minLength": 1,
+          "title": "Atribuicao",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "capturada_em": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capturada Em"
+        },
+        "licenca": {
+          "minLength": 1,
+          "title": "Licenca",
+          "type": "string"
+        },
+        "nome": {
+          "title": "Nome",
+          "type": "string"
+        },
+        "papel": {
+          "enum": [
+            "fundo",
+            "ortofoto"
+          ],
+          "title": "Papel",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "zoom_maximo": {
+          "maximum": 24,
+          "minimum": 0,
+          "title": "Zoom Maximo",
+          "type": "integer"
+        },
+        "zoom_minimo": {
+          "maximum": 24,
+          "minimum": 0,
+          "title": "Zoom Minimo",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nome",
+        "papel",
+        "bytes",
+        "sha256",
+        "zoom_minimo",
+        "zoom_maximo",
+        "atribuicao",
+        "licenca"
+      ],
+      "title": "Arquivo",
+      "type": "object"
+    },
+    "CamadaVetorial": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "format": "date",
+          "title": "Data",
+          "type": "string"
+        },
+        "identificador": {
+          "minLength": 1,
+          "title": "Identificador",
+          "type": "string"
+        },
+        "revisao_vigente": {
+          "minimum": 1,
+          "title": "Revisao Vigente",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "identificador",
+        "revisao_vigente",
+        "data"
+      ],
+      "title": "CamadaVetorial",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "arquivos": {
+      "items": {
+        "$ref": "#/$defs/Arquivo"
+      },
+      "minItems": 1,
+      "title": "Arquivos",
+      "type": "array"
+    },
+    "camadas": {
+      "items": {
+        "$ref": "#/$defs/CamadaVetorial"
+      },
+      "title": "Camadas",
+      "type": "array"
+    },
+    "fazenda_id": {
+      "minimum": 1,
+      "title": "Fazenda Id",
+      "type": "integer"
+    },
+    "formato_versao": {
+      "const": 1,
+      "title": "Formato Versao",
+      "type": "integer"
+    },
+    "gerado_em": {
+      "format": "date-time",
+      "title": "Gerado Em",
+      "type": "string"
+    },
+    "versao": {
+      "minimum": 1,
+      "title": "Versao",
+      "type": "integer"
+    },
+    "zoom_maximo_ortofoto": {
+      "maximum": 24,
+      "minimum": 0,
+      "title": "Zoom Maximo Ortofoto",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "formato_versao",
+    "fazenda_id",
+    "versao",
+    "gerado_em",
+    "zoom_maximo_ortofoto",
+    "arquivos",
+    "camadas"
+  ],
+  "title": "Manifesto",
+  "type": "object"
+}

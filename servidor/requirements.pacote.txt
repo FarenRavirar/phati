@@ -1,0 +1,14 @@
+# Ferramentas da geração do pacote offline (004b): `rio pmtiles` converte a ortofoto. Só quem roda `gerar_pacote_fazenda`
+# e o CI precisam; o app web não importa nenhum destes. Versões fixas (aprovação do mantenedor em 2026-11-05).
+rio-pmtiles==1.2.2
+pmtiles==3.8.1
+rasterio==1.5.2
+numpy==2.5.4
+affine==3.0.1
+attrs==26.1.0
+certifi==2026.10.23
+click==8.5.0
+click-plugins==1.1.1.2
+cligj==0.7.2
+pyparsing==3.3.3
+tqdm==4.70.1

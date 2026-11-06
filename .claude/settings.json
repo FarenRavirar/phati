@@ -31,7 +31,7 @@
       "Bash(*ssh maruko*.pem*)",
       "Bash(*ssh maruko*id_rsa*)",
       "Read(**/.env)",
-      "Read(**/.env.*)",
+      "Read(**/.env.[!e]*)",
       "Read(**/*.key)",
       "Read(**/*.pem)",
       "Read(~/.ssh/**)"

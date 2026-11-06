@@ -91,7 +91,7 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
 def test_pagina_de_terceiro_com_alvo_na_url_nega_a_quem_nao_tem_acesso(cliente_logado, cenario):
     # A declaração sozinha não prova a checagem (Qodo, PR #21): quem declara uma ação do catálogo e recebe 200 de
     # quem não tem concessão está declarando sem checar.
-    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1, 'cargo_id': 1}
+    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1, 'cargo_id': 1, 'nome': 'fundo.pmtiles'}
     de_terceiro = [(nome, parametros) for nome, visao, parametros in _autenticadas()
                    if getattr(visao, 'acao_exigida') != PROPRIA_PESSOA and parametros]
     assert de_terceiro

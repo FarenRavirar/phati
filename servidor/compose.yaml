@@ -24,6 +24,9 @@ x-ambiente-app: &ambiente_app
   PHATI_MAPA_TESTE_ATIVO: ${PHATI_MAPA_TESTE_ATIVO:-0}
   PHATI_MAPA_FUNDO_GOOGLE_ATIVO: ${PHATI_MAPA_FUNDO_GOOGLE_ATIVO:-0}
   PHATI_MAPA_GOOGLE_CHAVE: ${PHATI_MAPA_GOOGLE_CHAVE:-}
+  PHATI_PACOTES_DIR: ${PHATI_PACOTES_DIR:-/pacotes}
+  PHATI_PMTILES_BIN: ${PHATI_PMTILES_BIN:-pmtiles}
+  PHATI_RIO_BIN: ${PHATI_RIO_BIN:-rio}
 
 services:
   banco:
@@ -81,6 +84,8 @@ services:
   app:
     build: .
     environment: *ambiente_app
+    volumes:
+      - pacotes:/pacotes  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -89,3 +94,4 @@ services:
 volumes:
   dados_banco:
   estaticos:
+  pacotes:
