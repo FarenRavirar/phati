@@ -345,7 +345,7 @@ ACOES_DE_ESCRITA = frozenset({
     'tornar_revisao_vigente', 'publicar_camada', 'subir_documento', 'definir_validade_documento', 'convidar_pessoa',
     'configurar_prazos_escalada', 'configurar_categorias_campos', 'configurar_niveis_divisao',
     'ajustar_expiracao_pacote', 'criar_empresa', 'criar_fazenda', 'criar_sub_area', 'gerenciar_cargo', 'renomear',
-    'arquivar',
+    'arquivar', 'ver_monitor_google',
 })
 
 
@@ -364,7 +364,7 @@ def test_em_escopo_arquivado_so_leitura_e_as_acoes_validas_passam(pessoa, cenari
     f1 = Fazenda.objects.get(pk=cenario.f1.pk)
     for acao in ACOES_DE_LEITURA | ACOES_VALIDAS_ARQUIVADO:
         assert pode(pessoa, acao, f1) is True, acao
-    for acao in ACOES_DE_ESCRITA - {'criar_empresa'}:
+    for acao in ACOES_DE_ESCRITA - {'criar_empresa', 'ver_monitor_google'}:
         assert pode(pessoa, acao, f1) is False, acao
     assert pode(pessoa, 'criar_sub_area', cenario.f2) is True
 

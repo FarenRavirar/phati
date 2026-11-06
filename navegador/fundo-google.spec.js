@@ -356,6 +356,22 @@ test('com pacote: sem rede o satélite cai para o fundo da fazenda sem recarrega
   expect(await juntos(page)).toBe(0);
 });
 
+// A9 (004b R12): sem teto próprio, a cota do projeto no Google vale; o erro 429 de cota aciona a troca do R9.
+test('com pacote: erro de cota do Google (429) no tile troca para o fundo da fazenda, sem recarregar e sem teto próprio', async ({ page }) => {
+  await dublarGoogle(page);
+  await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => rota.fulfill({ status: 429, headers: CORS, json: { error: { status: 'RESOURCE_EXHAUSTED' } } }));
+  const mapa = await abrirComPacote(page);
+  await page.evaluate(() => { window.__marca = 'sem-recarregar'; });
+  await page.locator('[data-satelite]').click();
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'proprio');
+  await expect(mapa).toHaveAttribute('data-mapa-satelite', 'nao');
+  expect(await fundos(page)).toEqual({ proprio: true, online: false });
+  expect(await page.evaluate(() => window.__marca), 'a página recarregou').toBe('sem-recarregar');
+  await expect(mapa).toHaveAttribute('data-mapa-camadas', '3');
+  await expect(page.locator('[data-satelite]')).toBeEnabled();
+  expect(await juntos(page)).toBe(0);
+});
+
 test('com pacote: a ortofoto ligada fica por cima do satélite, como camada', async ({ page }) => {
   await dublarGoogle(page);
   const mapa = await abrirComPacote(page);

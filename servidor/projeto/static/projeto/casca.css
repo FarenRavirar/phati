@@ -40,3 +40,5 @@
 .publica-caixa { width: 100%; max-width: 28rem; padding: var(--espaco-5); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
 .publica-links { margin-top: var(--espaco-4); }
 .publica-produto { margin-bottom: var(--espaco-4); font-weight: 700; color: var(--cor-primaria); }
+.rodape-termos { grid-column: 1 / -1; padding: var(--espaco-2) var(--espaco-4); border-top: 1px solid var(--cor-borda); color: var(--cor-texto-suave); }
+.rodape-termos ul { display: flex; flex-wrap: wrap; gap: var(--espaco-3); margin: 0; padding: 0; list-style: none; }

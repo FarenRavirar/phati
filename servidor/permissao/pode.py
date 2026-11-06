@@ -20,7 +20,7 @@ from permissao.models import BASES_COM_CATEGORIA, Concessao, Permissao
 from territorio.models import Empresa, Fazenda, SubArea
 
 # Ações que só o Administrador da plataforma exerce; nenhum cargo as concede, mesmo que `cargo_permissao` as traga.
-ACOES_DA_PLATAFORMA = frozenset({'criar_empresa'})
+ACOES_DA_PLATAFORMA = frozenset({'criar_empresa', 'ver_monitor_google'})
 # O Administrador conta como quem tem estas, mesmo que o cargo personalizado não as liste (D043); o escopo de RLS
 # delas segue a mesma regra, senão o papel `app` barraria o que `pode_conceder` autoriza.
 ACOES_DE_DELEGACAO = frozenset({'convidar_pessoa', 'revogar_acesso'})

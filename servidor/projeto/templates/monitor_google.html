@@ -1,0 +1,6 @@
+{% extends "casca.html" %}
+{% block titulo %}Uso do Google{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Uso do Google" subtitulo="Tiles do fundo Google do mapa, nas duas janelas de cobrança." %}
+{% include "componentes/tabela.html" with legenda="Uso de tiles do Google por janela" colunas=colunas linhas=linhas %}
+{% endblock %}

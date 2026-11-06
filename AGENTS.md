@@ -223,7 +223,7 @@ Documentação e segurança:
 
 `rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal, com uma exceção.
 
-**`ajudante-haiku` é obrigatório e dispensa aprovação** (mantenedor, 2026-11-06; eficiência de longo prazo do projeto). Subagente só de leitura (`~/.claude/agents/ajudante-haiku.md`). Toda busca de arquivo, leitura de log e varredura de vários arquivos vai para ele, por padrão, sem pedir. Não delegar: edição, planejamento, decisão, depuração com raciocínio, revisão de código, nem arquivo ou símbolo já conhecido. O prompt leva caminho, objetivo e formato curto de resposta; ele não vê a conversa. A exceção vale só para ele: qualquer outro agente segue exigindo aprovação nominal.
+**`ajudante-haiku` é obrigatório e dispensa aprovação** (mantenedor, 2026-11-06; eficiência de longo prazo do projeto). Subagente de leitura por padrão (`~/.claude/agents/ajudante-haiku.md`); edita só texto de documentação (`specs/`, `.specify/`, `AGENTS.md`) e só quando o prompt pedir (mantenedor, 2026-11-06). Toda busca de arquivo, leitura de log e varredura de vários arquivos vai para ele, por padrão, sem pedir. Não delegar: edição de código, planejamento, decisão, depuração com raciocínio, revisão de código, nem arquivo ou símbolo já conhecido. O prompt leva caminho, objetivo e formato curto de resposta; ele não vê a conversa. A exceção vale só para ele: qualquer outro agente segue exigindo aprovação nominal.
 
 ## Review guidelines
 
