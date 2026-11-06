@@ -334,13 +334,13 @@ test('com pacote: sem rede o satélite cai para o fundo da fazenda sem recarrega
   // Consulta feita com o satélite ligado: a ficha já carregada continua na tela quando o fundo muda.
   await page.evaluate(() => document.querySelector('[data-mapa]').mapa.jumpTo({ center: [-48.30, -10.75], zoom: 12 }));
   await page.waitForFunction(() => { const m = document.querySelector('[data-mapa]').mapa; return m.loaded() && !m.isMoving(); });
+  await page.locator('[data-mapa]').scrollIntoViewIfNeeded(); // rola antes de projetar o ponto: a posição na tela muda com a rolagem
   const alvo = await page.evaluate(() => {
     const e = document.querySelector('[data-mapa]');
     const p = e.mapa.project([-48.30, -10.75]);
     const c = e.getBoundingClientRect();
     return { x: c.left + p.x, y: c.top + p.y };
   });
-  await page.locator('[data-mapa]').scrollIntoViewIfNeeded();
   await page.mouse.click(alvo.x, alvo.y);
   await expect(page.locator('[data-lista-consulta] li button').first()).toBeVisible();
   falhar = true;
@@ -362,6 +362,7 @@ test('com pacote: a ortofoto ligada fica por cima do satélite, como camada', as
   await page.locator('[data-camada="camada-ortofoto"]').getByRole('checkbox').check();
   await page.locator('[data-satelite]').click();
   await expect(mapa).toHaveAttribute('data-fundo-ativo', 'online');
+  await expect(page.locator('[data-atribuicao-ortofoto]'), 'crédito da ortofoto sumiu com o satélite').toBeVisible();
   const ordem = await page.evaluate(() => {
     const m = document.querySelector('[data-mapa]').mapa;
     const ids = m.getStyle().layers.map((l) => l.id);

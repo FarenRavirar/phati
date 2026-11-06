@@ -25,5 +25,9 @@ def instalar_referencia(fazenda) -> VersaoPacote:
         manifesto['fazenda_id'] = fazenda.pk  # a linha do banco e o manifesto dela falam da mesma fazenda
         versao = VersaoPacote.objects.create(empresa_id=fazenda.empresa_id, fazenda=fazenda, numero=1, manifesto=manifesto, vigente=True)
         shutil.copytree(REFERENCIA, destino)  # depois do banco: se a cópia falhar, a transação desfaz a linha
-        (destino / 'manifesto.json').write_text(json.dumps(manifesto, indent=2, ensure_ascii=False), encoding='utf-8')  # o do disco também
+        try:
+            (destino / 'manifesto.json').write_text(json.dumps(manifesto, indent=2, ensure_ascii=False), encoding='utf-8')  # o do disco também
+        except BaseException:
+            shutil.rmtree(destino, ignore_errors=True)  # sem sobra: nova tentativa não esbarra em diretório existente
+            raise
     return versao

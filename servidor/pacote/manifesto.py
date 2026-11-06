@@ -67,10 +67,13 @@ class Manifesto(_Estrito):
 
     @model_validator(mode='after')
     def _coerencia(self):
-        """Nomes únicos, `gerado_em` com fuso e ortofoto dentro do teto de zoom."""
+        """Nomes e papéis únicos, `gerado_em` com fuso e ortofoto dentro do teto de zoom."""
         nomes = [a.nome for a in self.arquivos]
         if len(set(nomes)) != len(nomes):
             raise ValueError('nome de arquivo repetido')
+        papeis = [a.papel for a in self.arquivos]
+        if len(set(papeis)) != len(papeis):
+            raise ValueError('papel de arquivo repetido')  # a web e o aplicativo escolhem o arquivo pelo papel
         if self.gerado_em.tzinfo is None:
             raise ValueError('gerado_em sem fuso')
         for arquivo in self.arquivos:

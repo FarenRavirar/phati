@@ -90,8 +90,12 @@ test('a ortofoto é uma camada desligada com a data de captura, que liga, muda d
   expect(await noMapa(page, (m) => m.getLayoutProperty('camada-ortofoto', 'visibility'))).toBe('none');
   // Medido (2026-11-06): com a camada desligada o motor ainda lê o cabeçalho do PMTiles (um Range), mas nenhum tile.
 
+  const credito = page.locator('[data-atribuicao-ortofoto]');
+  await expect(credito).toBeHidden(); // sem a camada ligada não há crédito de ortofoto
   await caixa.check();
   expect(await noMapa(page, (m) => m.getLayoutProperty('camada-ortofoto', 'visibility'))).toBe('visible');
+  await expect(credito).toHaveText('Ortofoto da própria empresa');
+  await expect(credito).toBeVisible();
   await noMapa(page, (m) => m.jumpTo({ center: [-48.30, -10.75], zoom: 16 })); // a ortofoto de referência vai de z14 a z17
   await page.waitForFunction(() => document.querySelector('[data-mapa]').mapa.isSourceLoaded('ortofoto'));
   await expect.poll(() => pacote.filter((p) => p.nome === 'ortofoto.pmtiles' && p.status === 206).length).toBeGreaterThan(0);

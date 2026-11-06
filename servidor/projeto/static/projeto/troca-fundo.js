@@ -8,6 +8,7 @@ export function criarTroca(mapa, { proprio = null, antes = () => undefined } = {
   let ativo = 'neutro'; // 'neutro' | 'proprio' | 'online'
   let modo = 'automatico'; // 'manual' quando a pessoa escolheu; 'automatico' na abertura e na volta por falha
   let online = null;
+  let perdido = false; // o arquivo do pacote não abriu: nenhuma volta recoloca uma fonte que já falhou
 
   function tirar(fundo) {
     for (const camada of fundo.camadas) if (mapa.getLayer(camada.id)) mapa.removeLayer(camada.id);
@@ -32,7 +33,7 @@ export function criarTroca(mapa, { proprio = null, antes = () => undefined } = {
   function usarProprio({ manual = false } = {}) {
     tirarOnline();
     modo = manual ? 'manual' : 'automatico';
-    if (!proprio) {
+    if (!proprio || perdido) {
       ativo = 'neutro';
       return;
     }
@@ -57,6 +58,7 @@ export function criarTroca(mapa, { proprio = null, antes = () => undefined } = {
     // O arquivo do pacote não abriu: sai o próprio e o neutro fica sozinho. Não mexe no fundo online, se for ele o ativo.
     falhouProprio() {
       if (!proprio) return;
+      perdido = true;
       tirar(proprio);
       if (ativo === 'proprio') ativo = 'neutro';
     },
@@ -67,5 +69,7 @@ export function criarTroca(mapa, { proprio = null, antes = () => undefined } = {
     },
 
     online: () => online,
+    // Há fundo da fazenda para onde voltar: pacote existe e não falhou.
+    temProprio: () => Boolean(proprio) && !perdido,
   };
 }

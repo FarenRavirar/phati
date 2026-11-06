@@ -127,14 +127,26 @@ test('as camadas do produto não são tocadas por nenhuma troca (id e ordem igua
   assert.deepEqual(produto(), antes);
 });
 
-test('arquivo do pacote que não abre tira o próprio e deixa o neutro; tentar de novo recoloca', async () => {
+test('arquivo do pacote que não abre tira o próprio e deixa o neutro; nenhuma volta recoloca a fonte que falhou', async () => {
   const { mapa, troca } = await montar();
   troca.usarProprio();
+  assert.equal(troca.temProprio(), true);
   troca.falhouProprio();
   assert.deepEqual(mapa.ids(), ['fundo-neutro', 'camada-a-preenchimento', 'camada-ortofoto']);
   assert.deepEqual(troca.estado(), { ativo: 'neutro', modo: 'automatico' });
+  assert.equal(troca.temProprio(), false);
   troca.usarProprio();
-  assert.equal(troca.estado().ativo, 'proprio');
+  assert.equal(troca.estado().ativo, 'neutro');
+  troca.usarOnline(google());
+  troca.falhouOnline(); // o online também cai: fica o neutro, não o fundo que já falhou
+  assert.equal(troca.estado().ativo, 'neutro');
+  assert.deepEqual(mapa.ids(), ['fundo-neutro', 'camada-a-preenchimento', 'camada-ortofoto']);
+  assert.equal(mapa.fontes.has('fundo'), false);
+});
+
+test('sem pacote não há fundo da fazenda para voltar', async () => {
+  const { criarTroca } = await import('./troca-fundo.js');
+  assert.equal(criarTroca(mapaDuble()).temProprio(), false);
 });
 
 test('falha do próprio com o online ativo não derruba o online', async () => {

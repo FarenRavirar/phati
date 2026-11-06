@@ -360,6 +360,14 @@ function aplicar(mapa, estado, mudanca) {
 
 let recentralizado = false; // achado real (review PR #36, Sourcery, média): a pessoa já escolheu o centro, o enquadramento inicial não o desfaz
 
+// Crédito da ortofoto (R8): aparece enquanto a camada está ligada, sobre qualquer fundo, abaixo do mapa como o do fundo.
+function mostrarAtribuicaoDaOrtofoto(alvo, imagem, ligada) {
+  const caixa = alvo.parentElement.querySelector('[data-atribuicao-ortofoto]');
+  if (!caixa) return;
+  caixa.textContent = imagem?.atribuicao ?? '';
+  caixa.hidden = !ligada || !imagem?.atribuicao;
+}
+
 function ligarCamadas(mapa, alvo, colecao, imagem) {
   const lista = camadasDaColecao(colecao);
   const estilo = getComputedStyle(document.documentElement);
@@ -381,6 +389,7 @@ function ligarCamadas(mapa, alvo, colecao, imagem) {
   if (!recentralizado) mapa.fitBounds(limitesDaColecao(colecao), { padding: 24, duration: 0 });
   const atualizarPainel = montarPainelDeCamadas(estado, (mudanca) => {
     aplicar(mapa, estado, mudanca);
+    if (mudanca.tipo === 'ligar' && mudanca.id === ID_ORTOFOTO) mostrarAtribuicaoDaOrtofoto(alvo, imagem, mudanca.ligada);
     atualizarPainel(mudanca);
     if (mudanca.tipo !== 'transparencia') limparConsulta();
   });
@@ -500,7 +509,6 @@ function prepararSatelite(mapa, alvo, troca, aoMudar) {
   const botao = document.querySelector('[data-satelite]');
   if (!botao) return { habilitar() {}, desligar() {} };
   const atribuicao = alvo.parentElement.querySelector('[data-mapa-atribuicao]');
-  const temProprio = Boolean(alvo.dataset.pacoteFundo);
   async function ligar() {
     botao.disabled = true;
     const online = await carregarFundoOnline(alvo, troca);
@@ -515,8 +523,9 @@ function prepararSatelite(mapa, alvo, troca, aoMudar) {
     delete alvo.dataset.fundoOnlineErro; // recuperou: o erro da tentativa anterior não vale mais (achado Sourcery, baixa)
     delete alvo.dataset.fundoOnlineSessao;
     alvo.dataset.mapaSatelite = 'sim';
+    const temProprio = troca.temProprio(); // pacote ausente ou que já falhou: não há fundo da fazenda para onde voltar
     botao.textContent = temProprio ? 'Voltar ao fundo da fazenda' : 'Satélite ativado';
-    botao.disabled = !temProprio; // sem pacote não há para onde voltar: o botão fica parado, como na 004
+    botao.disabled = !temProprio; // o botão fica parado, como na 004
     aoMudar();
   }
   function voltar() {
@@ -558,7 +567,7 @@ async function prepararPacote(maplibre, alvo) {
       const estilo = validarEstilo(await resposta.json());
       const origem = window.location.origin;
       const proprio = fundoAberto({ estilo, url: pacote.fundo.url, origem });
-      const imagem = pacote.ortofoto ? { ...ortofotoDoPacote({ estilo, url: pacote.ortofoto.url, origem }), nome: nomeDaOrtofoto(pacote.ortofoto) } : null;
+      const imagem = pacote.ortofoto ? { ...ortofotoDoPacote({ estilo, url: pacote.ortofoto.url, origem }), nome: nomeDaOrtofoto(pacote.ortofoto), atribuicao: pacote.ortofoto.atribuicao } : null;
       return { proprio, imagem };
     })(), PRAZO_FUNDO_MS);
   } catch {

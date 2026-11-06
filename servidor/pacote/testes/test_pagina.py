@@ -28,7 +28,10 @@ def test_com_pacote_devolve_urls_da_versao_vigente_e_a_data_da_ortofoto(entrar, 
 
 def test_quem_so_ve_recebe_as_urls_sem_baixar_pacote_offline(entrar, cenario, cargo_so_ver, referencia_instalada):
     _, pessoa = _pessoa(entrar, cargo_so_ver, cenario.f1)
-    assert fundo_da_pagina(pessoa, cenario.f1) is not None  # D097: quem tem `ver` lê os bytes do fundo e da ortofoto
+    dados = fundo_da_pagina(pessoa, cenario.f1)  # D097: quem tem `ver` lê os bytes do fundo e da ortofoto
+    assert dados is not None
+    assert dados['fundo'] == URL_FUNDO.format(cenario.x.pk, cenario.f1.pk)
+    assert dados['ortofoto'].endswith('/arquivo/ortofoto.pmtiles?versao=1')
 
 
 def test_sem_pacote_vigente_devolve_none(entrar, cenario, pacotes):
@@ -72,7 +75,9 @@ def test_pacote_so_com_fundo_nao_leva_ortofoto(entrar, cenario, referencia_insta
     VersaoPacote.objects.filter(pk=referencia_instalada.pk).update(manifesto=manifesto)
     _, pessoa = _pessoa(entrar, cenario.cargos_x['usuario'], cenario.f1)
     dados = fundo_da_pagina(pessoa, cenario.f1)
-    assert dados is not None and dados['ortofoto'] is None and dados['ortofoto_capturada_em'] == ''
+    assert dados is not None
+    assert dados['ortofoto'] is None
+    assert dados['ortofoto_capturada_em'] == ''
 
 
 @override_settings(MAPA_TESTE_ATIVO=True)
@@ -90,7 +95,8 @@ def test_pagina_de_quem_so_tem_sub_area_nao_vaza_url_do_pacote(entrar, cenario, 
     cliente, _ = _pessoa(entrar, cenario.cargos_x['usuario'], cenario.g1)
     resposta = cliente.get(PAGINA.format(cenario.x.pk, cenario.f1.pk))
     html = resposta.content.decode()
-    assert 'pacote/arquivo' not in html and 'data-pacote-fundo' not in html
+    assert 'pacote/arquivo' not in html
+    assert 'data-pacote-fundo' not in html
 
 
 @override_settings(MAPA_TESTE_ATIVO=False)
