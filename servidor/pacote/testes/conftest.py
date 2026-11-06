@@ -1,5 +1,3 @@
-import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -59,13 +57,9 @@ def ortofoto_grande_tif(tmp_path):
 @pytest.fixture
 def referencia_instalada(pacotes, cenario):
     """Instala o pacote de referência como versão 1 vigente da fazenda F1 de X, sem rodar as ferramentas externas."""
-    from pacote.models import VersaoPacote
+    from pacote.sintetico import instalar_referencia
 
-    destino = pacotes / str(cenario.f1.pk) / 'v1'
-    shutil.copytree(REFERENCIA, destino)
-    manifesto = json.loads((REFERENCIA / 'manifesto.json').read_text(encoding='utf-8'))
-    manifesto['fazenda_id'] = cenario.f1.pk  # a linha do banco e o manifesto dela falam da mesma fazenda
-    return VersaoPacote.objects.create(empresa=cenario.x, fazenda=cenario.f1, numero=1, manifesto=manifesto, vigente=True)
+    return instalar_referencia(cenario.f1)
 
 
 SENHA = 'cavalo azul sobe o morro'
@@ -96,6 +90,7 @@ def entrar(db, cpf_novo):
             Concessao.objects.create(pessoa=pessoa, cargo=cargo, concedida_por=pessoa, **lugar)
         cliente = Client()
         assert cliente.post('/entrar', {'cpf': cpf, 'senha': SENHA}).status_code == 302
+        setattr(cliente, 'pessoa', pessoa)  # os testes de função (sem HTTP) usam a mesma pessoa
         return cliente
 
     return abrir

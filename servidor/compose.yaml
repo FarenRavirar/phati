@@ -56,6 +56,8 @@ services:
       <<: *ambiente_app
       PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
       PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
+    volumes:
+      - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # `popular_sintetico` instala o pacote de referência no ambiente de teste de navegador (004b T2.1a)
     depends_on:
       banco: {condition: service_healthy}
 

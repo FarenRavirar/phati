@@ -224,3 +224,25 @@ test('A10: o adaptador do mapa não conhece o provedor do fundo (só o módulo d
   const texto = require('node:fs').readFileSync(require('node:path').join(__dirname, 'mapa.js'), 'utf8');
   assert.doesNotMatch(texto, /google/i);
 });
+
+// ---- Ortofoto do pacote como camada (004b R8, A7) -------------------------------------------------------------------
+
+test('a ortofoto tem um só id de desenho e as camadas do produto seguem com preenchimento e contorno', async () => {
+  const { idsDeDesenho } = await import('./mapa.js');
+  const { ID_ORTOFOTO } = await import('./fundo-aberto.js');
+  assert.deepEqual(idsDeDesenho(ID_ORTOFOTO), { imagem: ID_ORTOFOTO });
+  assert.deepEqual(idsDeDesenho('camada-a'), { preenchimento: 'camada-a-preenchimento', contorno: 'camada-a-contorno' });
+});
+
+test('na ordem de desenho a ortofoto ocupa uma posição e respeita subir e descer como qualquer camada', async () => {
+  const { ordemDeDesenho, moverNaOrdem } = await import('./mapa.js');
+  const ordem = ['camada-a', 'camada-ortofoto'];
+  assert.deepEqual(ordemDeDesenho(ordem), ['camada-ortofoto', 'camada-a-preenchimento', 'camada-a-contorno']);
+  assert.deepEqual(ordemDeDesenho(moverNaOrdem(ordem, 'camada-ortofoto', -1)), ['camada-a-preenchimento', 'camada-a-contorno', 'camada-ortofoto']);
+});
+
+test('o nome da ortofoto leva a data de captura em dia/mês/ano, e sem data fica só o nome', async () => {
+  const { nomeDaOrtofoto } = await import('./mapa.js');
+  assert.equal(nomeDaOrtofoto({ capturadaEm: '2026-01-15' }), 'Ortofoto (captura em 15/01/2026)');
+  assert.equal(nomeDaOrtofoto({ capturadaEm: '' }), 'Ortofoto');
+});

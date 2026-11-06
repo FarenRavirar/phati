@@ -92,7 +92,7 @@ TAMANHO = (REFERENCIA / 'ortofoto.pmtiles').stat().st_size
 
 @pytest.mark.parametrize('cabecalho, inicio, fim', [
     ('bytes=0-9', 0, 9), ('bytes=100-199', 100, 199), ('bytes=-5', TAMANHO - 5, TAMANHO - 1),
-    ('bytes=60000-', 60000, TAMANHO - 1), ('bytes=10-99999999', 10, TAMANHO - 1),  # fim além do arquivo é cortado no último byte
+    ('bytes=30000-', 30000, TAMANHO - 1), ('bytes=10-99999999', 10, TAMANHO - 1),  # fim além do arquivo é cortado no último byte
 ])
 def test_range_devolve_206_com_o_trecho_certo(usuario, cenario, referencia_instalada, cabecalho, inicio, fim):
     esperado = (REFERENCIA / 'ortofoto.pmtiles').read_bytes()[inicio:fim + 1]

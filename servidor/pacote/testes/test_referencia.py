@@ -8,7 +8,7 @@ from pacote import manifesto
 from pacote.testes.conftest import REFERENCIA
 from projeto import camadas_sinteticas
 
-ESTILO = Path(__file__).resolve().parents[1] / 'estilo_base.json'
+ESTILO = Path(__file__).resolve().parents[2] / 'projeto' / 'static' / 'projeto' / 'estilo_base.json'  # a web serve este mesmo arquivo
 CONTRATO = Path(__file__).resolve().parents[2] / 'projeto' / 'contrato_pacote.md'
 
 

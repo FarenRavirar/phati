@@ -80,6 +80,10 @@ def _converter_ortofoto(foto: Path, destino: Path, caixa: tuple[float, float, fl
     try:
         _executar(
             'rio', 'pmtiles', str(foto), str(destino), '--format', 'JPEG', '--zoom-levels', f'{zoom_minimo}..{zoom_maximo}',
+            # 256 px, o `tileSize` do `estilo_base.json` (e as medições da T0.6): o padrão do `rio` é 512, e a web desenharia a ortofoto
+            # no zoom errado. Nome e descrição fixos: o padrão copia o caminho do arquivo de origem para dentro do pacote, que sai
+            # para quem tem `ver` (medido na referência: o metadado levava o caminho completo da máquina que gerou).
+            '--tile-size', '256', '--name', 'ortofoto', '--description', 'Ortofoto da fazenda',
             '--cutline', str(corte), '--exclude-empty-tiles', '--silent',
         )
     finally:

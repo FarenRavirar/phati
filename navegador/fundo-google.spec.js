@@ -251,3 +251,123 @@ test('tile 404 (sem imagem naquele ponto) não derruba o satélite nem avisa: o 
   await expect(page.locator('[data-mapa-atribuicao]')).toBeVisible();
   await expect(page.locator('[data-mapa-fundo-aviso]')).toBeHidden();
 });
+
+// ---- Troca de fundo com o pacote da fazenda (spec 004b R9, R10; A8) -----------------------------------------------------------
+// A segunda fazenda da empresa A tem o pacote de referência (`popular_sintetico`). O Google continua atendido só pelo dublê de rede;
+// o fundo próprio vem do PMTiles servido pelo app. Em nenhum quadro os dois fundos podem estar no estilo ao mesmo tempo.
+const COM_PACOTE = () => `/empresa/${dados.empresa_a}/fazenda/${dados.fazendas_a[1]}/`;
+const FUNDO_DA_FAZENDA = 'fundo do mapa da fazenda';
+
+async function abrirComPacote(page) {
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto(COM_PACOTE());
+  const mapa = page.locator('[data-mapa]');
+  await expect(mapa).toHaveAttribute('data-mapa-pronto', 'sim');
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'proprio');
+  // Observador de exclusão mútua: a cada quadro conta quantas vezes os dois fundos estiveram no estilo juntos.
+  await page.evaluate(() => {
+    const m = document.querySelector('[data-mapa]').mapa;
+    window.__juntos = 0;
+    window.__marca = 'sem-recarregar';
+    m.on('render', () => { if (m.getLayer('fundo-terra') && m.getLayer('fundo-online-tiles')) window.__juntos += 1; });
+  });
+  return mapa;
+}
+
+const juntos = (page) => page.evaluate(() => window.__juntos);
+const fundos = (page) => page.evaluate(() => {
+  const m = document.querySelector('[data-mapa]').mapa;
+  return { proprio: Boolean(m.getSource('fundo') || m.getLayer('fundo-terra')), online: Boolean(m.getSource('fundo-online') || m.getLayer('fundo-online-tiles')) };
+});
+
+test('com pacote: o satélite tira o fundo da fazenda, a atribuição acompanha o fundo e o mesmo botão volta nos dois sentidos', async ({ page }) => {
+  const vistas = await dublarGoogle(page);
+  const mapa = await abrirComPacote(page);
+  const osm = page.locator('[data-atribuicao-aberta]');
+  const googleAtribuicao = page.locator('[data-mapa-atribuicao]');
+  await expect(osm).toBeVisible();
+  await expect(googleAtribuicao).toBeHidden();
+  expect(vistas.atendidas, 'o Google foi chamado sem a pessoa ligar').toBe(0);
+  expect(await fundos(page)).toEqual({ proprio: true, online: false });
+
+  await page.locator('[data-satelite]').click();
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'online');
+  expect(await fundos(page), 'os dois fundos no estilo').toEqual({ proprio: false, online: true });
+  await expect(osm).toBeHidden();
+  await expect(googleAtribuicao).toBeVisible();
+  await expect(page.locator('[data-satelite]')).toHaveText('Voltar ao fundo da fazenda');
+  await expect(mapa).toHaveAttribute('data-mapa-camadas', '3');
+
+  for (let volta = 0; volta < 2; volta += 1) { // escolha manual nos dois sentidos, repetida
+    await page.locator('[data-satelite]').click(); // volta ao fundo da fazenda
+    await expect(mapa).toHaveAttribute('data-fundo-ativo', 'proprio');
+    expect(await fundos(page)).toEqual({ proprio: true, online: false });
+    await expect(osm).toBeVisible();
+    await expect(googleAtribuicao).toBeHidden();
+    await expect(page.locator('[data-satelite]')).toHaveText('Ativar satélite');
+    await page.locator('[data-satelite]').click(); // liga de novo
+    await expect(mapa).toHaveAttribute('data-fundo-ativo', 'online');
+    expect(await fundos(page)).toEqual({ proprio: false, online: true });
+  }
+  expect(await juntos(page), 'quadros com os dois fundos no estilo').toBe(0);
+  await expect(mapa).not.toHaveAttribute('data-mapa-erro', /.*/);
+});
+
+test('com pacote: sessão recusada deixa o fundo da fazenda de pé, com aviso', async ({ page }) => {
+  await dublarGoogle(page, { recusarSessao: true });
+  const mapa = await abrirComPacote(page);
+  await page.locator('[data-satelite]').click();
+  await expect(page.getByText(`O fundo do mapa está indisponível. Mostrando o ${FUNDO_DA_FAZENDA}.`)).toBeVisible();
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'proprio');
+  expect(await fundos(page)).toEqual({ proprio: true, online: false });
+  await expect(page.locator('[data-satelite]')).toBeEnabled();
+  expect(await juntos(page)).toBe(0);
+});
+
+test('com pacote: sem rede o satélite cai para o fundo da fazenda sem recarregar, com as camadas e a ficha de pé', async ({ page }) => {
+  await dublarGoogle(page);
+  let falhar = false;
+  await page.route(`${ORIGEM}/v1/2dtiles/**`, (rota) => (falhar ? rota.abort() : rota.fallback()));
+  const mapa = await abrirComPacote(page);
+  await page.locator('[data-satelite]').click();
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'online');
+  // Consulta feita com o satélite ligado: a ficha já carregada continua na tela quando o fundo muda.
+  await page.evaluate(() => document.querySelector('[data-mapa]').mapa.jumpTo({ center: [-48.30, -10.75], zoom: 12 }));
+  await page.waitForFunction(() => { const m = document.querySelector('[data-mapa]').mapa; return m.loaded() && !m.isMoving(); });
+  const alvo = await page.evaluate(() => {
+    const e = document.querySelector('[data-mapa]');
+    const p = e.mapa.project([-48.30, -10.75]);
+    const c = e.getBoundingClientRect();
+    return { x: c.left + p.x, y: c.top + p.y };
+  });
+  await page.locator('[data-mapa]').scrollIntoViewIfNeeded();
+  await page.mouse.click(alvo.x, alvo.y);
+  await expect(page.locator('[data-lista-consulta] li button').first()).toBeVisible();
+  falhar = true;
+  await page.evaluate(() => document.querySelector('[data-mapa]').mapa.jumpTo({ zoom: 15 })); // tiles novos, todos recusados
+  await expect(page.getByText(`o mapa voltou ao ${FUNDO_DA_FAZENDA}.`, { exact: false })).toBeVisible();
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'proprio');
+  await expect(mapa).toHaveAttribute('data-mapa-satelite', 'nao');
+  expect(await fundos(page)).toEqual({ proprio: true, online: false });
+  expect(await page.evaluate(() => window.__marca), 'a página recarregou').toBe('sem-recarregar');
+  await expect(mapa).toHaveAttribute('data-mapa-camadas', '3');
+  await expect(page.locator('[data-lista-consulta] li button').first(), 'a consulta já carregada sumiu').toBeVisible();
+  await expect(mapa).not.toHaveAttribute('data-mapa-erro', /.*/);
+  expect(await juntos(page)).toBe(0);
+});
+
+test('com pacote: a ortofoto ligada fica por cima do satélite, como camada', async ({ page }) => {
+  await dublarGoogle(page);
+  const mapa = await abrirComPacote(page);
+  await page.locator('[data-camada="camada-ortofoto"]').getByRole('checkbox').check();
+  await page.locator('[data-satelite]').click();
+  await expect(mapa).toHaveAttribute('data-fundo-ativo', 'online');
+  const ordem = await page.evaluate(() => {
+    const m = document.querySelector('[data-mapa]').mapa;
+    const ids = m.getStyle().layers.map((l) => l.id);
+    return { online: ids.indexOf('fundo-online-tiles'), ortofoto: ids.indexOf('camada-ortofoto'), visivel: m.getLayoutProperty('camada-ortofoto', 'visibility') };
+  });
+  expect(ordem.online).toBeGreaterThanOrEqual(0);
+  expect(ordem.ortofoto, 'a ortofoto não ficou acima do satélite').toBeGreaterThan(ordem.online);
+  expect(ordem.visivel).toBe('visible');
+});

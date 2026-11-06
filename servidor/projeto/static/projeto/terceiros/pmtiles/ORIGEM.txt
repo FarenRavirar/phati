@@ -1,0 +1,5 @@
+Pacote: pmtiles 4.5.0 (npm), arquivo dist/pmtiles.js (bundle IIFE com a fflate embutida; global `pmtiles`).
+Origem: https://registry.npmjs.org/pmtiles/-/pmtiles-4.5.0.tgz
+Integridade do tarball (dist.integrity do registro): sha512-CBeD4SoUluFziGdy/8k7FOjQxQy486n+929W/tWophauvMICpkZ26vGBWhDt/6b1FZQWNaf4jFdT/5+q0Wii5w==
+Licença declarada no package.json: BSD-3-Clause (https://github.com/protomaps/PMTiles). O tarball não traz arquivo de licença.
+Aprovado pelo mantenedor em 2026-11-05 (T0.4 da spec 004b). O hash do arquivo fica em testes/test_pmtiles_terceiros.py.

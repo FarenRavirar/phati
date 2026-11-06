@@ -45,6 +45,7 @@ test('terceiros embutidos ficam isentos; JS do produto no mesmo static continua 
   const base = 'servidor/projeto/static/projeto';
   assert.equal(parEsperado(`${base}/terceiros/maplibre/maplibre-gl.mjs`), null);
   assert.equal(parEsperado(`${base}/terceiros/maplibre/maplibre-gl-worker.mjs`), null);
+  assert.equal(parEsperado(`${base}/terceiros/pmtiles/pmtiles.js`), null); // hash em test_pmtiles_terceiros.py
   assert.equal(parEsperado(`${base}/mapa.js`), `${base}/mapa.test.js`);
   assert.equal(parEsperado(`${base}/fundo-neutro.js`), `${base}/fundo-neutro.test.js`);
   assert.equal(parEsperado(`${base}/terceiros/outra-lib/x.mjs`), `${base}/terceiros/outra-lib/x.test.mjs`);

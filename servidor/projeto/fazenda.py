@@ -5,6 +5,7 @@ sub-área, que existe para quem lê; o que cada pessoa pode fazer ali vem de `pe
 from django.urls import reverse
 from django.views.decorators.http import require_GET
 
+from pacote.pagina import fundo_da_pagina
 from permissao.pode import com_permissao, permissoes_efetivas, pode
 from projeto.escopo import resolver_escopo
 from projeto.mapa import chave_google, com_politica_do_mapa, mapa_ativo
@@ -54,7 +55,8 @@ def fazenda(requisicao, empresa_id, fazenda_id):
     ]
     cadastrar = next((a for a in acoes if a['rotulo'] == 'Cadastrar sub-área'), None)
     contexto = {'arvore': arvore, 'acoes': acoes, 'arquivadas': arquivadas, 'cadastrar': cadastrar, 'mapa_ativo': mapa_ativo(),
-                'chave_google': chave_google()}
+                'chave_google': chave_google(),
+                'pacote': fundo_da_pagina(requisicao.user, escopo) if mapa_ativo() else None}
     return com_politica_do_mapa(renderizar_na_casca(requisicao, 'fazenda.html', contexto, empresa=empresa, fazenda=escopo))
 
 

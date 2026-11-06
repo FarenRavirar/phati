@@ -19,8 +19,8 @@
     {
       "nome": "ortofoto.pmtiles",
       "papel": "ortofoto",
-      "bytes": 67442,
-      "sha256": "ebd09496f5b427dee7431c8fc85c8a867b56f70aaa0c063bea6db622dd7f27a3",
+      "bytes": 36826,
+      "sha256": "af029fb5898e1e68d70f50f874f72d812222d81e4d86d3d4f2e2c54233c83a5b",
       "zoom_minimo": 14,
       "zoom_maximo": 17,
       "atribuicao": "Ortofoto da própria empresa",
