@@ -77,6 +77,23 @@ def test_sem_fonte_o_uso_fica_nao_medido_e_nunca_zero():
         assert (janela.usados, janela.origem, janela.porcentagem) == (None, uso_google.NAO_MEDIDO, None)
 
 
+def test_fonte_sem_nenhum_ponto_vira_nao_medido_e_nao_zero():
+    class SemPonto:
+        origem = 'Cloud Monitoring (teste)'
+
+        def contar(self, _inicio, _fim):
+            return None
+
+    diaria, mensal = uso_google.janelas(AGORA, 15000, 100000, SemPonto())
+    assert (diaria.usados, diaria.origem, diaria.porcentagem) == (None, uso_google.NAO_MEDIDO, None)
+    assert (mensal.usados, mensal.origem) == (None, uso_google.NAO_MEDIDO)
+
+
+def test_fonte_com_zero_medido_mostra_zero_e_a_origem():
+    diaria, _ = uso_google.janelas(AGORA, 15000, 100000, FonteFixa(0))
+    assert (diaria.usados, diaria.origem, diaria.porcentagem) == (0, 'Cloud Monitoring (teste)', 0.0)
+
+
 def test_fonte_que_falha_vira_nao_medido_e_registra_a_causa(caplog):
     class Quebrada:
         origem = 'Cloud Monitoring (teste)'
@@ -92,4 +109,6 @@ def test_fonte_que_falha_vira_nao_medido_e_registra_a_causa(caplog):
 
 @pytest.mark.parametrize('total', [0, 1])
 def test_janelas_aceitam_total_pequeno(total):
-    assert uso_google.janelas(AGORA, total, total, FonteFixa(5))[0].usados == 5
+    diaria, mensal = uso_google.janelas(AGORA, total, total, FonteFixa(5))
+    assert (diaria.total, mensal.total) == (total, total)
+    assert (diaria.usados, mensal.usados) == (5, 5)

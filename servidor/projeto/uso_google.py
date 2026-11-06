@@ -33,15 +33,18 @@ class Janela:
 
 
 def _meia_noite(dia):
+    """Meia-noite do fuso do Pacífico no dia de `dia`."""
     return datetime(dia.year, dia.month, dia.day, tzinfo=PACIFICO)
 
 
 def inicio_e_renovacao_diaria(agora):
+    """Início do dia no Pacífico e a próxima meia-noite (renovação da cota diária)."""
     hoje = _meia_noite(agora.astimezone(PACIFICO))
     return hoje, _meia_noite(hoje + timedelta(days=1))  # soma em relógio de parede: vale na troca de horário de verão
 
 
 def inicio_e_renovacao_mensal(agora):
+    """Início do mês no Pacífico e o dia 1 do mês seguinte (renovação da franquia grátis)."""
     local = agora.astimezone(PACIFICO)
     inicio = _meia_noite(local.replace(day=1))
     proximo = (local.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -49,10 +52,12 @@ def inicio_e_renovacao_mensal(agora):
 
 
 def _contar(fonte, inicio, fim):
+    """`(usados, origem)`. Sem fonte, fonte sem nenhum ponto (`None`) ou fonte que falha: `(None, NAO_MEDIDO)`."""
     if fonte is None:
         return None, NAO_MEDIDO
     try:
-        return fonte.contar(inicio, fim), fonte.origem
+        usados = fonte.contar(inicio, fim)
+        return (None, NAO_MEDIDO) if usados is None else (usados, fonte.origem)
     except Exception:  # fonte fora do ar não derruba a tela: "não medido", e a causa fica no log
         REGISTRO.exception('Falha ao ler o uso do Google em %s.', fonte.origem)
         return None, NAO_MEDIDO

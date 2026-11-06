@@ -2,6 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(ssh maruko ls:*)",
+      "Read(servidor/.env.exemplo)",
+      "Edit(servidor/.env.exemplo)",
       "Bash(ssh maruko df:*)",
       "Bash(ssh maruko free:*)",
       "Bash(ssh maruko uptime:*)",

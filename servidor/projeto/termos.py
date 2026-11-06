@@ -7,6 +7,9 @@ com aviso de texto ausente; fora do local responde 404 e o rodapé não a linka.
 
 import json
 import logging
+import os
+import re
+from functools import lru_cache
 from pathlib import Path
 
 from django.conf import settings
@@ -21,13 +24,12 @@ TERMO_DO_GOOGLE = 'https://cloud.google.com/maps-platform/terms'
 SEM_TEXTO = 'O texto do mantenedor ainda não foi fornecido (aviso só do ambiente local).'
 
 
-def _ler():
-    caminho = settings.TERMOS_ARQUIVO
-    if not caminho:
-        return {}
+@lru_cache(maxsize=8)
+def _interpretar(caminho, _versao):
+    """Lê e valida o arquivo. `_versao` (mtime) só entra na chave do cache: arquivo trocado é lido de novo."""
     try:
         dados = json.loads(Path(caminho).read_text(encoding='utf-8'))
-    except (OSError, ValueError):  # arquivo ausente, ilegível ou JSON inválido: sem texto, e a causa fica no log
+    except (OSError, ValueError):  # ilegível ou JSON inválido: sem texto, e a causa fica no log
         REGISTRO.exception('Texto dos termos ilegível.')
         return {}
     if not isinstance(dados, dict):
@@ -35,13 +37,27 @@ def _ler():
     return {chave: valor for chave, valor in dados.items() if chave in SECOES and isinstance(valor, str) and valor.strip()}
 
 
+def _ler():
+    """Textos válidos por seção. O rodapé consulta isto a cada página, então o arquivo só é relido quando muda."""
+    caminho = settings.TERMOS_ARQUIVO
+    if not caminho:
+        return {}
+    try:
+        versao = os.stat(caminho).st_mtime_ns
+    except OSError:  # arquivo ausente: sem texto, e a causa fica no log
+        REGISTRO.exception('Texto dos termos ilegível.')
+        return {}
+    return _interpretar(caminho, versao)
+
+
 def paragrafos(secao):
     """Parágrafos do texto do mantenedor, ou `None` se ele não existe."""
     texto = _ler().get(secao)
-    return None if texto is None else [p.strip() for p in texto.split('\n\n') if p.strip()]
+    return None if texto is None else [p.strip() for p in re.split(r'\n\s*\n', texto) if p.strip()]
 
 
 def disponivel(secao):
+    """A página responde: há texto do mantenedor ou o ambiente é `local`."""
     return paragrafos(secao) is not None or settings.AMBIENTE == 'local'
 
 
@@ -56,6 +72,7 @@ def disponiveis(_requisicao):
 
 @require_GET
 def pagina(requisicao, secao):
+    """Página pública de `secao`; 404 para seção desconhecida ou sem texto fora do ambiente local."""
     if secao not in SECOES:
         raise Http404
     texto = paragrafos(secao)

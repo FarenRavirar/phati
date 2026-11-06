@@ -13,10 +13,13 @@ from projeto.paginas_autenticadas import exige_acao, exige_entrada, renderizar_n
 
 def _fonte():
     """Sem credencial configurada a tela mostra "não medido": a fonte nunca é inventada."""
-    return CloudMonitoring(settings.GOOGLE_MONITORING_CREDENCIAL) if settings.GOOGLE_MONITORING_CREDENCIAL else None
+    if not settings.GOOGLE_MONITORING_CREDENCIAL:
+        return None
+    return CloudMonitoring(settings.GOOGLE_MONITORING_CREDENCIAL, projeto=settings.GOOGLE_PROJETO_MONITORADO or None)
 
 
 def _linha(janela):
+    """Linha da tabela do monitor: ausente aparece como "não medido", nunca como zero."""
     medido = janela.usados is not None
     return [
         janela.nome,
@@ -32,6 +35,7 @@ def _linha(janela):
 @exige_entrada
 @exige_acao('ver_monitor_google')
 def monitor(requisicao):
+    """Tela do monitor; quem não é Administrador da plataforma recebe 404 (A10)."""
     if not pode(requisicao.user, 'ver_monitor_google'):
         raise Http404
     janelas = uso_google.janelas(timezone.now(), settings.MAPA_GOOGLE_COTA_DIARIA, settings.MAPA_GOOGLE_GRATIS_MENSAL, _fonte())

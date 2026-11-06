@@ -48,9 +48,11 @@ def test_plataforma_sem_fonte_ve_nao_medido_nas_duas_janelas(cliente_logado, pla
     resposta = cliente_logado.get(CAMINHO)
     html = resposta.content.decode()
     assert resposta.status_code == 200
-    assert 'Diária (cota do projeto)' in html and 'Mensal (franquia grátis)' in html
+    assert 'Diária (cota do projeto)' in html
+    assert 'Mensal (franquia grátis)' in html
     assert html.count('não medido') >= 6  # usados, porcentagem e origem, nas duas janelas
-    assert '15.000' in html and '100.000' in html
+    assert '15.000' in html
+    assert '100.000' in html
     assert 'Pacífico' in html
     assert 'no-store' in resposta['Cache-Control']
 
@@ -82,3 +84,15 @@ def test_credencial_ilegivel_mostra_nao_medido_e_nao_derruba_a_tela(cliente_loga
     resposta = cliente_logado.get(CAMINHO)
     assert resposta.status_code == 200
     assert resposta.content.decode().count('não medido') >= 6
+
+
+def test_fonte_repassa_o_projeto_monitorado_so_quando_configurado(settings):
+    settings.GOOGLE_MONITORING_CREDENCIAL = '/nao/existe.json'
+    settings.GOOGLE_PROJETO_MONITORADO = ''
+    sem_projeto = monitor_google._fonte()
+    assert sem_projeto is not None
+    assert sem_projeto._projeto is None
+    settings.GOOGLE_PROJETO_MONITORADO = 'projeto-cobrado'
+    com_projeto = monitor_google._fonte()
+    assert com_projeto is not None
+    assert com_projeto._projeto == 'projeto-cobrado'

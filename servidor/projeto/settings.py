@@ -113,6 +113,8 @@ def _total_do_monitor(nome, padrao):
 
 # Chave da conta de serviço do Cloud Monitoring (004b T3.1): caminho de arquivo fora do Git; sem ela o monitor mostra "não medido".
 GOOGLE_MONITORING_CREDENCIAL = os.environ.get('PHATI_GOOGLE_MONITORING_CREDENCIAL', '').strip()
+# Projeto Google cobrado pela chave de mapas, onde o monitor lê as métricas. Vazio: o `project_id` da própria chave da conta de serviço.
+GOOGLE_PROJETO_MONITORADO = os.environ.get('PHATI_GOOGLE_PROJETO_MONITORADO', '').strip()
 # Arquivo local, fora do Git, com o texto dos termos e da política (004b R15).
 TERMOS_ARQUIVO = os.environ.get('PHATI_TERMOS_ARQUIVO', '').strip()
 MAPA_GOOGLE_COTA_DIARIA = _total_do_monitor('PHATI_MAPA_GOOGLE_COTA_DIARIA', 15000)
