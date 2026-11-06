@@ -48,9 +48,23 @@ function iniciar(opcoes = {}) {
   mapa.addLayer({ id: 'camada-ortofoto', type: 'raster' });
   return { mapa, ...opcoes };
 }
+// O dublê confere a exclusão mútua depois de cada mutação, não só no fim do teste: estado intermediário com os dois fundos reprova.
+function vigiar(mapa) {
+  for (const metodo of ['addSource', 'removeSource', 'addLayer', 'removeLayer']) {
+    const original = mapa[metodo];
+    mapa[metodo] = (...args) => {
+      const resultado = original.apply(mapa, args);
+      nuncaJuntos(mapa);
+      return resultado;
+    };
+  }
+  return mapa;
+}
+
 const montar = async (extra = {}) => {
   const { criarTroca } = await import('./troca-fundo.js');
   const { mapa } = iniciar();
+  vigiar(mapa);
   const antes = () => mapa.camadas.find((c) => c.id.startsWith('camada-'))?.id;
   return { mapa, troca: criarTroca(mapa, { proprio: proprio(), antes, ...extra }) };
 };
@@ -149,13 +163,18 @@ test('sem pacote não há fundo da fazenda para voltar', async () => {
   assert.equal(criarTroca(mapaDuble()).temProprio(), false);
 });
 
-test('falha do próprio com o online ativo não derruba o online', async () => {
+test('falha do próprio com o online ativo não derruba o online, e a queda do online depois deixa o neutro', async () => {
   const { mapa, troca } = await montar();
   troca.usarProprio();
   troca.usarOnline(google());
   troca.falhouProprio();
   assert.equal(troca.estado().ativo, 'online');
   assert.ok(mapa.ids().includes('fundo-online'));
+  assert.equal(troca.temProprio(), false);
+  troca.falhouOnline();
+  assert.deepEqual(troca.estado(), { ativo: 'neutro', modo: 'automatico' });
+  assert.deepEqual(mapa.ids(), ['fundo-neutro', 'camada-a-preenchimento', 'camada-ortofoto']);
+  assert.equal(mapa.fontes.has('fundo'), false);
 });
 
 test('sem pacote o mapa fica no neutro, o online liga e a falha dele devolve ao neutro', async () => {

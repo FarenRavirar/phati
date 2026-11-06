@@ -3,22 +3,12 @@
 // segunda fazenda da empresa A, que o `popular_sintetico` entrega com o pacote de referência. A primeira e a terceira seguem sem pacote.
 // MapLibre real e PMTiles servido pelo app por `Range`; nenhuma requisição sai do host do app.
 const { test, expect } = require('@playwright/test');
-const { dados, entrar, turmaDe, semRolagemHorizontal, acessivel, observarRequisicoesExternas } = require('./apoio.js');
+const { dados, entrar, turmaDe, semRolagemHorizontal, acessivel, observarRequisicoesExternas, LON0, LAT0, noMapa, esperarOcioso, tocar } = require('./apoio.js');
 
-const [LON0, LAT0] = [-48.30, -10.75];
 const P1 = [LON0, LAT0];
 const comPacote = () => `/empresa/${dados.empresa_a}/fazenda/${dados.fazendas_a[1]}/`;
 const semPacote = () => `/empresa/${dados.empresa_a}/fazenda/${dados.fazendas_a[0]}/`;
 const arquivo = (nome) => `/empresa/${dados.empresa_a}/fazenda/${dados.fazendas_a[1]}/pacote/arquivo/${nome}?versao=1`;
-
-const noMapa = (page, funcao, argumento) => page.evaluate(`(${funcao})(document.querySelector('[data-mapa]').mapa, ${JSON.stringify(argumento ?? null)})`);
-
-async function esperarOcioso(page) {
-  await page.waitForFunction(() => {
-    const mapa = document.querySelector('[data-mapa]').mapa;
-    return mapa && mapa.loaded() && !mapa.isMoving();
-  });
-}
 
 async function abrir(page, baseURL, destino = comPacote()) {
   const externas = observarRequisicoesExternas(page, baseURL);
@@ -37,18 +27,6 @@ async function mapaPronto(page, ativo = 'proprio') {
   await expect(mapa).toHaveAttribute('data-fundo-ativo', ativo);
   await esperarOcioso(page);
   return mapa;
-}
-
-async function tocar(page, [lon, lat]) {
-  await page.locator('[data-mapa]').scrollIntoViewIfNeeded();
-  await esperarOcioso(page);
-  const alvo = await page.evaluate(([x, y]) => {
-    const elemento = document.querySelector('[data-mapa]');
-    const ponto = elemento.mapa.project([x, y]);
-    const caixa = elemento.getBoundingClientRect();
-    return { x: caixa.left + ponto.x, y: caixa.top + ponto.y };
-  }, [lon, lat]);
-  await page.mouse.click(alvo.x, alvo.y);
 }
 
 test('o fundo próprio desenha a partir do PMTiles servido por Range, com a atribuição OpenStreetMap à vista', async ({ page, baseURL }) => {
@@ -99,6 +77,16 @@ test('a ortofoto é uma camada desligada com a data de captura, que liga, muda d
   await noMapa(page, (m) => m.jumpTo({ center: [-48.30, -10.75], zoom: 16 })); // a ortofoto de referência vai de z14 a z17
   await page.waitForFunction(() => document.querySelector('[data-mapa]').mapa.isSourceLoaded('ortofoto'));
   await expect.poll(() => pacote.filter((p) => p.nome === 'ortofoto.pmtiles' && p.status === 206).length).toBeGreaterThan(0);
+  // Fonte carregada e 206 não provam desenho: o quadro com a camada ligada tem de diferir do quadro com ela desligada.
+  await esperarOcioso(page);
+  const canvas = page.locator('[data-mapa] canvas');
+  const ligada = await canvas.screenshot();
+  await caixa.uncheck();
+  await esperarOcioso(page);
+  const desligada = await canvas.screenshot();
+  expect(Buffer.compare(ligada, desligada), 'a ortofoto ligada não mudou nenhum pixel do mapa').not.toBe(0);
+  await caixa.check();
+  await esperarOcioso(page);
 
   await item.getByRole('slider').fill('50');
   expect(await noMapa(page, (m) => m.getPaintProperty('camada-ortofoto', 'raster-opacity'))).toBe(0.5);

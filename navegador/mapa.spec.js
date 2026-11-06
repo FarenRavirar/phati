@@ -2,7 +2,7 @@
 // Mapa de teste de layout (spec 004 R1, R3, R16; T1.7). Roda com PHATI_MAPA_TESTE_ATIVO=1 e PHATI_AMBIENTE=teste (job
 // `navegador`). MapLibre real no Chromium, fundo neutro, sem rede externa e sem violação de política de conteúdo.
 const { test, expect } = require('@playwright/test');
-const { dados, entrar, semRolagemHorizontal, acessivel, observarRequisicoesExternas } = require('./apoio.js');
+const { dados, entrar, semRolagemHorizontal, acessivel, observarRequisicoesExternas, LON0, LAT0, noMapa, esperarOcioso, tocar } = require('./apoio.js');
 
 const url = (empresa, fazenda) => `/empresa/${empresa}/fazenda/${fazenda}/`;
 
@@ -84,19 +84,10 @@ test('sem acesso à fazenda, o mapa não existe por URL direta (404)', async ({ 
 
 // ---- Fase 2 (T2.4 a T2.7): camadas sintéticas, ordem, transparência, consulta, estados e posição ----------------------
 // Pontos do dado sintético, em torno de LON0, LAT0 (camadas_sinteticas.py): P1 em três camadas; P2, P3 e P4 em uma feição só.
-const [LON0, LAT0] = [-48.30, -10.75];
 const P1 = [LON0, LAT0];
 const P2 = [LON0 - 0.027, LAT0 + 0.008];
 const P3 = [LON0 + 0.027, LAT0 + 0.008];
 const P4 = [LON0, LAT0 - 0.027];
-
-// O mapa pode estar reenquadrando ou carregando fonte: tocar ou ler o estilo só depois de `loaded()`.
-async function esperarOcioso(page) {
-  await page.waitForFunction(() => {
-    const mapa = document.querySelector('[data-mapa]').mapa;
-    return mapa && mapa.loaded() && !mapa.isMoving();
-  });
-}
 
 async function abrirComCamadas(page, baseURL) {
   const abertura = await abrirMapa(page, baseURL);
@@ -106,19 +97,6 @@ async function abrirComCamadas(page, baseURL) {
   return abertura;
 }
 
-async function tocar(page, [lon, lat]) {
-  await page.locator('[data-mapa]').scrollIntoViewIfNeeded();
-  await esperarOcioso(page);
-  const alvo = await page.evaluate(([x, y]) => {
-    const elemento = document.querySelector('[data-mapa]');
-    const ponto = elemento.mapa.project([x, y]);
-    const caixa = elemento.getBoundingClientRect();
-    return { x: caixa.left + ponto.x, y: caixa.top + ponto.y };
-  }, [lon, lat]);
-  await page.mouse.click(alvo.x, alvo.y);
-}
-
-const noMapa = (page, funcao, argumento) => page.evaluate(`(${funcao})(document.querySelector('[data-mapa]').mapa, ${JSON.stringify(argumento ?? null)})`);
 const idsDasCamadas = (page) => noMapa(page, (m) => m.getStyle().layers.map((l) => l.id).filter((id) => id.startsWith('camada-')));
 const itensDaConsulta = (page) => page.locator('[data-lista-consulta] li button');
 

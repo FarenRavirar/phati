@@ -2,7 +2,7 @@
 // Auxiliares dos testes de navegador, com páginas de mentira: nenhum navegador nem dados.json.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { turmaDe, semRolagemHorizontal, abrirMenu, cpfSintetico, ehExterna, observarRequisicoesExternas } = require('./apoio.js');
+const { LON0, LAT0, noMapa, tocar, turmaDe, semRolagemHorizontal, abrirMenu, cpfSintetico, ehExterna, observarRequisicoesExternas } = require('./apoio.js');
 
 const dados = { turmas: { computador: { nome: 'p' }, celular: { nome: 'c' } } };
 const projeto = (nome) => ({ project: { name: nome } });
@@ -58,6 +58,38 @@ test('ehExterna: só o host do app é interno; data, blob e about não saem do n
   assert.equal(ehExterna('http://127.0.0.1:9090/x', base), true);
   assert.equal(ehExterna('https://tile.googleapis.com/v1/x', base), true);
   assert.equal(ehExterna('https://127.0.0.1.exemplo.test/', base), true);
+});
+
+test('noMapa monta a expressão com o mapa do elemento e o argumento em JSON; sem argumento vai null', async () => {
+  const expressoes = [];
+  const pagina = { evaluate: async (expressao) => expressoes.push(expressao) };
+  await noMapa(pagina, (m) => m.loaded(), { a: 1 });
+  await noMapa(pagina, (m) => m.loaded());
+  assert.match(expressoes[0], /document\.querySelector\('\[data-mapa\]'\)\.mapa, \{"a":1\}\)$/);
+  assert.match(expressoes[1], /\.mapa, null\)$/);
+});
+
+test('esperarOcioso espera o mapa carregado e parado; tocar clica no ponto projetado só depois disso', async () => {
+  const passos = [];
+  const pagina = {
+    waitForFunction: async () => passos.push('ocioso'),
+    locator: () => ({ scrollIntoViewIfNeeded: async () => passos.push('rolar') }),
+    evaluate: async (_f, ponto) => { passos.push(`projetar ${ponto}`); return { x: 10, y: 20 }; },
+    mouse: { click: async (x, y) => passos.push(`clicar ${x},${y}`) },
+  };
+  await tocar(pagina, [LON0, LAT0]);
+  assert.deepEqual(passos, ['rolar', 'ocioso', `projetar ${LON0},${LAT0}`, 'clicar 10,20']);
+});
+
+test('tocar não clica quando a espera do mapa falha', async () => {
+  const cliques = [];
+  const pagina = {
+    waitForFunction: async () => { throw new Error('tempo esgotado'); },
+    locator: () => ({ scrollIntoViewIfNeeded: async () => {} }),
+    mouse: { click: async () => cliques.push(1) },
+  };
+  await assert.rejects(tocar(pagina, [LON0, LAT0]), /tempo esgotado/);
+  assert.deepEqual(cliques, []);
 });
 
 test('observarRequisicoesExternas registra só as externas e a lista devolvida enxerga as futuras', () => {
