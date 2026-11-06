@@ -183,6 +183,10 @@ test('só os dois arquivos da referência passam; outro .pmtiles na mesma pasta 
   assert.deepEqual(verificarCaminho('servidor/pacote/referencia/fundo.pmtiles'), []);
   assert.deepEqual(verificarCaminho('servidor/pacote/referencia/ortofoto.pmtiles'), []);
   assert.ok(verificarCaminho('servidor/pacote/referencia/fazenda-real.pmtiles').length > 0);
+  // Greptile, PR #50, P1: outra grafia do mesmo nome não pode escapar da exceção sem passar pela conferência do hash.
+  for (const variante of ['Fundo.pmtiles', 'FUNDO.PMTILES', 'Ortofoto.pmtiles', 'ortofoto.PMTILES']) {
+    assert.ok(verificarCaminho(`servidor/pacote/referencia/${variante}`).length > 0, variante);
+  }
 });
 
 test('referência do pacote: só os bytes fixados passam; o mesmo nome com outro conteúdo é barrado', () => {

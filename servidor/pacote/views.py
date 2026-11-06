@@ -130,6 +130,46 @@ def _blocos(caminho: Path, inicio: int, fim: int):
             yield bloco
 
 
+def _arquivo_da_versao(requisicao, fazenda, nome):
+    """`(arquivo do manifesto, caminho no disco)` da versão pedida; 404 para versão, nome ou arquivo que não existem.
+
+    `?versao=N` é a do manifesto que o aplicativo baixou: se outra virar vigente no meio do download, os arquivos seguem sendo
+    os do manifesto em mãos e o SHA-256 confere (CodeRabbit, PR #50). Sem o parâmetro, a vigente."""
+    pedida = requisicao.GET.get('versao')
+    if fazenda is None or (pedida is not None and not (pedida.isascii() and pedida.isdigit() and len(pedida) <= 9)):
+        raise Http404  # `resolver_escopo` só devolve fazenda None sem `fazenda_id`; aqui ele sempre vem
+    versao = _vigente(requisicao.user, fazenda, int(pedida) if pedida is not None else None)
+    arquivo = next((a for a in contrato.validar(versao.manifesto).arquivos if a.nome == nome), None)
+    if arquivo is None:
+        raise Http404
+    # `fazenda.pk` vem do banco, nunca do texto da URL: o diretório da fazenda não depende de entrada do usuário (CodeQL, PR #50).
+    raiz = (Path(settings.PACOTES_DIR) / str(fazenda.pk) / f'v{versao.numero}').resolve()
+    caminho = (raiz / arquivo.nome).resolve()
+    # O nome já vem do manifesto validado (sem barra); a conferência pega o que o nome não pega, como um link simbólico que sai da pasta.
+    if not caminho.is_relative_to(raiz) or not caminho.is_file():
+        raise Http404
+    return arquivo, caminho
+
+
+def _trecho(requisicao, arquivo, caminho, etag):
+    """Resposta do arquivo inteiro (200), de um trecho (206) ou 416, conforme `Range` e `If-Range`."""
+    # RFC 9110 §13.1.5: `If-Range` com validador diferente do atual obriga a ignorar `Range` e mandar o arquivo inteiro,
+    # para a retomada de um download nunca misturar duas versões.
+    se_faixa = requisicao.headers.get('If-Range')
+    faixa = None if se_faixa not in (None, etag) else _faixa(requisicao.headers.get('Range'), arquivo.bytes)
+    if faixa == 'invalida':
+        resposta = HttpResponse(status=416)
+        resposta['Content-Range'] = f'bytes */{arquivo.bytes}'
+        return resposta
+    inicio, fim = faixa or (0, arquivo.bytes - 1)
+    resposta = StreamingHttpResponse(_blocos(caminho, inicio, fim), status=206 if faixa else 200, content_type='application/octet-stream')
+    resposta['Content-Length'] = str(fim - inicio + 1 if arquivo.bytes else 0)
+    resposta['Accept-Ranges'] = 'bytes'
+    if faixa:
+        resposta['Content-Range'] = f'bytes {inicio}-{fim}/{arquivo.bytes}'
+    return resposta
+
+
 @require_GET
 @aceita_bearer
 @exige_acao('ver')
@@ -140,42 +180,12 @@ def pacote_arquivo(requisicao, empresa_id, fazenda_id, nome):
     # `resolver_escopo` também admite quem só tem uma sub-área; estes arquivos são da fazenda inteira (Greptile, PR #50).
     if not pode(requisicao.user, 'ver', fazenda):
         raise PermissionDenied
-    # `?versao=N` (a do manifesto que o aplicativo baixou): se outra versão virar vigente no meio do download, os arquivos
-    # seguem sendo os do manifesto em mãos e o SHA-256 confere (CodeRabbit, PR #50). Sem o parâmetro, a vigente.
-    pedida = requisicao.GET.get('versao')
-    if pedida is not None and not (pedida.isascii() and pedida.isdigit() and len(pedida) <= 9):
-        raise Http404
-    versao = _vigente(requisicao.user, fazenda, int(pedida) if pedida is not None else None)
-    arquivo = next((a for a in contrato.validar(versao.manifesto).arquivos if a.nome == nome), None)
-    if arquivo is None:
-        raise Http404
-    if fazenda is None:  # `resolver_escopo` só devolve None sem `fazenda_id`; aqui ele sempre vem
-        raise Http404
-    # `fazenda.pk` vem do banco, nunca do texto da URL: o diretório da fazenda não depende de entrada do usuário (CodeQL, PR #50).
-    raiz = (Path(settings.PACOTES_DIR) / str(fazenda.pk) / f'v{versao.numero}').resolve()
-    caminho = (raiz / arquivo.nome).resolve()
-    # O nome já vem do manifesto validado (sem barra); a conferência pega o que o nome não pega, como um link simbólico que sai da pasta.
-    if not caminho.is_relative_to(raiz) or not caminho.is_file():
-        raise Http404
+    arquivo, caminho = _arquivo_da_versao(requisicao, fazenda, nome)
     etag = quote_etag(arquivo.sha256)
     condicional = get_conditional_response(requisicao, etag=etag)
     if condicional is not None and condicional.status_code in (304, 412):
         return _privado(condicional, etag)
-    # RFC 9110 §13.1.5: `If-Range` com validador diferente do atual obriga a ignorar `Range` e mandar o arquivo inteiro,
-    # para a retomada de um download nunca misturar duas versões.
-    se_faixa = requisicao.headers.get('If-Range')
-    faixa = None if se_faixa not in (None, etag) else _faixa(requisicao.headers.get('Range'), arquivo.bytes)
-    if faixa == 'invalida':
-        resposta = HttpResponse(status=416)
-        resposta['Content-Range'] = f'bytes */{arquivo.bytes}'
-        return _privado(resposta, etag)
-    inicio, fim = faixa or (0, arquivo.bytes - 1)
-    resposta = StreamingHttpResponse(_blocos(caminho, inicio, fim), status=206 if faixa else 200, content_type='application/octet-stream')
-    resposta['Content-Length'] = str(fim - inicio + 1 if arquivo.bytes else 0)
-    resposta['Accept-Ranges'] = 'bytes'
-    if faixa:
-        resposta['Content-Range'] = f'bytes {inicio}-{fim}/{arquivo.bytes}'
-    return _privado(resposta, etag)
+    return _privado(_trecho(requisicao, arquivo, caminho, etag), etag)
 
 
 for _visao in (pacote_manifesto, pacote_camadas, pacote_arquivo):

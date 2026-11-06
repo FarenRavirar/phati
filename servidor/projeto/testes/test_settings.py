@@ -101,6 +101,15 @@ def test_volume_dos_pacotes_monta_no_mesmo_caminho_que_o_settings_usa():
     assert 'PHATI_PACOTES_DIR: ${PHATI_PACOTES_DIR:-/pacotes}' in compose
 
 
+def test_dono_do_volume_dos_pacotes_e_acertado_no_caminho_configurado():
+    # Greptile, PR #50: volume novo nasce de root; com `PHATI_PACOTES_DIR` fora de `/pacotes` o `aplicacao` não conseguiria gravar.
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'command: chown 10001 ${PHATI_PACOTES_DIR:-/pacotes}' in compose
+    assert 'pacotes_dono: {condition: service_completed_successfully}' in compose
+    dockerfile = (CAMINHO.parents[1] / 'Dockerfile').read_text(encoding='utf-8')
+    assert 'useradd --system --uid 10001' in dockerfile
+
+
 def test_estaticos_vao_para_o_volume_que_o_nginx_serve(monkeypatch):
     # D070: `collectstatic` grava no volume `estaticos` do compose, que o nginx monta somente leitura.
     monkeypatch.delenv('PHATI_ESTATICOS', raising=False)

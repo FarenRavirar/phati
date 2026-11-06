@@ -81,6 +81,15 @@ services:
       app: {condition: service_healthy}
       estaticos: {condition: service_completed_successfully}
 
+  # Acerta o dono do volume dos pacotes no caminho configurado: volume novo nasce de root, e só `/pacotes` é preparado na imagem.
+  # Roda como root uma vez; só muda o dono (nada é apagado nem recriado). 10001 = `aplicacao` (Dockerfile).
+  pacotes_dono:
+    build: .
+    user: "0"
+    command: chown 10001 ${PHATI_PACOTES_DIR:-/pacotes}
+    volumes:
+      - pacotes:${PHATI_PACOTES_DIR:-/pacotes}
+
   app:
     build: .
     environment: *ambiente_app
@@ -90,6 +99,7 @@ services:
       - "127.0.0.1:8000:8000"
     depends_on:
       migracao: {condition: service_completed_successfully}
+      pacotes_dono: {condition: service_completed_successfully}
 
 volumes:
   dados_banco:

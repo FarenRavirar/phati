@@ -30,7 +30,7 @@ const REGRAS_CAMINHO = [
     regra: 'dado geoespacial',
     teste: /\.(tiff?|shp|shx|dbf|prj|gpkg|kml|kmz|mbtiles|pmtiles|las|laz|ecw|jp2)$/i,
     // Só os dois arquivos da referência, pelo nome (Qodo e Sourcery, PR #50): outro `.pmtiles` na mesma pasta segue barrado.
-    exceto: /^servidor\/pacote\/referencia\/(fundo|ortofoto)\.pmtiles$/i,
+    exceto: /^servidor\/pacote\/referencia\/(fundo|ortofoto)\.pmtiles$/,  // grafia exata: a consulta do hash também é exata
   },
   { regra: 'banco ou dump local', teste: /\.(dump|bak|sqlite3?|db)$/i },
   { regra: 'dump compactado', teste: /\.sql\.gz$/i },

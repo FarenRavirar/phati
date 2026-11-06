@@ -17,13 +17,12 @@ FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e
 ENV PATH=/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 # `libexpat1`: o `rio` (rasterio, wheel com GDAL embutido) não importa sem ela na imagem slim; medido com `ldd`, é a única que falta.
 # Aprovada pelo mantenedor em 2026-11-06 (pacote Debian da própria base, sem fixar versão).
-RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 && rm -rf /var/lib/apt/lists/*
-RUN useradd --system --uid 10001 --no-create-home aplicacao
+# `/pacotes` (PHATI_PACOTES_DIR padrão) nasce do `aplicacao`; em outro caminho, o serviço `pacotes_dono` do compose acerta o dono do volume.
+RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --no-create-home aplicacao \
+    && mkdir /pacotes && chown aplicacao /pacotes
 COPY --from=construcao /venv /venv
 COPY --from=construcao /usr/local/bin/pmtiles /usr/local/bin/pmtiles
-# Diretório dos pacotes (PHATI_PACOTES_DIR, padrão /pacotes): o volume nomeado herda dono e modo da imagem na primeira montagem;
-# sem isto nasceria de root e o `aplicacao` não conseguiria gravar a versão gerada.
-RUN mkdir /pacotes && chown aplicacao /pacotes
 WORKDIR /aplicacao
 COPY --chown=aplicacao . .
 USER aplicacao
