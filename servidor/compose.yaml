@@ -24,6 +24,11 @@ x-ambiente-app: &ambiente_app
   PHATI_MAPA_TESTE_ATIVO: ${PHATI_MAPA_TESTE_ATIVO:-0}
   PHATI_MAPA_FUNDO_GOOGLE_ATIVO: ${PHATI_MAPA_FUNDO_GOOGLE_ATIVO:-0}
   PHATI_MAPA_GOOGLE_CHAVE: ${PHATI_MAPA_GOOGLE_CHAVE:-}
+  PHATI_MAPA_GOOGLE_COTA_DIARIA: ${PHATI_MAPA_GOOGLE_COTA_DIARIA:-}
+  PHATI_MAPA_GOOGLE_GRATIS_MENSAL: ${PHATI_MAPA_GOOGLE_GRATIS_MENSAL:-}
+  PHATI_TERMOS_ARQUIVO: ${PHATI_TERMOS_ARQUIVO:-}
+  PHATI_GOOGLE_MONITORING_CREDENCIAL: ${PHATI_GOOGLE_MONITORING_CREDENCIAL:-}
+  PHATI_GOOGLE_PROJETO_MONITORADO: ${PHATI_GOOGLE_PROJETO_MONITORADO:-}
   PHATI_PACOTES_DIR: ${PHATI_PACOTES_DIR:-/pacotes}
   PHATI_PMTILES_BIN: ${PHATI_PMTILES_BIN:-pmtiles}
   PHATI_RIO_BIN: ${PHATI_RIO_BIN:-rio}
@@ -97,6 +102,9 @@ services:
     environment: *ambiente_app
     volumes:
       - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
+      # Arquivos fora do Git (texto dos termos e chave do Cloud Monitoring, 004b R13/R15): PHATI_TERMOS_ARQUIVO e
+      # PHATI_GOOGLE_MONITORING_CREDENCIAL são caminhos DENTRO do contêiner, ex.: /segredos/google-monitoring.json.
+      - ${PHATI_SEGREDOS_DIR:-./segredos}:/segredos:ro
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

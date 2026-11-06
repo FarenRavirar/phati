@@ -32,7 +32,14 @@ def test_pessoa_sem_concessao_ve_so_inicio_e_fazendas(cenario, fabrica_pessoa):
 def test_ninguem_ve_a_ponte_de_gestao(cenario, fabrica_pessoa, conceder_direto, plataforma):
     # R24: o item sai do menu de todos os papéis; o painel é endereço, não link.
     administrador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    assert _nomes(administrador, cenario.x) == _nomes(plataforma) == ['Início', 'Fazendas']
+    assert _nomes(administrador, cenario.x) == ['Início', 'Fazendas']
+    assert _nomes(plataforma) == ['Início', 'Fazendas', 'Uso do Google']  # 004b R13: só a plataforma vê o monitor
+
+
+@pytest.mark.parametrize('base', ['administrador', 'curador', 'tecnico', 'usuario'])
+def test_so_a_plataforma_ve_o_item_do_monitor(cenario, fabrica_pessoa, conceder_direto, base):
+    pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.x)
+    assert 'Uso do Google' not in _nomes(pessoa, cenario.x)
 
 
 def test_toda_pessoa_autenticada_tem_os_dois_primeiros_itens():

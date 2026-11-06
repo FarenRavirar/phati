@@ -160,6 +160,7 @@
     "configurar_niveis_divisao": "Nomes dos níveis da divisão — 003 R10 (D069)",
     "ajustar_expiracao_pacote": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "criar_empresa": "003 R9 (tela e API)",
+    "ver_monitor_google": "004b R13 (tela do monitor; só o Administrador da plataforma)",
     "criar_fazenda": "003 R9 (tela e API)",
     "criar_sub_area": "003 R9 (tela e API)",
     "gerenciar_cargo": "003 R18 (telas de cargos)",

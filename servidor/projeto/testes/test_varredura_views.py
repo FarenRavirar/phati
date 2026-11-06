@@ -12,7 +12,7 @@ from projeto.urls import urlpatterns
 
 # Sem sessão por desenho: entrar, esqueci a senha e redefinição são de quem ainda não tem credencial; sair é POST com CSRF
 # e encerrar uma sessão que não existe é inofensivo; `saude` é a sonda do healthcheck (006 R10), sem dado nem sessão.
-PUBLICAS = frozenset({'entrar', 'sair', 'esqueci_senha', 'redefinir_senha', 'saude'})
+PUBLICAS = frozenset({'entrar', 'sair', 'esqueci_senha', 'redefinir_senha', 'saude', 'termos', 'privacidade'})
 # A API e o painel têm portão próprio (varredura de rotas da API e admin do Django).
 DE_OUTRO_PORTAO = ('api/', 'painel/')
 
@@ -64,7 +64,7 @@ def test_toda_view_autenticada_declara_a_acao_que_exige():
 def test_acao_declarada_existe_no_catalogo_ou_e_da_propria_pessoa():
     catalogo = {
         codigo
-        for migracao in ('0001_initial', '0007_acoes_territorio')
+        for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google')
         for codigo, _, _ in import_module(f'permissao.migrations.{migracao}').ACOES
     }
     assert {getattr(visao, 'acao_exigida') for _, visao, _ in _autenticadas()} <= catalogo | {PROPRIA_PESSOA}

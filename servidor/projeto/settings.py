@@ -59,6 +59,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'django.template.context_processors.csp',
+                'projeto.termos.disponiveis',
             ],
         },
     },
@@ -99,6 +100,25 @@ if MAPA_FUNDO_GOOGLE_ATIVO:
         raise ImproperlyConfigured('PHATI_MAPA_FUNDO_GOOGLE_ATIVO=1 exige PHATI_MAPA_TESTE_ATIVO=1.')
     if not MAPA_GOOGLE_CHAVE:
         raise ImproperlyConfigured('PHATI_MAPA_FUNDO_GOOGLE_ATIVO=1 exige PHATI_MAPA_GOOGLE_CHAVE.')
+# Totais do monitor (004b R13): iguais aos do console do Google, que o mantenedor confere. Padrões da doc oficial
+# (15.000 tiles 2D por dia e por projeto; franquia de 100.000 eventos por mês, 2026-11-06). Valor inválido não sobe.
+def _total_do_monitor(nome, padrao):
+    bruto = os.environ.get(nome, '').strip()
+    if not bruto:
+        return padrao
+    if not (bruto.isascii() and bruto.isdigit()):  # `isdigit` sozinho aceita '²', que `int` recusa
+        raise ImproperlyConfigured(f'{nome} deve ser um inteiro não negativo.')
+    return int(bruto)
+
+
+# Chave da conta de serviço do Cloud Monitoring (004b T3.1): caminho de arquivo fora do Git; sem ela o monitor mostra "não medido".
+GOOGLE_MONITORING_CREDENCIAL = os.environ.get('PHATI_GOOGLE_MONITORING_CREDENCIAL', '').strip()
+# Projeto Google cobrado pela chave de mapas, onde o monitor lê as métricas. Vazio: o `project_id` da própria chave da conta de serviço.
+GOOGLE_PROJETO_MONITORADO = os.environ.get('PHATI_GOOGLE_PROJETO_MONITORADO', '').strip()
+# Arquivo local, fora do Git, com o texto dos termos e da política (004b R15).
+TERMOS_ARQUIVO = os.environ.get('PHATI_TERMOS_ARQUIVO', '').strip()
+MAPA_GOOGLE_COTA_DIARIA = _total_do_monitor('PHATI_MAPA_GOOGLE_COTA_DIARIA', 15000)
+MAPA_GOOGLE_GRATIS_MENSAL = _total_do_monitor('PHATI_MAPA_GOOGLE_GRATIS_MENSAL', 100000)
 # Só a resposta do mapa com a flag do Google usa esta política: a Map Tiles API serve sessão, viewport e tiles em
 # `tile.googleapis.com`. O MapLibre busca o tile por fetch (`connect-src`) e o desenha como blob (`img-src blob:`, já na do mapa).
 GOOGLE_TILES = 'https://tile.googleapis.com'
