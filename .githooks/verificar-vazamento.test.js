@@ -45,6 +45,12 @@ test('caminhos proibidos são bloqueados', () => {
     '.claude/settings.local.json',
     'dados/qualquer.txt',
     'segredos/token.txt',
+    // exceção da referência é estreita: só `.pmtiles` direto na pasta dela (004b T1.7a)
+    'servidor/pacote/referencia/ortofoto.tif',
+    'servidor/pacote/referencia/sub/fundo.pmtiles',
+    'servidor/pacote/fundo.pmtiles',
+    'outro/servidor/pacote/referencia/fundo.pmtiles',
+    'mapas/fundo.pmtiles',
   ];
   for (const caminho of proibidos) {
     assert.ok(verificarCaminho(caminho).length > 0, `deveria bloquear: ${caminho}`);
@@ -61,6 +67,8 @@ test('caminhos legítimos passam', () => {
     'migracoes/001_criar_fazenda.sql',
     'docs/pesquisa/00-arquitetura-base.md',
     '.githooks/verificar-vazamento.js',
+    'servidor/pacote/referencia/fundo.pmtiles', // pacote sintético de referência (004b R6)
+    'servidor/pacote/referencia/ortofoto.pmtiles',
   ];
   for (const caminho of permitidos) {
     assert.deepEqual(verificarCaminho(caminho), [], `deveria passar: ${caminho}`);
@@ -154,4 +162,10 @@ test('integração: commit com segredo falha, commit limpo passa, nada vaza na s
   } finally {
     fs.rmSync(raiz, { recursive: true, force: true });
   }
+});
+
+test('versão fixada de pacote com quatro números não é IP; IP atribuído com = segue barrado', () => {
+  assert.deepEqual(sobre('click-plugins==1.1.1.2', 'servidor/requirements.txt'), []);
+  // IP montado: o literal seria barrado pelo próprio hook ao commitar este arquivo.
+  assert.ok(sobre('host=' + [8, 8, 4, 4].join('.')).length > 0);
 });

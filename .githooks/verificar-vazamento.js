@@ -25,7 +25,12 @@ const REGRAS_CAMINHO = [
   { regra: 'arquivo de segredo', teste: /(^|\/)\.env(\.[^/]*)?$/i, exceto: /\.(example|exemplo)$/i },
   { regra: 'chave ou certificado', teste: /\.(key|pem|p12|pfx|jks|keystore|ppk)$/i },
   { regra: 'chave SSH', teste: /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/ },
-  { regra: 'dado geoespacial', teste: /\.(tiff?|shp|shx|dbf|prj|gpkg|kml|kmz|mbtiles|pmtiles|las|laz|ecw|jp2)$/i },
+  // Exceção estreita (004b T1.7a): o pacote de referência é sintético e minúsculo; `.pmtiles` em qualquer outro caminho segue barrado.
+  {
+    regra: 'dado geoespacial',
+    teste: /\.(tiff?|shp|shx|dbf|prj|gpkg|kml|kmz|mbtiles|pmtiles|las|laz|ecw|jp2)$/i,
+    exceto: /^servidor\/pacote\/referencia\/[^/]+\.pmtiles$/i,
+  },
   { regra: 'banco ou dump local', teste: /\.(dump|bak|sqlite3?|db)$/i },
   { regra: 'dump compactado', teste: /\.sql\.gz$/i },
   { regra: 'documento do cliente', teste: /\.(pdf|docx?|xlsx?|pptx?)$/i },
@@ -51,7 +56,8 @@ const REGRAS_CONTEUDO = [
   { regra: 'string de conexão com senha', teste: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/i },
 ];
 
-const REGEX_IPV4 = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
+// `==1.1.1.2` é versão fixada de pacote (requirements), não endereço: ignora o que vem logo depois de `==`, `>=`, `~=`.
+const REGEX_IPV4 = /(?<![\w.]|[=~<>]=)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
 
 function ipv4Publico(octetos) {
   const [a, b, c] = octetos;
