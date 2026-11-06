@@ -63,7 +63,7 @@ const crypto = require('node:crypto');
 // hash aqui, de propósito (CodeRabbit e Qodo, PR #50: sem isto, dado real com este nome passaria).
 const REFERENCIA_PMTILES = {
     'servidor/pacote/referencia/fundo.pmtiles': 'cd40df51a93b2300e01d562bebd56db4c3264211a40bf42df07a7bef0f7da4ea',
-    'servidor/pacote/referencia/ortofoto.pmtiles': 'ebd09496f5b427dee7431c8fc85c8a867b56f70aaa0c063bea6db622dd7f27a3',
+    'servidor/pacote/referencia/ortofoto.pmtiles': 'af029fb5898e1e68d70f50f874f72d812222d81e4d86d3d4f2e2c54233c83a5b',
 };
 const REGEX_IPV4 = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
 const ARQUIVO_DE_REQUISITOS = /(^|\/)(requirements|constraints)[^/]*\.txt$/i;

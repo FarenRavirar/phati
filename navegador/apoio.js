@@ -70,7 +70,39 @@ function observarRequisicoesExternas(pagina, base) {
   return externas;
 }
 
+// Ponto de referência do dado sintético (camadas_sinteticas.py); os testes de mapa e de fundo tocam em torno dele.
+const [LON0, LAT0] = [-48.30, -10.75];
+
+// Roda `funcao(mapa, argumento)` dentro da página, com o mapa do elemento `[data-mapa]`.
+const noMapa = (pagina, funcao, argumento) => pagina.evaluate(`(${funcao})(document.querySelector('[data-mapa]').mapa, ${JSON.stringify(argumento ?? null)})`);
+
+// O mapa pode estar reenquadrando ou carregando fonte: tocar ou ler o estilo só depois de `loaded()`.
+async function esperarOcioso(pagina) {
+  await pagina.waitForFunction(() => {
+    const mapa = document.querySelector('[data-mapa]').mapa;
+    return mapa && mapa.loaded() && !mapa.isMoving();
+  });
+}
+
+// Clica na tela no ponto [lon, lat] do mapa.
+async function tocar(pagina, [lon, lat]) {
+  await pagina.locator('[data-mapa]').scrollIntoViewIfNeeded();
+  await esperarOcioso(pagina);
+  const alvo = await pagina.evaluate(([x, y]) => {
+    const elemento = document.querySelector('[data-mapa]');
+    const ponto = elemento.mapa.project([x, y]);
+    const caixa = elemento.getBoundingClientRect();
+    return { x: caixa.left + ponto.x, y: caixa.top + ponto.y };
+  }, [lon, lat]);
+  await pagina.mouse.click(alvo.x, alvo.y);
+}
+
 module.exports = {
+  LON0,
+  LAT0,
+  noMapa,
+  esperarOcioso,
+  tocar,
   ehExterna,
   observarRequisicoesExternas,
   get dados() {

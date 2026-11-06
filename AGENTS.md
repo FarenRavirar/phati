@@ -73,7 +73,7 @@ Bloco único. Os outros trechos apontam para cá.
 - `git push origin dev|main`, `git push --delete`, merge. `push` em `dev` só via merge de PR.
 - Escrita na VM `maruko` (inclui `build`), DNS, túnel, segredo de produção, deploy.
 - Lib, pacote, imagem, plugin, skill ou MCP novo: perguntar antes de instalar.
-- Worktree `add|move|remove`. Acionar outro agente de IA.
+- Worktree `add|move|remove`. Acionar outro agente de IA, exceto o `ajudante-haiku` (§Ferramentas), que dispensa aprovação.
 - Alterar dado de fazenda, revisão vigente ou permissão de acesso em ambiente real.
 
 Livre: editar arquivo local, criar e subir branch de trabalho, abrir PR, rodar teste, lint e build local, comando read-only (`ls`, `cat`, `rg`, `git status|diff|log`, `curl -s` GET, `SELECT`). Filtrar `*SENHA*|*PASSWORD*|*TOKEN*|*SECRET*` por conteúdo. Segredo, chave privada e dado de cliente nunca são commitados, expostos ou impressos.
@@ -221,7 +221,9 @@ Documentação e segurança:
 - **21st.dev Magic (MCP `magic`, chave `API_KEY_21ST` no ambiente do usuário):** só para interface web; saída é rascunho, passa por revisão e teste como todo código.
 - **Skills `agent-skills` (plugin):** apoio de processo; em choque com este arquivo, este vence.
 
-`rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal.
+`rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal, com uma exceção.
+
+**`ajudante-haiku` é obrigatório e dispensa aprovação** (mantenedor, 2026-11-06; eficiência de longo prazo do projeto). Subagente só de leitura (`~/.claude/agents/ajudante-haiku.md`). Toda busca de arquivo, leitura de log e varredura de vários arquivos vai para ele, por padrão, sem pedir. Não delegar: edição, planejamento, decisão, depuração com raciocínio, revisão de código, nem arquivo ou símbolo já conhecido. O prompt leva caminho, objetivo e formato curto de resposta; ele não vê a conversa. A exceção vale só para ele: qualquer outro agente segue exigindo aprovação nominal.
 
 ## Review guidelines
 

@@ -28,7 +28,7 @@ porque a web os lê pelos mesmos arquivos (D097).
 
 ## Estilo compartilhado
 
-`servidor/pacote/estilo_base.json`. `{pacote}` é o diretório local da versão. O aplicativo usa `pmtiles://file://{pacote}/<arquivo>`
+`servidor/projeto/static/projeto/estilo_base.json` (a web lê o mesmo arquivo). `{pacote}` é o diretório local da versão. O aplicativo usa `pmtiles://file://{pacote}/<arquivo>`
 no MapLibre Native. Só propriedades comuns a GL JS e Native (T0.7): `background`, `fill`, `line` e `raster` básicos;
 proibidos `fill-layer-opacity`, `line-layer-opacity` e os `*-layer-blend`. Versões fixas do renderizador: GL JS 6 e a do Native
 registrada na T0.7 da `tasks.md` da 004b (ainda a fixar).

@@ -68,6 +68,17 @@ def test_ortofoto_maior_que_a_caixa_sai_recortada_pela_caixa(pacotes, cenario, p
     assert sorted(p.name for p in pasta.iterdir()) == ['fundo.pmtiles', 'manifesto.json', 'ortofoto.pmtiles']  # sem o arquivo de corte
 
 
+def test_ortofoto_sai_com_tile_de_256_e_sem_o_caminho_de_origem_no_metadado(pacotes, cenario, plataforma, ortofoto_tif):
+    # Regressão (004b T2.2): sem `--tile-size` o `rio` gera 512 px, mas o estilo compartilhado declara `tileSize` 256 e a web
+    # desenharia a ortofoto no zoom errado. O padrão também copiava o caminho do arquivo de origem para o metadado do pacote.
+    _gerar(plataforma, cenario.f1, ortofoto=ortofoto_tif, zoom_maximo_ortofoto=15)
+    destino = pacotes / str(cenario.f1.pk) / 'v1' / 'ortofoto.pmtiles'
+    metadado = json.loads(geracao._executar('pmtiles', 'show', str(destino), '--metadata'))
+    assert metadado['tileSize'] == 256
+    assert str(ortofoto_tif.parent) not in json.dumps(metadado)
+    assert metadado['name'] == 'ortofoto'
+
+
 def test_fundo_que_nao_e_vetorial_e_recusado_sem_sobra(pacotes, cenario, plataforma):
     # CodeRabbit, PR #50: o fundo aberto é vetorial; um raster no lugar dele iria ao pacote com a atribuição do OSM.
     with pytest.raises(geracao.ErroDeGeracao, match='vetorial'):

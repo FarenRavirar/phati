@@ -73,6 +73,7 @@ def test_recusa_nome_de_arquivo_que_nao_e_um_arquivo_simples(bruto, nome):
 def test_recusa_incoerencias(bruto):
     casos = {
         'nome repetido': lambda m: m['arquivos'][1].update(nome=m['arquivos'][0]['nome']),
+        'papel repetido': lambda m: m['arquivos'][1].update(papel='fundo', capturada_em=None),
         'ortofoto acima do teto': lambda m: m.update(zoom_maximo_ortofoto=m['arquivos'][1]['zoom_maximo'] - 1),
         'zoom invertido': lambda m: m['arquivos'][0].update(zoom_minimo=9, zoom_maximo=3),
         'data de captura no fundo': lambda m: m['arquivos'][0].update(capturada_em='2026-01-01'),
