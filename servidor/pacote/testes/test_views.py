@@ -31,6 +31,7 @@ def test_manifesto_com_a_acao_devolve_o_vigente_privado(usuario, cenario, refere
     resposta = usuario.get(_url(cenario, cenario.f1, 'manifesto.json'))
     assert resposta.status_code == 200
     assert json.loads(resposta.content)['versao'] == 1
+    assert json.loads(resposta.content)['fazenda_id'] == cenario.f1.pk
     assert 'private' in resposta['Cache-Control']
 
 
@@ -53,7 +54,8 @@ def test_sem_alcance_o_404_e_igual_ao_de_fazenda_inexistente(entrar, cenario, re
 def test_deslogado_vai_ao_login(cenario, referencia_instalada):
     for resto in ('manifesto.json', 'camadas.geojson', 'arquivo/fundo.pmtiles'):
         resposta = Client().get(_url(cenario, cenario.f1, resto))
-        assert resposta.status_code == 302 and resposta['Location'].startswith('/entrar'), resto
+        assert resposta.status_code == 302, resto
+        assert resposta['Location'].startswith('/entrar'), resto
 
 
 def test_com_alcance_e_sem_baixar_pacote_offline_manifesto_e_camadas_dao_403_e_arquivos_200(entrar, cenario, cargo_so_ver, referencia_instalada):
@@ -79,8 +81,10 @@ def test_camadas_so_com_a_flag_e_iguais_as_da_api_de_camadas(usuario, cenario, r
 def test_arquivo_inteiro_traz_os_bytes_do_disco_e_aceita_faixa(usuario, cenario, referencia_instalada):
     esperado = (REFERENCIA / 'ortofoto.pmtiles').read_bytes()
     resposta = usuario.get(_url(cenario, cenario.f1, 'arquivo/ortofoto.pmtiles'))
-    assert resposta.status_code == 200 and _corpo(resposta) == esperado
-    assert resposta['Accept-Ranges'] == 'bytes' and 'private' in resposta['Cache-Control']
+    assert resposta.status_code == 200
+    assert _corpo(resposta) == esperado
+    assert resposta['Accept-Ranges'] == 'bytes'
+    assert 'private' in resposta['Cache-Control']
 
 
 TAMANHO = (REFERENCIA / 'ortofoto.pmtiles').stat().st_size
@@ -93,7 +97,8 @@ TAMANHO = (REFERENCIA / 'ortofoto.pmtiles').stat().st_size
 def test_range_devolve_206_com_o_trecho_certo(usuario, cenario, referencia_instalada, cabecalho, inicio, fim):
     esperado = (REFERENCIA / 'ortofoto.pmtiles').read_bytes()[inicio:fim + 1]
     resposta = usuario.get(_url(cenario, cenario.f1, 'arquivo/ortofoto.pmtiles'), headers={'Range': cabecalho})
-    assert resposta.status_code == 206 and _corpo(resposta) == esperado
+    assert resposta.status_code == 206
+    assert _corpo(resposta) == esperado
     assert resposta['Content-Range'] == f'bytes {inicio}-{fim}/{TAMANHO}'
     assert resposta['Content-Length'] == str(len(esperado))
 
@@ -105,17 +110,19 @@ def test_range_impossivel_da_416(usuario, cenario, referencia_instalada, cabecal
     assert resposta['Content-Range'] == f'bytes */{(REFERENCIA / "ortofoto.pmtiles").stat().st_size}'
 
 
-@pytest.mark.parametrize('cabecalho', ['bytes=0-1,5-6', 'items=0-9', 'bytes=a-b', 'bytes=-'])
+@pytest.mark.parametrize('cabecalho', ['bytes=0-1,5-6', 'items=0-9', 'bytes=a-b', 'bytes=-', 'bytes=' + '9' * 5000 + '-', 'bytes=0-' + '9' * 5000])
 def test_range_que_nao_e_de_um_trecho_serve_o_arquivo_inteiro(usuario, cenario, referencia_instalada, cabecalho):
     resposta = usuario.get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles'), headers={'Range': cabecalho})
-    assert resposta.status_code == 200 and _corpo(resposta) == (REFERENCIA / 'fundo.pmtiles').read_bytes()
+    assert resposta.status_code == 200
+    assert _corpo(resposta) == (REFERENCIA / 'fundo.pmtiles').read_bytes()
 
 
 def test_etag_igual_devolve_304_sem_corpo_e_so_depois_do_controle_de_acesso(usuario, entrar, cenario, referencia_instalada):
     primeira = usuario.get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles'))
     etag = primeira['ETag']
     repetida = usuario.get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles'), headers={'If-None-Match': etag})
-    assert repetida.status_code == 304 and repetida.content == b''
+    assert repetida.status_code == 304
+    assert repetida.content == b''
     intruso = entrar()  # sem alcance: 404 mesmo com o ETag certo, nunca 304
     assert intruso.get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles'), headers={'If-None-Match': etag}).status_code == 404
 
@@ -128,6 +135,42 @@ def test_nome_fora_do_manifesto_ou_com_travessia_e_404(usuario, cenario, referen
 def test_arquivo_que_sumiu_do_disco_e_404_e_nao_erro(usuario, cenario, pacotes, referencia_instalada):
     (pacotes / str(cenario.f1.pk) / 'v1' / 'fundo.pmtiles').unlink()
     assert usuario.get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles')).status_code == 404
+
+
+def _segunda_versao_vigente(pacotes, cenario, referencia_instalada):
+    """Instala a versão 2 (fundo com outros bytes) como vigente; a 1 segue no disco e no banco."""
+    import copy
+    import shutil
+
+    from pacote.models import VersaoPacote
+
+    origem = pacotes / str(cenario.f1.pk)
+    shutil.copytree(origem / 'v1', origem / 'v2')
+    (origem / 'v2' / 'fundo.pmtiles').write_bytes(b'versao-dois')
+    manifesto = copy.deepcopy(referencia_instalada.manifesto)
+    manifesto['versao'] = 2
+    VersaoPacote.objects.filter(pk=referencia_instalada.pk).update(vigente=False)
+    return VersaoPacote.objects.create(empresa=cenario.x, fazenda=cenario.f1, numero=2, manifesto=manifesto, vigente=True)
+
+
+def test_versao_pedida_serve_os_bytes_dela_mesmo_depois_que_outra_vira_vigente(usuario, cenario, pacotes, referencia_instalada):
+    # CodeRabbit, PR #50: manifesto da v1 em mãos, v2 vira vigente no meio do download; os arquivos têm de ser os da v1.
+    _segunda_versao_vigente(pacotes, cenario, referencia_instalada)
+    url = _url(cenario, cenario.f1, 'arquivo/fundo.pmtiles')
+    assert _corpo(usuario.get(url + '?versao=1')) == (REFERENCIA / 'fundo.pmtiles').read_bytes()
+    assert _corpo(usuario.get(url + '?versao=2')) == b'versao-dois'
+    assert _corpo(usuario.get(url)) == b'versao-dois'  # sem parâmetro, a vigente
+
+
+@pytest.mark.parametrize('pedida', ['99', '0', 'abc', '-1', '1.5', '', '1' * 10, '１'])
+def test_versao_inexistente_ou_invalida_e_404(usuario, cenario, referencia_instalada, pedida):
+    assert usuario.get(_url(cenario, cenario.f1, 'arquivo/fundo.pmtiles') + f'?versao={pedida}').status_code == 404
+
+
+def test_versao_de_outra_fazenda_nao_vaza_pelo_numero(entrar, cenario, pacotes, referencia_instalada):
+    # A versão 1 existe só na F1; quem tem a F2 pede `?versao=1` na F2 e leva 404, nunca os bytes da F1.
+    de_f2 = entrar(cenario.cargos_x['usuario'], cenario.f2)
+    assert de_f2.get(_url(cenario, cenario.f2, 'arquivo/fundo.pmtiles') + '?versao=1').status_code == 404
 
 
 def test_so_a_versao_vigente_e_servida(usuario, cenario, pacotes, referencia_instalada):
@@ -165,12 +208,14 @@ def test_aplicativo_com_bearer_e_sem_cookie_baixa_manifesto_e_arquivo(cenario, f
     assert _corpo(arquivo) == b'PMTiles'
 
 
-@pytest.mark.parametrize('cabecalho', [
-    {'Authorization': 'Bearer token-que-nao-existe'}, {'Authorization': 'Bearer'}, {'Authorization': 'Basic abc'},
+@pytest.mark.parametrize('cabecalho, status', [
+    ({'Authorization': 'Bearer token-que-nao-existe'}, 401),  # Bearer inválido: 401, sem redirecionar
+    ({'Authorization': 'Bearer'}, 302),  # sem token: cai no portão de sessão e vai ao login
+    ({'Authorization': 'Basic abc'}, 302),
 ])
-def test_bearer_invalido_nao_entra(cenario, referencia_instalada, cabecalho):
+def test_bearer_invalido_nao_entra(cenario, referencia_instalada, cabecalho, status):
     resposta = Client().get(_url(cenario, cenario.f1, 'manifesto.json'), headers=cabecalho)
-    assert resposta.status_code in (401, 302)  # 401 com Bearer inválido; sem Bearer o portão de sessão manda ao login
+    assert resposta.status_code == status
     assert b'versao' not in resposta.content
 
 

@@ -12,9 +12,11 @@ from territorio.models import Fazenda
 
 
 class Command(BaseCommand):
+    """Comando de linha de comando; a regra mora em `pacote.geracao`."""
     help = 'Gera a próxima versão do pacote offline de uma fazenda (Administrador da plataforma).'
 
     def add_arguments(self, parser):
+        """Declara fazenda, operador, caixa, origens e zooms. Use `--caixa=` com igual: o valor começa com "-"."""
         parser.add_argument('fazenda', type=int, help='id da fazenda')
         parser.add_argument('--operador', type=int, required=True, help='id da pessoa (Administrador da plataforma)')
         parser.add_argument('--caixa', required=True, help='oeste,sul,leste,norte em WGS 84')
@@ -26,6 +28,7 @@ class Command(BaseCommand):
         parser.add_argument('--zoom-maximo-ortofoto', type=int, default=geracao.ZOOM_MAXIMO_ORTOFOTO_PADRAO)
 
     def handle(self, *args, **opcoes):
+        """Resolve operador e fazenda, chama `gerar_pacote` e traduz os erros esperados em `CommandError`."""
         try:
             quem = Pessoa.objects.get(pk=opcoes['operador'])
             with com_permissao(quem):  # o papel `app` só enxerga fazenda dentro do escopo da pessoa (RLS)

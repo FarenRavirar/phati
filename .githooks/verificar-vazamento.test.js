@@ -184,3 +184,18 @@ test('só os dois arquivos da referência passam; outro .pmtiles na mesma pasta 
   assert.deepEqual(verificarCaminho('servidor/pacote/referencia/ortofoto.pmtiles'), []);
   assert.ok(verificarCaminho('servidor/pacote/referencia/fazenda-real.pmtiles').length > 0);
 });
+
+test('referência do pacote: só os bytes fixados passam; o mesmo nome com outro conteúdo é barrado', () => {
+  const caminho = 'servidor/pacote/referencia/fundo.pmtiles';
+  const original = fs.readFileSync(path.join(__dirname, '..', caminho));
+  assert.deepEqual(verificar({ caminhos: [caminho], lerConteudo: () => original }), []);
+  const trocado = Buffer.concat([original, Buffer.from([1])]);
+  assert.deepEqual(regrasDe(verificar({ caminhos: [caminho], lerConteudo: () => trocado })), ['arquivo da referência diferente do fixado']);
+});
+
+test('em arquivo de requisitos só o trecho da versão sai da busca de IP; o marcador depois do ponto e vírgula segue examinado', () => {
+  const versao = [1, 2, 3, 4].join('.');
+  const linha = `pacote==${versao} ; platform_node == "${IP_PUBLICO}"`;
+  assert.ok(sobre(linha, 'servidor/requirements.pacote.txt').length > 0);
+  assert.deepEqual(sobre(`pacote==${versao} ; python_version >= "3.12"`, 'servidor/requirements.pacote.txt'), []);
+});

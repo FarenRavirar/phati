@@ -85,7 +85,7 @@ services:
     build: .
     environment: *ambiente_app
     volumes:
-      - pacotes:/pacotes  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
+      - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:

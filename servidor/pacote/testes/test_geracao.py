@@ -2,7 +2,9 @@
 
 import json
 import threading
+import time
 from datetime import date
+from pathlib import Path
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -25,12 +27,15 @@ def test_gera_a_versao_1_vigente_com_manifesto_valido_e_auditoria(pacotes, cenar
     pasta = pacotes / str(cenario.f1.pk) / 'v1'
     lido = manifesto.ler(pasta)  # confere bytes e SHA-256 de cada arquivo
     assert (versao.numero, versao.vigente, versao.empresa_id) == (1, True, cenario.x.pk)
-    assert lido.versao == 1 and lido.fazenda_id == cenario.f1.pk
+    assert lido.versao == 1
+    assert lido.fazenda_id == cenario.f1.pk
     assert [a.papel for a in lido.arquivos] == ['fundo']
     assert json.loads((pasta / 'manifesto.json').read_text(encoding='utf-8'))['versao'] == 1
     evento = EventoAuditoria.objects.get(acao='pacote_gerado')
     assert (evento.pessoa_id, evento.alvo_id, evento.empresa_id) == (plataforma.pk, cenario.f1.pk, cenario.x.pk)
-    assert evento.detalhes['versao'] == 1 and evento.detalhes['origem'] == 'comando' and evento.detalhes['usuario_so']
+    assert evento.detalhes['versao'] == 1
+    assert evento.detalhes['origem'] == 'comando'
+    assert evento.detalhes['usuario_so']
     assert [p.name for p in (pacotes / str(cenario.f1.pk)).iterdir()] == ['v1']  # nenhum temporário sobra
 
 
@@ -47,8 +52,60 @@ def test_ortofoto_respeita_o_teto_de_zoom_e_a_data_vai_ao_manifesto(pacotes, cen
     _gerar(plataforma, cenario.f1, ortofoto=ortofoto_tif, ortofoto_capturada_em=date(2026, 1, 15), zoom_maximo_ortofoto=15)
     lido = manifesto.ler(pacotes / str(cenario.f1.pk) / 'v1')
     orto = next(a for a in lido.arquivos if a.papel == 'ortofoto')
-    assert lido.zoom_maximo_ortofoto == 15 and orto.zoom_maximo <= 15  # A5: nenhum tile acima do teto
+    assert lido.zoom_maximo_ortofoto == 15
+    assert orto.zoom_maximo <= 15  # A5: nenhum tile acima do teto
     assert orto.capturada_em == date(2026, 1, 15)
+
+
+def test_ortofoto_maior_que_a_caixa_sai_recortada_pela_caixa(pacotes, cenario, plataforma, ortofoto_grande_tif):
+    # Codex, PR #50, P1: sem recorte a ortofoto publicava toda a extensão do raster (medido: 3x a caixa), e quem tem acesso só
+    # a esta fazenda baixaria imagem das vizinhas. Com `--cutline` os limites do PMTiles são os da caixa.
+    _gerar(plataforma, cenario.f1, ortofoto=ortofoto_grande_tif, zoom_maximo_ortofoto=16)
+    pasta = pacotes / str(cenario.f1.pk) / 'v1'
+    oeste, sul, leste, norte = CAIXA
+    limites = geracao._cabecalho(pasta / 'ortofoto.pmtiles')['bounds']
+    assert limites == pytest.approx([oeste, sul, leste, norte], abs=1e-6)
+    assert sorted(p.name for p in pasta.iterdir()) == ['fundo.pmtiles', 'manifesto.json', 'ortofoto.pmtiles']  # sem o arquivo de corte
+
+
+def test_fundo_que_nao_e_vetorial_e_recusado_sem_sobra(pacotes, cenario, plataforma):
+    # CodeRabbit, PR #50: o fundo aberto é vetorial; um raster no lugar dele iria ao pacote com a atribuição do OSM.
+    with pytest.raises(geracao.ErroDeGeracao, match='vetorial'):
+        geracao.gerar_pacote(plataforma, cenario.f1, CAIXA, fundo_origem=REFERENCIA / 'ortofoto.pmtiles')
+    assert not VersaoPacote.objects.exists()
+    assert list((pacotes / str(cenario.f1.pk)).iterdir()) == []
+
+
+def _tres_versoes_intactas(pacotes, cenario):
+    assert list(VersaoPacote.objects.filter(fazenda=cenario.f1).values_list('numero', 'vigente')) == [(1, True)]
+    assert [p.name for p in (pacotes / str(cenario.f1.pk)).iterdir()] == ['v1']
+    assert EventoAuditoria.objects.filter(acao='pacote_gerado').count() == 1
+
+
+def test_falha_na_auditoria_desfaz_a_nova_versao(pacotes, cenario, plataforma, monkeypatch):
+    # CodeRabbit, PR #50: o rollback tem de valer também quando a falha vem de dentro da transação de `_publicar`.
+    _gerar(plataforma, cenario.f1)
+
+    def quebra(*args, **kwargs):
+        raise RuntimeError('auditoria indisponível')
+
+    monkeypatch.setattr(geracao, 'auditar', quebra)
+    with pytest.raises(RuntimeError):
+        _gerar(plataforma, cenario.f1)
+    _tres_versoes_intactas(pacotes, cenario)
+
+
+def test_falha_ao_trocar_o_diretorio_desfaz_a_nova_versao(pacotes, cenario, plataforma, monkeypatch):
+    _gerar(plataforma, cenario.f1)
+
+    def quebra(self, destino):
+        raise OSError('disco cheio')
+
+    monkeypatch.setattr(Path, 'rename', quebra)
+    with pytest.raises(OSError):
+        _gerar(plataforma, cenario.f1)
+    monkeypatch.undo()
+    _tres_versoes_intactas(pacotes, cenario)
 
 
 def test_falha_no_meio_deixa_a_vigente_intacta_e_sem_temporario(pacotes, cenario, plataforma, monkeypatch):
@@ -103,7 +160,8 @@ def test_administrador_da_empresa_tambem_nao_gera(pacotes, cenario, fabrica_pess
 def test_caixa_invalida_e_recusada_sem_sobra(pacotes, cenario, plataforma, caixa):
     with pytest.raises(ValidationError):
         geracao.gerar_pacote(plataforma, cenario.f1, caixa, fundo_origem=FUNDO)
-    assert not pacotes.exists() and not VersaoPacote.objects.exists()
+    assert not pacotes.exists()
+    assert not VersaoPacote.objects.exists()
 
 
 @pytest.mark.parametrize('zoom', [2.5, True, '15', None])
@@ -137,8 +195,18 @@ def test_entradas_invalidas_sao_recusadas(pacotes, cenario, plataforma, tmp_path
 
 
 @pytest.mark.django_db(transaction=True)
-def test_duas_geracoes_simultaneas_dao_numeros_diferentes_e_uma_vigente(pacotes, catalogo_da_corrida, cenario, plataforma):
+def test_duas_geracoes_simultaneas_dao_numeros_diferentes_e_uma_vigente(pacotes, catalogo_da_corrida, cenario, plataforma, monkeypatch):
+    # CodeRabbit, PR #50: a corrida tem de ser real. A primeira geração fica parada DENTRO da transação (com a fazenda travada)
+    # até o teste ver, no próprio PostgreSQL, a segunda esperando por um bloqueio; só então a primeira é solta.
+    dentro, liberar = threading.Event(), threading.Event()
+    original = geracao.auditar
     erros = []
+
+    def segura(*args, **kwargs):
+        resultado = original(*args, **kwargs)
+        dentro.set()
+        liberar.wait(30)  # prazo: se o teste falhar, o fio não prende a suíte
+        return resultado
 
     def gerar():
         try:
@@ -148,11 +216,26 @@ def test_duas_geracoes_simultaneas_dao_numeros_diferentes_e_uma_vigente(pacotes,
         finally:
             connection.close()
 
-    fios = [threading.Thread(target=gerar) for _ in range(2)]
-    for fio in fios:
-        fio.start()
-    for fio in fios:
-        fio.join()
+    monkeypatch.setattr(geracao, 'auditar', segura)
+    primeiro, segundo = threading.Thread(target=gerar), threading.Thread(target=gerar)
+    try:
+        primeiro.start()
+        assert dentro.wait(30), 'a primeira geração não chegou à transação'
+        segundo.start()
+        esperando = 0
+        for _ in range(100):  # até 20 s
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'")
+                esperando = cursor.fetchone()[0]
+            if esperando:
+                break
+            time.sleep(0.2)
+        assert esperando >= 1, 'a segunda geração não ficou esperando pela trava da fazenda'
+    finally:
+        liberar.set()
+        for fio in (primeiro, segundo):
+            if fio.ident is not None:
+                fio.join(60)
     assert erros == []
     assert sorted(VersaoPacote.objects.filter(fazenda=cenario.f1).values_list('numero', flat=True)) == [1, 2]
     assert VersaoPacote.objects.filter(fazenda=cenario.f1, vigente=True).count() == 1

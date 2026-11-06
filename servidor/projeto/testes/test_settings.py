@@ -69,6 +69,38 @@ def test_compose_repassa_toda_variavel_que_o_settings_le():
     assert lidas - listadas == set()
 
 
+@pytest.mark.parametrize('valor', [None, ''])
+def test_pacotes_e_ferramentas_usam_o_padrao_com_variavel_ausente_ou_vazia(monkeypatch, valor):
+    # CodeRabbit, PR #50: o `.env.exemplo` traz as três vazias; vazio não pode virar `Path('')` nem comando vazio.
+    for nome in ('PHATI_PACOTES_DIR', 'PHATI_PMTILES_BIN', 'PHATI_RIO_BIN'):
+        if valor is None:
+            monkeypatch.delenv(nome, raising=False)
+        else:
+            monkeypatch.setenv(nome, valor)
+    configuracao = runpy.run_path(str(CAMINHO))
+    assert configuracao['PACOTES_DIR'] == Path('/pacotes')
+    assert configuracao['PMTILES_BIN'] == 'pmtiles'
+    assert configuracao['RIO_BIN'] == 'rio'
+
+
+def test_pacotes_e_ferramentas_preservam_o_valor_explicito(monkeypatch):
+    monkeypatch.setenv('PHATI_PACOTES_DIR', '/dados/pacotes')
+    monkeypatch.setenv('PHATI_PMTILES_BIN', '/opt/pmtiles')
+    monkeypatch.setenv('PHATI_RIO_BIN', '/opt/rio')
+    configuracao = runpy.run_path(str(CAMINHO))
+    assert configuracao['PACOTES_DIR'] == Path('/dados/pacotes')
+    assert configuracao['PMTILES_BIN'] == '/opt/pmtiles'
+    assert configuracao['RIO_BIN'] == '/opt/rio'
+
+
+def test_volume_dos_pacotes_monta_no_mesmo_caminho_que_o_settings_usa():
+    # CodeRabbit, PR #50: com `PHATI_PACOTES_DIR` diferente de `/pacotes` o volume tem de acompanhar, senão a geração gravaria
+    # no sistema de arquivos efêmero do contêiner e perderia os pacotes ao recriá-lo.
+    compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
+    assert 'pacotes:${PHATI_PACOTES_DIR:-/pacotes}' in compose
+    assert 'PHATI_PACOTES_DIR: ${PHATI_PACOTES_DIR:-/pacotes}' in compose
+
+
 def test_estaticos_vao_para_o_volume_que_o_nginx_serve(monkeypatch):
     # D070: `collectstatic` grava no volume `estaticos` do compose, que o nginx monta somente leitura.
     monkeypatch.delenv('PHATI_ESTATICOS', raising=False)

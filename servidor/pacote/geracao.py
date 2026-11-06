@@ -68,6 +68,24 @@ def _executar(ferramenta: str, *argumentos: str) -> str:
     return resultado.stdout
 
 
+def _converter_ortofoto(foto: Path, destino: Path, caixa: tuple[float, float, float, float], zoom_minimo: int, zoom_maximo: int) -> None:
+    """Converte a ortofoto a PMTiles **recortada pela caixa da fazenda**: raster maior que a caixa publicaria imagem das
+    fazendas vizinhas para quem só tem acesso a esta (Codex, PR #50, P1). `--cutline` mascara fora do polígono e
+    `--exclude-empty-tiles` descarta os tiles que ficam vazios (medido: 10 tiles em vez de 37 e limites iguais à caixa)."""
+    oeste, sul, leste, norte = caixa
+    poligono = [[oeste, sul], [leste, sul], [leste, norte], [oeste, norte], [oeste, sul]]
+    corte = destino.with_name('corte.geojson.tmp')  # fora da lista do manifesto; apagado logo abaixo
+    figura = {'type': 'Feature', 'properties': {}, 'geometry': {'type': 'Polygon', 'coordinates': [poligono]}}
+    corte.write_text(json.dumps({'type': 'FeatureCollection', 'features': [figura]}), encoding='utf-8')
+    try:
+        _executar(
+            'rio', 'pmtiles', str(foto), str(destino), '--format', 'JPEG', '--zoom-levels', f'{zoom_minimo}..{zoom_maximo}',
+            '--cutline', str(corte), '--exclude-empty-tiles', '--silent',
+        )
+    finally:
+        corte.unlink(missing_ok=True)
+
+
 def _cabecalho(arquivo: Path) -> dict:
     """Verifica o arquivo (`pmtiles verify`) e devolve o cabeçalho (`minzoom`, `maxzoom`, `tile_type`)."""
     _executar('pmtiles', 'verify', str(arquivo))
@@ -75,6 +93,7 @@ def _cabecalho(arquivo: Path) -> dict:
 
 
 def _arquivo_existente(caminho, descricao: str) -> Path:
+    """Caminho absoluto de um arquivo que existe; senão `ValidationError`. Absoluto: nunca vira opção de linha de comando."""
     arquivo = Path(caminho).resolve()
     if not arquivo.is_file():
         raise ValidationError(f'{descricao} não existe: {caminho}')
@@ -82,6 +101,7 @@ def _arquivo_existente(caminho, descricao: str) -> Path:
 
 
 def _item(arquivo: Path, papel: str, cabecalho: dict, atribuicao: str, licenca: str, capturada_em=None) -> dict:
+    """Linha do manifesto para um arquivo gerado: nome, papel, bytes, SHA-256, zooms, atribuição e licença."""
     return {
         'nome': arquivo.name, 'papel': papel, 'bytes': arquivo.stat().st_size, 'sha256': contrato.sha256_do_arquivo(arquivo),
         'zoom_minimo': cabecalho['minzoom'], 'zoom_maximo': cabecalho['maxzoom'],
@@ -120,13 +140,13 @@ def gerar_pacote(
             'pmtiles', 'extract', str(fundo), str(destino),
             f'--bbox={oeste},{sul},{leste},{norte}', f'--maxzoom={zoom_maximo_fundo}',
         )
-        itens.append(_item(destino, 'fundo', _cabecalho(destino), ATRIBUICAO_FUNDO, LICENCA_FUNDO))
+        cabecalho_fundo = _cabecalho(destino)
+        if cabecalho_fundo.get('tile_type') != 'mvt':
+            raise ErroDeGeracao(f"o fundo precisa ser vetorial (mvt), veio {cabecalho_fundo.get('tile_type')}")
+        itens.append(_item(destino, 'fundo', cabecalho_fundo, ATRIBUICAO_FUNDO, LICENCA_FUNDO))
         if foto is not None:
             destino = temporario / 'ortofoto.pmtiles'
-            _executar(
-                'rio', 'pmtiles', str(foto), str(destino), '--format', 'JPEG',
-                '--zoom-levels', f'{zoom_minimo_ortofoto}..{zoom_maximo_ortofoto}',
-            )
+            _converter_ortofoto(foto, destino, (oeste, sul, leste, norte), zoom_minimo_ortofoto, zoom_maximo_ortofoto)
             cabecalho = _cabecalho(destino)
             if cabecalho['maxzoom'] > zoom_maximo_ortofoto:
                 raise ErroDeGeracao('a ortofoto passou do teto de zoom')
@@ -138,6 +158,7 @@ def gerar_pacote(
 
 
 def _publicar(quem, fazenda, temporario: Path, raiz: Path, itens: list, teto: int, origem: str, camadas: list) -> VersaoPacote:
+    """Grava a versão numa transação que trava a fazenda: número, manifesto, ponteiro vigente, auditoria e, por último, a troca do diretório."""
     with com_permissao(quem), transaction.atomic():
         # Trava a fazenda: duas gerações simultâneas se enfileiram aqui e recebem números diferentes (R20).
         Fazenda.objects.select_for_update().get(pk=fazenda.pk)

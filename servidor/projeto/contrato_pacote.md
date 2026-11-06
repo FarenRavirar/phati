@@ -12,7 +12,8 @@ diretório com `manifesto.json` e arquivos PMTiles. O aplicativo guarda o diret�
 - Campo desconhecido é recusado (`extra='forbid'`): **o pacote não leva documento** (RF-09). Documentos e rasters de valor só online.
 - O aplicativo recusa `formato_versao` que não conhece, confere bytes e SHA-256 de cada arquivo antes de usar e troca a versão
   de uma vez (baixa a nova ao lado, confere, só então apaga a anterior).
-- Versões: número inteiro crescente por fazenda; uma só é vigente. A versão nova nunca apaga a anterior no servidor.
+- Versões: número inteiro crescente por fazenda; uma só é vigente. A versão nova nunca apaga a anterior no servidor, então o
+  aplicativo baixa os arquivos com `?versao=<versao do manifesto>` e uma versão nova no meio do download não mistura bytes.
 
 ## Rotas (todas sob `/empresa/<id>/fazenda/<id>/pacote/`)
 
@@ -20,7 +21,7 @@ diretório com `manifesto.json` e arquivos PMTiles. O aplicativo guarda o diret�
 |---|---|---|
 | `manifesto.json` | `baixar_pacote_offline` | 403 com alcance e sem a ação; 404 sem alcance (igual a fazenda inexistente) |
 | `camadas.geojson` | `baixar_pacote_offline` | só as revisões vigentes que a pessoa pode ver, pela mesma função da API de camadas |
-| `arquivo/<nome>` | `ver` | `nome` precisa estar no manifesto; aceita `Range` (206 e 416) e `If-None-Match` (ETag = SHA-256) |
+| `arquivo/<nome>?versao=N` | `ver` | `nome` precisa estar no manifesto; `N` é o `versao` do manifesto baixado (sem o parâmetro, a vigente); aceita `Range` (206 e 416), `If-Range` e `If-None-Match` (ETag = SHA-256) |
 
 Todas respondem `Cache-Control: private, no-cache`. **Limite registrado:** quem tem `ver` baixa os bytes de fundo e ortofoto,
 porque a web os lê pelos mesmos arquivos (D097).

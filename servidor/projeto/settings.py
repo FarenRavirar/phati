@@ -227,6 +227,7 @@ DEFAULT_FROM_EMAIL = os.environ.get('PHATI_EMAIL_REMETENTE', 'phati@localhost')
 
 # Pacote offline por fazenda (004b). Diretório das versões gravadas por `gerar_pacote_fazenda`; `pmtiles` e `rio` (rio-pmtiles)
 # são as ferramentas externas da geração, só no ambiente de quem gera.
-PACOTES_DIR = Path(os.environ.get('PHATI_PACOTES_DIR', '/pacotes'))
-PMTILES_BIN = os.environ.get('PHATI_PMTILES_BIN', 'pmtiles')
-RIO_BIN = os.environ.get('PHATI_RIO_BIN', 'rio')
+# `or`: o `.env.exemplo` traz as três vazias, e variável vazia não pode virar `Path('')` (a pasta atual) nem comando vazio.
+PACOTES_DIR = Path(os.environ.get('PHATI_PACOTES_DIR') or '/pacotes')
+PMTILES_BIN = os.environ.get('PHATI_PMTILES_BIN') or 'pmtiles'
+RIO_BIN = os.environ.get('PHATI_RIO_BIN') or 'rio'

@@ -2,6 +2,7 @@
   "$defs": {
     "Arquivo": {
       "additionalProperties": false,
+      "description": "Um arquivo PMTiles do pacote (fundo ou ortofoto).",
       "properties": {
         "atribuicao": {
           "minLength": 1,
@@ -77,6 +78,7 @@
     },
     "CamadaVetorial": {
       "additionalProperties": false,
+      "description": "Camada vetorial do pacote: identificador, revisão vigente e data.",
       "properties": {
         "data": {
           "format": "date",
@@ -104,6 +106,7 @@
     }
   },
   "additionalProperties": false,
+  "description": "Manifesto de uma versão do pacote (R1): o que o servidor entrega e o aplicativo confere.",
   "properties": {
     "arquivos": {
       "items": {

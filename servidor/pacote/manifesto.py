@@ -22,10 +22,12 @@ class ManifestoInvalido(ValueError):
 
 
 class _Estrito(BaseModel):
+    """Base dos modelos do manifesto: recusa campo desconhecido e é imutável."""
     model_config = ConfigDict(extra='forbid', frozen=True)
 
 
 class Arquivo(_Estrito):
+    """Um arquivo PMTiles do pacote (fundo ou ortofoto)."""
     nome: str = Field(pattern=PADRAO_DO_NOME)  # no esquema exportado também: o cliente valida sem repetir a regra
     papel: Literal['fundo', 'ortofoto']
     bytes: int = Field(ge=0)
@@ -38,6 +40,7 @@ class Arquivo(_Estrito):
 
     @model_validator(mode='after')
     def _zooms_e_data(self):
+        """Zoom mínimo não passa do máximo; só a ortofoto tem data de captura."""
         if self.zoom_minimo > self.zoom_maximo:
             raise ValueError('zoom_minimo maior que zoom_maximo')
         if self.papel == 'fundo' and self.capturada_em is not None:
@@ -46,12 +49,14 @@ class Arquivo(_Estrito):
 
 
 class CamadaVetorial(_Estrito):
+    """Camada vetorial do pacote: identificador, revisão vigente e data."""
     identificador: str = Field(min_length=1)
     revisao_vigente: int = Field(ge=1)
     data: date
 
 
 class Manifesto(_Estrito):
+    """Manifesto de uma versão do pacote (R1): o que o servidor entrega e o aplicativo confere."""
     formato_versao: Literal[1]
     fazenda_id: int = Field(ge=1)
     versao: int = Field(ge=1)
@@ -62,6 +67,7 @@ class Manifesto(_Estrito):
 
     @model_validator(mode='after')
     def _coerencia(self):
+        """Nomes únicos, `gerado_em` com fuso e ortofoto dentro do teto de zoom."""
         nomes = [a.nome for a in self.arquivos]
         if len(set(nomes)) != len(nomes):
             raise ValueError('nome de arquivo repetido')
@@ -82,6 +88,7 @@ def validar(dado) -> Manifesto:
 
 
 def sha256_do_arquivo(caminho: Path) -> str:
+    """SHA-256 do arquivo, lido em blocos de 1 MiB."""
     resumo = hashlib.sha256()
     with caminho.open('rb') as arquivo:
         for bloco in iter(lambda: arquivo.read(1 << 20), b''):
@@ -106,6 +113,7 @@ def ler(diretorio: Path) -> Manifesto:
 
 
 def esquema() -> dict:
+    """JSON Schema do manifesto, gerado do modelo."""
     return Manifesto.model_json_schema()
 
 

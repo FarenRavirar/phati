@@ -18,6 +18,7 @@ class VersaoPacote(models.Model):
     fazenda_id: int
 
     class Meta:
+        """Tabela `versao_pacote`, com as restrições de número, vigente única e número positivo."""
         db_table = 'versao_pacote'
         constraints = [
             models.UniqueConstraint(fields=['fazenda', 'numero'], name='versao_pacote_numero_unico'),

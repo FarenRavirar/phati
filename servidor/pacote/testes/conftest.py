@@ -35,6 +35,28 @@ def ortofoto_tif(tmp_path):
 
 
 @pytest.fixture
+def ortofoto_grande_tif(tmp_path):
+    """GeoTIFF RGB que cobre 3x a `CAIXA` em cada lado: a geração tem de recortá-lo (dado sintético)."""
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    oeste, sul, leste, norte = CAIXA
+    largura, altura = leste - oeste, norte - sul
+    limites = (oeste - largura, sul - altura, leste + largura, norte + altura)
+    tamanho = 512
+    x, y = np.meshgrid(np.linspace(0, 1, tamanho), np.linspace(0, 1, tamanho))
+    imagem = np.stack([(60 + 120 * x).astype('uint8'), (90 + 100 * y).astype('uint8'), np.full((tamanho, tamanho), 70, 'uint8')])
+    caminho = tmp_path / 'ortofoto-grande.tif'
+    with rasterio.open(
+        caminho, 'w', driver='GTiff', height=tamanho, width=tamanho, count=3, dtype='uint8', crs='EPSG:4326',
+        transform=from_bounds(*limites, tamanho, tamanho), compress='deflate',
+    ) as destino:
+        destino.write(imagem)
+    return caminho
+
+
+@pytest.fixture
 def referencia_instalada(pacotes, cenario):
     """Instala o pacote de referência como versão 1 vigente da fazenda F1 de X, sem rodar as ferramentas externas."""
     from pacote.models import VersaoPacote
@@ -42,6 +64,7 @@ def referencia_instalada(pacotes, cenario):
     destino = pacotes / str(cenario.f1.pk) / 'v1'
     shutil.copytree(REFERENCIA, destino)
     manifesto = json.loads((REFERENCIA / 'manifesto.json').read_text(encoding='utf-8'))
+    manifesto['fazenda_id'] = cenario.f1.pk  # a linha do banco e o manifesto dela falam da mesma fazenda
     return VersaoPacote.objects.create(empresa=cenario.x, fazenda=cenario.f1, numero=1, manifesto=manifesto, vigente=True)
 
 

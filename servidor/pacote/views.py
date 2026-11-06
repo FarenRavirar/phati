@@ -24,7 +24,8 @@ from projeto import mapa
 from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import cache_proprio, exige_acao, exige_entrada
 
-_FAIXA = re.compile(r'^bytes=(\d*)-(\d*)$')
+# Até 15 dígitos: `int()` recusa texto de mais de 4300 dígitos (ValueError, 500), e arquivo de pacote nunca chega perto disso.
+_FAIXA = re.compile(r'^bytes=(\d{0,15})-(\d{0,15})$')
 _BLOCO = 1 << 20
 
 
@@ -36,6 +37,7 @@ def aceita_bearer(visao):
 
     @wraps(visao)
     def interna(requisicao, *args, **kwargs):
+        """Autentica por Bearer ou, sem o cabeçalho, pela sessão da web."""
         partes = requisicao.headers.get('Authorization', '').split(' ')
         if len(partes) != 2 or partes[0].lower() != 'bearer':
             return com_sessao(requisicao, *args, **kwargs)
@@ -51,9 +53,11 @@ def aceita_bearer(visao):
     return interna
 
 
-def _vigente(pessoa, fazenda) -> VersaoPacote:
+def _vigente(pessoa, fazenda, numero: int | None = None) -> VersaoPacote:
+    """Versão `numero` da fazenda, ou a vigente sem número, lida sob a RLS da pessoa; sem ela, 404."""
+    filtro = {'numero': numero} if numero is not None else {'vigente': True}
     with com_permissao(pessoa, 'ver', 'baixar_pacote_offline'):
-        versao = VersaoPacote.objects.filter(fazenda=fazenda, vigente=True).first()
+        versao = VersaoPacote.objects.filter(fazenda=fazenda, **filtro).first()
     if versao is None:
         raise Http404
     return versao
@@ -67,6 +71,7 @@ def _exigir_download(pessoa, fazenda) -> None:
 
 def _privado(resposta, etag=None):
     # `private` veda proxy e CDN (o dado é de uma fazenda); `no-cache` obriga a revalidar, então o acesso é checado sempre.
+    """Marca a resposta como `private, no-cache` e põe o ETag, se houver."""
     if etag:
         resposta['ETag'] = etag
     patch_cache_control(resposta, private=True, no_cache=True)
@@ -78,6 +83,7 @@ def _privado(resposta, etag=None):
 @exige_acao('baixar_pacote_offline')
 @cache_proprio
 def pacote_manifesto(requisicao, empresa_id, fazenda_id):
+    """Manifesto da versão vigente (`baixar_pacote_offline`)."""
     _, fazenda = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
     _exigir_download(requisicao.user, fazenda)
     versao = _vigente(requisicao.user, fazenda)
@@ -112,6 +118,7 @@ def _faixa(cabecalho: str | None, tamanho: int):
 
 
 def _blocos(caminho: Path, inicio: int, fim: int):
+    """Lê o trecho `inicio..fim` (inclusivo) do arquivo em blocos de 1 MiB."""
     restante = fim - inicio + 1
     with caminho.open('rb') as arquivo:
         arquivo.seek(inicio)
@@ -128,11 +135,17 @@ def _blocos(caminho: Path, inicio: int, fim: int):
 @exige_acao('ver')
 @cache_proprio
 def pacote_arquivo(requisicao, empresa_id, fazenda_id, nome):
+    """Arquivo do manifesto da versão `?versao=N` (padrão: a vigente), com `Range`, ETag e `If-Range` (`ver` na fazenda inteira)."""
     _, fazenda = resolver_escopo(requisicao.user, empresa_id, fazenda_id)
     # `resolver_escopo` também admite quem só tem uma sub-área; estes arquivos são da fazenda inteira (Greptile, PR #50).
     if not pode(requisicao.user, 'ver', fazenda):
         raise PermissionDenied
-    versao = _vigente(requisicao.user, fazenda)
+    # `?versao=N` (a do manifesto que o aplicativo baixou): se outra versão virar vigente no meio do download, os arquivos
+    # seguem sendo os do manifesto em mãos e o SHA-256 confere (CodeRabbit, PR #50). Sem o parâmetro, a vigente.
+    pedida = requisicao.GET.get('versao')
+    if pedida is not None and not (pedida.isascii() and pedida.isdigit() and len(pedida) <= 9):
+        raise Http404
+    versao = _vigente(requisicao.user, fazenda, int(pedida) if pedida is not None else None)
     arquivo = next((a for a in contrato.validar(versao.manifesto).arquivos if a.nome == nome), None)
     if arquivo is None:
         raise Http404

@@ -57,9 +57,17 @@ const REGRAS_CONTEUDO = [
   { regra: 'string de conexão com senha', teste: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:[^\s@/]+@[^\s/]+/i },
 ];
 
+const crypto = require('node:crypto');
+
+// Referência sintética do pacote (spec 004b): a exceção de caminho só vale para estes bytes. Regerou a referência? Atualize o
+// hash aqui, de propósito (CodeRabbit e Qodo, PR #50: sem isto, dado real com este nome passaria).
+const REFERENCIA_PMTILES = {
+    'servidor/pacote/referencia/fundo.pmtiles': 'cd40df51a93b2300e01d562bebd56db4c3264211a40bf42df07a7bef0f7da4ea',
+    'servidor/pacote/referencia/ortofoto.pmtiles': 'ebd09496f5b427dee7431c8fc85c8a867b56f70aaa0c063bea6db622dd7f27a3',
+};
 const REGEX_IPV4 = /(?<![\w.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\w.]*\d)/g;
 const ARQUIVO_DE_REQUISITOS = /(^|\/)(requirements|constraints)[^/]*\.txt$/i;
-const LINHA_DE_VERSAO_FIXADA = /^\s*[A-Za-z0-9][\w.-]*(\[[\w,.-]+\])?\s*(===?|~=|>=|<=|!=|<|>)\s*\d+(\.\d+)*\s*(;[^#]*)?\s*\\?\s*$/;
+const LINHA_DE_VERSAO_FIXADA = /^\s*[A-Za-z0-9][\w.-]*(\[[\w,.-]+\])?\s*(===?|~=|>=|<=|!=|<|>)\s*(\d+(?:\.\d+)*)\s*(;[^#]*)?\s*\\?\s*$/;
 
 function ipv4Publico(octetos) {
   const [a, b, c] = octetos;
@@ -108,8 +116,10 @@ function verificarConteudo(caminho, texto, termos) {
     }
     // Versão fixada de pacote com quatro números (`nome==a.b.c.d`) não é endereço, mas só vale em arquivo de requisitos e na linha que
     // é exatamente isso: em qualquer outro texto `ip>=<IP>` segue examinado (Qodo e Sourcery, PR #50).
-    const versaoFixada = ARQUIVO_DE_REQUISITOS.test(caminho) && LINHA_DE_VERSAO_FIXADA.test(linha);
-    for (const m of versaoFixada ? [] : linha.matchAll(REGEX_IPV4)) {
+    // Só o trecho da versão sai da busca: o resto da linha (o marcador depois do `;`) segue examinado.
+    const versaoFixada = ARQUIVO_DE_REQUISITOS.test(caminho) ? LINHA_DE_VERSAO_FIXADA.exec(linha) : null;
+    const examinada = versaoFixada ? linha.replace(versaoFixada[3], '') : linha;
+    for (const m of examinada.matchAll(REGEX_IPV4)) {
       if (ipv4Publico(m.slice(1, 5).map(Number))) {
         achados.push({ arquivo: caminho, linha: numero, regra: 'endereço IP público' });
       }
@@ -132,6 +142,10 @@ function verificar({ caminhos, lerConteudo, termos = [] }) {
     const termoNoNome = termos.map(normalizarNome).filter(Boolean).some((t) => nomeNormalizado.includes(t));
     if (termoNoNome) achados.push({ arquivo: caminho, linha: 0, regra: 'termo da lista sensível local no nome' });
     const buffer = lerConteudo(caminho);
+    const esperado = REFERENCIA_PMTILES[caminho.replace(/\\/g, '/')];
+    if (esperado && buffer && crypto.createHash('sha256').update(buffer).digest('hex') !== esperado) {
+      achados.push({ arquivo: caminho, linha: 0, regra: 'arquivo da referência diferente do fixado' });
+    }
     if (!buffer || ehBinario(buffer)) continue;
     achados.push(...verificarConteudo(caminho, buffer.toString('utf8'), termos));
   }

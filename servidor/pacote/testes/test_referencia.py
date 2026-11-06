@@ -14,13 +14,15 @@ CONTRATO = Path(__file__).resolve().parents[2] / 'projeto' / 'contrato_pacote.md
 
 def test_o_pacote_de_referencia_passa_no_esquema_e_confere_os_arquivos():
     lido = manifesto.ler(REFERENCIA)
-    assert lido.arquivos and lido.formato_versao == 1
+    assert lido.arquivos
+    assert lido.formato_versao == 1
 
 
 def _limites(arquivo):
     """(oeste, sul, leste, norte) do cabeçalho PMTiles v3: quatro int32 little-endian em e7 a partir do byte 102."""
     cabecalho = arquivo.read_bytes()[:127]
-    assert cabecalho[:7] == b'PMTiles' and cabecalho[7] == 3
+    assert cabecalho[:7] == b'PMTiles'
+    assert cabecalho[7] == 3
     return tuple(valor / 1e7 for valor in struct.unpack_from('<4i', cabecalho, 102))
 
 
@@ -29,14 +31,16 @@ def test_a_caixa_da_referencia_fica_a_menos_de_0_1_grau_do_centro_de_teste():
     # arquivo; trocar a referência por outra região faz este teste falhar (Greptile, PR #50).
     for arquivo in (REFERENCIA / 'fundo.pmtiles', REFERENCIA / 'ortofoto.pmtiles'):
         oeste, sul, leste, norte = _limites(arquivo)
-        assert oeste < leste and sul < norte, arquivo.name
+        assert oeste < leste, arquivo.name
+        assert sul < norte, arquivo.name
         assert abs((oeste + leste) / 2 - camadas_sinteticas.LON0) < 0.1, arquivo.name
         assert abs((sul + norte) / 2 - camadas_sinteticas.LAT0) < 0.1, arquivo.name
 
 
 def test_estilo_e_manifesto_nao_citam_o_google_nem_documentos():
     texto = ESTILO.read_text(encoding='utf-8') + (REFERENCIA / 'manifesto.json').read_text(encoding='utf-8')
-    assert 'googleapis' not in texto.lower() and 'google' not in texto.lower()
+    assert 'googleapis' not in texto.lower()
+    assert 'google' not in texto.lower()
     assert 'documento' not in (REFERENCIA / 'manifesto.json').read_text(encoding='utf-8').lower()
 
 
