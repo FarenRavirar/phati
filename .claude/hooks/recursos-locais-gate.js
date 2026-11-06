@@ -6,6 +6,9 @@
 // "mata o PC". Quem sobe (PostgreSQL local, compose, Playwright) fecha ao terminar: `docker stop` do que subiu e
 // `wsl --shutdown`. Isto é o gatilho; a regra escrita está no AGENTS.md (T0).
 //
+// LIMITE CONHECIDO: a segunda parada do mesmo turno passa (`stop_hook_active`, trava anti-laço igual à do hook irmão), então
+// quem ignora o primeiro aviso ainda encerra com o recurso de pé. Cobrança permanente exigiria um teto de tentativas.
+//
 // CANAL: `exit 2` + stderr em `Stop` (mesmo canal e mesma trava de `caveman-resposta-final.js`): cobra uma vez por parada;
 // `stop_hook_active` evita o laço. O hook só mede e avisa, nunca fecha nada sozinho (fechar derruba o banco que outra
 // tarefa pode estar usando: quem decide é o agente, que sabe o que ele mesmo subiu).
@@ -19,7 +22,9 @@ const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
 function medir(executar) {
   const sobras = [];
   try {
-    const rodando = executar('docker', ['ps', '--format', '{{.Names}}']).split(/\r?\n/).filter(Boolean);
+    // Só contêiner do projeto (nome começa com `phati`: `phati-pg18-local`, `phatiteste-*` do compose): contêiner de outra
+    // tarefa ou do mantenedor não é sobra do agente (Qodo e Sourcery, PR #50).
+    const rodando = executar('docker', ['ps', '--format', '{{.Names}}']).split(/\r?\n/).filter((nome) => /^phati/i.test(nome));
     if (rodando.length) sobras.push(`contêineres: ${rodando.join(', ')}`);
   } catch {
     // Docker fora do ar ou ausente: nada de contêiner a fechar.

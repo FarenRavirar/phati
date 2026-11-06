@@ -136,7 +136,10 @@ def pacote_arquivo(requisicao, empresa_id, fazenda_id, nome):
     arquivo = next((a for a in contrato.validar(versao.manifesto).arquivos if a.nome == nome), None)
     if arquivo is None:
         raise Http404
-    raiz = (Path(settings.PACOTES_DIR) / str(fazenda_id) / f'v{versao.numero}').resolve()
+    if fazenda is None:  # `resolver_escopo` só devolve None sem `fazenda_id`; aqui ele sempre vem
+        raise Http404
+    # `fazenda.pk` vem do banco, nunca do texto da URL: o diretório da fazenda não depende de entrada do usuário (CodeQL, PR #50).
+    raiz = (Path(settings.PACOTES_DIR) / str(fazenda.pk) / f'v{versao.numero}').resolve()
     caminho = (raiz / arquivo.nome).resolve()
     # O nome já vem do manifesto validado (sem barra); a conferência pega o que o nome não pega, como um link simbólico que sai da pasta.
     if not caminho.is_relative_to(raiz) or not caminho.is_file():

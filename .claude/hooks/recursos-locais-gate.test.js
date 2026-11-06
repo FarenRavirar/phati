@@ -15,6 +15,11 @@ test('contêiner rodando é apontado pelo nome', () => {
   assert.deepEqual(medir(falso('phati-pg18-local\n', 'INFO: sem processos')), ['contêineres: phati-pg18-local']);
 });
 
+test('contêiner de outra tarefa não é sobra do agente', () => {
+  assert.deepEqual(medir(falso('banco-de-outro-projeto\nphatiteste-app-1\n', 'INFO: sem processos')), ['contêineres: phatiteste-app-1']);
+  assert.deepEqual(medir(falso('banco-de-outro-projeto\n', 'INFO: sem processos')), []);
+});
+
 test('vmmemWSL rodando é apontado', () => {
   assert.deepEqual(medir(falso('', '"vmmemWSL.exe","1234","Services","0","3.000.000 K"')), ['processo vmmemWSL']);
 });
