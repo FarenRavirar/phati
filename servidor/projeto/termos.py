@@ -20,7 +20,9 @@ from django.views.decorators.http import require_GET
 
 REGISTRO = logging.getLogger(__name__)
 SECOES = {'termos': 'Termos de uso', 'privacidade': 'Política de privacidade'}
-TERMO_DO_GOOGLE = 'https://cloud.google.com/maps-platform/terms'
+# Os dois documentos que a cláusula 3.2.2(a)(i) dos termos do Google Maps Platform manda os termos do aplicativo citar.
+TERMO_DO_GOOGLE = 'https://maps.google.com/help/terms_maps/'
+PRIVACIDADE_DO_GOOGLE = 'https://policies.google.com/privacy'
 SEM_TEXTO = 'O texto do mantenedor ainda não foi fornecido (aviso só do ambiente local).'
 
 
@@ -82,6 +84,6 @@ def pagina(requisicao, secao):
         texto = [SEM_TEXTO]
     contexto = {
         'titulo': SECOES[secao], 'paragrafos': texto, 'termo_do_google': TERMO_DO_GOOGLE,
-        'beacon': secao == 'privacidade',
+        'privacidade_do_google': PRIVACIDADE_DO_GOOGLE,
     }
     return render(requisicao, 'termos.html', contexto)
