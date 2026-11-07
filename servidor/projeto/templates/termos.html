@@ -4,6 +4,5 @@
 {% include "componentes/cabecalho_pagina.html" with titulo=titulo %}
 {% for paragrafo in paragrafos %}<p>{{ paragrafo }}</p>
 {% endfor %}
-<p>O fundo do mapa fornecido pelo Google também segue os <a href="{{ termo_do_google }}" rel="noopener noreferrer">Termos de Serviço do Google Maps Platform</a>.</p>
-{% if beacon %}<p>A hospedagem passa pela Cloudflare, que pode inserir por conta própria um script de análise de acessos nas páginas.</p>
-{% endif %}{% endblock %}
+<p>O mapa inclui recursos e conteúdo do Google Maps. O uso deles está sujeito às versões atuais dos <a href="{{ termo_do_google }}" rel="noopener noreferrer">Termos de Serviço Adicionais do Google Maps para o usuário final</a> e da <a href="{{ privacidade_do_google }}" rel="noopener noreferrer">Política de Privacidade do Google</a>.</p>
+{% endblock %}
