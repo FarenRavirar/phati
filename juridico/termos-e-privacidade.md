@@ -21,7 +21,7 @@ O acesso é feito somente por convite de um administrador da empresa à qual voc
 
 2. Sua conta
 
-A conta é pessoal e intransferível. Você a acessa com o seu CPF e uma senha. Mantenha a senha em sigilo: tudo o que for feito com a sua conta será tratado como feito por você. Se suspeitar de uso indevido, avise imediatamente o administrador da sua empresa e troque a senha. Por segurança, a sessão termina depois de 30 minutos sem atividade e, em qualquer caso, depois de 12 horas. Depois de várias tentativas de senha erradas, a conta é bloqueada temporariamente.
+A conta é pessoal e intransferível. Você a acessa com o seu CPF e uma senha. Mantenha a senha em sigilo: tudo o que for feito com a sua conta será tratado como feito por você. Se suspeitar de uso indevido, avise imediatamente o administrador da sua empresa e troque a senha. Por segurança, no navegador a sessão termina depois de 30 minutos sem atividade e, em qualquer caso, depois de 12 horas; no aplicativo Android o acesso dura até 30 dias, renovado a cada uso, e termina em no máximo 30 dias desde a entrada. Depois de várias tentativas de senha erradas, a conta é bloqueada temporariamente.
 
 3. Confidencialidade dos dados da empresa
 
@@ -29,7 +29,7 @@ Os mapas, camadas, atributos, documentos e demais dados exibidos na plataforma p
 
 4. Como ler as informações do mapa
 
-Os dados do mapa são ferramenta de consulta e apoio à decisão. Valores derivados, como os obtidos por interpolação ou por sensoriamento remoto, são estimativas, nunca medições de campo, e vêm acompanhados de fonte, data, unidade e método. Dado "não informado" é diferente de zero e não deve ser lido como zero. Uma revisão em análise não substitui a revisão vigente; só a pessoa com permissão de aprovação cartográfica torna uma revisão vigente. Confira a fonte, a data e as ressalvas antes de decidir com base em qualquer informação.
+Os dados do mapa são ferramenta de consulta e apoio à decisão. Valores derivados, como os obtidos por interpolação ou por sensoriamento remoto, são estimativas, nunca medições de campo, e vêm acompanhados de fonte, data, unidade e método. Dado "não informado" é diferente de zero e não deve ser lido como zero. Confira a fonte, a data e as ressalvas antes de decidir com base em qualquer informação.
 
 5. Fundo de mapa do Google
 
@@ -73,13 +73,13 @@ O responsável pela plataforma é o controlador dos dados pessoais de conta, de 
 
 Dados da conta: nome, e-mail e CPF. O CPF é guardado cifrado, e a busca por CPF usa um código de verificação (hash) em vez do número aberto. A senha é guardada apenas na forma de hash, nunca em texto legível. Também guardamos o vínculo com a empresa, o cargo e as permissões, a data do último acesso e o número de tentativas de senha erradas e o bloqueio da conta.
 
-Dados de uso e segurança: registro das ações administrativas (quem fez o quê, em qual empresa e quando; por exemplo, concessão de acesso, mudança de permissão e aprovação de revisão); registro de acesso reutilizado ou suspeito; contagem de quantas vezes você usou cada atalho e a data do último uso, para ordenar e fixar os seus atalhos. No aplicativo Android, ao entrar, o aparelho informa um nome de dispositivo em texto livre, e o servidor registra os acessos do aplicativo.
+Dados de uso e segurança: registro das ações administrativas (quem fez o quê, em qual empresa e quando; por exemplo, concessão de acesso e mudança de permissão); registro de acesso reutilizado ou suspeito; contagem de quantas vezes você usou cada atalho e a data do último uso, para ordenar e fixar os seus atalhos. No aplicativo Android, ao entrar, o aparelho informa um nome de dispositivo em texto livre, e o servidor registra os acessos do aplicativo.
 
 Dados que a plataforma não coleta: não coletamos telefone, endereço residencial, dados bancários nem dados de saúde. Não vendemos dados pessoais e não os usamos para publicidade.
 
 3. Localização do aparelho
 
-O botão de recentralizar o mapa usa a posição do aparelho apenas dentro do navegador, para centralizar o mapa. Essa posição não é enviada ao nosso servidor nem guardada. O servidor também não recebe a posição do aparelho pelo aplicativo Android: o que o aplicativo envia ao servidor é o CPF, a senha, o nome do dispositivo e os pedidos de download dos mapas.
+O botão de recentralizar o mapa usa a posição do aparelho apenas dentro do navegador, para centralizar o mapa. Essa posição não é enviada ao nosso servidor nem guardada. [PREENCHER: o que o aplicativo Android coleta no aparelho e envia ao servidor, incluindo posição e identificadores. Não medido: o código do app não está neste repositório. Ao servidor chegam, no mínimo, CPF, senha, nome do dispositivo e pedidos de download dos mapas.]
 
 4. Para que usamos e em que base legal
 
@@ -107,7 +107,7 @@ Usamos apenas cookies essenciais ao funcionamento: o cookie de sessão, que mant
 
 8. Por quanto tempo guardamos
 
-Os dados da conta ficam enquanto a conta existir. Convites não aceitos e pedidos de redefinição de senha vencidos são apagados automaticamente. Os registros de auditoria e de acesso do aplicativo são guardados pelo tempo necessário à segurança e à responsabilização, sem prazo fixo, e deixam de ser guardados quando essa necessidade acabar. Quando a conta é desligada, os dados de identificação são eliminados a pedido, ressalvados os registros que precisem ser mantidos por obrigação legal ou para a segurança da plataforma.
+Os dados da conta ficam enquanto a conta existir. Convites não aceitos e pedidos de redefinição de senha vencidos perdem a validade e deixam de poder ser usados, mas continuam armazenados até serem removidos. Os registros de auditoria e de acesso do aplicativo são guardados pelo tempo necessário à segurança e à responsabilização, sem prazo fixo, e deixam de ser guardados quando essa necessidade acabar. Quando a conta é desligada, os dados de identificação são eliminados a pedido, ressalvados os registros que precisem ser mantidos por obrigação legal ou para a segurança da plataforma.
 
 9. Segurança
 
@@ -193,5 +193,8 @@ Respondidas pelo mantenedor em 2026-11-06: Cloudflare analytics desligado; polí
 1. **Atender direitos do art. 18:** não há exportação, correção pelo próprio usuário, exclusão nem anonimização de conta (P11). O texto promete atendimento por pedido ao administrador ou ao contato, o que hoje seria manual, por comando de administração. Antes de ir a usuário, o mantenedor decide se cria rotina para isso (decisão de produto).
 2. **Prazos de retenção:** sem rotina de expurgo (P11).
 3. **Desligar o analytics da Cloudflare** no painel (Web Analytics > Manage Site > Disable), depois conferir que o script não aparece na resposta. Eu não faço isso: é ação no painel do mantenedor. Até lá, o script pode estar sendo inserido enquanto a página já não o menciona.
+3b. **Provedor de e-mail:** a política cita "provedor de envio contratado". Sem `PHATI_EMAIL_HOST` configurado na VM o envio tenta `localhost` e falha sem aviso ao usuário (`identidade/email.py`). Configurar o SMTP antes de publicar, ou trocar a frase.
+3c. **Aprovação cartográfica:** a permissão `tornar_revisao_vigente` está reservada, sem função no código (`projeto/cobertura_interface.json:150-151`). O texto não a promete; reincluir a regra nos Termos só quando ela existir.
+3d. **Expurgo de convite e pedido vencidos:** só filtro de lista (`permissao/convite.py:228`) e limpeza no próximo pedido da mesma pessoa (`identidade/redefinicao.py:90`). A política diz "armazenados até serem removidos".
 4. **Atribuição do Google** (logo ou texto "Google Maps", atribuição de dados) segue a política do Map Tiles; não faz parte deste texto, mas é condição de uso do fundo.
 5. **Mudança já feita no código (local, sem commit):** a frase automática que a página acrescenta depois do texto passou a citar os dois documentos que a cláusula 3.2.2(a)(i) pede (Termos Adicionais do Google Maps para o usuário final e Política de Privacidade do Google), em vez do link dos Termos de Serviço do Google Maps Platform; a frase da Cloudflare foi removida; testes ajustados.

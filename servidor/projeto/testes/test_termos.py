@@ -24,8 +24,8 @@ def test_com_texto_responde_200_deslogado_com_termos_e_privacidade_do_google(arq
     resposta = Client().get(caminho)
     html = resposta.content.decode()
     assert resposta.status_code == 200
-    assert 'href="https://maps.google.com/help/terms_maps/"' in html
-    assert 'href="https://policies.google.com/privacy"' in html
+    assert 'href="https://maps.google.com/help/terms_maps/" rel="noopener noreferrer">Termos de Serviço Adicionais do Google Maps para o usuário final</a>' in html
+    assert 'href="https://policies.google.com/privacy" rel="noopener noreferrer">Política de Privacidade do Google</a>' in html
 
 
 def test_texto_do_mantenedor_aparece_em_paragrafos_e_html_e_escapado(arquivo):
