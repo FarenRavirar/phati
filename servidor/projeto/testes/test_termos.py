@@ -20,11 +20,12 @@ def arquivo(tmp_path, settings):
 
 
 @pytest.mark.parametrize('caminho', ['/termos', '/privacidade'])
-def test_com_texto_responde_200_deslogado_com_aviso_do_google(arquivo, caminho):
+def test_com_texto_responde_200_deslogado_com_termos_e_privacidade_do_google(arquivo, caminho):
     resposta = Client().get(caminho)
     html = resposta.content.decode()
     assert resposta.status_code == 200
-    assert 'https://cloud.google.com/maps-platform/terms' in html
+    assert 'href="https://maps.google.com/help/terms_maps/" rel="noopener noreferrer">Termos de Serviço Adicionais do Google Maps para o usuário final</a>' in html
+    assert 'href="https://policies.google.com/privacy" rel="noopener noreferrer">Política de Privacidade do Google</a>' in html
 
 
 def test_texto_do_mantenedor_aparece_em_paragrafos_e_html_e_escapado(arquivo):
@@ -34,9 +35,10 @@ def test_texto_do_mantenedor_aparece_em_paragrafos_e_html_e_escapado(arquivo):
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
 
 
-def test_privacidade_diz_do_script_de_analise_da_cloudflare(arquivo):
-    assert 'Cloudflare' in Client().get('/privacidade').content.decode()
-    assert 'Cloudflare' not in Client().get('/termos').content.decode()
+def test_paginas_nao_afirmam_script_de_analise_da_cloudflare_por_conta_propria(arquivo):
+    # Analytics da Cloudflare desligado (decisão do mantenedor, 2026-11-06): só o texto do arquivo pode falar de Cloudflare.
+    for caminho in ('/termos', '/privacidade'):
+        assert 'Cloudflare' not in Client().get(caminho).content.decode()
 
 
 def test_rodape_linka_as_duas_paginas_deslogado_e_logado(arquivo, cliente_logado):
