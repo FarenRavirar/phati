@@ -150,6 +150,17 @@ def test_editar_mostra_o_nivel_como_texto_e_a_versao_oculta(cliente_logado, admi
     assert not re.search(r'value="validar_registro"[^>]* checked', html)
 
 
+def test_cargo_administrador_nao_se_edita_e_segue_com_ver_auditoria(cliente_logado, administradora, cenario):
+    """005 T1.1 (risco 1 da spec): o cargo de nível Administrador é fixo; a tela recusa a edição e a ação não se perde."""
+    administrador = cenario.cargos_x['administrador']
+    resposta = cliente_logado.post(_casa(cenario) + f'cargos/{administrador.pk}/editar', {
+        'nome': 'Administrador', 'versao': administrador.versao, 'permissoes': ['ver'],
+    })
+    assert resposta.status_code == 403
+    assert set(CargoPermissao.objects.filter(cargo=administrador).values_list('permissao_id', flat=True)) >= {'ver_auditoria', 'ver'}
+    assert CargoPermissao.objects.filter(cargo=administrador).count() > 2
+
+
 def test_editar_grava_nome_e_permissoes_soma_a_versao_e_ignora_base_e_empresa_enviadas(cliente_logado, administradora, cenario, campo):
     caminho = _casa(cenario) + f'cargos/{campo.pk}/editar'
     resposta = cliente_logado.post(caminho, {

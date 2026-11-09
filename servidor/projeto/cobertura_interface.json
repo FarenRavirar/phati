@@ -7,6 +7,7 @@
     "redefinir_senha_solicitar": "Esqueci a senha — 002 R6",
     "redefinir_senha_confirmar": "Página de redefinição — 002 R6",
     "acesso_renovar": "Sem tela: renova o token do aplicativo Android; a web usa cookie",
+    "auditoria_listar": "Lista da auditoria — 005 R6 (tela /auditoria/)",
     "pessoas_listar": "Lista de pessoas — 003 R13 (tela /empresa/<id>/pessoas/)",
     "pessoas_convidar": "Convidar pessoa — 003 R13 (tela /empresa/<id>/pessoas/convidar)",
     "concessoes_criar": "Conceder cargo — 003 R19 (tela /empresa/<id>/pessoa/<id>/conceder)",
@@ -133,7 +134,9 @@
     "permissao.delegacao.travar_escopo": "Sem tela: trava a linha do escopo ao convidar ou conceder, para não nascer convite em escopo que está sendo arquivado — 003 R11",
     "permissao.delegacao.criar_pessoa_e_conceder": "Sem tela: efeito interno de pessoas_convidar (CPF novo) — 003",
     "territorio.niveis.limpar_nivel": "Nomes dos níveis da divisão (campo em branco) — 003 R10; sem rota na API",
-    "territorio.cadastro.nome_unico": "Sem tela: traduz a restrição de nome único entre irmãos ativos em `nome_duplicado` nas funções de criar, renomear e desarquivar — 003 R9"
+    "territorio.cadastro.nome_unico": "Sem tela: traduz a restrição de nome único entre irmãos ativos em `nome_duplicado` nas funções de criar, renomear e desarquivar — 003 R9",
+    "permissao.auditoria_leitura.consultar": "Lista da auditoria — 005 R6 (tela /auditoria/; a rota GET /api/v1/auditoria chama a mesma função)",
+    "comum.auditoria_rotulos.rotulo_e_resumo": "Rótulo e resumo de cada evento da lista da auditoria — 005 R4 e R5 (texto da tela /auditoria/ e da rota GET /api/v1/auditoria)"
   },
   "acoes": {
     "ver": "002 (Início, seletor, página da fazenda)",
@@ -166,9 +169,8 @@
     "gerenciar_cargo": "003 R18 (telas de cargos)",
     "renomear": "003 R9 (telas de renomear e API); só a base Administrador",
     "arquivar": "003 R11 (tela de confirmação e API); só a base Administrador",
-    "desarquivar": "003 R11 (tela de confirmação, seção Arquivadas e API); só a base Administrador"
+    "desarquivar": "003 R11 (tela de confirmação, seção Arquivadas e API); só a base Administrador",
+    "ver_auditoria": "005 R6 (tela /auditoria/ e GET /api/v1/auditoria; só o Administrador)"
   },
-  "sem_acao": {
-    "leitura_de_auditoria": "Não há ação de leitura; spec 004 (D060)"
-  }
+  "sem_acao": {}
 }

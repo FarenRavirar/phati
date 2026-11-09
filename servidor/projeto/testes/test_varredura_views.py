@@ -64,7 +64,7 @@ def test_toda_view_autenticada_declara_a_acao_que_exige():
 def test_acao_declarada_existe_no_catalogo_ou_e_da_propria_pessoa():
     catalogo = {
         codigo
-        for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google')
+        for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google', '0011_ver_auditoria')
         for codigo, _, _ in import_module(f'permissao.migrations.{migracao}').ACOES
     }
     assert {getattr(visao, 'acao_exigida') for _, visao, _ in _autenticadas()} <= catalogo | {PROPRIA_PESSOA}

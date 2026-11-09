@@ -9,11 +9,11 @@ from territorio.models import Fazenda, SubArea
 
 pytestmark = pytest.mark.django_db
 
-NAO_DELEGAVEIS = {'aprovar_geometria', 'tornar_revisao_vigente', 'criar_empresa', 'renomear', 'arquivar', 'desarquivar', 'ver_monitor_google'}
+NAO_DELEGAVEIS = {'aprovar_geometria', 'tornar_revisao_vigente', 'criar_empresa', 'renomear', 'arquivar', 'desarquivar', 'ver_monitor_google', 'ver_auditoria'}
 
 
-def test_catalogo_tem_31_acoes():
-    assert Permissao.objects.count() == 31
+def test_catalogo_tem_32_acoes():
+    assert Permissao.objects.count() == 32
 
 
 def test_so_sete_acoes_sao_nao_delegaveis():
@@ -24,7 +24,7 @@ def test_so_sete_acoes_sao_nao_delegaveis():
 def test_papel_app_le_o_catalogo_mas_nao_escreve():
     with connections['app'].cursor() as consulta:
         consulta.execute('SELECT count(*) FROM permissao')
-        assert consulta.fetchone() == (31,)
+        assert consulta.fetchone() == (32,)
         for escrita in ("INSERT INTO permissao VALUES ('x', 'x', true)", 'UPDATE permissao SET delegavel = true', 'DELETE FROM permissao'):
             # savepoint: a falha aborta a transação do teste e a próxima escrita precisa rodar.
             with pytest.raises(ProgrammingError, match='permission denied'), transaction.atomic(using='app'):
