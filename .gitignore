@@ -108,3 +108,6 @@ navegador/dados.json
 test-results/
 playwright-report/
 coverage.xml
+/.agents/skills/taste-skill/references
+/.agents/skills/taste-skill/assets
+/.agents/skills/taste-skill/scripts
