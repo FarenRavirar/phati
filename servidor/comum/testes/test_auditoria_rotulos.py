@@ -29,6 +29,7 @@ def test_acao_desconhecida_de_registro_antigo_cai_no_nome_da_acao():
 def test_resumos_mostram_so_o_que_importa_em_portugues():
     assert rotulo_e_resumo('fazenda_renomeada', {'nome_antigo': 'F1', 'nome_novo': 'F1 Nova'})[1] == 'De "F1" para "F1 Nova".'
     assert rotulo_e_resumo('conta_bloqueada', {'segundos': 30})[1] == 'Bloqueada por 30 segundos.'
+    assert rotulo_e_resumo('nivel_definido', {'nivel': 2, 'nome_antigo': 'Talhão', 'nome_novo': 'Pivô'})[1] == 'Nível 2: de "Talhão" para "Pivô".'
     assert rotulo_e_resumo('nivel_definido', {'nivel': 2, 'nome_antigo': None, 'nome_novo': 'Talhão'})[1] == 'Nível 2 definido como "Talhão".'
     assert rotulo_e_resumo('nivel_definido', {'nivel': 1, 'nome_antigo': 'Quadra', 'nome_novo': None})[1] == 'Nível 1 removido (era "Quadra").'
     assert rotulo_e_resumo('cargo_alterado', {'nome': 'Cargo', 'permissoes': ['ver', 'baixar_documento']})[1] == 'Cargo "Cargo" com 2 permissões.'
