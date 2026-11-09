@@ -82,6 +82,28 @@ def test_acao_nao_delegavel_so_o_administrador_concede(cenario, fabrica_pessoa, 
     assert gerenciar_cargo(admin, cenario.x, 'Cartografia', ['aprovar_geometria'], base='tecnico').pk
 
 
+def test_cargo_administrador_e_fixo_e_so_o_administrador_concede_ver_auditoria(cenario, fabrica_pessoa, conceder_direto):
+    """005 Riscos: o cargo Administrador não se edita (a empresa não fica sem leitor); só o Administrador dá `ver_auditoria`."""
+    from permissao.auditoria_leitura import consultar
+    from permissao.pode import com_permissao, esquecer
+
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    administrador = cenario.cargos_x['administrador']
+    with pytest.raises(ValidationError):
+        gerenciar_cargo(admin, cenario.x, 'Administrador', ['ver'], cargo=administrador, versao=administrador.versao)
+    assert 'ver_auditoria' in _codigos(administrador)
+    gestor = gerenciar_cargo(admin, cenario.x, 'Gestor', ['ver', 'gerenciar_cargo'], base='curador')
+    pessoa = _com(fabrica_pessoa, conceder_direto, gestor, cenario.x, 'Gestora')
+    with pytest.raises(PermissionDenied):
+        gerenciar_cargo(pessoa, cenario.x, 'Leitores', ['ver_auditoria'], base='tecnico')
+    assert not Cargo.objects.filter(nome='Leitores').exists()
+    leitores = gerenciar_cargo(admin, cenario.x, 'Leitores', ['ver_auditoria'], base='tecnico')  # concessão consciente do Administrador
+    leitora = _com(fabrica_pessoa, conceder_direto, leitores, cenario.x, 'Leitora')
+    esquecer(leitora)
+    with com_permissao(leitora, 'ver_auditoria'):
+        assert consultar(leitora)[1] is False
+
+
 @pytest.mark.parametrize(
     ('codigos', 'nome', 'base', 'codigo'),
     [

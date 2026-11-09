@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Now
 
 
@@ -21,3 +22,11 @@ class EventoAuditoria(models.Model):
 
     class Meta:
         db_table = 'evento_auditoria'
+        # Leitura da auditoria (005 R8): cursor por id decrescente dentro de empresa, de quem agiu e da pessoa afetada.
+        # `pessoa_id` nos `detalhes` guarda a pessoa afetada por eventos cujo alvo é outro objeto (concessão, convite).
+        indexes = [
+            models.Index(fields=['empresa_id', '-id'], name='auditoria_empresa_id'),
+            models.Index(fields=['pessoa_id', '-id'], name='auditoria_pessoa_id'),
+            models.Index(fields=['alvo_tipo', 'alvo_id'], name='auditoria_alvo'),
+            models.Index(KeyTextTransform('pessoa_id', 'detalhes'), name='auditoria_detalhe_pessoa'),
+        ]

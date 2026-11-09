@@ -319,6 +319,95 @@
         "title": "EntradaTrocarSenha",
         "type": "object"
       },
+      "ParametrosDaAuditoria": {
+        "description": "Cursor por id decrescente: `depois` é o último id recebido e 0 pede a primeira página (005 R2).",
+        "properties": {
+          "acao": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acao"
+          },
+          "alvo_pessoa_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alvo Pessoa Id"
+          },
+          "ate": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ate"
+          },
+          "depois": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Depois",
+            "type": "integer"
+          },
+          "desde": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desde"
+          },
+          "empresa_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empresa Id"
+          },
+          "limite": {
+            "default": 30,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limite",
+            "type": "integer"
+          },
+          "pessoa_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pessoa Id"
+          }
+        },
+        "title": "ParametrosDaAuditoria",
+        "type": "object"
+      },
       "ParametrosDaLista": {
         "properties": {
           "depois": {
@@ -658,6 +747,56 @@
         "title": "SaidaErro",
         "type": "object"
       },
+      "SaidaEventoAuditoria": {
+        "description": "Sem CPF, e-mail nem JSON cru (005 R4): nomes e um resumo em português.",
+        "properties": {
+          "acao": {
+            "title": "Acao",
+            "type": "string"
+          },
+          "alvo": {
+            "title": "Alvo",
+            "type": "string"
+          },
+          "empresa": {
+            "title": "Empresa",
+            "type": "string"
+          },
+          "hora": {
+            "format": "date-time",
+            "title": "Hora",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "quem": {
+            "title": "Quem",
+            "type": "string"
+          },
+          "resumo": {
+            "title": "Resumo",
+            "type": "string"
+          },
+          "rotulo": {
+            "title": "Rotulo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hora",
+          "acao",
+          "rotulo",
+          "quem",
+          "alvo",
+          "empresa",
+          "resumo"
+        ],
+        "title": "SaidaEventoAuditoria",
+        "type": "object"
+      },
       "SaidaFazenda": {
         "properties": {
           "empresa_id": {
@@ -867,6 +1006,163 @@
         "summary": "Renovar Acesso",
         "tags": [
           "identidade"
+        ]
+      }
+    },
+    "/api/v1/auditoria": {
+      "get": {
+        "operationId": "permissao_api_listar_auditoria",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depois",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Depois",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "desde",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desde"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ate",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ate"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acao",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acao"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pessoa_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pessoa Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "alvo_pessoa_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Alvo Pessoa Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "empresa_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Empresa Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaEventoAuditoria"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Auditoria",
+        "tags": [
+          "permissao"
         ]
       }
     },
