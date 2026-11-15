@@ -36,6 +36,7 @@ _TIPOS_SEM_NOME = {'Concessao': 'Acesso', 'Convite': 'Convite'}
 # não casam esses eventos, senão o filtro viraria uma pergunta "esta conta foi convidada?" (Greptile e Sourcery, PR #55).
 SEM_VINCULO = 'Pessoa convidada'
 _RECUSA = 'convite_recusado'
+_ACEITE = 'convite_aceito'
 # Colunas `detalhes` que apontam a pessoa afetada: `pessoa_id` (concessão, convite, titular novo) e `de` (titular que saiu).
 _PESSOA_DO_DETALHE = ('pessoa_id', 'de')
 
@@ -63,13 +64,14 @@ def _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id):
         eventos = eventos.filter(pessoa_id=pessoa_id).exclude(acao=_RECUSA)
     if alvo_pessoa_id is not None:
         # Pessoa como alvo direto, ou citada em `detalhes.pessoa_id` (concessão, titular novo) ou `detalhes.de` (titular
-        # que saiu). O texto do JSON casa com os índices de expressão da migração 0003. Convite fica de fora (SEM_VINCULO).
-        achada = Q(alvo_tipo='Pessoa', alvo_id=alvo_pessoa_id)
+        # que saiu). O texto do JSON casa com os índices de expressão da migração 0003. Convite fica de fora (SEM_VINCULO),
+        # menos o aceite: ali o vínculo já existe. `auditoria_consultada` guarda o filtro usado em `pessoa_id`, não um afetado.
+        achada =Q(alvo_tipo='Pessoa', alvo_id=alvo_pessoa_id)
         for chave in _PESSOA_DO_DETALHE:
             achada |= Q(**{f'pessoa_do_detalhe_{chave}': str(alvo_pessoa_id)})
         eventos = eventos.annotate(
             **{f'pessoa_do_detalhe_{chave}': KeyTextTransform(chave, 'detalhes') for chave in _PESSOA_DO_DETALHE}
-        ).filter(achada).exclude(alvo_tipo='Convite')
+        ).filter(achada).exclude(Q(alvo_tipo='Convite') & ~Q(acao=_ACEITE)).exclude(acao='auditoria_consultada')
     return eventos
 
 

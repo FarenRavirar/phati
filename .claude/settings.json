@@ -118,6 +118,15 @@
             "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/delegar-executor-gate.js\""
+          }
+        ]
       }
     ]
   },

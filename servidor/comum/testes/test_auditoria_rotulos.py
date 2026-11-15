@@ -56,6 +56,20 @@ def test_resumo_da_consulta_so_mostra_filtros_seguros_e_nao_o_que_veio_de_fora()
     assert resumo == 'Filtros: desde=2026-08-11T01:12:20+00:00, acao=pessoa_criada, empresa_id=4.'
 
 
+@pytest.mark.parametrize('detalhes', [
+    {'acao': {'a': 1}},
+    {'acao': ['pessoa_criada']},
+    {'desde': '12345678901'},
+    {'desde': '2026-08-11T01:12:20'},
+])
+def test_filtro_que_nao_e_nome_de_acao_nem_data_com_fuso_nao_chega_ao_resumo(detalhes):
+    assert rotulo_e_resumo('auditoria_consultada', detalhes) == ('Auditoria consultada', 'Sem filtros.')
+
+
+def test_data_com_fuso_do_filtro_continua_no_resumo():
+    assert rotulo_e_resumo('auditoria_consultada', {'desde': '2026-08-11T01:12:20+00:00'})[1] == 'Filtros: desde=2026-08-11T01:12:20+00:00.'
+
+
 @pytest.mark.parametrize(('detalhes', 'esperado'), [
     ({'sub_area_id': 3, 'fazenda_id': 2}, 'Acesso na sub-área.'),
     ({'fazenda_id': 2, 'sub_area_id': None}, 'Acesso na fazenda.'),

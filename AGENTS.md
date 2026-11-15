@@ -73,7 +73,7 @@ Bloco único. Os outros trechos apontam para cá.
 - `git push origin dev|main`, `git push --delete`, merge. `push` em `dev` só via merge de PR.
 - Escrita na VM `maruko` (inclui `build`), DNS, túnel, segredo de produção, deploy.
 - Lib, pacote, imagem, plugin, skill ou MCP novo: perguntar antes de instalar.
-- Worktree `add|move|remove`. Acionar outro agente de IA, exceto o `ajudante-haiku` (§Ferramentas), que dispensa aprovação.
+- Worktree `add|move|remove`. Acionar outro agente de IA, exceto `ajudante-haiku`, `executor` e `orquestrador` (§Ferramentas), que dispensam aprovação.
 - Alterar dado de fazenda, revisão vigente ou permissão de acesso em ambiente real.
 
 Livre: editar arquivo local, criar e subir branch de trabalho, abrir PR, rodar teste, lint e build local, comando read-only (`ls`, `cat`, `rg`, `git status|diff|log`, `curl -s` GET, `SELECT`). Filtrar `*SENHA*|*PASSWORD*|*TOKEN*|*SECRET*` por conteúdo. Segredo, chave privada e dado de cliente nunca são commitados, expostos ou impressos.
@@ -219,9 +219,9 @@ Documentação e segurança:
 - **21st.dev Magic (MCP `magic`, chave `API_KEY_21ST` no ambiente do usuário):** só para interface web; saída é rascunho, passa por revisão e teste como todo código.
 - **Skills `agent-skills` (plugin):** apoio de processo; em choque com este arquivo, este vence.
 
-`rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal, com uma exceção.
+`rtk-enforce` reescreve ou bloqueia comando cru. Acionar outro agente de IA exige aprovação nominal, com três exceções: `ajudante-haiku`, `executor` e `orquestrador` (agentes pessoais em `~/.claude/agents/`). A sessão principal não edita código, não roda pytest nem pyright e não monta commit: planeja, delega ao `executor` e confere a saída (hook `delegar-executor-gate`).
 
-**`ajudante-haiku` é obrigatório e dispensa aprovação**. Subagente de leitura por padrão (`~/.claude/agents/ajudante-haiku.md`); edita só texto de documentação (`specs/`, `.specify/`, `AGENTS.md`) e só quando o prompt pedir. Toda busca de arquivo, leitura de log e varredura de vários arquivos vai para ele, por padrão, sem pedir. Não delegar: edição de código, planejamento, decisão, depuração com raciocínio, revisão de código, nem arquivo ou símbolo já conhecido. O prompt leva caminho, objetivo e formato curto de resposta; ele não vê a conversa. A exceção vale só para ele: qualquer outro agente segue exigindo aprovação nominal.
+**`ajudante-haiku` é obrigatório; `executor` e `orquestrador` também dispensam aprovação.** Subagente de leitura por padrão (`~/.claude/agents/ajudante-haiku.md`); edita só texto de documentação (`specs/`, `.specify/`, `AGENTS.md`) e só quando o prompt pedir. Toda busca de arquivo, leitura de log e varredura de vários arquivos vai para ele, por padrão, sem pedir. Não delegar: edição de código, planejamento, decisão, depuração com raciocínio, revisão de código, nem arquivo ou símbolo já conhecido. O prompt leva caminho, objetivo e formato curto de resposta; ele não vê a conversa. A exceção vale só para `ajudante-haiku`, `executor` e `orquestrador`: qualquer outro agente segue exigindo aprovação nominal.
 
 ## Review guidelines
 

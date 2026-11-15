@@ -175,6 +175,25 @@ def test_convite_aceito_aparece_no_historico_de_quem_aceitou_porque_agora_ha_vin
     assert {linha['id'] for linha in _ler(plataforma, pessoa_id=aceitou.pk)[0]} == {evento.pk}
 
 
+def test_convite_aceito_aparece_no_filtro_de_pessoa_como_alvo_e_o_convite_criado_nao(cenario, plataforma, fabrica_pessoa):
+    """O aceite tem vínculo, então entra no filtro `alvo_pessoa_id`; o convite criado a quem não tem conta continua de fora."""
+    aceitou = fabrica_pessoa('Quem Aceitou')
+    evento = _evento('convite_aceito', aceitou, cenario.x, detalhes={'pessoa_id': aceitou.pk}, alvo_tipo='Convite', alvo_id=1)
+    _evento('convite_criado', plataforma, cenario.x, detalhes={'pessoa_id': aceitou.pk}, alvo_tipo='Convite', alvo_id=1)
+    assert {linha['id'] for linha in _ler(plataforma, alvo_pessoa_id=aceitou.pk)[0]} == {evento.pk}
+
+
+def test_consulta_gravada_nao_volta_na_lista_da_pessoa_que_ela_filtrava(cenario, plataforma, fabrica_pessoa):
+    """Sem `exclude(acao='auditoria_consultada')`, uma consulta com `detalhes.pessoa_id` = X apareceria no histórico de X."""
+    alvo = fabrica_pessoa('Alvo da Consulta')
+    gravada_antes = _evento('auditoria_consultada', plataforma, detalhes={'pessoa_id': alvo.pk})
+    _ler(plataforma, alvo_pessoa_id=alvo.pk)
+    _ler(plataforma)
+    linhas, _ = _ler(plataforma, alvo_pessoa_id=alvo.pk)
+    assert gravada_antes.pk not in {linha['id'] for linha in linhas}
+    assert 'auditoria_consultada' not in {linha['acao'] for linha in linhas}
+
+
 def test_titular_que_saiu_ve_a_transferencia_no_historico_dele(cenario, plataforma, fabrica_pessoa):
     antigo, novo = fabrica_pessoa('Titular Antigo'), fabrica_pessoa('Titular Novo')
     transferencia = _evento('titularidade_transferida', plataforma, cenario.x, detalhes={'de': antigo.pk, 'para': novo.pk, 'pessoa_id': novo.pk}, alvo_tipo='Empresa', alvo_id=cenario.x.pk)

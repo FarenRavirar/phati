@@ -5,6 +5,8 @@ token (R4). Ação de `ACOES` sem linha aqui reprova `test_auditoria_rotulos.py`
 antigo, cai em `rotulo_e_resumo` com o nome da ação e resumo vazio.
 """
 
+from datetime import datetime
+
 from comum.auditoria import ACOES
 
 _SEM_RESUMO = ''
@@ -72,13 +74,23 @@ def _pacote(detalhes):
     return f'Versão {_valor(detalhes, "versao")}, origem {_valor(detalhes, "origem")}.'
 
 
+def _e_data_com_fuso(valor):
+    """O que a rota grava é `AwareDatetime.isoformat()`: data e hora com fuso. Dígitos soltos (CPF, telefone) não passam."""
+    if not isinstance(valor, str) or len(valor) > 40:
+        return False
+    try:
+        return datetime.fromisoformat(valor).tzinfo is not None
+    except ValueError:
+        return False
+
+
 def _filtro_seguro(chave, valor):
     """O valor que a tela pode mostrar do filtro, ou vazio: só número inteiro, data em texto curto e nome de ação conhecido.
     Registro antigo ou de outra origem com texto livre, objeto ou segredo no filtro não chega à tela (Sourcery, PR #55)."""
     if chave == 'acao':
-        return valor if valor in ACOES else ''
+        return valor if isinstance(valor, str) and valor in ACOES else ''  # lista/dict não são hasheáveis: `in` levantaria
     if chave in ('desde', 'ate'):
-        return valor if isinstance(valor, str) and len(valor) <= 40 and all(c.isdigit() or c in '-:T+.Z' for c in valor) else ''
+        return valor if _e_data_com_fuso(valor) else ''
     return str(valor) if isinstance(valor, int) and not isinstance(valor, bool) else ''
 
 
