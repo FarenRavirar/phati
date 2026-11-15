@@ -497,7 +497,7 @@ def test_titularidade_em_duas_etapas_so_a_segunda_tem_efeito_e_audita_a_justific
     cenario.x.refresh_from_db()
     assert cenario.x.titular == candidata
     evento = _auditoria('titularidade_transferida')[0]
-    assert evento.detalhes == {'de': titular.pk, 'para': candidata.pk, 'justificativa': 'Troca de gestão.'}
+    assert evento.detalhes == {'de': titular.pk, 'para': candidata.pk, 'pessoa_id': candidata.pk, 'justificativa': 'Troca de gestão.'}
 
 
 def test_etapa_2_sozinha_sem_justificativa_ou_com_candidato_invalido_nao_transfere(cliente_logado, titular, candidata, cenario, conceder_direto, fabrica_pessoa):

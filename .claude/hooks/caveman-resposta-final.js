@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// caveman-resposta-final — Stop: lembra o ruleset `caveman ultra` no momento em
+// caveman-resposta-final — Stop: lembra o ruleset `caveman ultracave` no momento em
 // que a resposta final é entregue.
 //
 // POR QUE EXISTE
@@ -70,7 +70,7 @@ lerPayload((bruto) => {
   // `caveman`. O nome do hook segue `caveman-resposta-final` para não quebrar o
   // `settings.json`.
   const motivo = [
-    '[resposta-final] `caveman ultra` e `ponytail full` obrigatórios.',
+    '[resposta-final] `caveman ultracave` e `ponytail full` obrigatórios.',
     // Pedido do mantenedor em 2026-11-05: resposta prática. Dizer o que fazer (abrir ARQUIVO, linha N, fazer X) ou dar o
     // comando pronto; explicação e porquê só se ele pedir. O fecho "pulado e risco" virou uma linha, só quando o risco é novo.
     'Prático: ação exata (abrir ARQUIVO, linha N, fazer X) ou comando pronto, sem porquê.',

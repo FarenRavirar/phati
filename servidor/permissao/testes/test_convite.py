@@ -368,6 +368,55 @@ def test_convite_repetido_com_outras_categorias_substitui_o_anterior(cenario, fa
     assert list(aberto.categorias.all()) == [categoria]
 
 
+def test_auditoria_da_substituicao_guarda_a_pessoa_convidada_e_nao_quem_convidou(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    longo = (timezone.now() + timedelta(days=30)).isoformat()
+    curto = (timezone.now() + timedelta(days=1)).isoformat()
+    base = {'nome': 'Q', 'email': 'q@exemplo.test', 'cpf': _cpf_de(existente), 'cargo_id': cenario.cargos_x['usuario'].pk, 'escopo': {'fazenda_id': cenario.f1.pk}}
+    assert _enviar(admin, 'pessoas', {**base, 'fim': longo}).status_code == 201
+    Convite.objects.update(enviado_em=timezone.now() - timedelta(minutes=2))
+    assert _enviar(admin, 'pessoas', {**base, 'fim': curto}).status_code == 201
+    criados = [e.detalhes['pessoa_id'] for e in EventoAuditoria.objects.filter(acao='convite_criado')]
+    substituido = EventoAuditoria.objects.get(acao='convite_cancelado')
+    assert criados == [existente.pk, existente.pk]
+    assert substituido.detalhes['pessoa_id'] == existente.pk
+    assert substituido.detalhes['pessoa_id'] != admin.pk
+
+
+def test_auditoria_do_aceite_guarda_a_pessoa_que_aceitou_e_nao_quem_convidou(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    _convidar(admin, cenario, existente)
+    convite_id = Convite.objects.get().pk
+    assert _enviar(existente, f'convites/{convite_id}/aceitar').status_code == 204
+    detalhes = EventoAuditoria.objects.get(acao='convite_aceito').detalhes
+    assert detalhes['pessoa_id'] == existente.pk
+    assert detalhes['pessoa_id'] != admin.pk
+
+
+def test_auditoria_da_recusa_guarda_a_pessoa_que_recusou_e_nao_quem_convidou(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    _convidar(admin, cenario, existente)
+    convite_id = Convite.objects.get().pk
+    assert _enviar(existente, f'convites/{convite_id}/recusar').status_code == 204
+    detalhes = EventoAuditoria.objects.get(acao='convite_recusado').detalhes
+    assert detalhes['pessoa_id'] == existente.pk
+    assert detalhes['pessoa_id'] != admin.pk
+
+
+def test_auditoria_do_cancelamento_guarda_a_pessoa_convidada_e_nao_quem_cancelou(cenario, fabrica_pessoa, conceder_direto):
+    admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    existente = fabrica_pessoa('Existente')
+    _convidar(admin, cenario, existente)
+    lista = _enviar(admin, 'convites-enviados', metodo='get').json()
+    assert _enviar(admin, f'convites-enviados/{lista[0]["id"]}', metodo='delete').status_code == 204
+    detalhes = EventoAuditoria.objects.get(acao='convite_cancelado').detalhes
+    assert detalhes['pessoa_id'] == existente.pk
+    assert detalhes['pessoa_id'] != admin.pk
+
+
 def test_convite_vencido_sem_resposta_aparece_na_lista_de_quem_convidou_marcado(cenario, fabrica_pessoa, conceder_direto):
     admin = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     _convidar(admin, cenario, fabrica_pessoa('Existente'))

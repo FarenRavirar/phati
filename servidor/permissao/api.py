@@ -11,9 +11,10 @@ from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import AwareDatetime, field_validator, model_validator
 
+from comum.auditoria import ACOES
 from identidade import redefinicao
 from identidade.models import Pessoa
-from permissao import convite, delegacao
+from permissao import auditoria_leitura, convite, delegacao
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, Permissao, concessoes_ativas, concessoes_vigentes_ou_futuras
 from permissao.pode import age_em_algum_escopo, escopo_de, escopos_da_acao, exige_permissao, filtro_do_escopo, unir_escopos
 from territorio.models import Empresa
@@ -69,6 +70,44 @@ class EntradaConvite(EntradaConcessao):
 class ParametrosDaLista(Schema):
     limite: int = Field(30, ge=1, le=100)
     depois: int = Field(0, ge=0)
+
+
+ID_MAXIMO = 2**63 - 1  # `bigint` do PostgreSQL: acima disso o banco recusa e a rota daria 500
+
+
+class ParametrosDaAuditoria(Schema):
+    """Cursor por id decrescente: `depois` é o último id recebido e 0 pede a primeira página (005 R2)."""
+
+    limite: int = Field(30, ge=1, le=100)
+    depois: int = Field(0, ge=0, le=ID_MAXIMO)
+    desde: AwareDatetime | None = None
+    ate: AwareDatetime | None = None
+    acao: str | None = Field(None, max_length=60)
+    pessoa_id: int | None = Field(None, ge=1, le=ID_MAXIMO)
+    alvo_pessoa_id: int | None = Field(None, ge=1, le=ID_MAXIMO)
+    empresa_id: int | None = Field(None, ge=1, le=ID_MAXIMO)
+
+    @field_validator('acao')
+    @classmethod
+    def acao_conhecida(cls, valor):
+        # Só nome de `ACOES`: o filtro vai para o evento `auditoria_consultada`, que outros leitores veem, e texto livre ali
+        # seria um canal para segredo (Sourcery, PR #55).
+        if valor is not None and valor not in ACOES:
+            raise ValueError('acao_invalida')
+        return valor
+
+
+class SaidaEventoAuditoria(Schema):
+    """Sem CPF, e-mail nem JSON cru (005 R4): nomes e um resumo em português."""
+
+    id: int
+    hora: AwareDatetime
+    acao: str
+    rotulo: str
+    quem: str
+    alvo: str
+    empresa: str
+    resumo: str
 
 
 class SaidaPessoa(Schema):
@@ -263,6 +302,14 @@ def listar_permissoes(request):
         {'codigo': p.codigo, 'descricao': p.descricao, 'delegavel': p.delegavel}
         for p in Permissao.objects.order_by('codigo')
     ]
+
+
+@roteador.get('auditoria', url_name='auditoria_listar', response=list[SaidaEventoAuditoria])
+@exige_permissao('ver_auditoria', listagem=True)
+def listar_auditoria(request, filtros: Query[ParametrosDaAuditoria]):
+    # Só Administrador lê (005 Q1); quem não tem a ação em empresa alguma, ou pede empresa fora do escopo, recebe 404.
+    eventos, _ = auditoria_leitura.consultar(request.user, **filtros.dict())
+    return eventos
 
 
 # Convites recebidos (R24): rotas da própria pessoa, sem `exige_permissao`. A permissão de quem convidou é refeita

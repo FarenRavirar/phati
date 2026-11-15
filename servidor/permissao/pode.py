@@ -30,7 +30,7 @@ _CONTA_PELO_NIVEL = ACOES_DE_DELEGACAO | ACOES_DO_ADMINISTRADOR
 # Em escopo arquivado (alvo ou ancestral) `pode()` nega toda ação fora destas duas listas (003 R11). Ação nova do
 # catálogo conta como escrita até entrar aqui: o lado seguro. `desarquivar`, `revogar_acesso` e `redefinir_senha`
 # valem em arquivado para desfazer o ato e desligar quem saiu da empresa (inferência a confirmar).
-ACOES_DE_LEITURA = frozenset({'ver', 'baixar_pacote_offline', 'baixar_documento'})
+ACOES_DE_LEITURA = frozenset({'ver', 'baixar_pacote_offline', 'baixar_documento', 'ver_auditoria'})
 ACOES_VALIDAS_ARQUIVADO = frozenset({'desarquivar', 'revogar_acesso', 'redefinir_senha'})
 _ATRIBUTO_MEMORIA = '_memoria_do_pode'
 

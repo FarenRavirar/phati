@@ -329,5 +329,5 @@ def transferir_titularidade(quem, empresa, novo_titular, justificativa):
         titular_anterior = atual.titular_id
         atual.titular = novo_titular
         atual.save(update_fields=['titular'])
-        auditar('titularidade_transferida', quem, atual, atual.pk, {'de': titular_anterior, 'para': novo_titular.pk, 'justificativa': justificativa})
+        auditar('titularidade_transferida', quem, atual, atual.pk, {'de': titular_anterior, 'para': novo_titular.pk, 'pessoa_id': novo_titular.pk, 'justificativa': justificativa})
     empresa.refresh_from_db()

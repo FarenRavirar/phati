@@ -27,7 +27,7 @@ def test_acoes_de_auditoria_sao_as_do_r16():
         'concessao_revogada', 'titularidade_transferida', 'redefinicao_pedida', 'redefinicao_confirmada', 'conta_bloqueada',
         'acesso_reutilizado', 'cargo_alterado', 'convite_criado', 'convite_aceito', 'convite_recusado', 'convite_cancelado',
         'empresa_renomeada', 'fazenda_renomeada', 'sub_area_renomeada', 'territorio_arquivado', 'territorio_desarquivado',
-        'nivel_definido', 'pacote_gerado',
+        'nivel_definido', 'pacote_gerado', 'auditoria_consultada',
     }
 
 
@@ -91,7 +91,7 @@ def test_transferir_titularidade_audita_de_e_para(plataforma, cpf_novo):
     novo, _ = convidar(plataforma, 'Nina', 'nina@exemplo.test', cpf_novo(), cargo, empresa)
     transferir_titularidade(plataforma, empresa, novo, justificativa='  Troca de gestão.  ')
     assert [(e.pessoa_id, e.alvo_id, e.detalhes) for e in _eventos('titularidade_transferida')] == [
-        (plataforma.pk, empresa.pk, {'de': titular.pk, 'para': novo.pk, 'justificativa': 'Troca de gestão.'})
+        (plataforma.pk, empresa.pk, {'de': titular.pk, 'para': novo.pk, 'pessoa_id': novo.pk, 'justificativa': 'Troca de gestão.'})
     ]
 
 

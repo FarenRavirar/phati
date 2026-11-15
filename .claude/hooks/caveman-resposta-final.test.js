@@ -30,7 +30,7 @@ const CASES = [
   [
     'parada normal cobra o ruleset',
     {},
-    (r) => r.code === 2 && r.stderr.includes('caveman ultra'),
+    (r) => r.code === 2 && r.stderr.includes('caveman ultracave'),
   ],
   [
     // A trava de laco. Sem ela toda resposta seria bloqueada de novo e o turno
