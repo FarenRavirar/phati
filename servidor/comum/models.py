@@ -29,4 +29,8 @@ class EventoAuditoria(models.Model):
             models.Index(fields=['pessoa_id', '-id'], name='auditoria_pessoa_id'),
             models.Index(fields=['alvo_tipo', 'alvo_id'], name='auditoria_alvo'),
             models.Index(KeyTextTransform('pessoa_id', 'detalhes'), name='auditoria_detalhe_pessoa'),
+            models.Index(KeyTextTransform('de', 'detalhes'), name='auditoria_detalhe_de'),
+            # Filtros de ação rara e de intervalo antigo da plataforma (Sourcery e Qodo, PR #55).
+            models.Index(fields=['acao', '-id'], name='auditoria_acao_id'),
+            models.Index(fields=['hora_servidor'], name='auditoria_hora'),
         ]

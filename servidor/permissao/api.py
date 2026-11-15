@@ -11,6 +11,7 @@ from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import AwareDatetime, field_validator, model_validator
 
+from comum.auditoria import ACOES
 from identidade import redefinicao
 from identidade.models import Pessoa
 from permissao import auditoria_leitura, convite, delegacao
@@ -71,17 +72,29 @@ class ParametrosDaLista(Schema):
     depois: int = Field(0, ge=0)
 
 
+ID_MAXIMO = 2**63 - 1  # `bigint` do PostgreSQL: acima disso o banco recusa e a rota daria 500
+
+
 class ParametrosDaAuditoria(Schema):
     """Cursor por id decrescente: `depois` é o último id recebido e 0 pede a primeira página (005 R2)."""
 
     limite: int = Field(30, ge=1, le=100)
-    depois: int = Field(0, ge=0)
+    depois: int = Field(0, ge=0, le=ID_MAXIMO)
     desde: AwareDatetime | None = None
     ate: AwareDatetime | None = None
     acao: str | None = Field(None, max_length=60)
-    pessoa_id: int | None = None
-    alvo_pessoa_id: int | None = None
-    empresa_id: int | None = None
+    pessoa_id: int | None = Field(None, ge=1, le=ID_MAXIMO)
+    alvo_pessoa_id: int | None = Field(None, ge=1, le=ID_MAXIMO)
+    empresa_id: int | None = Field(None, ge=1, le=ID_MAXIMO)
+
+    @field_validator('acao')
+    @classmethod
+    def acao_conhecida(cls, valor):
+        # Só nome de `ACOES`: o filtro vai para o evento `auditoria_consultada`, que outros leitores veem, e texto livre ali
+        # seria um canal para segredo (Sourcery, PR #55).
+        if valor is not None and valor not in ACOES:
+            raise ValueError('acao_invalida')
+        return valor
 
 
 class SaidaEventoAuditoria(Schema):

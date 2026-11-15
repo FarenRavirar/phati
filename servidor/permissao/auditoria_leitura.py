@@ -13,21 +13,31 @@ from django.db.models import Q
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
-from comum.auditoria import auditar
+from comum.auditoria import ACOES, auditar
 from comum.auditoria_rotulos import rotulo_e_resumo
 from comum.models import EventoAuditoria
 from identidade.models import Pessoa
 from permissao.models import Cargo
 from permissao.pode import escopos_da_acao
-from territorio.models import Empresa, Fazenda, SubArea
+from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 
 ACAO = 'ver_auditoria'
 JANELA_PADRAO = timedelta(days=90)
 REMOVIDA = 'removida'
 SISTEMA = 'Sistema'
 # Tipo gravado em `alvo_tipo` → como a tela o chama e onde achar o nome. Outro tipo cai só no nome do tipo.
-_TIPOS = {'Empresa': ('Empresa', Empresa), 'Fazenda': ('Fazenda', Fazenda), 'SubArea': ('Sub-área', SubArea), 'Cargo': ('Cargo', Cargo)}
+_TIPOS = {
+    'Empresa': ('Empresa', Empresa), 'Fazenda': ('Fazenda', Fazenda), 'SubArea': ('Sub-área', SubArea), 'Cargo': ('Cargo', Cargo),
+    'NivelDivisao': ('Nível', NivelDivisao),
+}
 _TIPOS_SEM_NOME = {'Concessao': 'Acesso', 'Convite': 'Convite'}
+# Convite a quem já tem conta não revela a pessoa a quem convida (R24 da 003): enquanto não há vínculo, a auditoria também
+# não a nomeia. O alvo do convite fica só "Convite"; quem recusou aparece como "Pessoa convidada"; e os filtros por pessoa
+# não casam esses eventos, senão o filtro viraria uma pergunta "esta conta foi convidada?" (Greptile e Sourcery, PR #55).
+SEM_VINCULO = 'Pessoa convidada'
+_RECUSA = 'convite_recusado'
+# Colunas `detalhes` que apontam a pessoa afetada: `pessoa_id` (concessão, convite, titular novo) e `de` (titular que saiu).
+_PESSOA_DO_DETALHE = ('pessoa_id', 'de')
 
 
 def _id_inteiro(valor):
@@ -48,15 +58,18 @@ def _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id):
     if ate is not None:
         eventos = eventos.filter(hora_servidor__lte=ate)
     if acao:
-        eventos = eventos.filter(acao=acao)
+        eventos = eventos.filter(acao=acao)  # a rota só aceita nome de `ACOES`; aqui a função segue segura com qualquer texto
     if pessoa_id is not None:
-        eventos = eventos.filter(pessoa_id=pessoa_id)
+        eventos = eventos.filter(pessoa_id=pessoa_id).exclude(acao=_RECUSA)
     if alvo_pessoa_id is not None:
-        # Pessoa como alvo direto, ou citada em `detalhes.pessoa_id` (concessão e convite têm outro alvo). O texto do
-        # JSON casa com o índice de expressão da migração 0003.
-        eventos = eventos.annotate(pessoa_do_detalhe=KeyTextTransform('pessoa_id', 'detalhes')).filter(
-            Q(alvo_tipo='Pessoa', alvo_id=alvo_pessoa_id) | Q(pessoa_do_detalhe=str(alvo_pessoa_id))
-        )
+        # Pessoa como alvo direto, ou citada em `detalhes.pessoa_id` (concessão, titular novo) ou `detalhes.de` (titular
+        # que saiu). O texto do JSON casa com os índices de expressão da migração 0003. Convite fica de fora (SEM_VINCULO).
+        achada = Q(alvo_tipo='Pessoa', alvo_id=alvo_pessoa_id)
+        for chave in _PESSOA_DO_DETALHE:
+            achada |= Q(**{f'pessoa_do_detalhe_{chave}': str(alvo_pessoa_id)})
+        eventos = eventos.annotate(
+            **{f'pessoa_do_detalhe_{chave}': KeyTextTransform(chave, 'detalhes') for chave in _PESSOA_DO_DETALHE}
+        ).filter(achada).exclude(alvo_tipo='Convite')
     return eventos
 
 
@@ -64,9 +77,11 @@ def _nomes(eventos):
     """Nome de cada id da página, em poucas consultas (nunca uma por linha). Sem CPF: o campo nem é lido."""
     pessoas, empresas, por_tipo = set(), set(), {tipo: set() for tipo in _TIPOS}
     for e in eventos:
-        pessoas.add(e.pessoa_id)
+        if e.acao != _RECUSA:
+            pessoas.add(e.pessoa_id)
         empresas.add(e.empresa_id)
-        pessoas.add(_id_inteiro(e.detalhes.get('pessoa_id')) if isinstance(e.detalhes, dict) else None)
+        if e.alvo_tipo != 'Convite' and isinstance(e.detalhes, dict):
+            pessoas.add(_id_inteiro(e.detalhes.get('pessoa_id')))
         if e.alvo_tipo == 'Pessoa':
             pessoas.add(e.alvo_id)
         elif e.alvo_tipo in por_tipo:
@@ -87,6 +102,8 @@ def _alvo(evento, nomes):
     if tipo in _TIPOS:
         rotulo = _TIPOS[tipo][0]
         return f'{rotulo}: {nomes[tipo].get(evento.alvo_id, REMOVIDA)}'
+    if tipo == 'Convite':
+        return _TIPOS_SEM_NOME[tipo]  # sem a pessoa convidada (SEM_VINCULO)
     if tipo in _TIPOS_SEM_NOME:
         pessoa = _id_inteiro(detalhes.get('pessoa_id'))
         return _TIPOS_SEM_NOME[tipo] + (f' de {nomes["Pessoa"].get(pessoa, REMOVIDA)}' if pessoa is not None else '')
@@ -97,6 +114,8 @@ def _linha(evento, nomes):
     rotulo, resumo = rotulo_e_resumo(evento.acao, evento.detalhes)
     if evento.pessoa_id is None:
         quem = SISTEMA
+    elif evento.acao == _RECUSA:
+        quem = SEM_VINCULO
     else:
         quem = nomes['Pessoa'].get(evento.pessoa_id, REMOVIDA)
     if evento.empresa_id is None:
@@ -109,11 +128,12 @@ def _linha(evento, nomes):
     }
 
 
-def _empresa_da_consulta(escopos, empresa_id):
-    """Empresa que o evento da consulta leva: a pedida, ou a única do escopo; senão nenhuma (só a plataforma o vê)."""
+def _empresas_da_consulta(escopos, empresa_id):
+    """Empresas cujo registro leva o evento da consulta: a pedida, ou todas as do escopo, para que o Administrador de cada
+    uma veja quem leu a auditoria dela. A plataforma sem filtro grava um evento sem empresa, que só ela lê."""
     if empresa_id is not None:
-        return empresa_id
-    return next(iter(escopos.empresas)) if not escopos.plataforma and len(escopos.empresas) == 1 else None
+        return [empresa_id]
+    return [None] if escopos.plataforma else sorted(escopos.empresas)
 
 
 def consultar(quem, *, limite=30, depois=0, desde=None, ate=None, acao=None, pessoa_id=None, alvo_pessoa_id=None, empresa_id=None):
@@ -127,14 +147,17 @@ def consultar(quem, *, limite=30, depois=0, desde=None, ate=None, acao=None, pes
         raise ObjectDoesNotExist
     eventos = _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id)
     if depois:
+        # shortcut: cursor por id; evento que só é confirmado depois de a página sair, com id menor que o do cursor, não
+        # aparece nesta navegação (reabrir a lista o mostra). Fecharia com uma marca d'água de id; sem pedido, não vale o custo.
         eventos = eventos.filter(pk__lt=depois)
     with transaction.atomic():
         pagina = list(eventos.order_by('-id')[: limite + 1])
         if not depois:
             usados = {'desde': desde and desde.isoformat(), 'ate': ate and ate.isoformat(), 'acao': acao,
                       'pessoa_id': pessoa_id, 'alvo_pessoa_id': alvo_pessoa_id, 'empresa_id': empresa_id}
-            auditar('auditoria_consultada', quem, None, _empresa_da_consulta(escopos, empresa_id),
-                    {chave: valor for chave, valor in usados.items() if valor is not None})
+            detalhes = {chave: valor for chave, valor in usados.items() if valor is not None}
+            for empresa in _empresas_da_consulta(escopos, empresa_id):
+                auditar('auditoria_consultada', quem, None, empresa, detalhes)
     mais = len(pagina) > limite
     pagina = pagina[:limite]
     nomes = _nomes(pagina)

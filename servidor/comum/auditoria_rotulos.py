@@ -5,7 +5,11 @@ token (R4). Ação de `ACOES` sem linha aqui reprova `test_auditoria_rotulos.py`
 antigo, cai em `rotulo_e_resumo` com o nome da ação e resumo vazio.
 """
 
+from comum.auditoria import ACOES
+
 _SEM_RESUMO = ''
+# Filtros que `auditoria_consultada` guarda e a tela repete: só estas chaves, e `acao` só se for nome de `ACOES`.
+_FILTROS = ('desde', 'ate', 'acao', 'pessoa_id', 'alvo_pessoa_id', 'empresa_id')
 
 
 def _vazio(_):
@@ -42,7 +46,12 @@ def _cargo(detalhes):
 
 
 def _concessao(detalhes):
-    onde = 'sub-área' if detalhes.get('sub_area_id') else 'fazenda' if detalhes.get('fazenda_id') else 'empresa'
+    if detalhes.get('sub_area_id'):
+        onde = 'sub-área'
+    elif detalhes.get('fazenda_id'):
+        onde = 'fazenda'
+    else:
+        onde = 'empresa'
     return f'Acesso na {onde}.'
 
 
@@ -63,8 +72,19 @@ def _pacote(detalhes):
     return f'Versão {_valor(detalhes, "versao")}, origem {_valor(detalhes, "origem")}.'
 
 
+def _filtro_seguro(chave, valor):
+    """O valor que a tela pode mostrar do filtro, ou vazio: só número inteiro, data em texto curto e nome de ação conhecido.
+    Registro antigo ou de outra origem com texto livre, objeto ou segredo no filtro não chega à tela (Sourcery, PR #55)."""
+    if chave == 'acao':
+        return valor if valor in ACOES else ''
+    if chave in ('desde', 'ate'):
+        return valor if isinstance(valor, str) and len(valor) <= 40 and all(c.isdigit() or c in '-:T+.Z' for c in valor) else ''
+    return str(valor) if isinstance(valor, int) and not isinstance(valor, bool) else ''
+
+
 def _consulta(detalhes):
-    partes = [f'{chave}={valor}' for chave, valor in sorted(detalhes.items()) if valor not in (None, '')]
+    mostrados = {chave: _filtro_seguro(chave, detalhes.get(chave)) for chave in _FILTROS}
+    partes = [f'{chave}={valor}' for chave, valor in mostrados.items() if valor]
     return 'Filtros: ' + ', '.join(partes) + '.' if partes else 'Sem filtros.'
 
 

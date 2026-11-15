@@ -13,8 +13,10 @@ def test_toda_acao_auditada_tem_rotulo_e_so_ela():
 @pytest.mark.parametrize('acao', sorted(ACOES))
 def test_toda_acao_resume_detalhes_vazios_sem_erro_e_sem_json(acao):
     rotulo, resumo = rotulo_e_resumo(acao, {})
-    assert rotulo and rotulo != acao
-    assert '{' not in resumo and 'None' not in resumo
+    assert rotulo
+    assert rotulo != acao
+    assert '{' not in resumo
+    assert 'None' not in resumo
 
 
 @pytest.mark.parametrize('detalhes', [None, [], 'texto', 7])
@@ -40,4 +42,24 @@ def test_resumos_mostram_so_o_que_importa_em_portugues():
 
 def test_resumo_nao_mostra_o_dado_que_o_detalhe_guarda_e_a_tela_nao_precisa():
     _, resumo = rotulo_e_resumo('titularidade_transferida', {'de': 1, 'para': 2, 'justificativa': 'texto livre do administrador'})
-    assert 'texto livre' not in resumo and 'justificativa' not in resumo
+    assert 'texto livre' not in resumo
+    assert 'justificativa' not in resumo
+
+
+def test_resumo_da_consulta_so_mostra_filtros_seguros_e_nao_o_que_veio_de_fora():
+    """Sourcery (PR #55): segredo, objeto ou texto livre no filtro de um registro não chega à tela."""
+    hostil = {'acao': 'senha-do-banco-123', 'empresa_id': 'texto', 'pessoa_id': True, 'desde': 'x' * 100, 'ate': {'a': 1},
+              'segredo': 'valor-secreto', 'alvo_pessoa_id': [1]}
+    assert rotulo_e_resumo('auditoria_consultada', hostil)[1] == 'Sem filtros.'
+    seguro = {'acao': 'pessoa_criada', 'empresa_id': 4, 'desde': '2026-08-11T01:12:20+00:00', 'segredo': 'valor-secreto'}
+    resumo = rotulo_e_resumo('auditoria_consultada', seguro)[1]
+    assert resumo == 'Filtros: desde=2026-08-11T01:12:20+00:00, acao=pessoa_criada, empresa_id=4.'
+
+
+@pytest.mark.parametrize(('detalhes', 'esperado'), [
+    ({'sub_area_id': 3, 'fazenda_id': 2}, 'Acesso na sub-área.'),
+    ({'fazenda_id': 2, 'sub_area_id': None}, 'Acesso na fazenda.'),
+    ({'fazenda_id': None, 'sub_area_id': None}, 'Acesso na empresa.'),
+])
+def test_resumo_da_concessao_diz_o_nivel_do_acesso(detalhes, esperado):
+    assert rotulo_e_resumo('concessao_criada', detalhes)[1] == esperado
