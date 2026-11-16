@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from projeto import cargos_paginas, empresas, fazenda, inicio, mapa, monitor_google, paginas, paginas_acesso, pessoas_paginas, saude, termos, territorio_paginas
+from projeto import auditoria_paginas, cargos_paginas, empresas, fazenda, inicio, mapa, monitor_google, paginas, paginas_acesso, pessoas_paginas, saude, termos, territorio_paginas
 from projeto.api import api
 
 _EMPRESA = 'empresa/<int:empresa_id>/'
@@ -62,6 +62,7 @@ urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('termos', termos.pagina, {'secao': 'termos'}, name='termos'),
                path('privacidade', termos.pagina, {'secao': 'privacidade'}, name='privacidade'),
                path('monitor-google', monitor_google.monitor, name='monitor_google'),
+               path('auditoria/', auditoria_paginas.auditoria, name='auditoria'),
                path('', include('pacote.urls')),
                *TERRITORIO, *PESSOAS, *CARGOS]
 

@@ -5,7 +5,9 @@ função fica em `permissao` porque precisa de `escopos_da_acao`; `comum` não i
 `com_permissao` (a rota e a página já o fazem): a leitura de nomes de empresa, fazenda e sub-área passa pela RLS delas.
 """
 
-from datetime import timedelta
+from collections import Counter
+from datetime import datetime, time, timedelta
+from itertools import chain
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
@@ -18,11 +20,22 @@ from comum.auditoria_rotulos import rotulo_e_resumo
 from comum.models import EventoAuditoria
 from identidade.models import Pessoa
 from permissao.models import Cargo
-from permissao.pode import escopos_da_acao
+from permissao.pode import age_na_plataforma_ou_em_empresa, escopos_da_acao
 from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 
 ACAO = 'ver_auditoria'
 JANELA_PADRAO = timedelta(days=90)
+
+
+def data_da_janela_padrao(agora):
+    """Primeiro dia da janela padrão: 90 dias atrás no fuso local. Dia inteiro, não instante: o link "Mais antigos" só leva
+    data, e a página seguinte tem de cortar no mesmo ponto da primeira (PR #63, Greptile P2)."""
+    return timezone.localtime(agora - JANELA_PADRAO).date()
+
+
+def inicio_do_dia(dia):
+    """Meia-noite local de `dia`, como datetime aware (o filtro é `>=`)."""
+    return timezone.make_aware(datetime.combine(dia, time.min))
 REMOVIDA = 'removida'
 SISTEMA = 'Sistema'
 # Tipo gravado em `alvo_tipo` → como a tela o chama e onde achar o nome. Outro tipo cai só no nome do tipo.
@@ -39,6 +52,9 @@ _RECUSA = 'convite_recusado'
 _ACEITE = 'convite_aceito'
 # Colunas `detalhes` que apontam a pessoa afetada: `pessoa_id` (concessão, convite, titular novo) e `de` (titular que saiu).
 _PESSOA_DO_DETALHE = ('pessoa_id', 'de')
+# Convite sem vínculo: a pessoa convidada não aparece em filtro nem em select (R24 da 003). O aceite já tem vínculo, então fica.
+_CONVITE_SEM_VINCULO = Q(alvo_tipo='Convite') & ~Q(acao=_ACEITE)
+_CONSULTA = 'auditoria_consultada'  # o próprio registro de leitura: o `detalhes.pessoa_id` dele é o filtro, não um afetado
 
 
 def _id_inteiro(valor):
@@ -46,16 +62,25 @@ def _id_inteiro(valor):
     return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
 
 
+def _do_escopo(escopos):
+    """Eventos que o escopo de quem lê alcança: a plataforma vê todos (inclusive sem empresa); o resto, só as suas empresas.
+    Base única de `consultar` e de `pessoas_citadas`. `empresa_id` nulo nunca entra aqui: `NULL IN (...)` não é verdade (A3)."""
+    if escopos.plataforma:
+        return EventoAuditoria.objects.all()
+    return EventoAuditoria.objects.filter(empresa_id__in=escopos.empresas)
+
+
 def _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id):
-    eventos = EventoAuditoria.objects.all()
-    if not escopos.plataforma:
-        # `empresa_id` nulo nunca entra aqui: `NULL IN (...)` não é verdade (A3).
-        eventos = eventos.filter(empresa_id__in=escopos.empresas)
+    eventos = _do_escopo(escopos)
     if empresa_id is not None:
         if not escopos.plataforma and empresa_id not in escopos.empresas:
             raise ObjectDoesNotExist  # 404 comum, igual a empresa inexistente (R3)
         eventos = eventos.filter(empresa_id=empresa_id)
-    eventos = eventos.filter(hora_servidor__gte=desde or timezone.now() - JANELA_PADRAO)
+    if desde is None and ate is None:
+        # Janela padrão só quando não há data nenhuma: com só `ate`, o piso de 90 dias cortaria tudo o que é mais antigo.
+        eventos = eventos.filter(hora_servidor__gte=inicio_do_dia(data_da_janela_padrao(timezone.now())))
+    elif desde is not None:
+        eventos = eventos.filter(hora_servidor__gte=desde)
     if ate is not None:
         eventos = eventos.filter(hora_servidor__lte=ate)
     if acao:
@@ -64,14 +89,14 @@ def _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id):
         eventos = eventos.filter(pessoa_id=pessoa_id).exclude(acao=_RECUSA)
     if alvo_pessoa_id is not None:
         # Pessoa como alvo direto, ou citada em `detalhes.pessoa_id` (concessão, titular novo) ou `detalhes.de` (titular
-        # que saiu). O texto do JSON casa com os índices de expressão da migração 0003. Convite fica de fora (SEM_VINCULO),
-        # menos o aceite: ali o vínculo já existe. `auditoria_consultada` guarda o filtro usado em `pessoa_id`, não um afetado.
-        achada =Q(alvo_tipo='Pessoa', alvo_id=alvo_pessoa_id)
+        # que saiu). O texto do JSON casa com os índices de expressão da migração 0003. Convite sem vínculo fica de fora, e
+        # `auditoria_consultada` também (ver `_CONSULTA`).
+        achada = Q(alvo_tipo='Pessoa', alvo_id=alvo_pessoa_id)
         for chave in _PESSOA_DO_DETALHE:
             achada |= Q(**{f'pessoa_do_detalhe_{chave}': str(alvo_pessoa_id)})
         eventos = eventos.annotate(
             **{f'pessoa_do_detalhe_{chave}': KeyTextTransform(chave, 'detalhes') for chave in _PESSOA_DO_DETALHE}
-        ).filter(achada).exclude(Q(alvo_tipo='Convite') & ~Q(acao=_ACEITE)).exclude(acao='auditoria_consultada')
+        ).filter(achada).exclude(_CONVITE_SEM_VINCULO).exclude(acao=_CONSULTA)
     return eventos
 
 
@@ -130,6 +155,12 @@ def _linha(evento, nomes):
     }
 
 
+def pode_ver_auditoria(quem):
+    """Quem lê a auditoria na plataforma ou em alguma empresa (005 Q1). A página usa esta função; o item do menu usa o mesmo
+    helper de `pode.py` pelo campo `em_empresa`, e `consultar` também, então as três decisões não divergem."""
+    return age_na_plataforma_ou_em_empresa(quem, ACAO)
+
+
 def _empresas_da_consulta(escopos, empresa_id):
     """Empresas cujo registro leva o evento da consulta: a pedida, ou todas as do escopo, para que o Administrador de cada
     uma veja quem leu a auditoria dela. A plataforma sem filtro grava um evento sem empresa, que só ela lê."""
@@ -144,13 +175,14 @@ def consultar(quem, *, limite=30, depois=0, desde=None, ate=None, acao=None, pes
     Quem não lê auditoria em empresa alguma, ou pede empresa fora do escopo, recebe 404 (`ObjectDoesNotExist`). A
     primeira página (sem `depois`) grava `auditoria_consultada` na mesma transação, com os filtros usados.
     """
-    escopos = escopos_da_acao(quem, ACAO)
-    if not (escopos.plataforma or escopos.empresas):
+    if not age_na_plataforma_ou_em_empresa(quem, ACAO):
         raise ObjectDoesNotExist
+    escopos = escopos_da_acao(quem, ACAO)
     eventos = _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id)
     if depois:
-        # shortcut: cursor por id; evento que só é confirmado depois de a página sair, com id menor que o do cursor, não
-        # aparece nesta navegação (reabrir a lista o mostra). Fecharia com uma marca d'água de id; sem pedido, não vale o custo.
+        # shortcut: cursor por id; evento com id menor que o do cursor, confirmado só depois de a página passar dele, some desta
+        # navegação (reabrir a lista mostra). Revisado na PR #63 (Sourcery): `pg_snapshot_xmin` ou horizonte de transação custam
+        # mais que o risco, dado o volume de plan.md §Volume. Quando melhorar: transação longa ou escrita concorrente frequente.
         eventos = eventos.filter(pk__lt=depois)
     with transaction.atomic():
         pagina = list(eventos.order_by('-id')[: limite + 1])
@@ -164,3 +196,34 @@ def consultar(quem, *, limite=30, depois=0, desde=None, ate=None, acao=None, pes
     pagina = pagina[:limite]
     nomes = _nomes(pagina)
     return [_linha(e, nomes) for e in pagina], mais
+
+
+def _rotulo_de_homonimo(nome, pk, origem, nomes_de_empresa):
+    """Empresa de origem entre parênteses só se quem lê já a vê; senão, o id (sem dado de pessoa além do nome)."""
+    return f'{nome} ({nomes_de_empresa[origem]})' if origem in nomes_de_empresa else f'{nome} (#{pk})'
+
+
+def pessoas_citadas(quem):
+    """(pk, rótulo) das pessoas que aparecem nos eventos que `quem` lê, para os selects de "Quem agiu" e "Pessoa afetada".
+
+    Vem da atividade, não do diretório: ex-colaborador com evento aparece, mesmo sem concessão; quem só tem concessão, não.
+    Usa a base de `consultar` e as exclusões de `_filtrar`, então convite sem vínculo fica de fora. Pessoa apagada não entra:
+    não há nome para mostrar. Chame dentro de `com_permissao` (o nome da empresa de origem passa pela RLS dela).
+    """
+    if not age_na_plataforma_ou_em_empresa(quem, ACAO):
+        raise ObjectDoesNotExist
+    escopos = escopos_da_acao(quem, ACAO)
+    base = _do_escopo(escopos)
+    alvos = base.exclude(_CONVITE_SEM_VINCULO).exclude(acao=_CONSULTA)
+    quem_agiu = base.exclude(acao=_RECUSA).order_by().values_list('pessoa_id', flat=True).distinct()
+    alvo_direto = alvos.filter(alvo_tipo='Pessoa').order_by().values_list('alvo_id', flat=True).distinct()
+    no_detalhe = [alvos.order_by().values_list(f'detalhes__{chave}', flat=True).distinct() for chave in _PESSOA_DO_DETALHE]
+    ids = {_id_inteiro(valor) for valor in chain(quem_agiu, alvo_direto, *no_detalhe)} - {None}
+    pessoas = list(Pessoa.objects.filter(pk__in=ids).order_by('nome', 'pk').values_list('pk', 'nome', 'empresa_origem_id'))
+    repetidos = Counter(nome for _, nome, _ in pessoas)
+    origens = {origem for _, _, origem in pessoas if origem is not None and (escopos.plataforma or origem in escopos.empresas)}
+    nomes_de_empresa = dict(Empresa.objects.filter(pk__in=origens).values_list('pk', 'nome'))
+    return [
+        (pk, _rotulo_de_homonimo(nome, pk, origem, nomes_de_empresa) if repetidos[nome] > 1 else nome)
+        for pk, nome, origem in pessoas
+    ]

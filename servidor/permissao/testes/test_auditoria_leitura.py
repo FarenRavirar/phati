@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from comum.models import EventoAuditoria
 from identidade.models import Pessoa
-from permissao.auditoria_leitura import consultar
+from permissao.auditoria_leitura import consultar, data_da_janela_padrao, inicio_do_dia, pessoas_citadas
 from permissao.models import Cargo, CargoPermissao, Permissao
 from permissao.pode import com_permissao, esquecer
 
@@ -44,6 +44,12 @@ def _admin(fabrica_pessoa, conceder_direto, cargo, escopo, nome='Admin'):
 
 def _contagem_de_consultas():
     return EventoAuditoria.objects.filter(acao='auditoria_consultada').count()
+
+
+def _pessoas(quem):
+    esquecer(quem)
+    with com_permissao(quem, 'ver_auditoria'):
+        return pessoas_citadas(quem)
 
 
 def test_administrador_de_empresa_ve_so_os_eventos_dela_e_empresa_alheia_da_404(cenario, fabrica_pessoa, conceder_direto):
@@ -91,6 +97,19 @@ def test_pessoa_sem_concessao_nao_le(fabrica_pessoa):
     sem_nada = fabrica_pessoa('Sem Nada')
     with pytest.raises(ObjectDoesNotExist):
         _ler(sem_nada)
+
+
+def test_pode_ver_auditoria_so_para_plataforma_e_administrador_de_empresa(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    from permissao.auditoria_leitura import pode_ver_auditoria
+
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    curador_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.x, 'Curador')
+    so_fazenda = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.f1, 'Admin da Fazenda')
+    assert pode_ver_auditoria(plataforma) is True
+    assert pode_ver_auditoria(admin_x) is True
+    assert pode_ver_auditoria(curador_x) is False
+    assert pode_ver_auditoria(so_fazenda) is False
+    assert pode_ver_auditoria(fabrica_pessoa('Sem nada')) is False
 
 
 def test_evento_sem_empresa_so_aparece_para_a_plataforma(cenario, plataforma, fabrica_pessoa, conceder_direto):
@@ -232,6 +251,17 @@ def test_janela_padrao_e_de_90_dias_e_desde_abre_o_intervalo(cenario, plataforma
     assert novo.pk not in ate_ontem
 
 
+def test_janela_padrao_comeca_a_meia_noite_de_90_dias_atras(cenario, plataforma):
+    """A tela e a API cortam no mesmo ponto: o início é o dia inteiro (o link "Mais antigos" só leva data)."""
+    inicio = inicio_do_dia(data_da_janela_padrao(timezone.now()))
+    dentro, antes = _evento(empresa=cenario.x), _evento(empresa=cenario.x)
+    EventoAuditoria.objects.filter(pk=dentro.pk).update(hora_servidor=inicio + timedelta(minutes=1))
+    EventoAuditoria.objects.filter(pk=antes.pk).update(hora_servidor=inicio - timedelta(minutes=1))
+    ids = {linha['id'] for linha in _ler(plataforma)[0]}
+    assert dentro.pk in ids
+    assert antes.pk not in ids
+
+
 def test_filtros_de_acao_e_de_quem_agiu(cenario, plataforma, fabrica_pessoa):
     ana, beto = fabrica_pessoa('Ana'), fabrica_pessoa('Beto')
     a1, b1 = _evento('fazenda_criada', ana, cenario.x), _evento('sub_area_criada', beto, cenario.x)
@@ -308,6 +338,72 @@ def test_plataforma_sem_filtro_grava_consulta_sem_empresa_e_com_filtro_na_empres
     _ler(plataforma, empresa_id=cenario.y.pk)
     empresas = list(EventoAuditoria.objects.filter(acao='auditoria_consultada').order_by('pk').values_list('empresa_id', flat=True))
     assert empresas == [None, cenario.y.pk]
+
+
+def test_pessoas_citadas_traz_ex_colaborador_sem_concessao_e_o_filtro_devolve_o_historico(cenario, fabrica_pessoa, conceder_direto):
+    """Greptile P1, Codex P2 e Sourcery (PR #63): quem saiu não some do filtro, e o filtro traz o histórico dele."""
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    ex = fabrica_pessoa('Ex Colaboradora')
+    evento = _evento('fazenda_criada', ex, cenario.x, alvo=cenario.f1)
+    assert (ex.pk, 'Ex Colaboradora') in _pessoas(admin_x)
+    assert {linha['id'] for linha in _ler(admin_x, pessoa_id=ex.pk)[0]} == {evento.pk}
+
+
+def test_pessoas_citadas_nao_traz_quem_so_tem_concessao_sem_evento(cenario, fabrica_pessoa, conceder_direto):
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['tecnico'], cenario.x, 'So Diretorio')
+    assert 'So Diretorio' not in [rotulo for _, rotulo in _pessoas(admin_x)]
+
+
+def test_pessoas_citadas_nao_traz_pessoa_de_outra_empresa(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    alheia = fabrica_pessoa('Alheia')
+    _evento('fazenda_criada', alheia, cenario.y, alvo=cenario.fy)
+    assert alheia.pk not in {pk for pk, _ in _pessoas(admin_x)}
+    assert alheia.pk in {pk for pk, _ in _pessoas(plataforma)}
+
+
+def test_pessoas_citadas_diferencia_homonimos_com_origem_ou_id(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    de_x = fabrica_pessoa('Ana', empresa_origem=cenario.x)
+    de_y = fabrica_pessoa('Ana', empresa_origem=cenario.y)
+    _evento('fazenda_criada', de_x, cenario.x, alvo=cenario.f1)
+    _evento('fazenda_criada', de_y, cenario.x, alvo=cenario.f2)  # de_y age em X, mas a origem dela é Y: invisível a quem olha X
+    assert dict(_pessoas(admin_x)) == {de_x.pk: 'Ana (Empresa X)', de_y.pk: f'Ana (#{de_y.pk})'}
+    _evento('fazenda_criada', de_y, cenario.y, alvo=cenario.fy)
+    rotulos = dict(_pessoas(plataforma))
+    assert (rotulos[de_x.pk], rotulos[de_y.pk]) == ('Ana (Empresa X)', 'Ana (Empresa Y)')
+
+
+def test_pessoas_citadas_nao_traz_convidada_sem_vinculo_e_traz_quem_aceitou(cenario, plataforma, fabrica_pessoa):
+    """R24 da 003: convite a conta existente não revela a pessoa, nem por recusa; o aceite já tem vínculo."""
+    convidada, aceitou = fabrica_pessoa('Conta Existente'), fabrica_pessoa('Quem Aceitou')
+    _evento('convite_criado', plataforma, cenario.x, detalhes={'pessoa_id': convidada.pk}, alvo_tipo='Convite', alvo_id=1)
+    _evento('convite_recusado', convidada, cenario.x, detalhes={'pessoa_id': convidada.pk}, alvo_tipo='Convite', alvo_id=1)
+    _evento('convite_aceito', aceitou, cenario.x, detalhes={'pessoa_id': aceitou.pk}, alvo_tipo='Convite', alvo_id=1)
+    pessoas = {pk for pk, _ in _pessoas(plataforma)}
+    assert convidada.pk not in pessoas
+    assert aceitou.pk in pessoas
+
+
+def test_pessoas_citadas_nao_traz_o_registro_de_consulta_como_pessoa_afetada(cenario, fabrica_pessoa, conceder_direto):
+    """Sem a exclusão de `auditoria_consultada`, um filtro forjado por id alheio viraria opção do select."""
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    alheia = fabrica_pessoa('Alheia Forjada')
+    _evento('auditoria_consultada', admin_x, cenario.x, detalhes={'pessoa_id': alheia.pk})
+    assert alheia.pk not in {pk for pk, _ in _pessoas(admin_x)}
+
+
+def test_pessoas_citadas_ignora_pessoa_apagada_e_detalhe_hostil_sem_erro(cenario, plataforma):
+    _evento('pessoa_criada', pessoa=987654, empresa=cenario.x)
+    _evento('concessao_revogada', empresa=cenario.x, detalhes={'pessoa_id': 'abc'}, alvo_tipo='Concessao', alvo_id=1)
+    assert _pessoas(plataforma) == []
+
+
+def test_pessoas_citadas_nega_quem_nao_le_a_auditoria(cenario, fabrica_pessoa, conceder_direto):
+    curador = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.x)
+    with pytest.raises(ObjectDoesNotExist):
+        _pessoas(curador)
 
 
 def test_consulta_negada_nao_grava_nada(cenario, fabrica_pessoa, conceder_direto):

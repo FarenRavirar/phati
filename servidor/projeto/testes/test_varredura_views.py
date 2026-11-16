@@ -84,6 +84,8 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
         'pessoa_redefinir_senha': 'redefinir_senha', 'titularidade': 'ver', 'pessoa_conceder': 'convidar_pessoa',
         # Telas de cargos (003 R18): a mesma ação da API e do painel.
         'cargos': 'gerenciar_cargo', 'cargo_novo': 'gerenciar_cargo', 'cargo_editar': 'gerenciar_cargo',
+        # Tela da auditoria (005 R6): a mesma ação da API.
+        'auditoria': 'ver_auditoria',
     }
     assert {nome: getattr(por_nome[nome], 'acao_exigida') for nome in esperadas} == esperadas
 

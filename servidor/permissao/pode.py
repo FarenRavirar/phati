@@ -280,6 +280,13 @@ def age_em_algum_escopo(pessoa, *acoes):
     return False
 
 
+def age_na_plataforma_ou_em_empresa(pessoa, *acoes):
+    """A pessoa exerce alguma das `acoes` na plataforma ou em alguma empresa inteira. Fazenda e sub-área não contam
+    (005 Q1: a auditoria é do Administrador da plataforma e do de empresa); cada item de menu que exige isso usa esta função."""
+    escopos = unir_escopos(pessoa, *acoes)
+    return escopos.plataforma or bool(escopos.empresas)
+
+
 def permissoes_efetivas(pessoa, escopo=None):
     """Códigos de ação que a pessoa exerce em `escopo` (Empresa, Fazenda ou SubArea): o que o menu pode mostrar (R2).
 
