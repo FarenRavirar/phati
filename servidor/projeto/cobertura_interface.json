@@ -138,6 +138,8 @@
     "permissao.auditoria_leitura.consultar": "Lista da auditoria — 005 R6 (tela /auditoria/; a rota GET /api/v1/auditoria chama a mesma função)",
     "permissao.auditoria_leitura.pode_ver_auditoria": "Teste de acesso da página /auditoria/ — 005 R6 (usa o mesmo helper de consultar)",
     "permissao.auditoria_leitura.pessoas_citadas": "Opções dos selects Quem agiu e Pessoa afetada da tela /auditoria/ — 005 R6 (pessoas da atividade que quem lê vê, não do diretório)",
+    "permissao.auditoria_leitura.data_da_janela_padrao": "Início da janela padrão de 90 dias da tela /auditoria/ e da API, e data do link Mais antigos — 005 R2 e R6",
+    "permissao.auditoria_leitura.inicio_do_dia": "Meia-noite local que começa o filtro de data da tela e da janela padrão — 005 R2 e R6",
     "permissao.pode.age_na_plataforma_ou_em_empresa": "Item Auditoria do menu (campo em_empresa) e guarda de consultar — 005 Q1 e R3: plataforma ou empresa inteira, nunca fazenda ou sub-área",
     "comum.auditoria_rotulos.rotulo_e_resumo": "Rótulo e resumo de cada evento da lista da auditoria — 005 R4 e R5 (texto da tela /auditoria/ e da rota GET /api/v1/auditoria)"
   },

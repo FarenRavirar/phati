@@ -6,7 +6,7 @@ função fica em `permissao` porque precisa de `escopos_da_acao`; `comum` não i
 """
 
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from itertools import chain
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -25,6 +25,17 @@ from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 
 ACAO = 'ver_auditoria'
 JANELA_PADRAO = timedelta(days=90)
+
+
+def data_da_janela_padrao(agora):
+    """Primeiro dia da janela padrão: 90 dias atrás no fuso local. Dia inteiro, não instante: o link "Mais antigos" só leva
+    data, e a página seguinte tem de cortar no mesmo ponto da primeira (PR #63, Greptile P2)."""
+    return timezone.localtime(agora - JANELA_PADRAO).date()
+
+
+def inicio_do_dia(dia):
+    """Meia-noite local de `dia`, como datetime aware (o filtro é `>=`)."""
+    return timezone.make_aware(datetime.combine(dia, time.min))
 REMOVIDA = 'removida'
 SISTEMA = 'Sistema'
 # Tipo gravado em `alvo_tipo` → como a tela o chama e onde achar o nome. Outro tipo cai só no nome do tipo.
@@ -67,7 +78,7 @@ def _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id):
         eventos = eventos.filter(empresa_id=empresa_id)
     if desde is None and ate is None:
         # Janela padrão só quando não há data nenhuma: com só `ate`, o piso de 90 dias cortaria tudo o que é mais antigo.
-        eventos = eventos.filter(hora_servidor__gte=timezone.now() - JANELA_PADRAO)
+        eventos = eventos.filter(hora_servidor__gte=inicio_do_dia(data_da_janela_padrao(timezone.now())))
     elif desde is not None:
         eventos = eventos.filter(hora_servidor__gte=desde)
     if ate is not None:

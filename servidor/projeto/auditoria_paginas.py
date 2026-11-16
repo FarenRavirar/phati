@@ -43,7 +43,7 @@ def _parametros(get):
         desde, ate = _dia(get.get('desde', '')), _dia(get.get('ate', ''))
         dados = {
             'depois': get.get('depois') or 0,
-            'desde': timezone.make_aware(datetime.combine(desde, time.min)) if desde else None,
+            'desde': auditoria_leitura.inicio_do_dia(desde) if desde else None,
             'ate': timezone.make_aware(datetime.combine(ate, time.max)) if ate else None,
             'acao': get.get('acao') or None,
             # Ids vazios viram None (sem filtro); id que não é inteiro positivo falha na mesma validação do pydantic.
@@ -122,8 +122,8 @@ def auditoria(requisicao):
     with com_permissao(requisicao.user, 'ver_auditoria'):
         if not auditoria_leitura.pode_ver_auditoria(requisicao.user):
             raise Http404
-        # Capturada antes da consulta: o início do dia dela fica antes da janela desta página, então a seguinte não perde nada.
-        desde_padrao = timezone.localtime(timezone.now() - auditoria_leitura.JANELA_PADRAO).date().isoformat()
+        # Capturada antes da consulta. A janela padrão é o mesmo dia (auditoria_leitura), então a página seguinte corta no mesmo ponto.
+        desde_padrao = auditoria_leitura.data_da_janela_padrao(timezone.now()).isoformat()
         parametros, erro = _parametros(get)
         eventos, mais_antigos = [], None
         if parametros is not None:

@@ -368,6 +368,20 @@ def test_evento_na_borda_nao_some_entre_as_paginas(cliente_logado, plataforma_lo
     assert [linha[3] for linha in _linhas(segunda)] == ['Fazenda: F1']
 
 
+def test_mais_antigos_nao_traz_o_que_ja_estava_fora_da_janela(cliente_logado, plataforma_logada, cenario):
+    """Greptile P2 (PR #63): a página seguinte começa no mesmo ponto da primeira; o que já estava fora do corte não reaparece."""
+    inicio = auditoria_leitura.inicio_do_dia(auditoria_leitura.data_da_janela_padrao(timezone.now()))
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1, quando=inicio - timedelta(minutes=1))
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f2, quando=inicio + timedelta(minutes=1))
+    for _ in range(30):
+        _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)
+    primeira = cliente_logado.get(CAMINHO, {'acao': 'fazenda_criada'})
+    link = re.search(r'<nav class="paginacao".*?href="([^"]+)"', primeira.content.decode(), re.S)
+    assert link is not None
+    segunda = cliente_logado.get(CAMINHO + unescape(link.group(1)))
+    assert [linha[3] for linha in _linhas(segunda)] == ['Fazenda: F2']  # o de antes do corte (F1, -1 min) fica de fora
+
+
 def test_get_de_outro_site_ignora_o_filtro_e_grava_consulta_sem_filtros(cliente_logado, plataforma_logada, cenario):
     _evento('empresa_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.x)
     _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)

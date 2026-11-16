@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from comum.models import EventoAuditoria
 from identidade.models import Pessoa
-from permissao.auditoria_leitura import consultar, pessoas_citadas
+from permissao.auditoria_leitura import consultar, data_da_janela_padrao, inicio_do_dia, pessoas_citadas
 from permissao.models import Cargo, CargoPermissao, Permissao
 from permissao.pode import com_permissao, esquecer
 
@@ -249,6 +249,17 @@ def test_janela_padrao_e_de_90_dias_e_desde_abre_o_intervalo(cenario, plataforma
     ate_ontem = {linha['id'] for linha in _ler(plataforma, desde=timezone.now() - timedelta(days=365), ate=timezone.now() - timedelta(days=30))[0]}
     assert velho.pk in ate_ontem
     assert novo.pk not in ate_ontem
+
+
+def test_janela_padrao_comeca_a_meia_noite_de_90_dias_atras(cenario, plataforma):
+    """A tela e a API cortam no mesmo ponto: o início é o dia inteiro (o link "Mais antigos" só leva data)."""
+    inicio = inicio_do_dia(data_da_janela_padrao(timezone.now()))
+    dentro, antes = _evento(empresa=cenario.x), _evento(empresa=cenario.x)
+    EventoAuditoria.objects.filter(pk=dentro.pk).update(hora_servidor=inicio + timedelta(minutes=1))
+    EventoAuditoria.objects.filter(pk=antes.pk).update(hora_servidor=inicio - timedelta(minutes=1))
+    ids = {linha['id'] for linha in _ler(plataforma)[0]}
+    assert dentro.pk in ids
+    assert antes.pk not in ids
 
 
 def test_filtros_de_acao_e_de_quem_agiu(cenario, plataforma, fabrica_pessoa):
