@@ -1,9 +1,11 @@
 """Menu (R2, A6): só os itens para os quais a pessoa tem permissão efetiva, calculada no servidor a cada requisição."""
 
+import dataclasses
+
 import pytest
 
 from projeto import menu
-from projeto.menu import ITENS, Atalho, atalhos_do_inicio, itens_do_menu
+from projeto.menu import ITENS, Atalho, ItemDoMenu, atalhos_do_inicio, itens_do_menu
 
 
 ATALHO_POR_EMPRESA = (Atalho('Convidar pessoa', '/empresa/{empresa_id}/pessoas/convidar', 'convidar_pessoa'),)
@@ -32,8 +34,37 @@ def test_pessoa_sem_concessao_ve_so_inicio_e_fazendas(cenario, fabrica_pessoa):
 def test_ninguem_ve_a_ponte_de_gestao(cenario, fabrica_pessoa, conceder_direto, plataforma):
     # R24: o item sai do menu de todos os papéis; o painel é endereço, não link.
     administrador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
-    assert _nomes(administrador, cenario.x) == ['Início', 'Fazendas']
-    assert _nomes(plataforma) == ['Início', 'Fazendas', 'Uso do Google']  # 004b R13: só a plataforma vê o monitor
+    assert _nomes(administrador, cenario.x) == ['Início', 'Fazendas', 'Auditoria']  # 005 R6: o Administrador de empresa lê a auditoria
+    assert _nomes(plataforma) == ['Início', 'Fazendas', 'Uso do Google', 'Auditoria']  # 004b R13: só a plataforma vê o monitor
+
+
+@pytest.mark.parametrize('base', ['curador', 'tecnico', 'usuario'])
+def test_auditoria_nao_aparece_a_quem_nao_e_administrador_de_empresa(cenario, fabrica_pessoa, conceder_direto, base):
+    pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.x)
+    assert 'Auditoria' not in _nomes(pessoa) and 'Auditoria' not in _nomes(pessoa, cenario.x)
+
+
+def test_auditoria_nao_aparece_a_administrador_so_de_fazenda_nem_a_quem_nao_tem_acesso(cenario, fabrica_pessoa, conceder_direto):
+    so_fazenda = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.f1)
+    assert 'Auditoria' not in _nomes(so_fazenda)
+    assert 'Auditoria' not in _nomes(fabrica_pessoa('Sem acesso'))
+
+
+def test_item_auditoria_aponta_para_a_pagina(cenario, plataforma):
+    item = next(item for item in itens_do_menu(plataforma) if item.nome == 'Auditoria')
+    assert item.caminho == '/auditoria/'
+
+
+def test_auditoria_e_item_de_dado_com_acao_e_em_empresa(cenario, plataforma):
+    # Regra por dado (critério dinâmico): nada de predicado por item; o item traz a ação e o alcance dela.
+    item = next(item for item in ITENS if item.nome == 'Auditoria')
+    assert item.acoes == ('ver_auditoria',) and item.em_empresa is True
+    assert 'visivel_se' not in {campo.name for campo in dataclasses.fields(ItemDoMenu)}
+
+
+def test_todo_item_com_em_empresa_tem_acao():
+    # Sem ação, o item é de toda pessoa autenticada e `em_empresa` não teria o que checar: some para todos, em silêncio.
+    assert all(item.acoes for item in ITENS if item.em_empresa)
 
 
 @pytest.mark.parametrize('base', ['administrador', 'curador', 'tecnico', 'usuario'])

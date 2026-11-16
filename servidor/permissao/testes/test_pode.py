@@ -12,8 +12,8 @@ from django.utils import timezone
 from permissao import pode as modulo_pode
 from permissao.models import Cargo, CargoPermissao, CategoriaDado, Permissao
 from permissao.pode import (
-    ACOES_DE_LEITURA, ACOES_VALIDAS_ARQUIVADO, administrador_da_empresa, com_permissao, esquecer, exige_permissao,
-    permissoes_efetivas, pode,
+    ACOES_DE_LEITURA, ACOES_VALIDAS_ARQUIVADO, administrador_da_empresa, age_na_plataforma_ou_em_empresa, com_permissao, esquecer,
+    exige_permissao, permissoes_efetivas, pode,
 )
 from territorio.cadastro import arquivar
 from territorio.models import Fazenda, SubArea
@@ -420,3 +420,35 @@ def test_custo_da_checagem_de_arquivamento_so_em_escrita_permitida(pessoa, cenar
     with CaptureQueriesContext(connection) as escrita:
         assert pode(pessoa, 'criar_sub_area', cenario.t1) is True
     assert (len(leitura), len(negada), len(escrita)) == (0, 0, 3)
+
+
+# --- helper de alcance por empresa (005 Q1): plataforma ou empresa inteira, nunca fazenda ou sub-área ---
+
+
+def test_helper_de_empresa_vale_para_plataforma_e_administrador_de_empresa(plataforma, fabrica_pessoa, conceder_direto, cenario):
+    admin_x = fabrica_pessoa('Admin de X')
+    conceder_direto(admin_x, cenario.cargos_x['administrador'], cenario.x)
+    assert age_na_plataforma_ou_em_empresa(plataforma, 'ver_auditoria') is True
+    assert age_na_plataforma_ou_em_empresa(admin_x, 'ver_auditoria') is True
+
+
+def test_helper_de_empresa_nega_administrador_so_de_fazenda_e_sub_area(fabrica_pessoa, conceder_direto, cenario):
+    so_fazenda = fabrica_pessoa('Admin de F1')
+    conceder_direto(so_fazenda, cenario.cargos_x['administrador'], cenario.f1)
+    so_sub_area = fabrica_pessoa('Admin de G1')
+    conceder_direto(so_sub_area, cenario.cargos_x['administrador'], cenario.g1)
+    assert age_na_plataforma_ou_em_empresa(so_fazenda, 'ver_auditoria') is False
+    assert age_na_plataforma_ou_em_empresa(so_sub_area, 'ver_auditoria') is False
+
+
+def test_helper_de_empresa_nega_quem_nao_tem_a_acao_ou_nenhuma_concessao(fabrica_pessoa, conceder_direto, cenario, plataforma):
+    curador_x = fabrica_pessoa('Curador de X')
+    conceder_direto(curador_x, cenario.cargos_x['curador'], cenario.x)
+    sem_nada = fabrica_pessoa('Sem acesso')
+    assert age_na_plataforma_ou_em_empresa(curador_x, 'ver_auditoria') is False
+    assert age_na_plataforma_ou_em_empresa(sem_nada, 'ver_auditoria') is False
+    assert age_na_plataforma_ou_em_empresa(sem_nada, 'acao_que_nao_existe') is False
+
+
+def test_helper_sem_acao_nao_concede_nem_a_plataforma(plataforma):
+    assert age_na_plataforma_ou_em_empresa(plataforma) is False

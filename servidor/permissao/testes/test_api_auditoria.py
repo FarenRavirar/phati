@@ -87,6 +87,31 @@ def test_parametro_invalido_e_recusado_sem_gravar_consulta(plataforma, consulta)
     assert EventoAuditoria.objects.filter(acao='auditoria_consultada').count() == antes
 
 
+def test_limite_1_devolve_um_evento(cenario, plataforma):
+    for _ in range(2):
+        EventoAuditoria.objects.create(acao='fazenda_criada', empresa_id=cenario.x.pk)
+    resposta = _ler(plataforma, '?acao=fazenda_criada&limite=1')
+    assert resposta.status_code == 200
+    assert len(resposta.json()) == 1
+
+
+def test_limite_100_e_aceito(cenario, plataforma):
+    for _ in range(3):
+        EventoAuditoria.objects.create(acao='fazenda_criada', empresa_id=cenario.x.pk)
+    resposta = _ler(plataforma, '?acao=fazenda_criada&limite=100')
+    assert resposta.status_code == 200
+    assert len(resposta.json()) == 3
+
+
+@pytest.mark.parametrize('limite', [0, 101])
+def test_limite_fora_de_1_a_100_responde_422_com_detalhe(plataforma, limite):
+    resposta = _ler(plataforma, f'?limite={limite}')
+    corpo = resposta.json()
+    assert resposta.status_code == 422
+    assert corpo['detalhe'] == 'entrada_invalida'
+    assert any(item['campo'][-1] == 'limite' for item in corpo['campos'])
+
+
 def test_a_consulta_por_empresa_e_por_pessoa_usa_indice_em_100_mil_eventos():
     """A8 (R8): `EXPLAIN` sobre 100.000 eventos sintéticos: sem `Seq Scan` e usando o índice de cada filtro.
 

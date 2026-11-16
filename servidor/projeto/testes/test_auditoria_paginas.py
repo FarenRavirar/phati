@@ -1,0 +1,295 @@
+"""Página /auditoria/ (005 R6, R7; A1, A2, A4, A7): lista, filtros, paginação por cursor e acesso negado por URL direta."""
+
+import re
+from datetime import datetime
+from html import unescape
+
+import pytest
+from django.test import Client
+from django.utils import timezone
+
+from comum.auditoria import auditar
+from comum.models import EventoAuditoria
+from permissao.models import Cargo, CargoPermissao, Permissao
+
+pytestmark = pytest.mark.django_db
+
+CAMINHO = '/auditoria/'
+MENSAGEM_DO_FILTRO = 'Filtro inválido: confira as datas, a ação, as pessoas e a empresa escolhidas.'
+SEM_EVENTOS = 'Nenhum evento neste período.'
+
+
+@pytest.fixture
+def plataforma_logada(conta):
+    conta.pessoa.administrador_plataforma = True
+    conta.pessoa.save(update_fields=['administrador_plataforma'])
+    return conta
+
+
+def _evento(acao, pessoa, empresa, alvo=None, detalhes=None, quando=None):
+    """Grava pela função de auditoria (a mesma da ação real) e, se pedido, fixa a hora para testar o período."""
+    evento = auditar(acao, pessoa, alvo, empresa.pk if empresa is not None else None, detalhes)
+    if quando is not None:
+        EventoAuditoria.objects.filter(pk=evento.pk).update(hora_servidor=quando)
+    return evento
+
+
+def _consultadas():
+    return EventoAuditoria.objects.filter(acao='auditoria_consultada').count()
+
+
+def _linhas(resposta):
+    """Texto de cada célula do `<tbody>`, sem as tags. A página tem `<option>` com os mesmos rótulos: por isso só a tabela conta."""
+    tabela = re.search(r'<tbody>(.*?)</tbody>', resposta.content.decode(), re.S)
+    if tabela is None:
+        return []
+    return [
+        [unescape(re.sub(r'<[^>]+>', '', celula)).strip() for celula in re.findall(r'<td>(.*?)</td>', linha, re.S)]
+        for linha in re.findall(r'<tr>(.*?)</tr>', tabela.group(1), re.S)
+    ]
+
+
+def _admin_de_x(cliente, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    return cliente
+
+
+# --- caminho feliz ---
+
+
+def test_lista_mostra_hora_acao_quem_alvo_empresa_e_resumo(cliente_logado, plataforma_logada, cenario):
+    _evento('empresa_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.x)
+    resposta = cliente_logado.get(CAMINHO)
+    html = resposta.content.decode()
+    assert resposta.status_code == 200
+    assert '<caption>Eventos da auditoria</caption>' in html
+    assert '<th scope="col">Hora</th>' in html and '<th scope="col">Resumo</th>' in html
+    assert re.fullmatch(r'\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}', _linhas(resposta)[0][0])
+    assert _linhas(resposta) == [[_linhas(resposta)[0][0], 'Empresa criada', 'Fulana Sintetica', 'Empresa: Empresa X', 'Empresa X', '']]
+
+
+def test_filtro_de_periodo_inclui_o_ultimo_dia_inteiro(cliente_logado, plataforma_logada, cenario):
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1, quando=timezone.make_aware(datetime(2024, 5, 10, 12)))
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1, quando=timezone.make_aware(datetime(2024, 6, 10, 12)))
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f2, quando=timezone.make_aware(datetime(2024, 6, 30, 23, 30)))
+    linhas = _linhas(cliente_logado.get(CAMINHO, {'desde': '2024-06-01', 'ate': '2024-06-30'}))
+    assert [linha[3] for linha in linhas] == ['Fazenda: F2', 'Fazenda: F1']  # o de 30/06 às 23:30 entra; o de maio não
+
+
+def test_filtro_de_acao_so_mostra_a_acao_escolhida(cliente_logado, plataforma_logada, cenario):
+    _evento('empresa_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.x)
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)
+    linhas = _linhas(cliente_logado.get(CAMINHO, {'acao': 'fazenda_criada'}))
+    assert [linha[1] for linha in linhas] == ['Fazenda criada']
+
+
+def test_paginacao_por_cursor_mais_antigos_preserva_filtro_e_nao_grava(cliente_logado, plataforma_logada, cenario):
+    for _ in range(31):
+        _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)
+    primeira = cliente_logado.get(CAMINHO, {'acao': 'fazenda_criada'})
+    assert len(_linhas(primeira)) == 30
+    link = re.search(r'<nav class="paginacao".*?href="([^"]+)"', primeira.content.decode(), re.S)
+    assert link is not None
+    href = unescape(link.group(1))
+    assert href.startswith('?') and 'acao=fazenda_criada' in href and 'depois=' in href
+
+    antes = _consultadas()
+    segunda = cliente_logado.get(CAMINHO + href)
+    assert len(_linhas(segunda)) == 1  # o trigésimo primeiro evento
+    assert 'Mais antigos' not in segunda.content.decode()  # sem mais páginas, sem link
+    assert _consultadas() == antes  # paginar não grava consulta (A7)
+
+
+def test_estado_vazio_com_mensagem_e_sem_tabela(cliente_logado, plataforma_logada):
+    resposta = cliente_logado.get(CAMINHO, {'desde': '2000-01-01', 'ate': '2000-01-31'})
+    assert resposta.status_code == 200
+    assert SEM_EVENTOS in resposta.content.decode()
+    assert '<tbody>' not in resposta.content.decode()
+
+
+def test_cada_primeira_pagina_grava_uma_consulta_e_a_paginacao_nao(cliente_logado, plataforma_logada):
+    antes = _consultadas()
+    cliente_logado.get(CAMINHO)
+    assert _consultadas() == antes + 1
+    cliente_logado.get(CAMINHO, {'depois': 1})
+    assert _consultadas() == antes + 1
+
+
+def test_administrador_de_empresa_nao_ve_eventos_de_outra_empresa(cliente_logado, conta, cenario, conceder_direto):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    _evento('empresa_criada', conta.pessoa, cenario.y, alvo=cenario.y)
+    _evento('empresa_criada', conta.pessoa, cenario.x, alvo=cenario.x)
+    textos = [' '.join(linha) for linha in _linhas(cliente_logado.get(CAMINHO))]
+    assert any('Empresa X' in texto for texto in textos)
+    assert not any('Empresa Y' in texto for texto in textos)  # A1: o filtro de escopo é do código, não do banco
+
+
+# --- caminho infeliz ---
+
+
+def test_deslogado_vai_para_a_entrada():
+    resposta = Client().get(CAMINHO)
+    assert resposta.status_code == 302
+    assert resposta['Location'].startswith('/entrar')
+
+
+def test_sem_a_acao_da_404_por_url_direta(cliente_logado, conta, cenario, conceder_direto):
+    for base in ('curador', 'tecnico', 'usuario'):
+        concessao = conceder_direto(conta.pessoa, cenario.cargos_x[base], cenario.x)
+        assert (base, cliente_logado.get(CAMINHO).status_code) == (base, 404)
+        concessao.delete()
+    concessao = conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.f1)
+    assert ('admin de fazenda', cliente_logado.get(CAMINHO).status_code) == ('admin de fazenda', 404)
+    concessao.delete()
+
+
+def test_cargo_personalizado_com_todas_as_acoes_delegaveis_da_404(cliente_logado, conta, cenario, conceder_direto):
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Quase Tudo', base='tecnico')
+    CargoPermissao.objects.bulk_create(CargoPermissao(cargo=cargo, permissao=p) for p in Permissao.objects.filter(delegavel=True))
+    conceder_direto(conta.pessoa, cargo, cenario.x)
+    assert cliente_logado.get(CAMINHO).status_code == 404
+
+
+def test_negado_com_filtro_ruim_da_404_e_nao_grava(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
+    antes = _consultadas()
+    resposta = cliente_logado.get(CAMINHO, {'desde': 'nao-e-data', 'acao': 'xyz', 'depois': 'abc'})
+    assert resposta.status_code == 404
+    assert _consultadas() == antes
+
+
+@pytest.mark.parametrize('consulta', [
+    {'desde': '2026-13-45'},
+    {'ate': 'lixo'},
+    {'acao': 'nao_existe'},
+    {'acao': '<script>alert(1)</script>'},
+    {'depois': 'abc'},
+    {'depois': '-1'},
+    {'pessoa_id': 'abc'},
+    {'alvo_pessoa_id': '-3'},
+    {'empresa_id': '0'},
+])
+def test_filtro_invalido_mostra_aviso_sem_500_e_sem_gravar(cliente_logado, plataforma_logada, consulta):
+    antes = _consultadas()
+    resposta = cliente_logado.get(CAMINHO, consulta)
+    assert resposta.status_code == 200
+    assert MENSAGEM_DO_FILTRO in resposta.content.decode()
+    assert _consultadas() == antes
+
+
+def test_datas_extremas_nao_derrubam_a_pagina(cliente_logado, plataforma_logada):
+    resposta = cliente_logado.get(CAMINHO, {'desde': '0001-01-01', 'ate': '9999-12-31'})
+    assert resposta.status_code == 200
+    assert MENSAGEM_DO_FILTRO not in resposta.content.decode()
+
+
+def test_cpf_nunca_aparece_na_tela(cliente_logado, plataforma_logada, cenario):
+    _evento('cargo_alterado', plataforma_logada.pessoa, cenario.x, alvo=cenario.x,
+            detalhes={'nome': 'Cargo Sintetico', 'permissoes': [], 'cpf': plataforma_logada.cpf})
+    html = cliente_logado.get(CAMINHO).content.decode()
+    assert 'Cargo Sintetico' in html
+    assert plataforma_logada.cpf not in html  # A4: nem o da pessoa de quem agiu, nem o que estiver no detalhe
+
+
+def test_nome_hostil_e_escapado_na_tela(cliente_logado, plataforma_logada, cenario, fabrica_pessoa):
+    hostil = fabrica_pessoa('<b>x</b>')
+    _evento('pessoa_criada', hostil, cenario.x, alvo=hostil)
+    html = cliente_logado.get(CAMINHO).content.decode()
+    assert '&lt;b&gt;x&lt;/b&gt;' in html
+    assert '<b>x</b>' not in html
+
+
+# --- filtros de pessoa, de empresa e escopo dos selects (005 R2, R3, R6) ---
+
+
+def test_filtro_por_quem_agiu_mostra_so_os_eventos_dela(cliente_logado, plataforma_logada, cenario, fabrica_pessoa):
+    ana = fabrica_pessoa('Ana Sintetica')
+    beto = fabrica_pessoa('Beto Sintetico')
+    _evento('empresa_criada', ana, cenario.x, alvo=cenario.x)
+    _evento('fazenda_criada', beto, cenario.x, alvo=cenario.f1)
+    linhas = _linhas(cliente_logado.get(CAMINHO, {'pessoa_id': ana.pk}))
+    assert [linha[2] for linha in linhas] == ['Ana Sintetica']
+
+
+def test_filtro_por_pessoa_afetada_mostra_o_evento_em_que_ela_e_alvo(cliente_logado, plataforma_logada, cenario, fabrica_pessoa):
+    ana = fabrica_pessoa('Ana Sintetica')
+    beto = fabrica_pessoa('Beto Sintetico')
+    _evento('pessoa_criada', beto, cenario.x, alvo=ana)
+    _evento('fazenda_criada', beto, cenario.x, alvo=cenario.f1)
+    linhas = _linhas(cliente_logado.get(CAMINHO, {'alvo_pessoa_id': ana.pk}))
+    assert [linha[3] for linha in linhas] == ['Ana Sintetica']
+
+
+def test_filtro_por_empresa_do_escopo_limita_os_eventos(cliente_logado, plataforma_logada, cenario):
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.y, alvo=cenario.fy)
+    linhas = _linhas(cliente_logado.get(CAMINHO, {'empresa_id': cenario.y.pk}))
+    assert [linha[3] for linha in linhas] == ['Fazenda: FY']
+
+
+def test_select_de_pessoas_nao_lista_quem_e_so_de_outra_empresa(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    minha = fabrica_pessoa('Minha Sintetica')
+    conceder_direto(minha, cenario.cargos_x['tecnico'], cenario.x)
+    alheia = fabrica_pessoa('Alheia Sintetica')
+    conceder_direto(alheia, cenario.cargos_y['administrador'], cenario.y)
+    html = cliente_logado.get(CAMINHO).content.decode()
+    assert 'Minha Sintetica' in html
+    assert 'Alheia Sintetica' not in html  # o select vem do escopo de quem olha, não de todas as pessoas
+
+
+def test_campo_de_empresa_so_aparece_com_mais_de_uma_empresa(cliente_logado, conta, cenario, conceder_direto):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    assert 'name="empresa_id"' not in cliente_logado.get(CAMINHO).content.decode()
+    conceder_direto(conta.pessoa, cenario.cargos_y['administrador'], cenario.y)
+    assert 'name="empresa_id"' in cliente_logado.get(CAMINHO).content.decode()
+
+
+def test_empresa_so_com_fazenda_concedida_nao_entra_no_filtro(cliente_logado, conta, cenario, conceder_direto):
+    # Só `ver_auditoria` conta: quem tem fazenda em Y, mas não a ação na empresa, não ganha a empresa no filtro.
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    conceder_direto(conta.pessoa, cenario.cargos_y['tecnico'], cenario.fy)
+    assert 'name="empresa_id"' not in cliente_logado.get(CAMINHO).content.decode()
+
+
+def test_plataforma_ve_o_filtro_de_empresa_com_todas_as_empresas(plataforma_logada, cliente_logado, cenario):
+    html = cliente_logado.get(CAMINHO).content.decode()
+    assert 'name="empresa_id"' in html and 'Empresa X' in html and 'Empresa Y' in html
+
+
+def test_id_de_pessoa_alheia_por_url_nao_vaza_evento_nem_nome(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    alheia = fabrica_pessoa('Alheia Sintetica')
+    conceder_direto(alheia, cenario.cargos_y['tecnico'], cenario.y)
+    _evento('fazenda_criada', alheia, cenario.y, alvo=cenario.fy)
+    resposta = cliente_logado.get(CAMINHO, {'pessoa_id': alheia.pk, 'alvo_pessoa_id': alheia.pk})
+    html = resposta.content.decode()
+    assert resposta.status_code == 200 and _linhas(resposta) == [] and SEM_EVENTOS in html
+    assert 'Alheia Sintetica' not in html and 'Fazenda: FY' not in html and 'Empresa Y' not in html
+
+
+def test_id_de_empresa_alheia_por_url_da_404_e_nao_grava(cliente_logado, conta, cenario, conceder_direto):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    antes = _consultadas()
+    assert cliente_logado.get(CAMINHO, {'empresa_id': cenario.y.pk}).status_code == 404
+    assert _consultadas() == antes
+
+
+def test_id_da_propria_empresa_passa_e_grava_a_consulta(cliente_logado, conta, cenario, conceder_direto):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    antes = _consultadas()
+    assert cliente_logado.get(CAMINHO, {'empresa_id': cenario.x.pk}).status_code == 200
+    assert _consultadas() == antes + 1
+
+
+def test_paginacao_preserva_os_filtros_de_pessoa_e_empresa(cliente_logado, plataforma_logada, cenario, fabrica_pessoa):
+    ana = fabrica_pessoa('Ana Sintetica')
+    for _ in range(31):
+        _evento('fazenda_criada', ana, cenario.x, alvo=cenario.f1)
+    primeira = cliente_logado.get(CAMINHO, {'pessoa_id': ana.pk, 'empresa_id': cenario.x.pk})
+    link = re.search(r'<nav class="paginacao".*?href="([^"]+)"', primeira.content.decode(), re.S)
+    assert link is not None
+    href = unescape(link.group(1))
+    assert f'pessoa_id={ana.pk}' in href and f'empresa_id={cenario.x.pk}' in href
+    segunda = cliente_logado.get(CAMINHO + href)
+    assert len(_linhas(segunda)) == 1

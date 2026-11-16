@@ -93,6 +93,19 @@ def test_pessoa_sem_concessao_nao_le(fabrica_pessoa):
         _ler(sem_nada)
 
 
+def test_pode_ver_auditoria_so_para_plataforma_e_administrador_de_empresa(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    from permissao.auditoria_leitura import pode_ver_auditoria
+
+    admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
+    curador_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['curador'], cenario.x, 'Curador')
+    so_fazenda = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.f1, 'Admin da Fazenda')
+    assert pode_ver_auditoria(plataforma) is True
+    assert pode_ver_auditoria(admin_x) is True
+    assert pode_ver_auditoria(curador_x) is False
+    assert pode_ver_auditoria(so_fazenda) is False
+    assert pode_ver_auditoria(fabrica_pessoa('Sem nada')) is False
+
+
 def test_evento_sem_empresa_so_aparece_para_a_plataforma(cenario, plataforma, fabrica_pessoa, conceder_direto):
     sem_empresa = _evento('conta_bloqueada')
     admin_x = _admin(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)

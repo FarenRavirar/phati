@@ -136,6 +136,8 @@
     "territorio.niveis.limpar_nivel": "Nomes dos níveis da divisão (campo em branco) — 003 R10; sem rota na API",
     "territorio.cadastro.nome_unico": "Sem tela: traduz a restrição de nome único entre irmãos ativos em `nome_duplicado` nas funções de criar, renomear e desarquivar — 003 R9",
     "permissao.auditoria_leitura.consultar": "Lista da auditoria — 005 R6 (tela /auditoria/; a rota GET /api/v1/auditoria chama a mesma função)",
+    "permissao.auditoria_leitura.pode_ver_auditoria": "Teste de acesso da página /auditoria/ — 005 R6 (usa o mesmo helper de consultar)",
+    "permissao.pode.age_na_plataforma_ou_em_empresa": "Item Auditoria do menu (campo em_empresa) e guarda de consultar — 005 Q1 e R3: plataforma ou empresa inteira, nunca fazenda ou sub-área",
     "comum.auditoria_rotulos.rotulo_e_resumo": "Rótulo e resumo de cada evento da lista da auditoria — 005 R4 e R5 (texto da tela /auditoria/ e da rota GET /api/v1/auditoria)"
   },
   "acoes": {

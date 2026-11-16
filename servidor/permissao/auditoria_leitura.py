@@ -18,7 +18,7 @@ from comum.auditoria_rotulos import rotulo_e_resumo
 from comum.models import EventoAuditoria
 from identidade.models import Pessoa
 from permissao.models import Cargo
-from permissao.pode import escopos_da_acao
+from permissao.pode import age_na_plataforma_ou_em_empresa, escopos_da_acao
 from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 
 ACAO = 'ver_auditoria'
@@ -130,6 +130,12 @@ def _linha(evento, nomes):
     }
 
 
+def pode_ver_auditoria(quem):
+    """Quem lê a auditoria na plataforma ou em alguma empresa (005 Q1). A página usa esta função; o item do menu usa o mesmo
+    helper de `pode.py` pelo campo `em_empresa`, e `consultar` também, então as três decisões não divergem."""
+    return age_na_plataforma_ou_em_empresa(quem, ACAO)
+
+
 def _empresas_da_consulta(escopos, empresa_id):
     """Empresas cujo registro leva o evento da consulta: a pedida, ou todas as do escopo, para que o Administrador de cada
     uma veja quem leu a auditoria dela. A plataforma sem filtro grava um evento sem empresa, que só ela lê."""
@@ -144,9 +150,9 @@ def consultar(quem, *, limite=30, depois=0, desde=None, ate=None, acao=None, pes
     Quem não lê auditoria em empresa alguma, ou pede empresa fora do escopo, recebe 404 (`ObjectDoesNotExist`). A
     primeira página (sem `depois`) grava `auditoria_consultada` na mesma transação, com os filtros usados.
     """
-    escopos = escopos_da_acao(quem, ACAO)
-    if not (escopos.plataforma or escopos.empresas):
+    if not age_na_plataforma_ou_em_empresa(quem, ACAO):
         raise ObjectDoesNotExist
+    escopos = escopos_da_acao(quem, ACAO)
     eventos = _filtrar(escopos, desde, ate, acao, pessoa_id, alvo_pessoa_id, empresa_id)
     if depois:
         # shortcut: cursor por id; evento que só é confirmado depois de a página sair, com id menor que o do cursor, não
