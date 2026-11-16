@@ -1,7 +1,7 @@
 """Página /auditoria/ (005 R6, R7; A1, A2, A4, A7): lista, filtros, paginação por cursor e acesso negado por URL direta."""
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import unescape
 
 import pytest
@@ -10,7 +10,10 @@ from django.utils import timezone
 
 from comum.auditoria import auditar
 from comum.models import EventoAuditoria
+from identidade.models import Pessoa
+from permissao import auditoria_leitura
 from permissao.models import Cargo, CargoPermissao, Permissao
+from projeto import auditoria_paginas
 
 pytestmark = pytest.mark.django_db
 
@@ -63,7 +66,8 @@ def test_lista_mostra_hora_acao_quem_alvo_empresa_e_resumo(cliente_logado, plata
     html = resposta.content.decode()
     assert resposta.status_code == 200
     assert '<caption>Eventos da auditoria</caption>' in html
-    assert '<th scope="col">Hora</th>' in html and '<th scope="col">Resumo</th>' in html
+    assert '<th scope="col">Hora</th>' in html
+    assert '<th scope="col">Resumo</th>' in html
     assert re.fullmatch(r'\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}', _linhas(resposta)[0][0])
     assert _linhas(resposta) == [[_linhas(resposta)[0][0], 'Empresa criada', 'Fulana Sintetica', 'Empresa: Empresa X', 'Empresa X', '']]
 
@@ -91,7 +95,9 @@ def test_paginacao_por_cursor_mais_antigos_preserva_filtro_e_nao_grava(cliente_l
     link = re.search(r'<nav class="paginacao".*?href="([^"]+)"', primeira.content.decode(), re.S)
     assert link is not None
     href = unescape(link.group(1))
-    assert href.startswith('?') and 'acao=fazenda_criada' in href and 'depois=' in href
+    assert href.startswith('?')
+    assert 'acao=fazenda_criada' in href
+    assert 'depois=' in href
 
     antes = _consultadas()
     segunda = cliente_logado.get(CAMINHO + href)
@@ -231,11 +237,15 @@ def test_select_de_pessoas_nao_lista_quem_e_so_de_outra_empresa(cliente_logado, 
     _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
     minha = fabrica_pessoa('Minha Sintetica')
     conceder_direto(minha, cenario.cargos_x['tecnico'], cenario.x)
+    _evento('fazenda_criada', minha, cenario.x, alvo=cenario.f1)  # o select vem da atividade que quem olha vê
     alheia = fabrica_pessoa('Alheia Sintetica')
     conceder_direto(alheia, cenario.cargos_y['administrador'], cenario.y)
-    html = cliente_logado.get(CAMINHO).content.decode()
-    assert 'Minha Sintetica' in html
-    assert 'Alheia Sintetica' not in html  # o select vem do escopo de quem olha, não de todas as pessoas
+    _evento('fazenda_criada', alheia, cenario.y, alvo=cenario.fy)
+    resposta = cliente_logado.get(CAMINHO)
+    opcoes = dict(_pessoas_nos_selects(resposta))
+    assert opcoes.get(str(minha.pk)) == 'Minha Sintetica'
+    assert str(alheia.pk) not in opcoes
+    assert 'Alheia Sintetica' not in resposta.content.decode()
 
 
 def test_campo_de_empresa_so_aparece_com_mais_de_uma_empresa(cliente_logado, conta, cenario, conceder_direto):
@@ -254,7 +264,9 @@ def test_empresa_so_com_fazenda_concedida_nao_entra_no_filtro(cliente_logado, co
 
 def test_plataforma_ve_o_filtro_de_empresa_com_todas_as_empresas(plataforma_logada, cliente_logado, cenario):
     html = cliente_logado.get(CAMINHO).content.decode()
-    assert 'name="empresa_id"' in html and 'Empresa X' in html and 'Empresa Y' in html
+    assert 'name="empresa_id"' in html
+    assert 'Empresa X' in html
+    assert 'Empresa Y' in html
 
 
 def test_id_de_pessoa_alheia_por_url_nao_vaza_evento_nem_nome(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
@@ -264,8 +276,12 @@ def test_id_de_pessoa_alheia_por_url_nao_vaza_evento_nem_nome(cliente_logado, co
     _evento('fazenda_criada', alheia, cenario.y, alvo=cenario.fy)
     resposta = cliente_logado.get(CAMINHO, {'pessoa_id': alheia.pk, 'alvo_pessoa_id': alheia.pk})
     html = resposta.content.decode()
-    assert resposta.status_code == 200 and _linhas(resposta) == [] and SEM_EVENTOS in html
-    assert 'Alheia Sintetica' not in html and 'Fazenda: FY' not in html and 'Empresa Y' not in html
+    assert resposta.status_code == 200
+    assert _linhas(resposta) == []
+    assert SEM_EVENTOS in html
+    assert 'Alheia Sintetica' not in html
+    assert 'Fazenda: FY' not in html
+    assert 'Empresa Y' not in html
 
 
 def test_id_de_empresa_alheia_por_url_da_404_e_nao_grava(cliente_logado, conta, cenario, conceder_direto):
@@ -290,6 +306,125 @@ def test_paginacao_preserva_os_filtros_de_pessoa_e_empresa(cliente_logado, plata
     link = re.search(r'<nav class="paginacao".*?href="([^"]+)"', primeira.content.decode(), re.S)
     assert link is not None
     href = unescape(link.group(1))
-    assert f'pessoa_id={ana.pk}' in href and f'empresa_id={cenario.x.pk}' in href
+    assert f'pessoa_id={ana.pk}' in href
+    assert f'empresa_id={cenario.x.pk}' in href
     segunda = cliente_logado.get(CAMINHO + href)
     assert len(_linhas(segunda)) == 1
+
+
+# --- janela de 90 dias, paginação na borda e origem da requisição (005 R2, R7; A7) ---
+
+
+class _Relogio:
+    """Relógio de teste no lugar de `django.utils.timezone` num módulo só: `now` devolve o instante dado, o resto é o do Django."""
+
+    def __init__(self, agora):
+        self._agora = agora
+
+    def now(self):
+        return self._agora
+
+    def __getattr__(self, nome):
+        return getattr(timezone, nome)
+
+
+def _ultima_consulta():
+    return EventoAuditoria.objects.filter(acao='auditoria_consultada').latest('pk')
+
+
+def _pessoas_nos_selects(resposta):
+    """(valor, rótulo) de cada opção com id de pessoa nos selects "Quem agiu" e "Pessoa afetada"."""
+    return re.findall(r'<option value="(\d+)"[^>]*>([^<]*)</option>', resposta.content.decode())
+
+
+def test_so_ate_antigo_devolve_eventos_de_mais_de_90_dias(cliente_logado, plataforma_logada, cenario):
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1, quando=timezone.now() - timedelta(days=200))
+    ate = (timezone.now() - timedelta(days=30)).date().isoformat()
+    assert [linha[3] for linha in _linhas(cliente_logado.get(CAMINHO, {'ate': ate}))] == ['Fazenda: F1']
+
+
+def test_sem_datas_a_lista_segue_nos_ultimos_90_dias(cliente_logado, plataforma_logada, cenario):
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1, quando=timezone.now() - timedelta(days=200))
+    assert SEM_EVENTOS in cliente_logado.get(CAMINHO).content.decode()
+
+
+def test_evento_na_borda_nao_some_entre_as_paginas(cliente_logado, plataforma_logada, cenario, monkeypatch):
+    """Sem a janela fixada no link, a página 2 recalcularia a partir de agora e perderia o evento que caiu na borda."""
+    agora = timezone.now()
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1, quando=agora - timedelta(days=90) + timedelta(hours=1))
+    for _ in range(30):
+        _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f2)
+    primeira = cliente_logado.get(CAMINHO, {'acao': 'fazenda_criada'})
+    link = re.search(r'<nav class="paginacao".*?href="([^"]+)"', primeira.content.decode(), re.S)
+    assert link is not None
+    href = unescape(link.group(1))
+    assert 'desde=' in href
+    # Só o relógio da auditoria anda 2 h: trocar o `timezone` global derrubaria a sessão (302 para /entrar, medido).
+    relogio = _Relogio(agora + timedelta(hours=2))
+    monkeypatch.setattr(auditoria_leitura, 'timezone', relogio)
+    monkeypatch.setattr(auditoria_paginas, 'timezone', relogio)
+    segunda = cliente_logado.get(CAMINHO + href)
+    assert (segunda.status_code, segunda.get('Location')) == (200, None)
+    assert [linha[3] for linha in _linhas(segunda)] == ['Fazenda: F1']
+
+
+def test_get_de_outro_site_ignora_o_filtro_e_grava_consulta_sem_filtros(cliente_logado, plataforma_logada, cenario):
+    _evento('empresa_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.x)
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)
+    resposta = cliente_logado.get(CAMINHO, {'acao': 'fazenda_criada'}, headers={'Sec-Fetch-Site': 'cross-site'})
+    assert resposta.status_code == 200
+    assert {linha[1] for linha in _linhas(resposta)} == {'Empresa criada', 'Fazenda criada'}
+    assert _ultima_consulta().detalhes == {}
+
+
+def test_get_do_mesmo_site_ou_sem_cabecalho_grava_os_filtros(cliente_logado, plataforma_logada, cenario):
+    _evento('empresa_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.x)
+    _evento('fazenda_criada', plataforma_logada.pessoa, cenario.x, alvo=cenario.f1)
+    for cabecalho in ({'Sec-Fetch-Site': 'same-origin'}, {}):
+        linhas = _linhas(cliente_logado.get(CAMINHO, {'acao': 'fazenda_criada'}, headers=cabecalho))
+        assert [linha[1] for linha in linhas] == ['Fazenda criada']
+        assert _ultima_consulta().detalhes == {'acao': 'fazenda_criada'}
+
+
+def test_resposta_declara_que_depende_do_site_de_origem(cliente_logado, plataforma_logada):
+    assert 'Sec-Fetch-Site' in cliente_logado.get(CAMINHO)['Vary']
+
+
+def test_select_traz_ex_colaborador_com_historico_mesmo_sem_concessao(cliente_logado, conta, cenario, conceder_direto, cpf_novo):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    cpf = cpf_novo()
+    ex = Pessoa.objects.criar(nome='Ex Colaboradora Sintetica', email='ex@exemplo.test', cpf=cpf)  # sem concessão: só o evento a torna escolhível
+    _evento('fazenda_criada', ex, cenario.x, alvo=cenario.f1)
+    resposta = cliente_logado.get(CAMINHO)
+    assert (str(ex.pk), 'Ex Colaboradora Sintetica') in _pessoas_nos_selects(resposta)
+    assert cpf not in resposta.content.decode()
+
+
+def test_select_nao_traz_quem_so_esta_no_diretorio(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    so_diretorio = fabrica_pessoa('Diretorio Sintetico')
+    conceder_direto(so_diretorio, cenario.cargos_x['tecnico'], cenario.x)
+    assert 'Diretorio Sintetico' not in cliente_logado.get(CAMINHO).content.decode()
+
+
+def test_homonimos_no_select_ganham_origem_so_quando_quem_olha_a_ve(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    de_x = fabrica_pessoa('Ana Sintetica', empresa_origem=cenario.x)
+    de_y = fabrica_pessoa('Ana Sintetica', empresa_origem=cenario.y)
+    _evento('fazenda_criada', de_x, cenario.x, alvo=cenario.f1)
+    _evento('fazenda_criada', de_y, cenario.x, alvo=cenario.f2)
+    opcoes = dict(_pessoas_nos_selects(cliente_logado.get(CAMINHO)))
+    assert opcoes[str(de_x.pk)] == 'Ana Sintetica (Empresa X)'
+    assert opcoes[str(de_y.pk)] == f'Ana Sintetica (#{de_y.pk})'  # a empresa Y não é visível a quem olha
+
+
+def test_id_alheio_forjado_no_filtro_nao_vira_opcao_do_select(cliente_logado, conta, cenario, conceder_direto, fabrica_pessoa):
+    """O filtro grava `detalhes.pessoa_id` no `auditoria_consultada`; esse registro não pode tornar a pessoa escolhível."""
+    _admin_de_x(cliente_logado, conta, cenario, conceder_direto)
+    alheia = fabrica_pessoa('Alheia Forjada')
+    _evento('fazenda_criada', alheia, cenario.y, alvo=cenario.fy)
+    assert cliente_logado.get(CAMINHO, {'pessoa_id': alheia.pk}).status_code == 200
+    assert cliente_logado.get(CAMINHO, {'alvo_pessoa_id': alheia.pk}).status_code == 200
+    resposta = cliente_logado.get(CAMINHO)
+    assert str(alheia.pk) not in dict(_pessoas_nos_selects(resposta))
+    assert 'Alheia Forjada' not in resposta.content.decode()

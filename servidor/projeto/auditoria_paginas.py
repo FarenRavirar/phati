@@ -9,14 +9,15 @@ from datetime import date, datetime, time
 from urllib.parse import urlencode
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import Http404
+from django.http import Http404, QueryDict
 from django.utils import timezone
+from django.utils.cache import patch_vary_headers
 from django.views.decorators.http import require_GET
 
 from comum.auditoria import ACOES
 from comum.auditoria_rotulos import rotulo_e_resumo
 from permissao import auditoria_leitura
-from permissao.api import ParametrosDaAuditoria, pessoas_do_escopo
+from permissao.api import ParametrosDaAuditoria
 from permissao.pode import com_permissao, escopos_da_acao
 from projeto.paginas_autenticadas import campo, exige_acao, exige_entrada, renderizar_na_casca
 from territorio.models import Empresa
@@ -83,18 +84,31 @@ def _campos(get, pessoas, empresas):
 
 
 def _pessoas_e_empresas(pessoa):
-    """Listas dos selects, materializadas dentro de `com_permissao` (a RLS vale só no bloco). Nome, nunca CPF."""
-    pessoas = list(pessoas_do_escopo(pessoa, (auditoria_leitura.ACAO,)).order_by('nome', 'pk').values_list('pk', 'nome'))
+    """Listas dos selects, materializadas dentro de `com_permissao` (a RLS vale só no bloco). Nome, nunca CPF. As pessoas
+    vêm da atividade que quem olha pode ler (`pessoas_citadas`), não do diretório."""
+    pessoas = auditoria_leitura.pessoas_citadas(pessoa)
     escopos = escopos_da_acao(pessoa, auditoria_leitura.ACAO)
     consulta = Empresa.objects.all() if escopos.plataforma else Empresa.objects.filter(pk__in=escopos.empresas)
     return pessoas, list(consulta.order_by('nome', 'pk').values_list('pk', 'nome'))
 
 
-def _mais_antigos(get, linhas, mais):
-    """Link da página seguinte pelo cursor (último id). Usa só os filtros que já passaram na validação."""
+def _consulta(requisicao):
+    """Filtros da query string. Fetch Metadata (web.dev/articles/fetch-metadata): GET vindo de outro site ignora a query, para
+    que link forjado não grave na auditoria um filtro escolhido por quem o montou. Sem o cabeçalho (navegador antigo), vale
+    como mesma origem."""
+    if requisicao.headers.get('Sec-Fetch-Site') == 'cross-site':
+        return QueryDict()
+    return requisicao.GET
+
+
+def _mais_antigos(get, linhas, mais, desde_padrao):
+    """Link da página seguinte pelo cursor (último id). Usa só os filtros que já passaram na validação. Sem data nenhuma, a
+    janela padrão vai fixada no link: senão a página seguinte a recalcularia a partir de agora e perderia o que caiu na borda."""
     if not mais:
         return None
     consulta = {nome: get[nome] for nome in FILTROS if get.get(nome)}
+    if 'desde' not in consulta and 'ate' not in consulta:
+        consulta['desde'] = desde_padrao  # aparece no campo "Desde" da página seguinte: é o início real da lista
     consulta['depois'] = linhas[-1]['id']
     return '?' + urlencode(consulta)
 
@@ -104,20 +118,25 @@ def _mais_antigos(get, linhas, mais):
 @exige_acao('ver_auditoria')
 def auditoria(requisicao):
     """Quem não lê a auditoria em empresa alguma recebe 404 (A2), por URL direta inclusive."""
+    get = _consulta(requisicao)
     with com_permissao(requisicao.user, 'ver_auditoria'):
         if not auditoria_leitura.pode_ver_auditoria(requisicao.user):
             raise Http404
-        parametros, erro = _parametros(requisicao.GET)
+        # Capturada antes da consulta: o início do dia dela fica antes da janela desta página, então a seguinte não perde nada.
+        desde_padrao = timezone.localtime(timezone.now() - auditoria_leitura.JANELA_PADRAO).date().isoformat()
+        parametros, erro = _parametros(get)
         eventos, mais_antigos = [], None
         if parametros is not None:
             try:
                 eventos, mais = auditoria_leitura.consultar(requisicao.user, **parametros.model_dump())
             except ObjectDoesNotExist:  # empresa pedida fora do escopo: 404 comum, igual à API (005 R3)
                 raise Http404
-            mais_antigos = _mais_antigos(requisicao.GET, eventos, mais)
+            mais_antigos = _mais_antigos(get, eventos, mais, desde_padrao)
         pessoas, empresas = _pessoas_e_empresas(requisicao.user)
         contexto = {
-            'campos': _campos(requisicao.GET, pessoas, empresas), 'erro': erro, 'colunas': COLUNAS,
+            'campos': _campos(get, pessoas, empresas), 'erro': erro, 'colunas': COLUNAS,
             'linhas': [_linha(evento) for evento in eventos], 'mais_antigos': mais_antigos,
         }
-        return renderizar_na_casca(requisicao, 'auditoria.html', contexto)
+        resposta = renderizar_na_casca(requisicao, 'auditoria.html', contexto)
+    patch_vary_headers(resposta, ['Sec-Fetch-Site'])  # a mesma URL responde diferente conforme o site de origem
+    return resposta

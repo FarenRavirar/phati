@@ -41,7 +41,8 @@ def test_ninguem_ve_a_ponte_de_gestao(cenario, fabrica_pessoa, conceder_direto, 
 @pytest.mark.parametrize('base', ['curador', 'tecnico', 'usuario'])
 def test_auditoria_nao_aparece_a_quem_nao_e_administrador_de_empresa(cenario, fabrica_pessoa, conceder_direto, base):
     pessoa = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x[base], cenario.x)
-    assert 'Auditoria' not in _nomes(pessoa) and 'Auditoria' not in _nomes(pessoa, cenario.x)
+    assert 'Auditoria' not in _nomes(pessoa)
+    assert 'Auditoria' not in _nomes(pessoa, cenario.x)
 
 
 def test_auditoria_nao_aparece_a_administrador_so_de_fazenda_nem_a_quem_nao_tem_acesso(cenario, fabrica_pessoa, conceder_direto):
@@ -58,7 +59,8 @@ def test_item_auditoria_aponta_para_a_pagina(cenario, plataforma):
 def test_auditoria_e_item_de_dado_com_acao_e_em_empresa(cenario, plataforma):
     # Regra por dado (critério dinâmico): nada de predicado por item; o item traz a ação e o alcance dela.
     item = next(item for item in ITENS if item.nome == 'Auditoria')
-    assert item.acoes == ('ver_auditoria',) and item.em_empresa is True
+    assert item.acoes == ('ver_auditoria',)
+    assert item.em_empresa is True
     assert 'visivel_se' not in {campo.name for campo in dataclasses.fields(ItemDoMenu)}
 
 

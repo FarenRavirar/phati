@@ -1,6 +1,7 @@
 """`GET /api/v1/auditoria` pela URL real (005 R2, R3, R7; A1 a A4, A7, A8): papéis, empresa alheia, CPF e índice."""
 
 from datetime import timedelta
+from urllib.parse import urlencode
 
 import pytest
 from django.db import connection
@@ -95,12 +96,27 @@ def test_limite_1_devolve_um_evento(cenario, plataforma):
     assert len(resposta.json()) == 1
 
 
-def test_limite_100_e_aceito(cenario, plataforma):
-    for _ in range(3):
+def test_limite_100_devolve_ate_100_e_sem_limite_devolve_30(cenario, plataforma):
+    for _ in range(35):
         EventoAuditoria.objects.create(acao='fazenda_criada', empresa_id=cenario.x.pk)
-    resposta = _ler(plataforma, '?acao=fazenda_criada&limite=100')
-    assert resposta.status_code == 200
-    assert len(resposta.json()) == 3
+    com_limite = _ler(plataforma, '?acao=fazenda_criada&limite=100')
+    assert com_limite.status_code == 200
+    assert len(com_limite.json()) == 35
+    assert len(_ler(plataforma, '?acao=fazenda_criada').json()) == 30
+
+
+def test_so_ate_antigo_devolve_eventos_de_mais_de_90_dias(cenario, plataforma):
+    antigo = EventoAuditoria.objects.create(acao='fazenda_criada', empresa_id=cenario.x.pk)
+    EventoAuditoria.objects.filter(pk=antigo.pk).update(hora_servidor=timezone.now() - timedelta(days=200))
+    ate = urlencode({'ate': (timezone.now() - timedelta(days=30)).isoformat()})
+    achados = [linha['id'] for linha in _ler(plataforma, f'?acao=fazenda_criada&{ate}').json()]
+    assert achados == [antigo.pk]
+
+
+def test_sem_datas_a_janela_segue_de_90_dias(cenario, plataforma):
+    antigo = EventoAuditoria.objects.create(acao='fazenda_criada', empresa_id=cenario.x.pk)
+    EventoAuditoria.objects.filter(pk=antigo.pk).update(hora_servidor=timezone.now() - timedelta(days=200))
+    assert _ler(plataforma, '?acao=fazenda_criada').json() == []
 
 
 @pytest.mark.parametrize('limite', [0, 101])
