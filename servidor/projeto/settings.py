@@ -23,6 +23,7 @@ INSTALLED_APPS = [
     # Painel (T5.2): `ConfiguracaoDoPainel` no lugar de `django.contrib.admin`, para o site ser o `PainelSite`.
     'projeto.apps.ConfiguracaoDoPainel',
     'django.contrib.messages',
+    'django.contrib.gis',  # D114 (b): GeoDjango (GEOS, GDAL e PROJ do sistema na imagem)
     'projeto.apps.ConfiguracaoDosEstaticos',  # `django.contrib.staticfiles` sem publicar os testes de JS
     # API JSON `/api/v1/` (T5.1); precisa estar aqui para o comando `export_openapi_schema` existir.
     'ninja',
@@ -30,6 +31,7 @@ INSTALLED_APPS = [
     'territorio',
     'permissao',
     'pacote',
+    'catalogo',  # spec 008: estudo, camada, versão (em análise) e feição
 ]
 
 # Sessão e CSRF só para a API (cookie de navegador); a ordem é a que o Django exige: sessão antes de autenticação.
@@ -142,7 +144,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 def _configuracao_banco(usuario, senha):
     return {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',  # D114 (b): GeoDjango
         'NAME': os.environ.get('PHATI_BANCO_NOME', 'phati'),
         'HOST': os.environ.get('PHATI_BANCO_HOST', '127.0.0.1'),
         'PORT': os.environ.get('PHATI_BANCO_PORTA', '5432'),
@@ -249,5 +251,7 @@ DEFAULT_FROM_EMAIL = os.environ.get('PHATI_EMAIL_REMETENTE', 'phati@localhost')
 # são as ferramentas externas da geração, só no ambiente de quem gera.
 # `or`: o `.env.exemplo` traz as três vazias, e variável vazia não pode virar `Path('')` (a pasta atual) nem comando vazio.
 PACOTES_DIR = Path(os.environ.get('PHATI_PACOTES_DIR') or '/pacotes')
+# Original e prévia de camada (D114 c): disco privado, no molde de PACOTES_DIR; nunca servido por rota.
+CAMADAS_DIR = Path(os.environ.get('PHATI_CAMADAS_DIR') or '/camadas')
 PMTILES_BIN = os.environ.get('PHATI_PMTILES_BIN') or 'pmtiles'
 RIO_BIN = os.environ.get('PHATI_RIO_BIN') or 'rio'

@@ -10,6 +10,8 @@ ACOES = frozenset({
     'cargo_alterado', 'convite_criado', 'convite_aceito', 'convite_recusado', 'convite_cancelado',
     'empresa_renomeada', 'fazenda_renomeada', 'sub_area_renomeada', 'territorio_arquivado', 'territorio_desarquivado',
     'nivel_definido', 'pacote_gerado', 'auditoria_consultada',
+    # Catálogo de camadas (008 R14): nunca leva valor de atributo nem dado pessoal no detalhe.
+    'camada_publicada', 'sistema_confirmado', 'no_trocado', 'atributo_ocultado',
 })
 
 

@@ -157,7 +157,7 @@
     "aprovar_atributo": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "aprovar_geometria": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "tornar_revisao_vigente": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
-    "publicar_camada": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
+    "publicar_camada": "Reservada para a spec 008 (publicação de camada, fase 3, D041); sem função hoje: a prévia e a publicação ainda não existem",
     "subir_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "definir_validade_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "convidar_pessoa": "003",

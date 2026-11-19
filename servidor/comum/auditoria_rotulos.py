@@ -37,6 +37,15 @@ def _nivel(detalhes):
     return f'Nível {nivel} removido (era "{antigo}").'
 
 
+def _atributo_ocultado(detalhes):
+    # R14: só o nome do atributo; o valor e qualquer dado pessoal que estejam no detalhe não aparecem.
+    return f'Atributo "{_valor(detalhes, "nome_atributo")}" ocultado.'
+
+
+def _camada_publicada(detalhes):
+    return f'Camada "{_valor(detalhes, "nome_camada")}", versão {_valor(detalhes, "versao")}, em análise.'
+
+
 def _bloqueio(detalhes):
     return f'Bloqueada por {_valor(detalhes, "segundos")} segundos.' if 'segundos' in detalhes else _SEM_RESUMO
 
@@ -110,6 +119,10 @@ ROTULOS = {
     'fazenda_criada': ('Fazenda criada', _vazio),
     'sub_area_criada': ('Sub-área criada', _vazio),
     'pessoa_criada': ('Pessoa criada', _vazio),
+'camada_publicada': ('Camada publicada', _camada_publicada),
+'sistema_confirmado': ('Sistema de referência confirmado', _vazio),
+'no_trocado': ('Nó trocado', _vazio),
+'atributo_ocultado': ('Atributo ocultado', _atributo_ocultado),
     'concessao_criada': ('Acesso concedido', _concessao),
     'concessao_revogada': ('Acesso revogado', _vazio),
     'titularidade_transferida': ('Titularidade transferida', _titularidade),
