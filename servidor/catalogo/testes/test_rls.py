@@ -36,12 +36,12 @@ def mundo(cpf_novo):
     for estudo in (m.estudo_x1, m.estudo_x2, m.estudo_y):
         camada = Camada.objects.create(estudo=estudo, empresa=estudo.empresa, fazenda=estudo.fazenda, nome='C')
         versao = VersaoCamada.objects.create(
-            camada=camada, empresa=estudo.empresa, fazenda=estudo.fazenda, numero=1, sistema_original='EPSG:4674',
+            camada=camada, empresa=estudo.empresa, fazenda=estudo.fazenda, numero=1, sistema_original='EPSG:4674', origem='Levantamento sintético',
             hash_original='a' * 64, caminho_original='originais/x.bin', enviada_por=m.pessoa)
         AtributoVersao.objects.create(versao=versao, empresa=estudo.empresa, fazenda=estudo.fazenda, nome='area')
         Feicao.objects.create(versao=versao, empresa=estudo.empresa, fazenda=estudo.fazenda, geometria=POLIGONO)
         EnvioCamada.objects.create(criado_por=m.pessoa, empresa=estudo.empresa, fazenda=estudo.fazenda,
-                                   arquivo_temporario='envios/x', expira_em='2030-01-01T00:00:00Z')
+                                   arquivo_temporario='envios/x', hash_original='0' * 64, expira_em='2030-01-01T00:00:00Z')
     return m
 
 
