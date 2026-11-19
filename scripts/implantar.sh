@@ -101,6 +101,9 @@ fi
 
 passo=build
 compor build
+# PostGIS em volume que já existia (o init só roda em volume vazio). Antes de parar o app: se falhar, o app segue no ar.
+passo=extensoes
+compor run --rm banco_extensoes
 passo=parar-app
 parado=1
 compor stop app

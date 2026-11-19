@@ -66,6 +66,7 @@ services:
       - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # `popular_sintetico` instala o pacote de referência no ambiente de teste de navegador (004b T2.1a)
     depends_on:
       banco: {condition: service_healthy}
+      banco_extensoes: {condition: service_completed_successfully}
 
   # Publica os estáticos no volume que o nginx serve. Roda como root só para escrever no volume recém-criado.
   estaticos:
@@ -88,6 +89,20 @@ services:
     depends_on:
       app: {condition: service_healthy}
       estaticos: {condition: service_completed_successfully}
+
+  # PostGIS em volume que já existia (o init só roda em volume vazio). Superusuário só aqui; app e migração não recebem a senha.
+  banco_extensoes:
+    build: ./banco
+    entrypoint: ["sh", "/atualizar-postgis.sh"]
+    environment:
+      PGHOST: banco
+      PGUSER: postgres
+      PGPASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
+      PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+    volumes:
+      - ./banco/atualizar-postgis.sh:/atualizar-postgis.sh:ro
+    depends_on:
+      banco: {condition: service_healthy}
 
   # Acerta o dono do volume dos pacotes no caminho configurado: volume novo nasce de root, e só `/pacotes` é preparado na imagem.
   # Roda como root uma vez; só muda o dono (nada é apagado nem recriado). 10001 = `aplicacao` (Dockerfile).

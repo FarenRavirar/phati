@@ -11,11 +11,13 @@ from django.db.models import Q
 
 ESTADO_EM_ANALISE = 'em_analise'
 SRID_GUARDA = 4674  # SIRGAS 2000 geográfico (D114 / plan §Propostas)
+EMPRESA = 'territorio.Empresa'
+FAZENDA = 'territorio.Fazenda'
 
 
 class Tema(models.Model):
     """Tema de estudo, dentro de uma empresa."""
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA, on_delete=models.PROTECT, related_name='+')
     nome = models.CharField(max_length=200)
     empresa_id: int  # anotação para o pyright: o Django cria `empresa_id`
 
@@ -23,14 +25,16 @@ class Tema(models.Model):
         db_table = 'catalogo_tema'
         constraints = [
             models.UniqueConstraint(fields=['empresa', 'nome'], name='tema_nome_unico_na_empresa'),
+            # Chave que o estudo referencia (FK composta, migração 0004): tema e empresa não andam separados.
+            models.UniqueConstraint(fields=['id', 'empresa'], name='tema_chave_composta'),
         ]
 
 
 class Estudo(models.Model):
     """Estudo de uma fazenda, com identificador público opaco (R1)."""
     publico_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
-    fazenda = models.ForeignKey('territorio.Fazenda', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA, on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey(FAZENDA, on_delete=models.PROTECT, related_name='+')
     tema = models.ForeignKey(Tema, on_delete=models.PROTECT, related_name='estudos')
     nome = models.CharField(max_length=200)
     empresa_id: int
@@ -49,8 +53,8 @@ class Camada(models.Model):
     """Camada de um estudo, com identificador público opaco (R1)."""
     publico_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     estudo = models.ForeignKey(Estudo, on_delete=models.PROTECT, related_name='camadas')
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
-    fazenda = models.ForeignKey('territorio.Fazenda', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     nome = models.CharField(max_length=200)
     estudo_id: int
     empresa_id: int
@@ -67,11 +71,11 @@ class Camada(models.Model):
 class VersaoCamada(models.Model):
     """Versão de uma camada. Nasce e fica "em análise" nesta spec (R2); o original fica em disco privado (R15)."""
     camada = models.ForeignKey(Camada, on_delete=models.PROTECT, related_name='versoes')
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
-    fazenda = models.ForeignKey('territorio.Fazenda', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     numero = models.PositiveIntegerField()
     estado = models.CharField(max_length=20, default=ESTADO_EM_ANALISE)
-    sistema_original = models.CharField(max_length=50)
+    sistema_original = models.TextField()
     hash_original = models.CharField(max_length=64)
     caminho_original = models.CharField(max_length=300)  # interno, nunca servido por rota (R15)
     enviada_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
@@ -94,8 +98,8 @@ class VersaoCamada(models.Model):
 class AtributoVersao(models.Model):
     """Coluna do arquivo como atributo consultável da versão (R9). Ocultar é ação auditada (T1.4)."""
     versao = models.ForeignKey(VersaoCamada, on_delete=models.CASCADE, related_name='atributos')
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
-    fazenda = models.ForeignKey('territorio.Fazenda', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     nome = models.CharField(max_length=100)
     rotulo = models.CharField(max_length=200, blank=True)
     unidade = models.CharField(max_length=50, blank=True)
@@ -114,8 +118,8 @@ class AtributoVersao(models.Model):
 class Feicao(models.Model):
     """Feição de uma versão, em SIRGAS 2000 (R5). `sub_area` nulo = fazenda inteira. Ausente fica ausente no jsonb (R10)."""
     versao = models.ForeignKey(VersaoCamada, on_delete=models.CASCADE, related_name='feicoes')
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
-    fazenda = models.ForeignKey('territorio.Fazenda', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     geometria = gis.GeometryField(srid=SRID_GUARDA)
     sub_area = models.ForeignKey('territorio.SubArea', null=True, blank=True, on_delete=models.PROTECT, related_name='+')
     valores = models.JSONField(default=dict)
@@ -127,8 +131,8 @@ class Feicao(models.Model):
 class EnvioCamada(models.Model):
     """Envio em prévia: linha temporária com expiração, não versão (R12). O arquivo temporário expira com ela."""
     criado_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
-    empresa = models.ForeignKey('territorio.Empresa', on_delete=models.PROTECT, related_name='+')
-    fazenda = models.ForeignKey('territorio.Fazenda', on_delete=models.PROTECT, related_name='+')
+    empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
+    fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     arquivo_temporario = models.CharField(max_length=300)
     expira_em = models.DateTimeField()
     criado_em = models.DateTimeField(auto_now_add=True)

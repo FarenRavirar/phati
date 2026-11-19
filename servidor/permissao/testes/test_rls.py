@@ -458,11 +458,11 @@ def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
     contexto = import_module('permissao.migrations.0004_contexto_assinado')
     uso = import_module('permissao.migrations.0009_uso_acao')  # a política do uso depende de `app_contexto()`
     pacote = import_module('pacote.migrations.0001_initial')  # idem a de `versao_pacote`
-    catalogo = import_module('catalogo.migrations.0002_rls_chave_composta')  # idem as do catálogo (008 T1.3)
+    catalogo = import_module('catalogo.migrations.0001_initial')  # idem as do catálogo (008 T1.3)
     with connection.schema_editor() as editor:
         pacote.desproteger(None, editor)
         uso.desligar_rls(None, editor)
-        catalogo.remover_politicas(None, editor)
+        catalogo._desfazer_politicas(None, editor)
         contexto.remover(None, editor)
         migracao.remover(None, editor)
     try:
@@ -488,7 +488,7 @@ def test_reverter_a_migracao_remove_politicas_funcoes_e_gatilhos_definer():
             contexto.criar(None, editor)
             uso.ligar_rls(None, editor)
             pacote.proteger(None, editor)
-            catalogo.politicas(None, editor)
+            catalogo._politicas(None, editor)
     assert _tabelas_sem_rls_nem_excecao() == set()
 
 

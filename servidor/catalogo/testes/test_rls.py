@@ -119,3 +119,52 @@ def test_insert_com_empresa_fora_do_escopo_falha_no_papel_app(mundo):
                          [str(mundo.x.pk)])
         fixar_contexto(consulta, '', str(mundo.x.pk), '', '')
         consulta.execute('INSERT INTO catalogo_tema (empresa_id, nome) VALUES (%s, %s)', [mundo.y.pk, 'fora'])
+
+
+def test_estudo_com_tema_de_outra_empresa_e_recusado(mundo):
+    # Revisão PR #66: o tema do estudo tem de ser da mesma empresa; FK composta (tema_id, empresa_id), sem gatilho.
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Estudo.objects.create(empresa=mundo.x, fazenda=mundo.f1, tema=mundo.tema_y, nome='tema de outra empresa')
+
+
+def test_estudo_com_fazenda_de_outra_empresa_e_recusado(mundo):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Estudo.objects.create(empresa=mundo.x, fazenda=mundo.fy, tema=mundo.tema_x, nome='fazenda de outra empresa')
+
+
+def test_estudo_com_tema_e_fazenda_da_mesma_empresa_e_aceito(mundo):
+    estudo = Estudo.objects.create(empresa=mundo.x, fazenda=mundo.f2, tema=mundo.tema_x, nome='coerente')
+    assert estudo.pk is not None
+
+
+def test_escopo_so_de_fazenda_le_o_tema_da_empresa(mundo):
+    # Revisão PR #66: `leitura_por_fazenda` no tema. Quem tem fazenda da empresa lê o tema dela.
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
+        fixar_contexto(consulta, '', '', str(mundo.x.pk), str(mundo.f1.pk))
+        consulta.execute('SELECT id FROM catalogo_tema')
+        visiveis = {linha[0] for linha in consulta.fetchall()}
+    assert visiveis == {mundo.tema_x.pk}
+
+
+def test_escopo_so_de_fazenda_nao_altera_nem_cria_tema(mundo):
+    # Só a leitura é por fazenda: a escrita segue a empresa. UPDATE some sem erro (0 linhas); INSERT é recusado.
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
+        fixar_contexto(consulta, '', '', str(mundo.x.pk), str(mundo.f1.pk))
+        consulta.execute("UPDATE catalogo_tema SET nome = 'mudado' WHERE id = %s", [mundo.tema_x.pk])
+        assert consulta.rowcount == 0
+    with pytest.raises(DatabaseError, match='row-level security'), transaction.atomic(using='app'), \
+            connections['app'].cursor() as consulta:
+        fixar_contexto(consulta, '', '', str(mundo.x.pk), str(mundo.f1.pk))
+        consulta.execute('INSERT INTO catalogo_tema (empresa_id, nome) VALUES (%s, %s)', [mundo.x.pk, 'novo'])
+    with connections['default'].cursor() as consulta:
+        consulta.execute('SELECT nome FROM catalogo_tema WHERE id = %s', [mundo.tema_x.pk])
+        assert consulta.fetchone()[0] == 'Solo'
+
+
+def test_select_related_do_tema_no_escopo_de_fazenda(mundo):
+    # O tema vem no mesmo JOIN do estudo: sem a leitura por fazenda, o INNER JOIN derrubaria o estudo.
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
+        fixar_contexto(consulta, '', '', str(mundo.x.pk), str(mundo.f1.pk))
+        estudos = list(Estudo.objects.using('app').select_related('tema'))
+    assert [e.pk for e in estudos] == [mundo.estudo_x1.pk]
+    assert estudos[0].tema.nome == 'Solo'

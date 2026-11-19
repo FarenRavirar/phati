@@ -19,7 +19,9 @@ ENV PATH=/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PROJ_NETWO
 # `libexpat1`: o `rio` (rasterio, wheel com GDAL embutido) não importa sem ela na imagem slim; medido com `ldd`, é a única que falta.
 # Aprovada pelo mantenedor em 2026-11-06 (pacote Debian da própria base, sem fixar versão).
 # `/pacotes` e `/camadas` (PHATI_PACOTES_DIR e PHATI_CAMADAS_DIR padrão) nascem do `aplicacao`; em outro caminho, os serviços `pacotes_dono` e `camadas_dono` do compose acertam o dono do volume.
-RUN apt-get update && apt-get install -y --no-install-recommends libexpat1 libgdal36 libgeos-c1t64 libproj25 && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 libgdal36 libgeos-c1t64 libproj25 \
+    && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home aplicacao \
     && mkdir /pacotes /camadas && chown aplicacao /pacotes /camadas
 COPY --from=construcao /venv /venv

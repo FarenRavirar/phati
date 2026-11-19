@@ -116,3 +116,37 @@ def test_feicao_com_sub_area_da_mesma_fazenda_e_sem_sub_area_sao_aceitas(cenario
     inteira = Feicao.objects.create(versao=versao, empresa=versao.empresa, fazenda=versao.fazenda, sub_area=None,
                                     geometria=GEOSGeometry(POLIGONO, srid=4674), valores={})
     assert da_fazenda.pk and inteira.pk  # sub_area nulo = fazenda inteira (R7)
+
+
+def test_tema_com_nome_repetido_na_empresa_e_recusado(cenario):
+    # Revisão PR #66: nome de tema único por empresa (tema_nome_unico_na_empresa).
+    Tema.objects.create(empresa=cenario.x, nome='Repetido')
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Tema.objects.create(empresa=cenario.x, nome='Repetido')
+
+
+def test_tema_com_mesmo_nome_em_outra_empresa_e_aceito(cenario):
+    Tema.objects.create(empresa=cenario.x, nome='Solo')
+    assert Tema.objects.create(empresa=cenario.y, nome='Solo').pk is not None
+
+
+def test_camada_com_nome_repetido_no_estudo_e_recusada(camada):
+    # Revisão PR #66: nome de camada único por estudo (camada_nome_unico_no_estudo).
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Camada.objects.create(estudo=camada.estudo, empresa=camada.empresa, fazenda=camada.fazenda, nome='Camada sintética')
+
+
+def test_camada_com_mesmo_nome_em_outro_estudo_e_aceita(cenario, camada):
+    outro = Estudo.objects.create(empresa=cenario.x, fazenda=cenario.f1, tema=camada.estudo.tema, nome='Outro estudo')
+    assert Camada.objects.create(estudo=outro, empresa=cenario.x, fazenda=cenario.f1, nome='Camada sintética').pk is not None
+
+
+def test_sistema_original_aceita_nome_longo_sem_teto_de_50(camada, pessoa):
+    # Revisão PR #66: sistema de origem é TextField; o antigo CharField(50) recusava nomes longos.
+    longo = 'Sistema de referência ' + 'x' * 180
+    versao = VersaoCamada.objects.create(
+        camada=camada, empresa=camada.empresa, fazenda=camada.fazenda, numero=1, sistema_original=longo,
+        hash_original='a' * 64, caminho_original='originais/x.bin', enviada_por=pessoa,
+    )
+    versao.refresh_from_db()
+    assert versao.sistema_original == longo
