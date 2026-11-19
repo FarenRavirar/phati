@@ -59,6 +59,10 @@ function criarVm({ comEnv = true } = {}) {
       'case "$*" in',
       '  *" build"*) [[ "${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"up -d --no-deps app"*) [[ "${DUBLE_APP_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"config --services"*) [[ "${DUBLE_CONFIG_FALHA:-0}" == 1 ]] && exit 1; echo banco; [[ "${DUBLE_SEM_EXTENSOES:-0}" == 1 ]] || echo banco_extensoes ;;',
+      '  *"run --rm banco_extensoes"*) [[ "${DUBLE_EXTENSOES_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"run --rm --no-deps camadas_dono"*) [[ "${DUBLE_CAMADAS_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"run --rm --no-deps pacotes_dono"*) [[ "${DUBLE_PACOTES_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"exec -T banco"*pg_restore*) [[ "${DUBLE_RESTAURA_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"ps -q banco"*) [[ "${DUBLE_BANCO:-1}" == 1 ]] && echo banco1 ;;',
       '  *"ps -q app"*) echo app1 ;;',
@@ -184,6 +188,113 @@ test('implantar: backup, build, parar o app, migrar, estáticos, app e só entã
     if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(v.vm, 'backups', dumps[0])).mode & 0o777, 0o600);
     assert.match(v.registro(), /OK/);
     assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar aplica o PostGIS antes de parar o app (volume que já existia não ganha a extensão no init)', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    const ordem = [' build', 'run --rm banco_extensoes', 'stop app', 'run --rm migracao'].map((t) => v.indice(t));
+    assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
+    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'o PostGIS tem de vir antes de parar o app');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar falha fechada se o PostGIS não puder ser aplicado: o app não para e o registro diz FALHOU', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_EXTENSOES_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /falhou no passo: extensoes/);
+    assert.equal(v.indice('stop app'), -1, 'o app não pode parar antes de a extensão estar aplicada');
+    assert.equal(v.indice('run --rm migracao'), -1);
+    assert.match(v.registro(), /FALHOU: falhou no passo: extensoes/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar roda o dono do volume das camadas antes de subir o app (o `up --no-deps` não dispara depends_on)', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    const ordem = ['run --rm --no-deps estaticos', 'run --rm --no-deps camadas_dono', 'up -d --no-deps app'].map((t) => v.indice(t));
+    assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
+    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'o chown das camadas tem de vir antes de subir o app');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar roda o dono do volume dos pacotes antes de subir o app (o `up --no-deps` não dispara depends_on)', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    const ordem = ['run --rm --no-deps estaticos', 'run --rm --no-deps pacotes_dono', 'up -d --no-deps app'].map((t) => v.indice(t));
+    assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
+    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'o chown dos pacotes tem de vir antes de subir o app');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar falha fechada se o dono do volume dos pacotes falhar: o app não sobe e o registro diz FALHOU', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_PACOTES_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /falhou no passo: pacotes-dono/);
+    assert.equal(v.indice('up -d --no-deps app'), -1, 'o app não pode subir sem o volume dos pacotes acertado');
+    assert.match(v.registro(), /FALHOU: falhou no passo: pacotes-dono/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar falha fechada se o dono do volume das camadas falhar: o app não sobe e o registro diz FALHOU', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_CAMADAS_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /falhou no passo: camadas-dono/);
+    assert.equal(v.indice('up -d --no-deps app'), -1, 'o app não pode subir sem o volume das camadas acertado');
+    assert.match(v.registro(), /FALHOU: falhou no passo: camadas-dono/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar com Compose sem banco_extensoes (commit antigo) pula o PostGIS, registra e segue a recuperação', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SEM_EXTENSOES: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /pulado: compose sem banco_extensoes/);
+    assert.match(v.registro(), /pulado: compose sem banco_extensoes/);
+    assert.equal(v.indice('run --rm banco_extensoes'), -1);
+    assert.ok(v.indice('stop app') > 0 && v.indice('up -d --no-deps app') > v.indice('stop app'));
+    assert.match(r.stdout, /implantado=/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar falha fechada se não der para listar os serviços do Compose: o app não para e o registro diz FALHOU', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_CONFIG_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /falhou no passo: extensoes/);
+    assert.equal(v.indice('stop app'), -1, 'sem a lista de serviços não se sabe se o PostGIS existe: o app não para');
+    assert.match(v.registro(), /FALHOU: falhou no passo: extensoes/);
   } finally {
     v.limpar();
   }

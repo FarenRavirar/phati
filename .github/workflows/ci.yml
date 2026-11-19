@@ -12,14 +12,6 @@ permissions:
 jobs:
   testes:
     runs-on: ubuntu-24.04
-    services:
-      banco:
-        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
-        env:
-          POSTGRES_PASSWORD: ${{ github.run_id }}-superusuario
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U postgres" --health-interval 5s --health-retries 10
     env:
       PHATI_CHAVE_SECRETA: chave-de-teste-ci
       PHATI_CHAVE_CPF: Y2hhdmUtZGUtdGVzdGUtY2ktMzItYnl0ZXMtLS0tLS0=
@@ -36,6 +28,16 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      # Banco com a imagem do repositório (D114: PostgreSQL 18 por digest + PostGIS 3.6.4). `services:` não builda imagem, então sobe-se o contêiner aqui.
+      - name: Banco
+        run: |
+          docker build -t phati-banco-ci banco
+          docker run -d --name phati-banco-ci -p 5432:5432 -e POSTGRES_PASSWORD="${{ github.run_id }}-superusuario" phati-banco-ci
+          for i in $(seq 1 30); do docker exec phati-banco-ci pg_isready -h 127.0.0.1 -U postgres && exit 0; sleep 2; done
+          exit 1
+      # GeoDjango (D114 b): GDAL, GEOS e PROJ do sistema. Ubuntu 24.04 traz GDAL 3.8.4, versão diferente da imagem do app (trixie, 3.10.3).
+      - name: Bibliotecas geoespaciais do sistema
+        run: sudo apt-get install -y --no-install-recommends libgdal34t64 libgeos-c1t64 libproj25
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"

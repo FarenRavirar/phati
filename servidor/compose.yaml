@@ -30,12 +30,13 @@ x-ambiente-app: &ambiente_app
   PHATI_GOOGLE_MONITORING_CREDENCIAL: ${PHATI_GOOGLE_MONITORING_CREDENCIAL:-}
   PHATI_GOOGLE_PROJETO_MONITORADO: ${PHATI_GOOGLE_PROJETO_MONITORADO:-}
   PHATI_PACOTES_DIR: ${PHATI_PACOTES_DIR:-/pacotes}
+  PHATI_CAMADAS_DIR: ${PHATI_CAMADAS_DIR:-/camadas}
   PHATI_PMTILES_BIN: ${PHATI_PMTILES_BIN:-pmtiles}
   PHATI_RIO_BIN: ${PHATI_RIO_BIN:-rio}
 
 services:
   banco:
-    image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81 # PostgreSQL 18
+    build: ./banco  # PostgreSQL 18 fixado por digest + PostGIS 3.6.4 (D114); imagem própria, não de terceiro
     environment:
       POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
@@ -65,6 +66,7 @@ services:
       - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # `popular_sintetico` instala o pacote de referência no ambiente de teste de navegador (004b T2.1a)
     depends_on:
       banco: {condition: service_healthy}
+      banco_extensoes: {condition: service_completed_successfully}
 
   # Publica os estáticos no volume que o nginx serve. Roda como root só para escrever no volume recém-criado.
   estaticos:
@@ -88,6 +90,20 @@ services:
       app: {condition: service_healthy}
       estaticos: {condition: service_completed_successfully}
 
+  # PostGIS em volume que já existia (o init só roda em volume vazio). Superusuário só aqui; app e migração não recebem a senha.
+  banco_extensoes:
+    build: ./banco
+    entrypoint: ["sh", "/atualizar-postgis.sh"]
+    environment:
+      PGHOST: banco
+      PGUSER: postgres
+      PGPASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
+      PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+    volumes:
+      - ./banco/atualizar-postgis.sh:/atualizar-postgis.sh:ro
+    depends_on:
+      banco: {condition: service_healthy}
+
   # Acerta o dono do volume dos pacotes no caminho configurado: volume novo nasce de root, e só `/pacotes` é preparado na imagem.
   # Roda como root uma vez; só muda o dono (nada é apagado nem recriado). 10001 = `aplicacao` (Dockerfile).
   pacotes_dono:
@@ -97,11 +113,20 @@ services:
     volumes:
       - pacotes:${PHATI_PACOTES_DIR:-/pacotes}
 
+  # Acerta o dono do volume das camadas no caminho configurado (008 D114 c), no molde de `pacotes_dono`.
+  camadas_dono:
+    build: .
+    user: "0"
+    command: chown 10001 ${PHATI_CAMADAS_DIR:-/camadas}
+    volumes:
+      - camadas:${PHATI_CAMADAS_DIR:-/camadas}
+
   app:
     build: .
     environment: *ambiente_app
     volumes:
       - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
+      - camadas:${PHATI_CAMADAS_DIR:-/camadas}  # originais e prévias de camada (008 D114 c); disco privado, sem rota pública
       # Arquivos fora do Git (texto dos termos e chave do Cloud Monitoring, 004b R13/R15): PHATI_TERMOS_ARQUIVO e
       # PHATI_GOOGLE_MONITORING_CREDENCIAL são caminhos DENTRO do contêiner, ex.: /segredos/google-monitoring.json.
       - ${PHATI_SEGREDOS_DIR:-./segredos}:/segredos:ro
@@ -110,8 +135,10 @@ services:
     depends_on:
       migracao: {condition: service_completed_successfully}
       pacotes_dono: {condition: service_completed_successfully}
+      camadas_dono: {condition: service_completed_successfully}
 
 volumes:
   dados_banco:
   estaticos:
   pacotes:
+  camadas:

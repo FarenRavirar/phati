@@ -101,6 +101,17 @@ fi
 
 passo=build
 compor build
+# PostGIS em volume que já existia (o init só roda em volume vazio). Antes de parar o app: se falhar, o app segue no ar.
+passo=extensoes
+# Commit antigo sem o serviço: pula e segue (a recuperação não pode parar por causa dele). `servicos=$(...)` fora do `if`
+# faz falha do Compose cair no ERR, não virar "pulado" (falha fechada).
+servicos="$(compor config --services)"
+if grep -qx banco_extensoes <<<"$servicos"; then
+  compor run --rm banco_extensoes
+else
+  echo "pulado: compose sem banco_extensoes"
+  registrar "pulado: compose sem banco_extensoes"
+fi
 passo=parar-app
 parado=1
 compor stop app
@@ -112,6 +123,11 @@ if [[ "$opcao" != "--sem-migracao" ]]; then
 fi
 passo=estaticos
 compor run --rm --no-deps estaticos
+# `up --no-deps app` não dispara o depends_on: os donos dos volumes de pacotes e camadas têm de rodar aqui, antes do app.
+passo=pacotes-dono
+compor run --rm --no-deps pacotes_dono
+passo=camadas-dono
+compor run --rm --no-deps camadas_dono
 passo=app
 compor up -d --no-deps app
 
