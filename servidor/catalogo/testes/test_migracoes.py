@@ -47,7 +47,8 @@ def _existe_politica(tabela, nome):
 def test_reverter_as_politicas_tira_os_grants_do_papel_app_e_a_rls():
     migracao = importlib.import_module('catalogo.migrations.0001_initial')
     # Antes: o grant e a RLS existem (medido, não presumido).
-    assert _app_tabela('catalogo_estudo', 'SELECT') and _app_sequencia('catalogo_estudo_id_seq')
+    assert _app_tabela('catalogo_estudo', 'SELECT')
+    assert _app_sequencia('catalogo_estudo_id_seq')
     assert _rls_ligado('catalogo_estudo')
     with transaction.atomic():
         with connection.schema_editor(atomic=False) as editor:
@@ -62,7 +63,8 @@ def test_reverter_as_politicas_tira_os_grants_do_papel_app_e_a_rls():
 
 def test_reverter_as_chaves_tira_as_fks_compostas_do_estudo_e_a_leitura_do_tema():
     migracao = importlib.import_module('catalogo.migrations.0001_initial')
-    assert _existe_restricao('estudo_tema_da_empresa') and _existe_restricao('estudo_fazenda_da_empresa')
+    assert _existe_restricao('estudo_tema_da_empresa')
+    assert _existe_restricao('estudo_fazenda_da_empresa')
     assert _existe_politica('catalogo_tema', 'leitura_por_fazenda')
     with transaction.atomic():
         with connection.schema_editor(atomic=False) as editor:

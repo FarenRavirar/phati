@@ -112,13 +112,13 @@ def test_fk_composta_aceita_a_combinacao_coerente(mundo):
 
 def test_insert_com_empresa_fora_do_escopo_falha_no_papel_app(mundo):
     # Escrita fora do escopo: a política também vale para INSERT (WITH CHECK implícito).
-    with pytest.raises(DatabaseError, match='row-level security'), transaction.atomic(using='app'), \
-            connections['app'].cursor() as consulta:
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
         consulta.execute("SELECT set_config('app.plataforma', '', true), set_config('app.empresas', %s, true), "
                          "set_config('app.empresas_de_fazendas', '', true), set_config('app.fazendas', '', true)",
                          [str(mundo.x.pk)])
         fixar_contexto(consulta, '', str(mundo.x.pk), '', '')
-        consulta.execute('INSERT INTO catalogo_tema (empresa_id, nome) VALUES (%s, %s)', [mundo.y.pk, 'fora'])
+        with pytest.raises(DatabaseError, match='row-level security'), transaction.atomic(using='app'):
+            consulta.execute('INSERT INTO catalogo_tema (empresa_id, nome) VALUES (%s, %s)', [mundo.y.pk, 'fora'])
 
 
 def test_estudo_com_tema_de_outra_empresa_e_recusado(mundo):
@@ -152,10 +152,10 @@ def test_escopo_so_de_fazenda_nao_altera_nem_cria_tema(mundo):
         fixar_contexto(consulta, '', '', str(mundo.x.pk), str(mundo.f1.pk))
         consulta.execute("UPDATE catalogo_tema SET nome = 'mudado' WHERE id = %s", [mundo.tema_x.pk])
         assert consulta.rowcount == 0
-    with pytest.raises(DatabaseError, match='row-level security'), transaction.atomic(using='app'), \
-            connections['app'].cursor() as consulta:
+    with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
         fixar_contexto(consulta, '', '', str(mundo.x.pk), str(mundo.f1.pk))
-        consulta.execute('INSERT INTO catalogo_tema (empresa_id, nome) VALUES (%s, %s)', [mundo.x.pk, 'novo'])
+        with pytest.raises(DatabaseError, match='row-level security'), transaction.atomic(using='app'):
+            consulta.execute('INSERT INTO catalogo_tema (empresa_id, nome) VALUES (%s, %s)', [mundo.x.pk, 'novo'])
     with connections['default'].cursor() as consulta:
         consulta.execute('SELECT nome FROM catalogo_tema WHERE id = %s', [mundo.tema_x.pk])
         assert consulta.fetchone()[0] == 'Solo'

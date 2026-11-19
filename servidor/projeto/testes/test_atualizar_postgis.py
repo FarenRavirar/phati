@@ -35,8 +35,10 @@ def test_cria_postgis_em_template1_e_no_banco_da_aplicacao(tmp_path, monkeypatch
     resultado, chamadas = _rodar(tmp_path, monkeypatch, nome='phati_x')
     assert resultado.returncode == 0, resultado.stderr
     assert len(chamadas) == 2
-    assert '-d template1' in chamadas[0] and '-d phati_x' in chamadas[1]
-    assert all('ON_ERROR_STOP=1' in c and 'CREATE EXTENSION IF NOT EXISTS postgis;' in c for c in chamadas)
+    assert '-d template1' in chamadas[0]
+    assert '-d phati_x' in chamadas[1]
+    assert all('ON_ERROR_STOP=1' in c for c in chamadas)
+    assert all('CREATE EXTENSION IF NOT EXISTS postgis;' in c for c in chamadas)
 
 
 def test_banco_padrao_e_phati_quando_a_variavel_nao_existe(tmp_path, monkeypatch):

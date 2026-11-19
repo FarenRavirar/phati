@@ -73,7 +73,8 @@ def test_ausente_nao_vira_zero_nos_valores_da_feicao(camada, pessoa):
     )
     feicao.refresh_from_db()
     assert feicao.valores['area_ha'] is None  # ausente guardado como ausente
-    assert feicao.valores['codigo'] == 0 and feicao.valores['texto'] == ''  # zero e vazio continuam distintos de ausente
+    assert feicao.valores['codigo'] == 0  # zero e vazio continuam distintos de ausente
+    assert feicao.valores['texto'] == ''
     assert 'nao_informado' not in feicao.valores
 
 
@@ -115,7 +116,8 @@ def test_feicao_com_sub_area_da_mesma_fazenda_e_sem_sub_area_sao_aceitas(cenario
                                        geometria=GEOSGeometry(POLIGONO, srid=4674), valores={})
     inteira = Feicao.objects.create(versao=versao, empresa=versao.empresa, fazenda=versao.fazenda, sub_area=None,
                                     geometria=GEOSGeometry(POLIGONO, srid=4674), valores={})
-    assert da_fazenda.pk and inteira.pk  # sub_area nulo = fazenda inteira (R7)
+    assert da_fazenda.pk  # sub_area nulo = fazenda inteira (R7)
+    assert inteira.pk
 
 
 def test_tema_com_nome_repetido_na_empresa_e_recusado(cenario):
