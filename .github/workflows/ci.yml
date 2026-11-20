@@ -60,6 +60,12 @@ jobs:
           echo "PHATI_BANCO_APP_SENHA=$PHATI_BANCO_APP_SENHA" >> "$GITHUB_ENV"
           PGPASSWORD="${{ github.run_id }}-superusuario" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f banco/papeis.sql
       - run: python manage.py check
+      # Imagem do nginx dos testes (`nginx -t` com `--pull never`): puxa a referência fixada em compose.yaml, sem copiar o digest.
+      - name: Imagem do nginx dos testes
+        run: |
+          ref="$(sed -n 's/^ *image: *\(nginx:[^ ]*\)$/\1/p' compose.yaml)"
+          [ "$(printf '%s\n' "$ref" | grep -c .)" -eq 1 ] || { echo "compose.yaml: esperava uma linha nginx" >&2; exit 1; }
+          docker pull "$ref"
       - run: python -m pytest -q --cov=. --cov-report=xml
       # D076: piso nas linhas alteradas da PR, sem piso global.
       - name: Cobertura das linhas alteradas

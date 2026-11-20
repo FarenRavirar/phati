@@ -146,7 +146,8 @@ def test_todos_os_servicos_de_implantacao_reiniciam_sozinhos():
 
 def test_app_verde_so_existe_na_implantacao_e_dev_sobe_so_o_azul():
     dev = _dev()
-    assert 'app_verde' not in dev and 'estaticos_verde' not in dev
+    assert 'app_verde' not in dev
+    assert 'estaticos_verde' not in dev
     assert 'app_azul' in dev
     assert dev['app_azul']['ports'][0]['published'] == '8000'
     assert 'app_verde' in _implantacao()
@@ -188,8 +189,10 @@ def test_volume_de_cfg_do_pgbouncer_e_somente_leitura_nas_instancias():
 def test_pgb_sem_tmpfs_o_socket_fica_na_camada_do_contener():
     # Caso negativo: tmpfs em /run/pgb quebrou o restart (mkdir negado após `docker start`, medido). Volta se alguém reintroduzir.
     for nome in ('pgb1', 'pgb2'):
-        assert '/run/pgb' not in _volumes(_implantacao()[nome]), nome
-        assert not any(isinstance(v, dict) and v.get('tmpfs') for v in _volumes(_implantacao()[nome]).values()), nome
+        servico = _implantacao()[nome]
+        assert 'tmpfs' not in servico, nome
+        assert '/run/pgb' not in _volumes(servico), nome
+        assert all(volume.get('type') != 'tmpfs' for volume in _volumes(servico).values()), nome
 
 
 def test_healthcheck_pgb_e_liveness_do_socket_da_propria_instancia():

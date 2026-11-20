@@ -3,8 +3,8 @@
 Analisa o ARQUIVO da migração por AST e por tokens. Nunca importa nem executa o arquivo: o conteúdo é entrada
 hostil. Falha fechada: o que não se consegue analisar sai com rc 2, nunca aprovado.
 
-Uso: python -m comum.compat_migracao <arquivo>...
-Códigos: 0 todos compatíveis; 1 alguma reprovada; 2 erro de uso, leitura ou sintaxe; 3 só reprovadas marcadas com
+Uso: python -m comum.compat_migracao <arquivo>...  (só `.py` dentro do diretório de trabalho; o resto sai com rc 2)
+Códigos: 0 todos compatíveis; 1 alguma reprovada; 2 erro de uso, leitura, sintaxe ou caminho recusado; 3 só reprovadas marcadas com
 `# bluegreen: incompativel-por-design` (caminho antigo, R5). Precedência: 2 > 1 > 3 > 0.
 
 Limite conhecido: AddConstraint é aprovado; uma constraint nova pode recusar INSERT da versão anterior. Não checado
@@ -19,7 +19,7 @@ import re
 import sys
 import tokenize
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 MARCADOR = '# bluegreen: incompativel-por-design'
@@ -50,8 +50,11 @@ PADROES_SQL = (
     (re.compile(r'\bDROP\b', re.IGNORECASE), 'DROP'),
     (re.compile(r'\bRENAME\b', re.IGNORECASE), 'RENAME'),
     (re.compile(r'\bTRUNCATE\b', re.IGNORECASE), 'TRUNCATE'),
-    (re.compile(r'\bSET\s+NOT\s+NULL\b', re.IGNORECASE), 'SET NOT NULL'),
+    (re.compile(r'\bSET\s+NOT\s+NULL\b', re.IGNORECASE), 'NOT NULL em coluna existente'),
     (re.compile(r'\bALTER\b[^;]*\bTYPE\b', re.IGNORECASE), 'ALTER ... TYPE'),
+    # Coluna nova NOT NULL sem DEFAULT: o INSERT da versão anterior não informa a coluna e quebra.
+    (re.compile(r'\bADD\b(?!\s+CONSTRAINT\b)(?![^;]*\bDEFAULT\b)[^;]*\bNOT\s+NULL\b', re.IGNORECASE),
+     'ADD COLUMN NOT NULL sem DEFAULT'),
 )
 PADRAO_DELETE = re.compile(r'\bDELETE\s+FROM\b', re.IGNORECASE)
 PADRAO_WHERE = re.compile(r'\bWHERE\b', re.IGNORECASE)
@@ -95,8 +98,10 @@ def analisar_arquivo(caminho: str | Path) -> Resultado:
     dados = _ler(arquivo)
     try:
         arvore = ast.parse(dados, filename=arquivo)
+        # ast.parse não pega tudo (ex.: keyword repetida); compile só gera código, não executa o arquivo.
+        compile(dados, arquivo, 'exec', dont_inherit=True)
         marcado = _tem_marcador(dados)
-    except (SyntaxError, ValueError, RecursionError, MemoryError, tokenize.TokenError, UnicodeError) as erro:
+    except (SyntaxError, ValueError, RecursionError, MemoryError, tokenize.TokenError) as erro:  # UnicodeError é ValueError
         raise ErroAnalise(f'sintaxe ou codificação inválida: {erro}') from erro
 
     classe = _classe_migration(arvore)
@@ -105,15 +110,33 @@ def analisar_arquivo(caminho: str | Path) -> Resultado:
     else:
         inicial = Path(arquivo).name.startswith('0001_') or _marca_inicial(classe)
         funcoes = {no.name: no for no in arvore.body if isinstance(no, ast.FunctionDef)}
-        ctx = _Ctx(arquivo, inicial, funcoes, _criados(arvore), _constantes(arvore))
+        ctx = _Ctx(arquivo, inicial, funcoes, frozenset(), _constantes(arvore))
         violacoes = _analisar_classe(classe, arvore, ctx)
     return Resultado(arquivo, marcado, tuple(violacoes))
 
 
-def _criados(arvore: ast.Module) -> frozenset[str]:
-    nomes = (_texto(_arg(no, 0, 'name')) for no in ast.walk(arvore)
-             if isinstance(no, ast.Call) and _nome_chamada(no) == 'CreateModel')
-    return frozenset(nome for nome in nomes if nome is not None)
+def _tabelas_criadas(no: ast.expr) -> set[str]:
+    # Só o que o banco cria de fato: CreateModel de topo ou em database_operations. state_operations não conta.
+    if not isinstance(no, ast.Call):
+        return set()
+    if _nome_chamada(no) == 'CreateModel':
+        nome = _texto(_arg(no, 0, 'name'))
+        return {nome} if nome is not None else set()
+    if _nome_chamada(no) == 'SeparateDatabaseAndState':
+        operacoes = _arg(no, 0, 'database_operations')
+        if isinstance(operacoes, (ast.List, ast.Tuple)):
+            return set().union(*(_tabelas_criadas(elemento) for elemento in operacoes.elts))
+    return set()
+
+
+def _analisar_sequencia(elementos: list[ast.expr], ctx: _Ctx) -> list[Violacao]:
+    # Cada operação vê só as tabelas criadas antes dela na ordem do arquivo.
+    violacoes: list[Violacao] = []
+    criados: set[str] = set()
+    for elemento in elementos:
+        violacoes += _analisar_elemento(elemento, replace(ctx, criados=frozenset(criados)))
+        criados |= _tabelas_criadas(elemento)
+    return violacoes
 
 
 def _constantes(arvore: ast.Module) -> dict[str, ast.expr]:
@@ -129,7 +152,8 @@ def _constantes(arvore: ast.Module) -> dict[str, ast.expr]:
 
 
 def _literal(no: ast.expr) -> bool:
-    if isinstance(no, (ast.List, ast.Tuple)):
+    # Lista fica de fora: é mutável (`LISTA.append(...)` não aparece como reatribuição).
+    if isinstance(no, ast.Tuple):
         return all(_literal(elemento) for elemento in no.elts)
     return isinstance(no, ast.Constant)
 
@@ -181,10 +205,7 @@ def _analisar_classe(classe: ast.ClassDef, arvore: ast.Module, ctx: _Ctx) -> lis
     if len(referencias) != 1 or not isinstance(valor, (ast.List, ast.Tuple)):
         texto = 'operations ausente, montada ou alterada por código: não analisável'
         return [Violacao(ctx.arquivo, classe.lineno, '(operations)', f'(operations): {texto}')]
-    violacoes: list[Violacao] = []
-    for elemento in valor.elts:
-        violacoes += _analisar_elemento(elemento, ctx)
-    return violacoes
+    return _analisar_sequencia(list(valor.elts), ctx)
 
 
 def _atribui(no: ast.stmt, nome: str) -> bool:
@@ -299,15 +320,12 @@ def _runpython(no: ast.Call, ctx: _Ctx) -> list[Violacao]:
 
 def _separate(no: ast.Call, ctx: _Ctx) -> list[Violacao]:
     # Só database_operations é analisado; state_operations mexe só no estado do Django.
-    operacoes = _arg(no, 1, 'database_operations')
+    operacoes = _arg(no, 0, 'database_operations')  # Django: __init__(database_operations=None, state_operations=None)
     if operacoes is None or (isinstance(operacoes, ast.Constant) and operacoes.value is None):
         return []
     if not isinstance(operacoes, (ast.List, ast.Tuple)):
         return [_viol(ctx, no, 'SeparateDatabaseAndState', 'database_operations não literal: não analisável')]
-    violacoes: list[Violacao] = []
-    for elemento in operacoes.elts:
-        violacoes += _analisar_elemento(elemento, ctx)
-    return violacoes
+    return _analisar_sequencia(list(operacoes.elts), ctx)
 
 
 def _arg(no: ast.Call, posicao: int, nome: str) -> ast.expr | None:
@@ -348,16 +366,31 @@ def _codigo(resultado: Resultado) -> int:
     return RC_FORA_DO_FLUXO if resultado.marcado else RC_REPROVADA
 
 
+def _motivo_recusa(caminho: Path) -> str | None:
+    # CLI de dev/CI: só analisa `.py` dentro do diretório de trabalho, para não ler caminho arbitrário do disco.
+    if caminho.suffix != '.py':
+        return 'só arquivo .py é analisado'
+    if not caminho.is_relative_to(Path.cwd().resolve()):
+        return 'fora do diretório de trabalho'
+    return None
+
+
 def principal(argumentos: list[str]) -> int:
     if not argumentos:
         print('uso: python -m comum.compat_migracao <arquivo>...', file=sys.stderr)
         return RC_ERRO
     codigos = []
     for arquivo in argumentos:
+        caminho = Path(arquivo).resolve()
+        motivo = _motivo_recusa(caminho)
+        if motivo is not None:
+            print(f'ERRO {arquivo}: {motivo}', file=sys.stderr)
+            codigos.append(RC_ERRO)
+            continue
         try:
-            resultado = analisar_arquivo(arquivo)
+            resultado = analisar_arquivo(caminho)
         except ErroAnalise as erro:
-            print(f'ERRO {arquivo}: {erro}', file=sys.stderr)
+            print(f'ERRO {caminho}: {erro}', file=sys.stderr)
             codigos.append(RC_ERRO)
             continue
         codigos.append(_codigo(resultado))

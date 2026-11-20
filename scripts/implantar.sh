@@ -24,18 +24,29 @@ dir="${PHATI_DIR:-/opt/phati}"
 ref="${PHATI_REF:-origin/main}"
 docker="${DOCKER:-docker}"
 registro="$dir/implantacoes.log"
-alvo_dir="${PHATI_ALVO_DIR:-$dir/alvo}"
+# Ordem: ambiente, `.env` da VM, padrão $dir/alvo. O compose exige a variável (`${PHATI_ALVO_DIR:?}`), e o ambiente vence o `.env`.
+alvo_dir="${PHATI_ALVO_DIR:-}"
+[[ -n "$alvo_dir" ]] || alvo_dir="$(grep -m1 '^PHATI_ALVO_DIR=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+alvo_dir="${alvo_dir:-$dir/alvo}"
 alvo_conf="$alvo_dir/alvo.conf"
 # Estado da troca no registro: origem e destino entram no fim da linha; `antes_da_troca` diz se a ativa ainda não foi tocada.
 origem=""
 destino=""
 antes_da_troca=1
+# Valor do alvo.conf anterior à troca (`trocar` preenche), para reverter quando a gravação de `ativa` falha.
+alvo_tinha=0
+alvo_antigo=""
 ativa=""
 host=""
 estado=""
 # Migração (R4, R5): `migracao` entra no fim do registro; `ativa_parada` vale só entre a parada da ativa e a troca bem-sucedida.
 migracao=""
 ativa_parada=0
+# `esquema_migrado` vale desde antes da migração fora do fluxo: falha depois dela não sabe se o banco já mudou (conta como mudou).
+esquema_migrado=0
+# App legado da 006 (sem `ativa`): `legado_ids` são os contêineres `app` do projeto, que servem a versão anterior.
+legado=0
+legado_ids=""
 backup_arquivo=""
 # X3c: `anterior` é o SHA que estava no clone; `repo_mudou` vale depois do checkout do SHA novo (erro() devolve o clone).
 anterior=""
@@ -50,15 +61,21 @@ registrar() {
 }
 # Comando exato para subir a ativa de volta (usado quando ela foi parada e a implantação falhou depois).
 comando_subir_ativa() {
-  echo "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
+  if [[ -z "$ativa" ]]; then echo "$docker start ${legado_ids//$'\n'/ }"; return; fi
+  echo "PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
 }
 erro() {
   echo "ERRO: $*" >&2
-  if [[ -n "$ativa" && "$antes_da_troca" == 1 && "$ativa_parada" == 0 ]]; then
+  # Dois casos. Falha depois da migração fora do fluxo: o banco já mudou, então nada de subir a versão anterior às cegas.
+  # Falha antes disso: a pilha que servia (ou o app legado) segue, e o aviso diz como subi-la se foi parada.
+  if [[ "$esquema_migrado" == 1 ]]; then
+    echo "AVISO: o esquema JÁ foi migrado pela migração fora do fluxo; a pilha da versão anterior (${ativa:-app legado}) pode não ser compatível com ele. Não há restauração automática: recupere à mão um par compatível (código e esquema) a partir do backup verificado ($backup_arquivo)." >&2
+  elif [[ "$ativa_parada" == 1 ]]; then
+    echo "AVISO: a pilha ativa (${ativa:-app legado}) foi parada para a migração fora do fluxo e NÃO serve. Suba com: $(comando_subir_ativa)" >&2
+  elif [[ "$antes_da_troca" == 1 && -n "$ativa" ]]; then
     echo "AVISO: a pilha ativa ($ativa) segue servindo." >&2
-  fi
-  if [[ "$ativa_parada" == 1 ]]; then
-    echo "AVISO: a pilha ativa ($ativa) foi parada para a migração fora do fluxo e NÃO serve. Suba com: $(comando_subir_ativa)" >&2
+  elif [[ "$antes_da_troca" == 1 && "$legado" == 1 ]]; then
+    echo "AVISO: o app legado da 006 segue servindo." >&2
   fi
   # X3c: o clone não pode ficar no SHA que falhou (uma reinicialização da VM leria o default.conf dele). Só volta ao SHA que
   # estava no ar; falha do checkout é avisada e não troca a mensagem do erro original.
@@ -144,21 +161,26 @@ if [[ -f "$dir/ativa" ]]; then
   ativa="$(cat "$dir/ativa")"
   [[ "$ativa" == azul || "$ativa" == verde ]] || erro "$dir/ativa tem valor inválido"
 fi
-outra() { if [[ "$1" == azul ]]; then echo verde; else echo azul; fi; }
+outra() { local atual="$1"; if [[ "$atual" == azul ]]; then echo verde; else echo azul; fi; }
 if [[ -n "$ativa" ]]; then cand="$(outra "$ativa")"; else cand=azul; fi
 primeira=0
 [[ -n "$ativa" ]] || primeira=1
+# X1: sem `ativa`, um contêiner `app` do projeto é o legado da 006, que serve a versão anterior (vale como base da verificação).
+if [[ -z "$ativa" ]]; then
+  legado_ids="$("$docker" ps -aq --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME --filter label=com.docker.compose.service=app)"
+  [[ -z "$legado_ids" ]] || legado=1
+fi
 
 # Grava $2 em $1 de forma atômica: temporário no mesmo diretório e `mv`, para ninguém ler a escrita pela metade.
 gravar_atomico() {
-  local tmp
-  tmp="$(mktemp "$(dirname "$1")/.tmp.XXXXXX")"
-  printf '%s\n' "$2" > "$tmp" || { rm -f "$tmp"; return 1; }
+  local tmp destino="$1" conteudo="$2"
+  tmp="$(mktemp "$(dirname "$destino")/.tmp.XXXXXX")"
+  printf '%s\n' "$conteudo" > "$tmp" || { rm -f "$tmp"; return 1; }
   chmod 644 "$tmp"
-  mv -f "$tmp" "$1"
+  mv -f "$tmp" "$destino"
 }
 # Mesmo contrato de `servidor/nginx/alvo/alvo.conf`: `$alvo` é o app e `$pilha` o volume de estáticos.
-conteudo_alvo() { printf 'set $alvo app_%s;\nset $pilha %s;' "$1" "$1"; }
+conteudo_alvo() { local cor="$1"; printf 'set $alvo app_%s;\nset $pilha %s;' "$cor" "$cor"; }
 
 # nginx -t e reload. Sem `ativa` não há nginx com o `alvo.conf` novo (o da 006 não monta o diretório): sobe o contêiner, que
 # lê o alvo.conf ao iniciar. Com `ativa`, valida e recarrega o que já está de pé.
@@ -182,10 +204,10 @@ verificar_nginx() {
 }
 # Espera a saúde por laço de `docker inspect`. Não usa `up --wait`: ele espera o projeto inteiro, não o serviço.
 esperar_saude() {
-  local _ id
+  local _ id svc="$1"
   estado=""
   for _ in $(seq "${PHATI_TENTATIVAS:-60}"); do
-    id="$(compor ps -q "$1" 2>/dev/null || true)"
+    id="$(compor ps -q "$svc" 2>/dev/null || true)"
     [[ -z "$id" ]] || estado="$("$docker" inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null || true)"
     [[ "$estado" == healthy ]] && return 0
     sleep "${PHATI_ESPERA:-2}"
@@ -193,15 +215,15 @@ esperar_saude() {
   return 1
 }
 saudavel_agora() {
-  local id
-  id="$(compor ps -q "$1" 2>/dev/null || true)"
+  local id svc="$1"
+  id="$(compor ps -q "$svc" 2>/dev/null || true)"
   [[ -n "$id" && "$("$docker" inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null || true)" == healthy ]]
 }
 # Comando completo de recuperação (usado quando a reversão também falha). Vazio = nenhuma pilha servia antes.
 comando_recuperacao() {
-  local grava="rm -f $alvo_conf"
-  [[ -z "$1" ]] || grava="printf 'set \$alvo app_$1;\\nset \$pilha $1;\\n' > $alvo_conf"
-  echo "$grava && COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload"
+  local ativa_antes="$1" grava="rm -f $alvo_conf"
+  [[ -z "$ativa_antes" ]] || grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $alvo_conf"
+  echo "$grava && PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload"
 }
 
 # Devolve o alvo.conf anterior ($2, se $1 = 1) e recarrega se o nginx já tinha recarregado o destino novo ($3 = 1). Sai com erro.
@@ -217,22 +239,31 @@ reverter() {
     erro "$motivo; alvo.conf revertido, mas o nginx não recarregou; recupere com: $recuperar"
   fi
   if [[ -n "$ativa" ]]; then
+    if [[ "$esquema_migrado" == 1 ]]; then
+      erro "$motivo; alvo.conf revertido para app_$ativa, mas o esquema já foi migrado: não subo a versão anterior às cegas (ver AVISO)"
+    fi
+    if [[ "$ativa_parada" == 1 ]]; then
+      erro "$motivo; alvo.conf revertido para app_$ativa, mas ela foi parada: suba com $(comando_subir_ativa)"
+    fi
     erro "$motivo; alvo.conf revertido para app_$ativa, que segue servindo"
   fi
   erro "$motivo; alvo.conf removido (nenhuma pilha servia antes)"
 }
 
 # Troca o destino do nginx para a cor $1: grava o alvo.conf, confere `nginx -t`, recarrega e verifica /saude pelo nginx.
+# O alvo.conf anterior fica em `alvo_tinha`/`alvo_antigo` para `ativa`, gravada logo depois, reverter junto se falhar.
 trocar() {
-  local novo="$1" tinha=0 antigo=""
+  local novo="$1"
   antes_da_troca=0
-  if [[ -f "$alvo_conf" ]]; then tinha=1; antigo="$(cat "$alvo_conf")"; fi
+  alvo_tinha=0
+  alvo_antigo=""
+  if [[ -f "$alvo_conf" ]]; then alvo_tinha=1; alvo_antigo="$(cat "$alvo_conf")"; fi
   gravar_atomico "$alvo_conf" "$(conteudo_alvo "$novo")"
   if ! nginx_recarrega; then
-    reverter "$tinha" "$antigo" 0 "nginx -t ou reload falhou"
+    reverter "$alvo_tinha" "$alvo_antigo" 0 "nginx -t ou reload falhou"
   fi
   if ! verificar_nginx; then
-    reverter "$tinha" "$antigo" 1 "/saude pelo nginx falhou depois do reload"
+    reverter "$alvo_tinha" "$alvo_antigo" 1 "/saude pelo nginx falhou depois do reload"
   fi
 }
 
@@ -242,7 +273,8 @@ if [[ -n "$ativa" && "$(cat "$dir/pilha-$cand.sha" 2>/dev/null || true)" == "$sh
   origem="$ativa"
   destino="$cand"
   trocar "$cand"
-  gravar_atomico "$dir/ativa" "$cand"
+  # Se gravar `ativa` falha, o alvo.conf já aponta a candidata: reverte o alvo.conf e avisa (senão os dois estados divergem).
+  gravar_atomico "$dir/ativa" "$cand" || reverter "$alvo_tinha" "$alvo_antigo" 1 "falha ao gravar ativa=$cand"
   migracao=pulada
   trap - ERR
   registrar "OK"
@@ -310,8 +342,9 @@ if [[ "$opcao" != "--sem-migracao" ]]; then
   }
   # R4 e R5: com `ativa`, a versão anterior segue de pé e a migração tem de ser compatível com ela. Sem `ativa` (primeira
   # implantação) ninguém serve a anterior: nada a verificar.
-  if [[ -n "$ativa" ]]; then
-    base="$(cat "$dir/pilha-$ativa.sha" 2>/dev/null || true)"
+  if [[ -n "$ativa" || "$legado" == 1 ]]; then
+    # Base: a pilha ativa; sem ela, o legado da 006 serve o SHA que estava no clone antes deste checkout (`anterior`).
+    if [[ -n "$ativa" ]]; then base="$(cat "$dir/pilha-$ativa.sha" 2>/dev/null || true)"; else base="$anterior"; fi
     git cat-file -e "$base^{commit}" 2>/dev/null || erro "base da verificação de migração ($base) não existe no repositório: não aprovo calado"
     # -z e array NUL: nome de arquivo hostil (espaço, `;`, `$(...)`, quebra de linha) não vira shell nem quebra a lista.
     lista="$(mktemp)"
@@ -337,11 +370,13 @@ if [[ "$opcao" != "--sem-migracao" ]]; then
       if [[ "$migracao" == compativel || "$migracao" == fora-do-fluxo ]]; then exigir_backup; fi
       if [[ "$migracao" == fora-do-fluxo ]]; then
         echo "AVISO: migração incompatível por design (PHATI_ACEITO_PARADA=1): o site FICA FORA DO AR até a candidata subir." >&2
-        compor stop app_"$ativa"
+        if [[ -n "$ativa" ]]; then compor stop app_"$ativa"; else "$docker" stop $legado_ids >/dev/null; fi
         ativa_parada=1
       fi
     fi
   fi
+  # Migração fora do fluxo: a partir daqui o banco pode ter mudado; `erro()` então não manda subir a versão anterior.
+  if [[ "$migracao" == fora-do-fluxo ]]; then esquema_migrado=1; fi
   compor run --rm migracao
 fi
 # `up --no-deps` não dispara o depends_on: os donos dos volumes de pacotes e camadas rodam aqui, antes da candidata.
@@ -363,7 +398,7 @@ passo=troca
 origem="${ativa:-nenhuma}"
 destino="$cand"
 trocar "$cand"
-gravar_atomico "$dir/ativa" "$cand"
+gravar_atomico "$dir/ativa" "$cand" || reverter "$alvo_tinha" "$alvo_antigo" 1 "falha ao gravar ativa=$cand"
 ativa_parada=0
 passo=nginx-e-tunel
 # A pilha anterior fica de pé (rollback instantâneo). O nginx já recarregou; o `up` só garante o cloudflared.

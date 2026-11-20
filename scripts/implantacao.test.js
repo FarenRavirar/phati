@@ -54,12 +54,15 @@ function criarVm({ comEnv = true } = {}) {
   // Nome do projeto Compose que cada chamada ao Docker viu (`COMPOSE_PROJECT_NAME` do script): prova o PHATI_PROJETO (X4a).
   const projetos = path.join(raiz, 'projetos.log');
   const visto = path.join(raiz, 'alvo-visto.log');
+  // PHATI_ALVO_DIR que cada chamada ao Docker recebeu (X4: o backup e a restauração resolvem o caminho sem a variável).
+  const alvoVars = path.join(raiz, 'alvo-vars.log');
   const dublê = path.join(raiz, 'docker-dubles.sh');
   fs.writeFileSync(
     dublê,
     [
       '#!/usr/bin/env bash',
       'echo "$*" >> "$CHAMADAS"',
+      'echo "${PHATI_ALVO_DIR:-sem-alvo}" >> "$ALVO_VARS"',
       'echo "${COMPOSE_PROJECT_NAME:-sem-projeto}" >> "$PROJETOS"',
       'case "$*" in',
       '  *"comum.compat_migracao"*) printf "[%s]\\n" "$@" > "$ARGV"; [[ -n "${DUBLE_COMPAT_SAIDA:-}" ]] && printf "%s\\n" "$DUBLE_COMPAT_SAIDA"; exit "${DUBLE_COMPAT_RC:-0}" ;;',
@@ -87,6 +90,7 @@ function criarVm({ comEnv = true } = {}) {
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
       '  *inspect*app_azul*) echo "${DUBLE_SAUDE_AZUL:-${DUBLE_SAUDE:-healthy}}" ;;',
       '  *inspect*app_verde*) echo "${DUBLE_SAUDE_VERDE:-${DUBLE_SAUDE:-healthy}}" ;;',
+      '  *inspect*pgb21*) echo "${DUBLE_SAUDE_PGB2:-${DUBLE_SAUDE_PGB:-healthy}}" ;;',
       '  *inspect*pgb*) echo "${DUBLE_SAUDE_PGB:-healthy}" ;;',
       '  "volume inspect"*) [[ "${DUBLE_VOLUME:-0}" == 1 ]] || exit 1 ;;',
       'esac',
@@ -124,6 +128,7 @@ function criarVm({ comEnv = true } = {}) {
     PHATI_TENTATIVAS: '2',
     PHATI_ALVO_DIR: unix(path.join(vm, 'alvo')),
     ALVO_DIR: unix(path.join(vm, 'alvo')),
+    ALVO_VARS: unix(alvoVars),
     VISTO: unix(visto),
     PGB_MARCA: unix(path.join(raiz, 'pgb-no-ar')),
     ARGV: unix(path.join(vm, 'compat-argv.log')),
@@ -156,7 +161,8 @@ function criarVm({ comEnv = true } = {}) {
   const lerArquivo = (nome) => fs.readFileSync(path.join(vm, nome), 'utf8');
   const contarChamadas = (trecho) => lerChamadas().filter((linha) => linha.includes(trecho)).length;
   const lerProjetos = () => (fs.existsSync(projetos) ? fs.readFileSync(projetos, 'utf8').split('\n').filter(Boolean) : []);
-  return { vm, repo, promovido, foraDeMain, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
+  const lerAlvoVars = () => (fs.existsSync(alvoVars) ? fs.readFileSync(alvoVars, 'utf8').split('\n').filter(Boolean) : []);
+  return { vm, repo, promovido, foraDeMain, lerAlvoVars, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
 }
 let contadorPromocao = 0;
 
@@ -962,7 +968,7 @@ test('falha ao reverter: a mensagem traz o comando de recuperação completo', (
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /alvo.conf revertido, mas o nginx não recarregou; recupere com:/);
-    const recuperacao = `printf 'set $alvo app_azul;\\nset $pilha azul;\\n' > ${unix(v.alvo)}/alvo.conf && COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload`;
+    const recuperacao = `printf 'set $alvo app_azul;\\nset $pilha azul;\\n' > ${unix(v.alvo)}/alvo.conf && PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload`;
     assert.ok(r.stderr.includes(recuperacao), r.stderr);
   } finally {
     v.limpar();
@@ -1030,7 +1036,7 @@ test('alvo.conf: o nginx sempre vê o arquivo inteiro e nenhum temporário sobra
     // Cada `nginx -t` do dublê grava o alvo.conf que o nginx leria naquele instante, separado por `--`.
     const blocos = fs.readFileSync(v.visto, 'utf8').split('--\n').slice(0, -1);
     assert.ok(blocos.length >= 2, `poucas leituras: ${blocos.length}`);
-    for (const bloco of blocos) assert.match(bloco, /^set \$alvo app_(azul|verde);\nset \$pilha (azul|verde);\n$/, bloco);
+    for (const bloco of blocos) assert.match(bloco, /^set \$alvo app_(azul|verde);\nset \$pilha \1;\n$/, bloco);
     assert.deepEqual(fs.readdirSync(v.alvo), ['alvo.conf'], 'sem temporário sobrando');
   } finally {
     v.limpar();
@@ -1127,6 +1133,7 @@ test('PgBouncer parado: sobe com o auth antes e espera pgb1 e pgb2 saudáveis', 
   try {
     const r = v.rodar(IMPLANTAR, [v.promovido]);
     assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('run --rm --no-deps pgb_auth') >= 0, 'o auth tem de rodar');
     assert.ok(v.indice('run --rm --no-deps pgb_auth') < v.indice('up -d --no-deps pgb_ns pgb1 pgb2'));
     assert.equal(v.contarChamadas('up -d --no-deps pgb_ns pgb1 pgb2'), 1);
   } finally {
@@ -1303,7 +1310,7 @@ test('migração fora do fluxo (rc 3) com PHATI_ACEITO_PARADA=1: para a ativa an
   }
 });
 
-test('migração fora do fluxo: falha depois da parada diz que a ativa foi parada e o comando exato para subi-la', () => {
+test('X2: migração fora do fluxo: falha depois da migração diz que o esquema já mudou e não manda subir a ativa', () => {
   const v = criarVm();
   try {
     assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
@@ -1312,8 +1319,8 @@ test('migração fora do fluxo: falha depois da parada diz que a ativa foi parad
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_SAUDE_VERDE: 'unhealthy' });
     assert.equal(r.status, 1);
     assert.equal(v.contarChamadas('stop app_azul'), 1);
-    assert.match(r.stderr, /a pilha ativa \(azul\) foi parada para a migração fora do fluxo e NÃO serve/);
-    assert.ok(r.stderr.includes(`up -d --no-deps app_azul`), r.stderr);
+    assert.match(r.stderr, /o esquema JÁ foi migrado pela migração fora do fluxo/);
+    assert.equal(r.stderr.includes('Suba com'), false, r.stderr);
     assert.match(v.registro(), /FALHOU: a candidata app_verde não ficou saudável/);
   } finally {
     v.limpar();
@@ -1392,6 +1399,168 @@ test('backup ausente com migração a verificar: erro antes da migração', () =
     assert.match(r.stderr, /backup verificado ausente ou vazio: a migração não roda/);
     assert.equal(v.indice('run --rm migracao'), -1);
     assert.equal(v.indice('pg_dump'), -1);
+  } finally {
+    v.limpar();
+  }
+});
+
+// X1 a X6 da revisão da PR #70: cada caso feliz vem com um infeliz (recusa, falha ou ausência).
+test('X1: sem ativa e com app legado da 006, migração incompatível sem PHATI_ACEITO_PARADA é recusada antes de migrar', () => {
+  const v = criarVm();
+  try {
+    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_ORFAO: '1', DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /migração incompatível por design/);
+    assert.equal(v.contarChamadas('comum.compat_migracao'), 1, 'o legado conta como versão anterior servindo: a verificação roda');
+    assert.equal(v.indice('run --rm migracao'), -1);
+    assert.equal(v.indice('stop orfao1'), -1);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X1: app legado da 006 com migração compatível segue: verifica, migra, sobe a candidata e registra OK', () => {
+  const v = criarVm();
+  try {
+    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_ORFAO: '1', DUBLE_COMPAT_RC: '0' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('comum.compat_migracao') < v.indice('run --rm migracao'), 'a verificação vem antes da migração');
+    assert.match(v.registro(), / OK origem=nenhuma destino=azul migracao=compativel\n/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X1: legado da 006 com migração fora do fluxo para o contêiner antes de migrar; falha depois diz que o esquema já mudou', () => {
+  const v = criarVm();
+  try {
+    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_ORFAO: '1', DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_SAUDE_AZUL: 'unhealthy' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(v.contarChamadas('stop orfao1'), 1, 'o legado é parado, não o app_azul');
+    const ordem = ['stop orfao1', 'run --rm migracao', 'up -d --no-deps app_azul'].map((t) => v.indice(t));
+    assert.ok(ordem[0] >= 0 && ordem[0] < ordem[1] && ordem[1] < ordem[2], `ordem: ${ordem}`);
+    assert.match(r.stderr, /o esquema JÁ foi migrado/);
+    assert.equal(r.stderr.includes('Suba com'), false, r.stderr);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X2: falha em estáticos depois da migração fora do fluxo manda recuperar à mão, não subir a ativa', () => {
+  const v = criarVm();
+  try {
+    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_ESTATICOS_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.ok(v.indice('run --rm migracao') >= 0, 'a migração rodou antes da falha');
+    assert.match(r.stderr, /o esquema JÁ foi migrado/);
+    assert.match(r.stderr, /recupere à mão/);
+    assert.equal(r.stderr.includes('Suba com'), false, r.stderr);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X3: falha ao gravar ativa no rollback rápido reverte o alvo.conf e avisa, sem deixar alvo e ativa divergentes', () => {
+  const v = criarVm();
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'mv-falha-'));
+  try {
+    const mvReal = unix(execFileSync('bash', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim());
+    // Dublê de `mv`: falha só ao gravar `ativa`; o resto vai para o `mv` de verdade.
+    fs.writeFileSync(path.join(shim, 'mv'), `#!/usr/bin/env bash\nfor arg; do :; done\ncase "$arg" in */ativa) echo "mv: falha simulada" >&2; exit 1 ;; esac\nexec "${mvReal}" "$@"\n`, { mode: 0o755 });
+    const a = v.promovido;
+    assert.equal(v.rodar(IMPLANTAR, [a]).status, 0);
+    const b = v.promover();
+    assert.equal(v.rodar(IMPLANTAR, [b]).status, 0);
+    v.zerar();
+    // Rollback para A: a pilha azul (inativa) está saudável. O alvo vira azul e gravar `ativa` falha.
+    // Node procura o `bash` pelo PATH do filho: o PATH original segue depois do dublê, com o separador da plataforma.
+    const r = v.rodar(IMPLANTAR, [a], { PATH: [shim, process.env.PATH].join(path.delimiter) });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falha ao gravar ativa=azul; alvo.conf revertido para app_verde, que segue servindo/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.match(v.lerAlvo(), /set \$alvo app_verde;/);
+    assert.equal(v.contarChamadas('nginx -s reload'), 2, 'recarrega para azul e de volta para verde');
+    assert.match(v.registro(), /FALHOU: falha ao gravar ativa=azul/);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('X4: backup.sh sem PHATI_ALVO_DIR no ambiente usa o do .env; sem ele, $PHATI_DIR/alvo', () => {
+  const doEnv = criarVm();
+  const padrao = criarVm({ comEnv: true });
+  try {
+    fs.appendFileSync(path.join(doEnv.vm, '.env'), 'PHATI_ALVO_DIR=/caminho/do/env\n');
+    const r = doEnv.rodar(BACKUP, [], { PHATI_ALVO_DIR: '' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(doEnv.lerAlvoVars().length > 0, 'o compose foi chamado');
+    assert.ok(doEnv.lerAlvoVars().every((x) => x === '/caminho/do/env'), doEnv.lerAlvoVars().join(','));
+    const r2 = padrao.rodar(BACKUP, [], { PHATI_ALVO_DIR: '' });
+    assert.equal(r2.status, 0, r2.stderr);
+    assert.ok(padrao.lerAlvoVars().every((x) => x === unix(path.join(padrao.vm, 'alvo'))), padrao.lerAlvoVars().join(','));
+  } finally {
+    doEnv.limpar();
+    padrao.limpar();
+  }
+});
+
+test('X4: restaurar.sh sem PHATI_ALVO_DIR usa $PHATI_DIR/alvo e a instrução de recuperação traz a variável', () => {
+  const v = criarVm();
+  try {
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    const dump = path.join(pasta, 'phati-1.dump');
+    fs.writeFileSync(dump, 'dados');
+    const falha = v.rodar(RESTAURAR, [unix(dump), 'RESTAURAR'], { PHATI_ALVO_DIR: '', DUBLE_APP_FALHA: '1' });
+    assert.equal(falha.status, 1);
+    assert.ok(falha.stderr.includes(`PHATI_ALVO_DIR=${unix(path.join(v.vm, 'alvo'))} COMPOSE_PROJECT_NAME=phati docker compose`), falha.stderr);
+    assert.ok(v.lerAlvoVars().every((x) => x === unix(path.join(v.vm, 'alvo'))), v.lerAlvoVars().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X4: restauração confirmada tira pilha-<inativa>.sha; restauração que falha deixa o SHA como estava', () => {
+  const v = criarVm();
+  try {
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    const dump = path.join(pasta, 'phati-1.dump');
+    fs.writeFileSync(dump, 'dados');
+    // Sem `ativa`, a ativa é azul e a inativa é verde.
+    fs.writeFileSync(path.join(v.vm, 'pilha-verde.sha'), `${'a'.repeat(40)}\n`);
+    const falha = v.rodar(RESTAURAR, [unix(dump), 'RESTAURAR'], { DUBLE_RESTAURA_FALHA: '1' });
+    assert.equal(falha.status, 1);
+    assert.equal(fs.existsSync(path.join(v.vm, 'pilha-verde.sha')), true, 'sem restauração, o SHA da inativa fica');
+    const ok = v.rodar(RESTAURAR, [unix(dump), 'RESTAURAR']);
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.equal(fs.existsSync(path.join(v.vm, 'pilha-verde.sha')), false, 'a inativa perde o SHA: o banco mudou');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X6: pgb1 saudável e pgb2 indisponível falha antes de migrar e de trocar o nginx', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE_PGB2: 'unhealthy' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /pgb2 não ficou saudável \(estado: unhealthy\)/);
+    assert.equal(r.stderr.includes('pgb1 não ficou'), false, r.stderr);
+    assert.equal(v.indice('run --rm migracao'), -1);
+    assert.equal(v.indice('up -d --no-deps app_azul'), -1);
+    assert.equal(v.indice('nginx -t'), -1);
+    assert.equal(v.indice('nginx -s reload'), -1);
   } finally {
     v.limpar();
   }

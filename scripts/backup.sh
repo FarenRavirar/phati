@@ -15,6 +15,10 @@ rotulo="${1:-cron}"
 erro() { echo "ERRO: $*" >&2; exit 1; }
 [[ "$rotulo" =~ ^[A-Za-z0-9_-]{1,20}$ ]] || erro "rótulo inválido: só letras, números, _ e -, até 20"
 [[ -f "$dir/.env" ]] || erro "$dir/.env ausente (segredos ficam só na VM)"
+# X4: ambiente, `.env` da VM, padrão $dir/alvo (como implantar.sh): o compose exige a variável (`${PHATI_ALVO_DIR:?}`).
+alvo_dir="${PHATI_ALVO_DIR:-}"
+[[ -n "$alvo_dir" ]] || alvo_dir="$(grep -m1 '^PHATI_ALVO_DIR=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+export PHATI_ALVO_DIR="${alvo_dir:-$dir/alvo}"
 
 # Nome do projeto Compose: `phati` na VM; `PHATI_PROJETO` só troca no ensaio local (spec 009, X4a). Valor inválido para antes do Docker.
 projeto="${PHATI_PROJETO:-phati}"

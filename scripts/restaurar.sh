@@ -19,6 +19,10 @@ docker="${DOCKER:-docker}"
 projeto="${PHATI_PROJETO:-phati}"
 [[ "$projeto" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "ERRO: PHATI_PROJETO inválido: use minúsculas, números, _ e -, começando por letra ou número" >&2; exit 1; }
 export COMPOSE_PROJECT_NAME="$projeto"
+# X4: mesma ordem do backup.sh e do implantar.sh (ambiente, `.env`, padrão $dir/alvo); a instrução de recuperação a traz.
+alvo_dir="${PHATI_ALVO_DIR:-}"
+[[ -n "$alvo_dir" ]] || alvo_dir="$(grep -m1 '^PHATI_ALVO_DIR=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+export PHATI_ALVO_DIR="${alvo_dir:-$dir/alvo}"
 
 # Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O script roda
 # de novo dentro de `flock -w <limite> -E 75 <arquivo> comando`: o sistema solta a trava quando o processo morre, sem trava
@@ -53,7 +57,7 @@ passo=inicio
 # A transação única só protege até o `psql`: falha depois dele deixa o banco já restaurado e o app parado.
 # O comando de recuperação é o mesmo que `compor` roda, com os caminhos resolvidos: sem o projeto, o `--env-file` e o segundo
 # arquivo do compose, ele erraria a configuração ou subiria outro projeto (Greptile, PR #46).
-recuperar="COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
+recuperar="PHATI_ALVO_DIR=$PHATI_ALVO_DIR COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
 trap 'if [[ "$passo" == subir-app ]]; then echo "ERRO: o banco foi restaurado, mas o app não subiu; suba com: $recuperar" >&2; else echo "ERRO: a restauração falhou no passo $passo; o banco ficou como estava (transação única) e o app segue parado" >&2; fi' ERR
 
 passo=parar-app
@@ -64,6 +68,10 @@ passo=restaurar-dump
 # `pg_restore -f` falhando (dump inválido) para antes do `psql`, que só então apaga e recria o schema. O GRANT devolve o
 # USAGE que o schema `public` novo não tem e o papel `app` precisa. O SQL temporário (com dado) é apagado ao sair.
 compor exec -T banco sh -c 'set -e; trap "rm -f /tmp/restaurar-dump.sql /tmp/restaurar-total.sql" EXIT; export PGPASSWORD="$PHATI_BANCO_DONO_SENHA"; pg_restore --no-owner -f /tmp/restaurar-dump.sql; { echo "DROP SCHEMA public CASCADE;"; echo "CREATE SCHEMA public;"; echo "GRANT USAGE ON SCHEMA public TO PUBLIC;"; cat /tmp/restaurar-dump.sql; } > /tmp/restaurar-total.sql; psql -q -v ON_ERROR_STOP=1 --single-transaction -h 127.0.0.1 -U "$PHATI_BANCO_DONO_USUARIO" -d "$PHATI_BANCO_NOME" -f /tmp/restaurar-total.sql' < "$arquivo"
+# Restauração confirmada: o banco mudou para o dump, então o SHA guardado da pilha inativa deixa de valer.
+inativa=verde
+if [[ "$ativa" == verde ]]; then inativa=azul; fi
+rm -f -- "$dir/pilha-$inativa.sha"
 passo=subir-app
 compor up -d --no-deps app_"$ativa"
 echo "restaurado=$(basename "$arquivo")"

@@ -11,13 +11,16 @@ alvo_conf="${PHATI_ALVO_DIR:-$dir/alvo}/alvo.conf"
 [[ -d "$dir" ]] || { echo "ERRO: PHATI_DIR inexistente: $dir" >&2; exit 2; }
 
 # Ativa: só azul ou verde; ausente é nenhuma (primeira implantação); qualquer outro valor vira invalida, sem ser ecoado.
+# O tamanho é medido em bytes antes da substituição de comando, que tira as quebras finais (65 bytes já é inválido).
 ativa=nenhuma
 if [[ -e "$dir/ativa" ]]; then
+  tamanho="$( (head -c 65 "$dir/ativa" 2>/dev/null || true) | wc -c | tr -d ' ')"
   bruta="$(head -c 64 "$dir/ativa" 2>/dev/null || true)"
   case "$bruta" in
     azul | verde) ativa="$bruta" ;;
     *) ativa=invalida ;;
   esac
+  [[ "$tamanho" -le 64 ]] || ativa=invalida
 fi
 case "$ativa" in
   azul) candidata=verde ;;
@@ -41,16 +44,20 @@ if [[ -e "$dir/implantacoes.log" ]]; then
   [[ -z "$linha" ]] || ultimo="$linha"
 fi
 
-# Destino do nginx: só `set $alvo app_azul;` ou `app_verde;`; outro conteúdo ou arquivo ausente é nenhum.
+# Destino lido do alvo.conf: só `set $alvo app_azul;` ou `app_verde;` em linha não comentada; outro conteúdo ou arquivo ausente é nenhum.
+# Medido no nginx 1.30: com `set $alvo` repetido no mesmo bloco, o último vence; por isso fica a última diretiva efetiva.
 destino=nenhum
 if [[ -e "$alvo_conf" ]]; then
   conteudo="$(head -c 4096 "$alvo_conf" 2>/dev/null || true)"
-  re='set \$alvo (app_[a-z]+);'
-  if [[ "$conteudo" =~ $re ]]; then
-    case "${BASH_REMATCH[1]}" in
-      app_azul | app_verde) destino="${BASH_REMATCH[1]}" ;;
-    esac
-  fi
+  re='^[[:space:]]*set \$alvo (app_[a-z]+);'
+  while IFS= read -r linha; do
+    if [[ "$linha" =~ $re ]]; then
+      case "${BASH_REMATCH[1]}" in
+        app_azul | app_verde) destino="${BASH_REMATCH[1]}" ;;
+        *) destino=nenhum ;;  # app_* fora da lista: nenhum, como diz o cabeçalho
+      esac
+    fi
+  done <<< "$conteudo"
 fi
 
 echo "ativa=$ativa"
@@ -60,9 +67,8 @@ echo "sha-verde=$sha_verde"
 echo "ultimo=$ultimo"
 echo "destino-nginx=$destino"
 
-# Ativa e destino do nginx batem? Se não, avisa: o tráfego não segue o estado registrado.
-if [[ "$ativa" == azul || "$ativa" == verde ]] && [[ "$destino" == app_azul || "$destino" == app_verde ]]; then
-  if [[ "app_$ativa" != "$destino" ]]; then
-    echo "AVISO: ativa=$ativa mas o nginx aponta ${destino#app_}"
-  fi
+# Ativa e o destino lido do alvo.conf batem? Se não, avisa. `destino-nginx` é a configuração do arquivo, não o roteamento
+# efetivo do nginx (que só se sabe com o reload feito e `/saude` respondendo).
+if [[ "$ativa" == azul || "$ativa" == verde ]] && [[ "$destino" == app_azul || "$destino" == app_verde ]] && [[ "app_$ativa" != "$destino" ]]; then
+  echo "AVISO: ativa=$ativa mas o alvo.conf configura ${destino#app_} (configuração lida do arquivo, não o roteamento efetivo do nginx)"
 fi

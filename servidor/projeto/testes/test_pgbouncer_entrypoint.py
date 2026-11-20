@@ -88,6 +88,13 @@ def test_instancia_com_caractere_fora_do_padrao_recusa_subir(tmp_path):
     assert 'PGB_INSTANCIA inválida' in r.stderr
 
 
+def test_instancia_em_maiusculas_recusa_subir(tmp_path):
+    # Caso negativo: maiúscula está fora do padrão `[a-z0-9_]`, então o validador do `case` tem de recusar.
+    r = _rodar(tmp_path, PGB_INSTANCIA='PGB1', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode != 0
+    assert 'PGB_INSTANCIA inválida' in r.stderr
+
+
 def test_nome_de_banco_com_caractere_fora_do_padrao_recusa_subir(tmp_path):
     r = _rodar(tmp_path, PHATI_BANCO_NOME='phati/../x', **_cat_como_pgbouncer(tmp_path))
     assert r.returncode != 0
@@ -102,7 +109,8 @@ def test_auth_grava_o_userlist_com_o_verificador_scram(tmp_path):
     assert r.returncode == 0, r.stderr
     assert (cfg / 'userlist.txt').read_text(encoding='utf-8') == VERIFICADOR + '\n'
     assert not (cfg / 'userlist.tmp').exists()
-    assert r.stdout == '' and VERIFICADOR not in r.stderr  # o verificador não vai a log
+    assert r.stdout == ''
+    assert VERIFICADOR not in r.stderr  # o verificador não vai a log
 
 
 def test_auth_recusa_papel_sem_senha_e_nao_grava(tmp_path):

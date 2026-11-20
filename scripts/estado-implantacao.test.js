@@ -148,7 +148,34 @@ test('discordância: ativa azul e alvo verde gera AVISO', () => {
   const dir = criarDir({ ativa: 'azul', 'alvo/alvo.conf': ALVO_VERDE });
   const r = rodar(dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.ok(linhas(r).includes('AVISO: ativa=azul mas o nginx aponta verde'), r.stdout);
+  assert.ok(
+    linhas(r).includes('AVISO: ativa=azul mas o alvo.conf configura verde (configuração lida do arquivo, não o roteamento efetivo do nginx)'),
+    r.stdout,
+  );
+});
+
+test('diretiva comentada não conta: a efetiva, depois dela, é o destino', () => {
+  const r = rodar(criarDir({ 'alvo/alvo.conf': '# set $alvo app_verde;\nset $alvo app_azul;\n' }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(valor(r, 'destino-nginx'), 'app_azul');
+});
+
+test('só diretiva comentada: destino é nenhum', () => {
+  const r = rodar(criarDir({ 'alvo/alvo.conf': '  # set $alvo app_verde;\n' }));
+  assert.equal(valor(r, 'destino-nginx'), 'nenhum');
+});
+
+test('set repetido no alvo.conf: vence o último, como no nginx', () => {
+  const r = rodar(criarDir({ 'alvo/alvo.conf': 'set $alvo app_azul;\nset $alvo app_verde;\n' }));
+  assert.equal(valor(r, 'destino-nginx'), 'app_verde');
+});
+
+test('ativa com 64 bytes (quebras finais) é lida; com 65 é invalida', () => {
+  const no_limite = rodar(criarDir({ ativa: `azul${'\n'.repeat(60)}` }));
+  assert.equal(valor(no_limite, 'ativa'), 'azul');
+  const acima = rodar(criarDir({ ativa: `azul${'\n'.repeat(61)}` }));
+  assert.equal(valor(acima, 'ativa'), 'invalida');
+  assert.equal(valor(acima, 'candidata'), 'invalida');
 });
 
 test('sem discordância: ativa e alvo batem, sem AVISO', () => {

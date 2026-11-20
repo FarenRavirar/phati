@@ -15,7 +15,16 @@ from django.conf import settings
 
 RAIZ = Path(settings.DIRETORIO_BASE)
 NGINX = RAIZ / 'nginx'
-IMAGEM_NGINX = 'nginx:1.31-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606'
+
+
+def _imagem_nginx(texto):
+    # Única fonte: a linha `image:` do nginx em compose.yaml. Zero ou duas linhas é erro, não chute.
+    casadas = re.findall(r'^\s*image:\s*(nginx:\S+)\s*$', texto, re.MULTILINE)
+    assert len(casadas) == 1, casadas
+    return casadas[0]
+
+
+IMAGEM_NGINX = _imagem_nginx((RAIZ / 'compose.yaml').read_text(encoding='utf-8'))
 
 
 def _ativas(caminho):
@@ -56,6 +65,18 @@ def test_alvo_conf_define_o_serviço_e_a_pilha_coerentes():
     assert set(sets) == {'alvo', 'pilha'}
     assert sets['alvo'] == f"app_{sets['pilha']}"  # caso negativo: `app_verde` com `pilha azul` trocaria app e estáticos separados
     assert sets == {'alvo': 'app_azul', 'pilha': 'azul'}
+
+
+def test_imagem_nginx_vem_do_compose_fixada_por_digest():
+    assert IMAGEM_NGINX.startswith('nginx:1.31-alpine@sha256:')
+
+
+def test_imagem_nginx_recusa_zero_ou_duas_linhas_de_imagem():
+    # Caso negativo: sem linha de nginx, ou com duas, a referência não pode ser escolhida em silêncio.
+    with pytest.raises(AssertionError):
+        _imagem_nginx('services:\n  app:\n    image: python:3.12\n')
+    with pytest.raises(AssertionError):
+        _imagem_nginx('    image: nginx:1.31-alpine\n    image: nginx:1.30\n')
 
 
 def _nginx_t(conf_d, alvo):

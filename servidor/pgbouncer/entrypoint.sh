@@ -12,6 +12,7 @@ modelo="${PGB_MODELO:-/etc/pgbouncer/modelo.ini}"
 nome_valido() {
     case "$1" in
         ''|*[!a-z0-9_]*) return 1 ;;
+        *) return 0 ;;  # só o que sobra é válido: explícito para o `case` não depender de cair fora dele
     esac
 }
 
