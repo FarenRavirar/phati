@@ -45,12 +45,13 @@ def criar_envio(pessoa, fazenda, dados, agora=None):
 
 
 def _remover_vencido(pk, agora):
-    """Apaga a linha vencida e, depois do COMMIT, o original dela. Devolve False se a linha não foi removida.
+    """Apaga o original e a linha vencidos na mesma transação. Devolve False se a linha não foi removida.
 
     Mesmo protocolo da publicação: a linha é travada com `skip_locked`. Publicação em curso segura a trava, então a
     limpeza pula e o original fica (quem publica já o tem como `caminho_original`). Quem trava depois da limpeza não
-    acha a linha e recebe EnvioNaoEncontrado, sem ler arquivo apagado. O arquivo só sai depois do COMMIT: nunca há
-    versão sem original."""
+    acha a linha e recebe EnvioNaoEncontrado. Nunca há versão sem original: a publicação só lê linha vigente, e a
+    vencida é recusada antes de ler o arquivo. Falha ao apagar o arquivo desfaz a transação: a linha volta e a próxima
+    limpeza tenta de novo (achado Greptile, P2: antes a linha saía e o arquivo ficava órfão)."""
     with transaction.atomic():
         envio = EnvioCamada.objects.select_for_update(skip_locked=True).filter(pk=pk, expira_em__lte=agora).first()
         if envio is None:  # travada por publicação, já removida ou não vencida
@@ -59,9 +60,8 @@ def _remover_vencido(pk, agora):
             original.caminho_interno(envio.arquivo_temporario)
         except original.OriginalInvalido:
             return False
-        nome = envio.arquivo_temporario
+        original.remover(envio.arquivo_temporario)  # antes da linha: se falhar, a transação desfaz e a linha fica
         envio.delete()
-        transaction.on_commit(lambda: original.remover(nome))
     return True
 
 

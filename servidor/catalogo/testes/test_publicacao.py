@@ -385,10 +385,14 @@ def _rodar_em_threads(alvos):
 
     def corre(indice, alvo):
         try:
-            for alias in connections:
-                with connections[alias].cursor() as cursor:
-                    cursor.execute(f"SET lock_timeout = '{ESPERA_DE_TRAVA}'")
-            barreira.wait()
+            try:
+                for alias in connections:
+                    with connections[alias].cursor() as cursor:
+                        cursor.execute(f"SET lock_timeout = '{ESPERA_DE_TRAVA}'")
+            except BaseException:
+                barreira.abort()  # falha de preparo: as outras threads recebem BrokenBarrierError, não ficam presas
+                raise
+            barreira.wait(timeout=30)
             resultados[indice] = alvo()
         except BaseException as erro:  # noqa: BLE001 — o teste confere o que cada thread recebeu
             resultados[indice] = erro
@@ -403,6 +407,45 @@ def _rodar_em_threads(alvos):
     vivas = [fio.name for fio in fios if fio.is_alive()]
     assert not vivas, f'thread ainda viva depois de 60 s: {vivas}'
     return resultados
+
+
+def test_falha_de_preparo_numa_thread_nao_deixa_a_outra_presa_na_barreira(monkeypatch):
+    """Achado CodeRabbit: a barreira sem timeout deixava as outras threads presas se uma falhasse ao preparar a conexão."""
+    chamadas = []
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def execute(self, sql):
+            chamadas.append(sql)
+            if len(chamadas) == 1:  # só a primeira preparação falha
+                raise RuntimeError('preparo falhou')
+
+    class _Conexao:
+        def cursor(self):
+            return _Cursor()
+
+    class _Conexoes:
+        def __iter__(self):
+            return iter(['default'])
+
+        def __getitem__(self, alias):
+            return _Conexao()
+
+        def close_all(self):
+            pass
+
+    monkeypatch.setitem(globals(), 'connections', _Conexoes())
+    inicio = time.monotonic()
+    resultados = _rodar_em_threads([lambda: 'ok', lambda: 'ok'])
+    assert time.monotonic() - inicio < 20, 'a outra thread ficou presa na barreira'
+    erros = [r for r in resultados if isinstance(r, BaseException)]
+    assert any(isinstance(e, RuntimeError) and str(e) == 'preparo falhou' for e in erros), resultados
+    assert all(isinstance(e, (RuntimeError, threading.BrokenBarrierError)) for e in erros), resultados
 
 
 def _atrasar_a_primeira_numeracao(monkeypatch, atraso=0.5):

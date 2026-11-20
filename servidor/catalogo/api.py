@@ -9,8 +9,8 @@ import json
 from typing import Annotated
 from uuid import UUID
 
-from django.db.models import Count, OuterRef, Q, Subquery
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models import Count, F, Func, OuterRef, Q, Subquery, TextField, Value
+from django.db.models.functions import Cast
 from ninja import Router, Schema, Status
 from ninja.params import functions as parametros  # as funções reais: o `File`/`Query` de `ninja` é alias para o type checker
 from ninja.errors import HttpError
@@ -80,6 +80,13 @@ def _ler_limitado(arquivo):
         return None
     dados = arquivo.read(limite + 1)
     return None if len(dados) > limite else dados
+
+
+def _valor_texto(nome):
+    """Valor da coluna como texto: `valores ->> CAST(nome AS text)`. `KeyTextTransform` trata nome numérico ("2026")
+    como índice de array; aqui a chave segue como texto, sempre chave de objeto JSON (achado Codex, P2)."""
+    return Func(F('valores'), Cast(Value(nome), output_field=TextField()), template='(%(expressions)s)',
+                arg_joiner=' ->> ', output_field=TextField())
 
 
 def _camada_pk(camada_publica):
@@ -160,10 +167,10 @@ def feicoes(request, camada_id: UUID, numero: int, limite: Annotated[int, parame
         total=Count('pk')).values('total')
     qs = Feicao.objects.filter(versao=versao).annotate(_indice=Subquery(ordinal)).order_by('id')
     if coluna is not None:
-        qs = qs.annotate(_filtro=KeyTextTransform(coluna, 'valores')).filter(_filtro=valor)
+        qs = qs.annotate(_filtro=_valor_texto(coluna)).filter(_filtro=valor)
     if busca:
         # Busca só nas colunas visíveis: a oculta não entra no alcance da busca (R9).
-        qs = qs.annotate(**{f'_c{i}': KeyTextTransform(nome, 'valores') for i, nome in enumerate(visiveis)})
+        qs = qs.annotate(**{f'_c{i}': _valor_texto(nome) for i, nome in enumerate(visiveis)})
         alcance = Q(pk__in=[])
         for i in range(len(visiveis)):
             alcance |= Q(**{f'_c{i}__icontains': busca})

@@ -57,8 +57,11 @@ def gravar(dados):
 
 
 def ler(nome, hash_esperado):
-    """Lê o original e recusa se o sha256 não confere com o guardado no envio."""
-    dados = caminho_interno(nome).read_bytes()
+    """Lê o original e recusa se o sha256 não confere com o guardado no envio. Arquivo ausente também é recusa."""
+    try:
+        dados = caminho_interno(nome).read_bytes()
+    except OSError:
+        raise OriginalInvalido('original ausente ou ilegível') from None
     if hashlib.sha256(dados).hexdigest() != hash_esperado:
         raise OriginalInvalido('hash não confere')
     return dados

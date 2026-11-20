@@ -99,3 +99,11 @@ def test_remover_arquivo_ausente_nao_e_erro(camadas):
     original.remover(nome)
     original.remover(nome)
     assert not (camadas / nome).exists()
+
+
+def test_ler_original_ausente_e_recusa_e_nao_erro_de_servidor(settings, tmp_path):
+    # Regressão (achado Greptile, P2): arquivo ausente vira recusa de regra (422), não FileNotFoundError (500).
+    from catalogo import original as modulo_original
+    settings.CAMADAS_DIR = tmp_path
+    with pytest.raises(modulo_original.OriginalInvalido):
+        modulo_original.ler('0' * 32 + '.bin', 'a' * 64)

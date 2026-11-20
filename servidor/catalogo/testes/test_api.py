@@ -322,3 +322,19 @@ def test_ler_limitado_com_tamanho_conhecido_acima_do_limite_nao_le(monkeypatch):
     arquivo = _Arquivo(b'x' * 50, 50)
     assert api._ler_limitado(arquivo) is None
     assert arquivo.pedidos == []  # recusa pelo tamanho antes de ler
+
+
+def test_coluna_com_nome_numerico_filtra_e_entra_na_busca(camadas, mundo):
+    # Regressão (achado Codex, P2): nome numérico não pode virar índice de array no filtro nem na busca.
+    features = [
+        {'type': 'Feature', 'properties': {'2026': 7, 'valor': 'a'}, 'geometry': {'type': 'Point', 'coordinates': [-48.3, -10.7]}},
+        {'type': 'Feature', 'properties': {'2026': 8, 'valor': 'b'}, 'geometry': {'type': 'Point', 'coordinates': [-48.29, -10.69]}},
+    ]
+    envio_id = _envio_do_operador(mundo, geojson(features))
+    publicada = _publicar(mundo.operador, envio_id, estudo_id=mundo.estudo.pk, nos=[mundo.g1.pk, mundo.g1.pk])
+    assert publicada.status_code == 201, publicada.content
+    caminho = f"camadas/{publicada.json()['camada_id']}/versoes/1/feicoes"
+    filtrado = _ler(mundo.operador, f'{caminho}?coluna=2026&valor=7').json()['itens']
+    assert [i['valores']['2026'] for i in filtrado] == [7]
+    busca = _ler(mundo.operador, f'{caminho}?busca=8').json()['itens']
+    assert [i['valores']['2026'] for i in busca] == [8]
