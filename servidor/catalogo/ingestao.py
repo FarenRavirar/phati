@@ -12,6 +12,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from ctypes import c_char_p
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -267,7 +268,7 @@ def _extrair(arquivo, info, destino, orcamento):
                 if orcamento < 0:
                     _recusa('compactado descompacta acima do limite')
                 saida.write(bloco)
-    except (zipfile.BadZipFile, RuntimeError):  # NotImplementedError é subclasse de RuntimeError
+    except (zipfile.BadZipFile, RuntimeError, zlib.error):  # NotImplementedError é RuntimeError; DEFLATE corrompido levanta zlib.error
         _recusa('compactado inválido ou criptografado')
     return orcamento
 

@@ -14,7 +14,7 @@ from datetime import date
 
 from catalogo.ingestao import Previa, RecusaIngestao
 
-DATA_AAAA_MM_DD = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
+DATA_AAAA_MM_DD = re.compile(r'\d{4}-\d{2}-\d{2}', re.ASCII)  # ASCII: \d em str casa dígito Unicode
 
 OBRIGATORIOS = ('nome', 'tema', 'origem')
 # §6.2 de DEFINICAO.md, o que não é de outra spec (situação, aprovação e histórico: revisão e vigência; "o que mudou",

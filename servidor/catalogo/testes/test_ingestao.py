@@ -500,6 +500,36 @@ def test_topojson_gravado_como_geojson_e_recusado(tmp_path):
     assert recusa(arquivo(tmp_path, json.dumps(topo).encode())) == ['não foi possível ler o arquivo como geojson']
 
 
+def zip_deflate_com_bloco_invalido(entradas):
+    # Achado do Codex: o primeiro bloco DEFLATE recebe BTYPE=11 (inválido), com cabeçalho local e CRC intactos.
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as z:
+        for nome, dados in entradas.items():
+            z.writestr(nome, dados)
+    dados = bytearray(buffer.getvalue())
+    tamanho_nome, tamanho_extra = struct.unpack('<HH', dados[26:30])
+    dados[30 + tamanho_nome + tamanho_extra] |= 0x06
+    return bytes(dados)
+
+
+def test_kmz_com_deflate_corrompido_e_recusado_como_compactado_invalido(tmp_path):
+    corrompido = zip_deflate_com_bloco_invalido({'doc.kml': kml(placemark_ponto('-48.3,-10.7'))})
+    assert recusa(arquivo(tmp_path, corrompido)) == ['compactado inválido ou criptografado']
+
+
+def test_shapefile_com_deflate_corrompido_e_recusado_como_compactado_invalido(tmp_path):
+    de_a = entradas_do_zip(shapefile(1, [('ponto', -48.3, -10.7)]))
+    assert recusa(arquivo(tmp_path, zip_deflate_com_bloco_invalido(de_a))) == ['compactado inválido ou criptografado']
+
+
+def test_kmz_com_crc_ruim_e_recusado_como_compactado_invalido(tmp_path):
+    # Entrada armazenada (sem compressão): byte alterado no conteúdo quebra o CRC-32 do zipfile.
+    dados = bytearray(zip_com({'doc.kml': kml(placemark_ponto('-48.3,-10.7'))}))
+    tamanho_nome, tamanho_extra = struct.unpack('<HH', dados[26:30])
+    dados[30 + tamanho_nome + tamanho_extra + 5] ^= 0x01
+    assert recusa(arquivo(tmp_path, bytes(dados))) == ['compactado inválido ou criptografado']
+
+
 def test_json_muito_aninhado_e_recusado_como_geojson_invalido(tmp_path):
     # Achado 4: aninhamento fundo estoura a recursão do json; vira recusa, não exceção.
     profundo = b'{"a": ' + b'[' * 100000 + b']' * 100000 + b'}'

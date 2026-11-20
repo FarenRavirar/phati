@@ -122,8 +122,9 @@ def test_falha_depois_do_insert_na_saida_da_permissao_apaga_o_original(camadas, 
         raise RuntimeError('falha na saída da permissão (simulado)')
 
     monkeypatch.setattr(envios, 'com_permissao', saida_falha)
+    envio = _envio_valido()
     with pytest.raises(RuntimeError):
-        envios.criar_envio(mundo.operador, mundo.f1, _envio_valido())
+        envios.criar_envio(mundo.operador, mundo.f1, envio)
     assert _arquivos(camadas) == []
 
 
@@ -131,8 +132,9 @@ def test_entrada_acima_do_limite_e_recusada_antes_de_gravar(camadas, mundo, monk
     # Achado 2: o limite de tamanho vale antes de gravar, com a mesma mensagem de ingerir_envio.
     monkeypatch.setattr(envios, 'LIMITES_PADRAO', Limites(tamanho_bytes=10))
     antes = EnvioCamada.objects.count()
+    envio = _envio_valido()
     with pytest.raises(RecusaIngestao) as excinfo:
-        envios.criar_envio(mundo.operador, mundo.f1, _envio_valido())
+        envios.criar_envio(mundo.operador, mundo.f1, envio)
     assert excinfo.value.erros == ['arquivo acima do limite de tamanho']
     assert _arquivos(camadas) == []
     assert EnvioCamada.objects.count() == antes

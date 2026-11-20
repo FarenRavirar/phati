@@ -160,7 +160,7 @@ def test_erros_de_metadado_e_de_coluna_saem_juntos():
     assert 'coluna 2: nome repetido' in erros
 
 
-@pytest.mark.parametrize('data', ['20260502', '2026-W18-6', '2026-5-2', '2026-02-30'])
+@pytest.mark.parametrize('data', ['20260502', '2026-W18-6', '2026-5-2', '2026-02-30', '２０２６-０５-０２', '٢٠٢٦-٠٥-٠٢'])
 def test_data_fora_da_forma_exata_ou_do_calendario_e_recusada(data):
     # Achado 7: fromisoformat aceita 20260502 e 2026-W18-6; a forma AAAA-MM-DD vem antes do calendário.
     with pytest.raises(RecusaIngestao) as excinfo:
