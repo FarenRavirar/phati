@@ -9,7 +9,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 
-from catalogo import envios
+from catalogo import envios, original, publicacao
 from catalogo.models import EnvioCamada
 from catalogo.testes.test_ingestao import geojson, ponto_geojson
 from identidade.models import Pessoa
@@ -77,6 +77,15 @@ def test_segunda_execucao_nao_remove_nada(camadas, mundo):
     assert envios.limpar_expirados(mundo.operador) == (0, 0)
 
 
+def test_envio_removido_pela_limpeza_nao_pode_mais_ser_publicado(camadas, mundo):
+    vencido = _envio(mundo, agora=timezone.now() - timedelta(hours=48))
+    arquivo = camadas / vencido.arquivo_temporario
+    assert envios.limpar_expirados(mundo.operador) == (1, 0)
+    assert not arquivo.exists()
+    with pytest.raises(publicacao.EnvioNaoEncontrado):
+        publicacao.publicar_envio(mundo.operador, vencido.pk, estudo_id=0, metadados={}, nos=[])
+
+
 def test_saida_do_comando_conta_removidos(camadas, mundo):
     _envio(mundo, agora=timezone.now() - timedelta(hours=48))
     saida = StringIO()
@@ -87,3 +96,21 @@ def test_saida_do_comando_conta_removidos(camadas, mundo):
 def test_operador_inexistente_e_recusado(camadas):
     with pytest.raises(CommandError, match='operador não encontrado'):
         call_command('limpar_envios_camada', operador=999999, stdout=StringIO())
+
+
+def test_falha_ao_apagar_o_original_desfaz_a_linha_e_a_proxima_limpeza_tenta_de_novo(camadas, mundo, monkeypatch):
+    # Regressão (achado Greptile, P2): linha apagada antes de um original que não sai deixava arquivo órfão.
+    vencido = _envio(mundo, agora=timezone.now() - timedelta(hours=48))
+    remover_de_verdade = original.remover
+
+    def remover_sem_permissao(nome):
+        raise PermissionError('sem permissão para apagar')
+
+    monkeypatch.setattr(original, 'remover', remover_sem_permissao)
+    with pytest.raises(PermissionError):
+        envios.limpar_expirados(mundo.operador)
+    assert EnvioCamada.objects.filter(pk=vencido.pk).exists()  # a linha volta: a próxima execução tenta de novo
+    monkeypatch.setattr(original, 'remover', remover_de_verdade)
+    assert envios.limpar_expirados(mundo.operador) == (1, 0)
+    assert not (camadas / vencido.arquivo_temporario).exists()
+    assert not EnvioCamada.objects.filter(pk=vencido.pk).exists()
