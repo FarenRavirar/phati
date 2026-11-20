@@ -15,7 +15,11 @@ const SERVIDORES = Object.freeze({
   }),
 });
 
-const COMANDO_CHAVE_WINDOWS = "[Environment]::GetEnvironmentVariable('API_KEY_21ST','User')";
+// Só o que o npx precisa para achar o Node e o cache. Variável fora desta lista (token do Git, segredo de outro serviço)
+// não chega a pacote de terceiros; a chave do Magic entra à parte, só quando o servidor a exige.
+const VARIAVEIS_BASE = Object.freeze(['PATH', 'SystemRoot', 'ComSpec', 'APPDATA', 'HOME', 'USERPROFILE', 'TEMP', 'TMP']);
+
+const COMANDO_CHAVE_WINDOWS ="[Environment]::GetEnvironmentVariable('API_KEY_21ST','User')";
 
 function buscarChaveMagicWindows(executar) {
   const resultado = executar(
@@ -44,10 +48,13 @@ function executarServidor(
   const servidor = SERVIDORES[id];
   if (!servidor) return { codigo: 64, erro: 'servidor MCP desconhecido.' };
 
-  const env = { ...ambiente };
+  const env = {};
+  for (const nome of VARIAVEIS_BASE) {
+    if (typeof ambiente[nome] === 'string') env[nome] = ambiente[nome];
+  }
   if (servidor.exigeChave) {
-    let chave = typeof env.API_KEY_21ST === 'string' && env.API_KEY_21ST.length > 0
-      ? env.API_KEY_21ST
+    let chave = typeof ambiente.API_KEY_21ST === 'string' && ambiente.API_KEY_21ST.length > 0
+      ? ambiente.API_KEY_21ST
       : null;
     if (!chave && plataforma === 'win32') chave = buscarChaveMagicWindows(executar);
     if (!chave) return { codigo: 1, erro: 'API_KEY_21ST ausente.' };
@@ -56,7 +63,7 @@ function executarServidor(
 
   let resultado;
   if (plataforma === 'win32') {
-    const comspec = env.ComSpec || env.COMSPEC;
+    const comspec = env.ComSpec;
     if (!comspec) return { codigo: 1, erro: 'ComSpec ausente.' };
     resultado = executar(
       comspec,

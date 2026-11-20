@@ -7,6 +7,7 @@ const { executarServidor } = require('./servidor-mcp.js');
 
 const juntar = (...partes) => partes.join('');
 const CHAVE_SINTETICA = juntar('chave', '-sintetica');
+const VALOR_SINTETICO = juntar('sin', 'tetico');
 
 test('Linux executa Context7 por npx sem shell', () => {
   let chamada;
@@ -40,6 +41,49 @@ test('Windows executa Context7 pelo ComSpec com comando fixo', () => {
   assert.equal(chamada.comando, 'C:\\Windows\\System32\\cmd.exe');
   assert.deepEqual(chamada.argumentos, ['/d', '/s', '/c', 'npx -y @upstash/context7-mcp@4.4.4']);
   assert.equal(chamada.opcoes.shell, false);
+});
+
+test('context7 recebe só a lista fixa de variáveis e nunca a chave do Magic', () => {
+  let env;
+  executarServidor('context7', {
+    plataforma: 'linux',
+    ambiente: { PATH: '/usr/bin', HOME: '/home/teste', API_KEY_21ST: CHAVE_SINTETICA, TOKEN_GIT: VALOR_SINTETICO },
+    executar: (_comando, _argumentos, opcoes) => {
+      env = opcoes.env;
+      return { status: 0 };
+    },
+  });
+
+  assert.deepEqual(env, { PATH: '/usr/bin', HOME: '/home/teste' });
+});
+
+test('Magic recebe a chave e nenhuma outra variável fora da lista', () => {
+  let env;
+  executarServidor('magic', {
+    plataforma: 'linux',
+    ambiente: { PATH: '/usr/bin', API_KEY_21ST: CHAVE_SINTETICA, OUTRO_SEGREDO: VALOR_SINTETICO },
+    executar: (_comando, _argumentos, opcoes) => {
+      env = opcoes.env;
+      return { status: 0 };
+    },
+  });
+
+  assert.deepEqual(env, { PATH: '/usr/bin', API_KEY_21ST: CHAVE_SINTETICA });
+});
+
+test('Windows sem ComSpec falha fechado sem executar processo', () => {
+  let executou = false;
+  const resultado = executarServidor('context7', {
+    plataforma: 'win32',
+    ambiente: {},
+    executar: () => {
+      executou = true;
+      return { status: 0 };
+    },
+  });
+
+  assert.deepEqual(resultado, { codigo: 1, erro: 'ComSpec ausente.' });
+  assert.equal(executou, false);
 });
 
 test('ID fora da allowlist falha sem executar processo', () => {

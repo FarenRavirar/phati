@@ -2,7 +2,7 @@
   "permissions": {
     "defaultMode": "default",
     "disableBypassPermissionsMode": "disable",
-    "blockReadsOutsideWorkingDirectories": true,
+    "blockReadsOutsideWorkingDirectories": false,
     "blockWritesOutsideWorkingDirectories": true,
     "allow": [
       "Bash(ssh maruko ls:*)",

@@ -20,6 +20,9 @@ const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
 
 /** `executar(comando, args)` devolve a saída em texto; falha lança. Devolve o que ainda está de pé no Windows. */
 function medir(executar, plataforma = process.platform) {
+  // Fora do Windows não há nada a medir de propósito: o gate cobre o PC do mantenedor (vmmemWSL/Docker Desktop).
+  // A VM Linux tem contêineres `phati-*` de produção que não podem bloquear o fim do turno (spec 010, tasks.md T0.6:
+  // smoke `HOOK_OK` sem aviso Docker/WSL; AGENTS.md §Ao terminar). Teste: "fora do Windows não consulta Docker nem tasklist".
   if (plataforma !== 'win32') return [];
   const sobras = [];
   try {
