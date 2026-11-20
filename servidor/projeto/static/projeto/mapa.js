@@ -395,8 +395,19 @@ function mostrarAtribuicaoDaOrtofoto(alvo, imagem, ligada) {
   caixa.hidden = !ligada || !imagem?.atribuicao;
 }
 
+// Geometria cortada no limite do servidor: a pessoa vê quantas feições o mapa mostra de quantas existem (nunca "tudo").
+export function textoDoTruncamento(colecao) {
+  if (colecao.truncado !== true) return null;
+  return `Mapa mostra ${colecao.features.length} de ${colecao.total} feições.`;
+}
+
 function ligarCamadas(mapa, alvo, colecao, imagem) {
   const lista = camadasDaColecao(colecao);
+  const avisoDeCorte = alvo.parentElement.querySelector('[data-mapa-truncado]');
+  if (avisoDeCorte) {
+    avisoDeCorte.textContent = textoDoTruncamento(colecao) ?? '';
+    avisoDeCorte.hidden = textoDoTruncamento(colecao) === null;
+  }
   const estilo = getComputedStyle(document.documentElement);
   const camadas = new Map(lista.map((c) => {
     const corResolvida = estilo.getPropertyValue(c.cor).trim();

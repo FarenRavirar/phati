@@ -10,13 +10,15 @@
 {% include "componentes/vazio.html" with texto="Esta fazenda não tem estudo cadastrado. A publicação precisa de um estudo existente." %}
 {% else %}
 <section data-camadas="confirmacao" data-api-previa="{{ urls.api_previa }}" data-api-publicar="{{ urls.api_publicar }}">
-<p id="publicacao-carregando" role="status">Carregando a prévia…</p>
+<output id="publicacao-carregando">Carregando a prévia…</output>
 <div class="aviso aviso-erro" id="publicacao-erro" role="alert" hidden><p class="aviso-texto"></p></div>
-<div class="aviso aviso-sucesso" id="publicacao-sucesso" role="status" hidden><p class="aviso-texto"></p></div>
+<output class="aviso aviso-sucesso" id="publicacao-sucesso" hidden><span class="aviso-texto"></span></output>
 <form id="formulario-publicacao" hidden>
 {% csrf_token %}
 {% for c in campos %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo opcoes=c.opcoes obrigatorio=c.obrigatorio %}
 {% endfor %}
+<output id="revisao-aviso" class="campo-ajuda" hidden></output>
+<ul id="revisao-nos" class="revisao-nos"></ul>
 <fieldset class="campo campo-caixas" id="campo-ocultos">
 <legend class="campo-rotulo">Atributos a ocultar</legend>
 <p class="campo-ajuda">Coluna oculta não aparece na tela nem na API, e não serve de filtro ou busca.</p>

@@ -24,6 +24,18 @@ function urlDoEnvio(modelo, envioId) {
 
 // Corpo de `catalogo_publicar` (EntradaPublicacao). Com divisão por coluna, o nó vem do nome da coluna (D119) e `nos` fica
 // vazio. Sem ela, vai a sugestão de nó da prévia, feição por feição; o servidor recusa o que faltar.
+// Acima deste número de itens a revisão não vira lista de selects: a divisão por coluna é o caminho (R7 e R12, tela leve).
+const LIMITE_DE_ITENS_DE_REVISAO = 50;
+const ROTULO_PROPRIA_FAZENDA = 'Própria fazenda';
+
+// Nó de cada feição para a publicação. Feição da revisão recebe a escolha da pessoa (`null` = própria fazenda); as demais, a
+// sugestão da prévia. Sem escolha, vale a sugestão.
+function montarNos(previa, escolhas) {
+  return (previa.nos_sugeridos || []).map((sugerido, indice) => (
+    Object.hasOwn(escolhas, indice + 1) ? escolhas[indice + 1] : sugerido
+  ));
+}
+
 function montarPublicacao(campos, previa) {
   return {
     estudo_id: Number(campos.estudo_id),
@@ -31,9 +43,21 @@ function montarPublicacao(campos, previa) {
     camada_id: campos.camada_id || null,
     ocultos: campos.ocultos,
     coluna_no: campos.coluna_no || null,
-    nos: campos.coluna_no ? [] : previa.nos_sugeridos || [],
+    nos: campos.coluna_no ? [] : montarNos(previa, campos.escolhas || {}),
     sistema_confirmado: Boolean(campos.sistema_confirmado),
   };
+}
+
+// Opções do select de uma feição: a própria fazenda (nó nulo) e os nós ativos da fazenda, vindos do servidor.
+function opcoesDeNo(nosDaFazenda) {
+  return [{ valor: '', rotulo: ROTULO_PROPRIA_FAZENDA }, ...nosDaFazenda.map((no) => ({ valor: String(no.no), rotulo: no.nome }))];
+}
+
+// Texto da feição na revisão, sem interpretar nada do arquivo: o motivo vem do servidor (`sugerir_no`).
+function rotuloDaRevisao(item) {
+  if (item.motivo === 'sem_intersecao') return `Feição ${item.indice}: fora de todos os nós. Fica na própria fazenda.`;
+  if (item.motivo === 'empate') return `Feição ${item.indice}: empate entre os dois maiores nós. Escolha o nó.`;
+  return `Feição ${item.indice}: cruza ${item.areas.length} nós. Confira o nó sugerido.`;
 }
 
 // Pares rótulo e valor do resumo. Valor ausente vira "Sem dados", nunca zero (R10).
@@ -173,11 +197,58 @@ function lerCampos(documento) {
   };
 }
 
+// Some com os dois avisos da publicação: o de erro e o de sucesso de uma tentativa anterior.
+function esconderAvisosDePublicacao(documento) {
+  for (const id of ['publicacao-erro', 'publicacao-sucesso']) documento.getElementById(id).hidden = true;
+}
+
+// Mostra o resultado de uma tentativa: 201 é a versão criada em análise; qualquer outro status é o erro dela.
+function resultadoDaPublicacao(documento, status, corpo) {
+  esconderAvisosDePublicacao(documento);
+  if (status === 201) return mostrarAviso(documento, 'publicacao-sucesso', `Versão ${corpo.versao} criada em análise.`);
+  return mostrarAviso(documento, 'publicacao-erro', mensagemDoErro(status, corpo));
+}
+
+// Lista de revisão: um select por feição, com a sugestão como valor inicial. Acima do limite, só o aviso.
+function montarRevisao(documento, previa) {
+  const lista = documento.getElementById('revisao-nos');
+  if (!previa.revisao || previa.revisao.length === 0) return;
+  if (previa.revisao.length > LIMITE_DE_ITENS_DE_REVISAO) {
+    const aviso = documento.getElementById('revisao-aviso');
+    aviso.textContent = `Há ${previa.revisao.length} feições para revisar: acima de ${LIMITE_DE_ITENS_DE_REVISAO}, use a divisão por coluna.`;
+    aviso.hidden = false;
+    return;
+  }
+  lista.replaceChildren(...previa.revisao.map((item) => {
+    const linha = documento.createElement('li');
+    const seletor = documento.createElement('select');
+    seletor.id = `revisao_no_${item.indice}`;
+    seletor.dataset.indice = String(item.indice);
+    for (const opcao of opcoesDeNo(previa.nos_da_fazenda || [])) {
+      const elemento = documento.createElement('option');
+      elemento.value = opcao.valor;
+      elemento.textContent = opcao.rotulo;
+      seletor.append(elemento);
+    }
+    seletor.value = item.sugerido === null ? '' : String(item.sugerido);
+    linha.append(criarNo(documento, 'label', rotuloDaRevisao(item)), seletor);
+    return linha;
+  }));
+}
+
+// Escolhas da pessoa: `{indice: no ou null}`. Só as feições da revisão entram; o resto vai pela sugestão da prévia.
+function lerEscolhasDeNo(documento) {
+  return Object.fromEntries([...documento.querySelectorAll('#revisao-nos select')].map((seletor) => [
+    Number(seletor.dataset.indice), seletor.value === '' ? null : Number(seletor.value),
+  ]));
+}
+
 async function iniciarConfirmacao(documento, secao) {
   const { previa, erro } = await carregarPrevia(documento, secao, 'publicacao-carregando');
   if (erro) return mostrarAviso(documento, 'publicacao-erro', erro);
   marcarOcultos(documento, previa.colunas);
   preencherDivisao(documento, previa.colunas);
+  montarRevisao(documento, previa);
   const formulario = documento.getElementById('formulario-publicacao');
   formulario.hidden = false;
   const botao = documento.getElementById('publicar');
@@ -185,17 +256,14 @@ async function iniciarConfirmacao(documento, secao) {
     evento.preventDefault();
     botao.disabled = true;
     botao.textContent = 'Publicando…';
+    esconderAvisosDePublicacao(documento); // aviso de uma tentativa anterior não fica na tela
     try {
       const { status, corpo } = await buscarJson(secao.dataset.apiPublicar, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': tokenCsrf(formulario) },
-        body: JSON.stringify(montarPublicacao(lerCampos(documento), previa)),
+        body: JSON.stringify(montarPublicacao({ ...lerCampos(documento), escolhas: lerEscolhasDeNo(documento) }, previa)),
       });
-      if (status === 201) {
-        mostrarAviso(documento, 'publicacao-sucesso', `Versão ${corpo.versao} criada em análise.`);
-        formulario.hidden = true;
-        return;
-      }
-      mostrarAviso(documento, 'publicacao-erro', mensagemDoErro(status, corpo));
+      resultadoDaPublicacao(documento, status, corpo);
+      if (status === 201) formulario.hidden = true;
     } catch {
       mostrarAviso(documento, 'publicacao-erro', 'Sem conexão com o servidor. A publicação pode não ter sido feita; confira antes de tentar de novo.');
     }
@@ -204,15 +272,20 @@ async function iniciarConfirmacao(documento, secao) {
   });
 }
 
+// Falha que escapa do fluxo (DOM fora do molde, resposta de forma inesperada) vira aviso na tela, nunca promise sem tratamento.
+function tratarFalha(promessa, documento, idAviso) {
+  return promessa.catch(() => mostrarAviso(documento, idAviso, 'Não foi possível concluir. Tente de novo.'));
+}
+
 function iniciar(documento) {
   const secao = documento.querySelector('[data-camadas]');
   if (!secao) return;
   if (secao.dataset.camadas === 'envio') iniciarEnvio(documento, secao);
-  if (secao.dataset.camadas === 'previa') iniciarPrevia(documento, secao);
-  if (secao.dataset.camadas === 'confirmacao') iniciarConfirmacao(documento, secao);
+  if (secao.dataset.camadas === 'previa') tratarFalha(iniciarPrevia(documento, secao), documento, 'previa-erro');
+  if (secao.dataset.camadas === 'confirmacao') tratarFalha(iniciarConfirmacao(documento, secao), documento, 'publicacao-erro');
 }
 
 if (typeof document !== 'undefined') iniciar(document);
 if (typeof module !== 'undefined') {
-  module.exports = { mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo };
+  module.exports = { mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha, resultadoDaPublicacao, esconderAvisosDePublicacao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO };
 }

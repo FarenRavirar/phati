@@ -7,6 +7,7 @@
 {% if pacote %}<p class="mapa-atribuicao" data-atribuicao-aberta hidden></p>{% endif %}
 {% if pacote.ortofoto %}<p class="mapa-atribuicao" data-atribuicao-ortofoto hidden></p>{% endif %}
 {% if chave_google %}<p class="mapa-atribuicao" data-mapa-atribuicao hidden><img class="mapa-logo-google" data-atribuicao-logo src="{% static 'projeto/google-maps-logo.svg' %}" alt="Google Maps" width="98" height="18"> <span data-atribuicao-marca>Google Maps</span> <span data-atribuicao-dados></span></p>{% endif %}
+<output class="campo-ajuda" data-mapa-truncado hidden></output>
 <div data-mapa-aviso>{% include "componentes/aviso.html" with tipo="aviso" texto="Não foi possível abrir o mapa neste navegador." %}</div>
 <template data-modelo="vazio">{% include "componentes/vazio.html" with texto="" %}</template>
 <template data-modelo="sem_informacao">{% include "componentes/vazio.html" with texto="Sem informação." %}</template>

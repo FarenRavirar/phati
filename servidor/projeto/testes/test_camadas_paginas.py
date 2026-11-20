@@ -78,6 +78,7 @@ def test_previa_leva_a_api_do_envio_e_mostra_carregamento(cliente_logado, public
     assert resposta.status_code == 200
     assert f'data-api-previa="/api/v1/envios/{envio.publico_id}"' in html
     assert 'Carregando a prévia' in html
+    assert '<output id="previa-carregando">' in html  # o aviso de carregamento é <output>, o de status (T4.8)
     assert 'Nada foi publicado' in html
 
 
@@ -88,6 +89,9 @@ def test_publicacao_lista_estudo_e_leva_a_api_de_publicar(cliente_logado, public
     assert f'<option value="{estudo.pk}">Estudo sintético</option>' in html
     assert f'data-api-publicar="/api/v1/envios/{envio.publico_id}/publicar"' in html
     assert 'id="formulario-publicacao" hidden' in html  # aparece depois que a prévia carrega (camadas.js)
+    assert '<output id="publicacao-carregando">' in html
+    assert 'id="revisao-nos"' in html  # lista de revisão de nós, preenchida pelo camadas.js
+    assert '<output class="aviso aviso-sucesso" id="publicacao-sucesso" hidden>' in html
 
 
 def test_previa_com_mapa_ligado_leva_o_mapa_a_geometria_do_envio(cliente_logado, publicador, cenario, envio, settings):
@@ -98,6 +102,7 @@ def test_previa_com_mapa_ligado_leva_o_mapa_a_geometria_do_envio(cliente_logado,
     # O mapa.js e o CSS do MapLibre entram junto: sem o script, o aviso "não foi possível abrir o mapa" fica na tela (T4.8).
     assert '<script type="module" src="/static/projeto/mapa.js"' in html
     assert 'projeto/terceiros/maplibre/maplibre-gl.css' in html
+    assert 'data-mapa-truncado' in html  # aviso de geometria cortada (T4.8, P2): fica escondido até o mapa dizer que cortou
     # As regiões que o mapa.js procura (camadas, consulta, ficha): sem elas, `replaceChildren` cai em null (T4.8).
     for regiao in ('camadas', 'consulta', 'ficha'):
         assert f'data-conteudo-de="{regiao}"' in html

@@ -287,3 +287,13 @@ test('TOLERANCIA_DE_TOQUE_PX é a constante nomeada da caixa de toque (linha e p
   const { TOLERANCIA_DE_TOQUE_PX } = await import('./mapa.js');
   assert.equal(TOLERANCIA_DE_TOQUE_PX, 6);
 });
+
+// ---- Geometria cortada no limite (P2): o aviso diz quantas feições o mapa mostra de quantas existem --------------------
+
+test('textoDoTruncamento diz N de M quando a geometria foi cortada, e nada quando não foi', async () => {
+  const { textoDoTruncamento } = await import('./mapa.js');
+  const feicoes = [{ type: 'Feature' }];
+  assert.equal(textoDoTruncamento({ features: feicoes, total: 2, truncado: true }), 'Mapa mostra 1 de 2 feições.');
+  assert.equal(textoDoTruncamento({ features: feicoes, total: 1, truncado: false }), null);
+  assert.equal(textoDoTruncamento({ features: feicoes }), null); // sem a chave, não presume corte
+});

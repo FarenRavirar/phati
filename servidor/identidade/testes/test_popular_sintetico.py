@@ -7,6 +7,8 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from catalogo.models import Camada, EnvioCamada, Estudo, Feicao
+from django.utils import timezone
 from identidade import login
 from identidade.models import Pessoa
 from pacote.models import VersaoPacote
@@ -83,7 +85,8 @@ def test_pessoa_sem_acesso_nao_ve_fazenda_nem_convite(dados):
 def test_territorio_criado_tem_duas_empresas_quatro_fazendas_e_arvore_de_tres_niveis(dados):
     assert Empresa.objects.count() == 2
     assert Fazenda.objects.count() == 4
-    assert sorted(SubArea.objects.values_list('nivel', flat=True)) == [1, 2, 3]
+    # A árvore de três níveis da A1 mais os dois nós de nível 1 da divisão da A3 (008 R7, `_divisao_da_a3`).
+    assert sorted(SubArea.objects.values_list('nivel', flat=True)) == [1, 1, 1, 2, 3]
 
 
 @pytest.mark.parametrize('ambiente', [None, 'producao', 'qualquer', ''])
@@ -132,3 +135,25 @@ def test_so_a_segunda_fazenda_da_empresa_a_recebe_o_pacote_de_referencia(dados, 
     com_pacote = list(VersaoPacote.objects.filter(vigente=True).values_list('fazenda_id', flat=True))
     assert com_pacote == [dados['fazendas_a'][1]]
     assert (settings.PACOTES_DIR / str(dados['fazendas_a'][1]) / 'v1' / 'fundo.pmtiles').is_file()
+
+
+def test_so_a_fazenda_a3_tem_estudo_para_a_publicacao(dados):
+    assert Estudo.objects.filter(fazenda_id=dados['fazendas_a'][2], nome='Estudo sintético').count() == 1
+    assert Estudo.objects.filter(fazenda_id=dados['fazendas_a'][0]).count() == 0  # A1: estado vazio da publicação
+
+
+def test_envio_vencido_da_tela_de_camadas_ja_nasce_vencido(dados):
+    envio = EnvioCamada.objects.get(publico_id=dados['camadas']['envio_vencido'])
+    assert envio.expira_em <= timezone.now()  # a tela mostra o aviso de expiração sem alteração posterior no banco
+
+
+
+def test_a3_tem_divisao_com_dois_nos_e_feicoes_que_cruzam_e_ficam_fora(dados):
+    # Feliz: a divisão da A3 tem os dois nós, a camada marcada com `coluna_no`, e a exportação traz as coordenadas do Playwright.
+    nos = dados['camadas']['nos_a3']
+    assert len(nos) == 2
+    assert SubArea.objects.filter(pk__in=nos, fazenda_id=dados['fazendas_a'][2]).count() == 2
+    assert Camada.objects.filter(fazenda_id=dados['fazendas_a'][2], coluna_no='no').count() == 1
+    assert Feicao.objects.filter(versao__camada__fazenda_id=dados['fazendas_a'][2], sub_area__isnull=False).count() == 2
+    assert len(dados['camadas']['cruza']) == 5 and dados['camadas']['cruza'][0] == dados['camadas']['cruza'][-1]  # anel fechado
+    assert dados['camadas']['fora'] != dados['camadas']['cruza']

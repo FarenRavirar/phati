@@ -272,13 +272,11 @@ def test_no_com_ancestral_arquivado_recusa(camadas, mundo):
     assert 'ancestral arquivado' in excinfo.value.erros[0]
 
 
-def test_feicao_sem_no_com_nos_na_fazenda_recusa(camadas, mundo):
+def test_feicao_fora_de_todo_no_fica_na_fazenda_mesmo_com_nos_na_fazenda(camadas, mundo):
+    # Decisão do mantenedor: feição fora de todos os nós fica na própria fazenda (nó None) e a publicação não exige escolha.
     envio = _criar(mundo)
-    antes = _contagem()
-    with pytest.raises(RecusaPublicacao) as excinfo:
-        _publicar(mundo, envio, nos=[None, mundo.g1.pk])
-    assert excinfo.value.erros == ['feição sem nó: a fazenda tem nós']
-    assert _contagem() == antes
+    publicada = _publicar(mundo, envio, nos=[None, mundo.g1.pk])
+    assert publicada.numero == 1
 
 
 def test_quantidade_de_nos_diferente_das_feicoes_recusa(camadas, mundo):
