@@ -9,7 +9,7 @@ import pytest
 from django.contrib.gis.geos import GEOSGeometry
 from django.utils import timezone
 
-from catalogo.no_sugerido import LimiarNo, nos_da_fazenda, sugerir_no
+from catalogo.no_sugerido import LimiarNo, contornos_da_divisao, nos_da_fazenda, sugerir_no
 from territorio.models import SubArea
 
 pytestmark = pytest.mark.django_db  # sugerir_no consulta o PostGIS para as áreas
@@ -119,3 +119,26 @@ def test_no_arquivado_nao_e_carregado(cenario, fabrica_pessoa):
     cenario.g2.arquivamento = uuid.uuid4()
     cenario.g2.save(update_fields=['arquivada_em', 'arquivada_por', 'arquivamento'])
     assert cenario.g2.id not in nos_da_fazenda(cenario.f1)
+
+
+def test_contornos_sem_divisao_marcada_devolvem_vazio(cenario):
+    assert contornos_da_divisao(cenario.f1) == {}  # sem divisão, sem sugestão
+
+
+def test_contorno_de_no_com_duas_feicoes_e_a_uniao(cenario, fabrica_pessoa):
+    from catalogo.models import Camada, Estudo, Feicao, Tema, VersaoCamada
+    pessoa = fabrica_pessoa('Autora Sintetica')
+    tema = Tema.objects.create(empresa=cenario.x, nome='Solo')
+    estudo = Estudo.objects.create(empresa=cenario.x, fazenda=cenario.f1, tema=tema, nome='Estudo F1')
+    camada = Camada.objects.create(estudo=estudo, empresa=cenario.x, fazenda=cenario.f1, nome='Divisao', coluna_no='no')
+    versao = VersaoCamada.objects.create(camada=camada, empresa=cenario.x, fazenda=cenario.f1, numero=1,
+                                         sistema_original='EPSG:4674', origem='Levantamento sintetico',
+                                         hash_original='a' * 64, caminho_original='x.bin', enviada_por=pessoa)
+    esquerda = GEOSGeometry('POLYGON((-48.40 -10.80,-48.30 -10.80,-48.30 -10.60,-48.40 -10.60,-48.40 -10.80))', srid=4674)
+    direita = GEOSGeometry('POLYGON((-48.30 -10.80,-48.20 -10.80,-48.20 -10.60,-48.30 -10.60,-48.30 -10.80))', srid=4674)
+    for geometria in (esquerda, direita):
+        Feicao.objects.create(versao=versao, empresa=cenario.x, fazenda=cenario.f1, geometria=geometria,
+                              sub_area=cenario.g1)
+    contorno = contornos_da_divisao(cenario.f1)[cenario.g1.pk]
+    assert round(contorno.area, 6) == round(esquerda.area + direita.area, 6)
+    assert contorno.intersection(esquerda).area == pytest.approx(esquerda.area)

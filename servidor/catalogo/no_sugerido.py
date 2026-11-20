@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from django.db import connection
 
+from catalogo.models import Camada, Feicao, VersaoCamada
 from territorio.models import SubArea
 
 
@@ -34,6 +35,25 @@ class SugestaoNo:
 def nos_da_fazenda(fazenda):
     """Ids dos nós ativos da fazenda (R7: só nós dela; nó arquivado fica de fora)."""
     return list(SubArea.objects.filter(fazenda=fazenda, arquivada_em__isnull=True).order_by('id').values_list('id', flat=True))
+
+
+def contornos_da_divisao(fazenda):
+    """{id do nó: geometria} da divisão da fazenda (D119): a camada marcada (`coluna_no`) e a versão mais recente dela.
+
+    A versão mais recente é a que vale para a sugestão: uma divisão republicada troca o contorno sem apagar a anterior. Sem
+    camada marcada (ou sem versão, ou sem feição ligada a nó), devolve {}: sem divisão, sem sugestão. Feição com o mesmo nó
+    várias vezes entra como união. A RLS é a do chamador: fora do escopo, a consulta não traz linha."""
+    divisao = Camada.objects.filter(fazenda=fazenda, coluna_no__isnull=False).first()
+    if divisao is None:
+        return {}
+    ultima = VersaoCamada.objects.filter(camada=divisao).order_by('-numero').first()
+    if ultima is None:
+        return {}
+    contornos = {}
+    for feicao in Feicao.objects.filter(versao=ultima, sub_area__isnull=False).order_by('id'):
+        atual = contornos.get(feicao.sub_area_id)
+        contornos[feicao.sub_area_id] = feicao.geometria if atual is None else atual.union(feicao.geometria)
+    return contornos
 
 
 def _area(cursor, ewkt_a, ewkt_b=None):

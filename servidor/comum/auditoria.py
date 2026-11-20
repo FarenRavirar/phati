@@ -19,7 +19,7 @@ ACOES = frozenset({
 CAMPOS_PERMITIDOS = {
     'camada_publicada': frozenset({'nome_camada', 'versao'}),
     'sistema_confirmado': frozenset({'camada', 'versao', 'sistema'}),
-    'no_trocado': frozenset({'camada', 'versao', 'no_anterior_id', 'no_novo_id'}),
+    'no_trocado': frozenset({'camada', 'versao', 'quantidade'}),
     'atributo_ocultado': frozenset({'nome_atributo', 'versao', 'camada'}),
 }
 
