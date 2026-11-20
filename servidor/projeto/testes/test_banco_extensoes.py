@@ -37,4 +37,5 @@ def test_superusuario_nao_chega_ao_app_nem_a_migracao():
     # Caso negativo: a senha do superusuário fica só no serviço de extensões.
     assert 'PHATI_BANCO_SUPER_SENHA' not in _ambiente_compartilhado()
     assert 'PHATI_BANCO_SUPER_SENHA' not in _bloco('migracao')
-    assert 'PHATI_BANCO_SUPER_SENHA' not in _bloco('app')
+    assert 'PHATI_BANCO_SUPER_SENHA' not in _bloco('app_azul')
+    assert 'PHATI_BANCO_SUPER_SENHA' not in _bloco('app_verde')

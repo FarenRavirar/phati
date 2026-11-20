@@ -111,13 +111,14 @@ def test_dono_do_volume_dos_pacotes_e_acertado_no_caminho_configurado():
 
 
 def test_estaticos_vao_para_o_volume_que_o_nginx_serve(monkeypatch):
-    # D070: `collectstatic` grava no volume `estaticos` do compose, que o nginx monta somente leitura.
+    # D070 e spec 009: `collectstatic` grava no volume da pilha (`estaticos_azul`), que o nginx monta somente leitura.
     monkeypatch.delenv('PHATI_ESTATICOS', raising=False)
     assert runpy.run_path(str(CAMINHO))['STATIC_ROOT'] == '/estaticos'
     monkeypatch.setenv('PHATI_ESTATICOS', '/outro')
     assert runpy.run_path(str(CAMINHO))['STATIC_ROOT'] == '/outro'
     compose = (CAMINHO.parents[1] / 'compose.yaml').read_text(encoding='utf-8')
-    assert 'estaticos:/estaticos:ro' in compose
+    assert 'estaticos_azul:/estaticos\n' in compose
+    assert 'estaticos_azul:/estaticos_azul:ro' in compose
 
 
 def test_healthcheck_do_banco_espera_o_servidor_tcp():

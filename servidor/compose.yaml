@@ -1,13 +1,16 @@
 # Dev e testes: sobe o mesmo par da produção (app + banco). Variáveis vêm do ambiente ou de um .env
 # fora do repositório (nomes em .env.exemplo); sem elas o compose recusa subir.
+# Os serviços `app_azul` e `app_verde` (spec 009) são a mesma definição (âncora `x-app`). Dev e CI sobem só o azul:
+# o `app_verde` tem o profile `bluegreen`, que só o `compose.implantacao.yaml` liga.
 # O serviço `app` recebe só as credenciais do papel `app`; as do papel `dono` ficam só em `migracao`.
 x-ambiente-app: &ambiente_app
   PHATI_CHAVE_SECRETA: ${PHATI_CHAVE_SECRETA:?}
   PHATI_DEPURACAO: ${PHATI_DEPURACAO:-0}
   PHATI_HOSTS_PERMITIDOS: ${PHATI_HOSTS_PERMITIDOS:-localhost,127.0.0.1}
   PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
-  PHATI_BANCO_HOST: banco
-  PHATI_BANCO_PORTA: "5432"
+  # O app fala com o PgBouncer (spec 009 R18), nunca com o `banco`. `pgb_ns` é o dono da rede dos dois processos.
+  PHATI_BANCO_HOST: pgb_ns
+  PHATI_BANCO_PORTA: "6432"
   PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
   PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
   PHATI_CHAVE_CPF: ${PHATI_CHAVE_CPF:?}
@@ -34,6 +37,23 @@ x-ambiente-app: &ambiente_app
   PHATI_PMTILES_BIN: ${PHATI_PMTILES_BIN:-pmtiles}
   PHATI_RIO_BIN: ${PHATI_RIO_BIN:-rio}
 
+# Definição comum das duas pilhas do app. Porta publicada só no `app_azul` (no verde colidiria na 8000).
+x-app: &app
+  build: .
+  environment: *ambiente_app
+  volumes:
+    - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
+    - camadas:${PHATI_CAMADAS_DIR:-/camadas}  # originais e prévias de camada (008 D114 c); disco privado, sem rota pública
+    # Arquivos fora do Git (texto dos termos e chave do Cloud Monitoring, 004b R13/R15): PHATI_TERMOS_ARQUIVO e
+    # PHATI_GOOGLE_MONITORING_CREDENCIAL são caminhos DENTRO do contêiner, ex.: /segredos/google-monitoring.json.
+    - ${PHATI_SEGREDOS_DIR:-./segredos}:/segredos:ro
+  depends_on:
+    migracao: {condition: service_completed_successfully}
+    pacotes_dono: {condition: service_completed_successfully}
+    camadas_dono: {condition: service_completed_successfully}
+    pgb1: {condition: service_healthy}
+    pgb2: {condition: service_healthy}
+
 services:
   banco:
     build: ./banco  # PostgreSQL 18 fixado por digest + PostGIS 3.6.4 (D114); imagem própria, não de terceiro
@@ -54,12 +74,15 @@ services:
       interval: 5s
       retries: 10
 
+  # Migração e estáticos vão DIRETO ao `banco` (spec 009 R18): o PgBouncer só atende o papel do app.
   migracao:
     build: .
     # O `check` acusa PHATI_SEGREDO_RLS diferente do gravado no banco; falhando, o `app` não sobe (depends_on).
     command: sh -c "python manage.py migrate && python manage.py check --database default"
     environment:
       <<: *ambiente_app
+      PHATI_BANCO_HOST: banco
+      PHATI_BANCO_PORTA: "5432"
       PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
       PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
     volumes:
@@ -68,27 +91,48 @@ services:
       banco: {condition: service_healthy}
       banco_extensoes: {condition: service_completed_successfully}
 
-  # Publica os estáticos no volume que o nginx serve. Roda como root só para escrever no volume recém-criado.
-  estaticos:
+  # Publica os estáticos da pilha azul no volume que o nginx serve. Roda como root só para escrever no volume recém-criado.
+  estaticos_azul:
     build: .
     user: "0"
     command: python manage.py collectstatic --noinput
     environment:
       <<: *ambiente_app
+      PHATI_BANCO_HOST: banco
+      PHATI_BANCO_PORTA: "5432"
       PHATI_ESTATICOS: /estaticos
     volumes:
-      - estaticos:/estaticos
+      - estaticos_azul:/estaticos
+
+  # Pilha verde (spec 009): mesmo molde do azul, com o próprio volume de estáticos. Fora de dev e CI (profile).
+  estaticos_verde:
+    profiles: ["bluegreen"]
+    build: .
+    user: "0"
+    command: python manage.py collectstatic --noinput
+    environment:
+      <<: *ambiente_app
+      PHATI_BANCO_HOST: banco
+      PHATI_BANCO_PORTA: "5432"
+      PHATI_ESTATICOS: /estaticos
+    volumes:
+      - estaticos_verde:/estaticos
 
   nginx:
     image: nginx:1.31-alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      - estaticos:/estaticos:ro
+      # Diretório, não arquivo: o `git checkout` troca o inode de arquivo montado e o nginx deixa de ver a mudança. O
+      # `include` padrão lê só `conf.d/*.conf` (topo), então o `alvo/` aninhado fica de fora do conf.d.
+      - ./nginx:/etc/nginx/conf.d:ro
+      # Diretório, não arquivo: o script troca o `alvo.conf` por substituição de inode (spec 009, Arquitetura).
+      - ${PHATI_ALVO_DIR:-./nginx/alvo}:/etc/nginx/alvo:ro
+      - estaticos_azul:/estaticos_azul:ro
+      - estaticos_verde:/estaticos_verde:ro
     depends_on:
-      app: {condition: service_healthy}
-      estaticos: {condition: service_completed_successfully}
+      app_azul: {condition: service_healthy}
+      estaticos_azul: {condition: service_completed_successfully}
 
   # PostGIS em volume que já existia (o init só roda em volume vazio). Superusuário só aqui; app e migração não recebem a senha.
   banco_extensoes:
@@ -121,24 +165,74 @@ services:
     volumes:
       - camadas:${PHATI_CAMADAS_DIR:-/camadas}
 
-  app:
-    build: .
-    environment: *ambiente_app
+  # PgBouncer na frente do banco (spec 009 R18). `pgb_ns` é dono da rede; `pgb1` e `pgb2` dividem essa rede com
+  # `so_reuseport`, e a queda de um deixa o outro atendendo. Mesma imagem para os quatro (build em cache).
+  pgb_ns:
+    build: ./pgbouncer
+    entrypoint: ["sleep", "infinity"]
+
+  # Grava `/cfg/userlist.txt` com o verificador SCRAM do papel do app, uma vez. Superusuário, como `banco_extensoes`.
+  pgb_auth:
+    build: ./pgbouncer
+    command: ["auth"]
+    environment:
+      PGHOST: banco
+      PGUSER: postgres
+      PGPASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
+      PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
     volumes:
-      - pacotes:${PHATI_PACOTES_DIR:-/pacotes}  # versões do pacote offline (004b); sem volume sumiriam a cada recriação do contêiner
-      - camadas:${PHATI_CAMADAS_DIR:-/camadas}  # originais e prévias de camada (008 D114 c); disco privado, sem rota pública
-      # Arquivos fora do Git (texto dos termos e chave do Cloud Monitoring, 004b R13/R15): PHATI_TERMOS_ARQUIVO e
-      # PHATI_GOOGLE_MONITORING_CREDENCIAL são caminhos DENTRO do contêiner, ex.: /segredos/google-monitoring.json.
-      - ${PHATI_SEGREDOS_DIR:-./segredos}:/segredos:ro
+      - pgb_cfg:/cfg
+    depends_on:
+      banco: {condition: service_healthy}
+
+  pgb1:
+    build: ./pgbouncer
+    network_mode: "service:pgb_ns"
+    environment:
+      PGB_INSTANCIA: pgb1
+      PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+    volumes:
+      - pgb_cfg:/cfg:ro
+    depends_on:
+      pgb_ns: {condition: service_started}
+      pgb_auth: {condition: service_completed_successfully}
+    healthcheck:
+      # Liveness, não readiness: confere só que o socket da própria instância existe (com `so_reuseport` a 6432 responde
+      # pelos dois, então TCP não separa). Sem `pg_isready`: ele conecta como `postgres` e o PgBouncer loga cada tentativa.
+      test: ["CMD", "test", "-S", "/tmp/pgb/pgb1/.s.PGSQL.6432"]
+      interval: 5s
+      retries: 10
+
+  pgb2:
+    build: ./pgbouncer
+    network_mode: "service:pgb_ns"
+    environment:
+      PGB_INSTANCIA: pgb2
+      PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+    volumes:
+      - pgb_cfg:/cfg:ro
+    depends_on:
+      pgb_ns: {condition: service_started}
+      pgb_auth: {condition: service_completed_successfully}
+    healthcheck:
+      # Liveness (ver pgb1): socket da própria instância.
+      test: ["CMD", "test", "-S", "/tmp/pgb/pgb2/.s.PGSQL.6432"]
+      interval: 5s
+      retries: 10
+
+  app_azul:
+    <<: *app
     ports:
       - "127.0.0.1:8000:8000"
-    depends_on:
-      migracao: {condition: service_completed_successfully}
-      pacotes_dono: {condition: service_completed_successfully}
-      camadas_dono: {condition: service_completed_successfully}
+
+  app_verde:
+    <<: *app
+    profiles: ["bluegreen"]
 
 volumes:
   dados_banco:
-  estaticos:
+  estaticos_azul:
+  estaticos_verde:
   pacotes:
   camadas:
+  pgb_cfg:
