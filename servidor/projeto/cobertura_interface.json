@@ -32,7 +32,12 @@
     "pacote_manifesto": "Sem tela própria: o aplicativo Android baixa o manifesto do pacote offline (004b R3); a web usa os arquivos por Range (Fase 2).",
     "pacote_camadas": "Sem tela própria: o aplicativo Android baixa as camadas do pacote offline (004b R4); dado sintético, só com a flag do mapa.",
     "pacote_arquivo": "Fundo e ortofoto do pacote lidos por Range: PMTiles do mapa da web (004b R7, R8, Fase 2) e download do aplicativo (R3).",
-    "saude": "Sonda do healthcheck e da conferência pós-deploy — 006 R10; sem tela de propósito, devolve só o estado."
+    "saude": "Sonda do healthcheck e da conferência pós-deploy — 006 R10; sem tela de propósito, devolve só o estado.",
+    "catalogo_criar_envio": "Envio de camada (upload) — tela de publicação da 008 (fase 4); spec 008 R3, R16",
+    "catalogo_previa": "Prévia do envio (colunas, sistema, avisos, nó sugerido) — tela de publicação da 008 (fase 4); spec 008 R12",
+    "catalogo_publicar": "Publicação do envio em análise — tela de publicação da 008 (fase 4); spec 008 R4, R7, R9, R13",
+    "catalogo_camadas_listar": "Lista de camadas da fazenda, paginada — tela de camadas (008 Fase 4); spec 008 R11",
+    "catalogo_feicoes_listar": "Feições da versão, paginadas, só colunas visíveis — tela de camadas (008 Fase 4); spec 008 R9, R11"
   },
   "funcoes": {
     "permissao.uso.registrar_uso": "Contador dos atalhos do Início — 003 R26 (sem tela própria: roda depois de convidar, criar ou editar cargo e criar fazenda)",
@@ -157,7 +162,7 @@
     "aprovar_atributo": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "aprovar_geometria": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "tornar_revisao_vigente": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
-    "publicar_camada": "Reservada para a spec 008 (publicação de camada, fase 3, D041); sem função hoje: a prévia e a publicação ainda não existem",
+    "publicar_camada": "Publicar envio, trocar nó e ocultar atributo: rotas catalogo_criar_envio, catalogo_previa, catalogo_publicar (008 T3.2, D041)",
     "subir_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "definir_validade_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "convidar_pessoa": "003",

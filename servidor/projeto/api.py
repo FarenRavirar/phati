@@ -17,6 +17,7 @@ from ninja.security import APIKeyCookie, HttpBearer
 from identidade import sessao
 from identidade.api import roteador as roteador_identidade
 from permissao.api import roteador as roteador_permissao
+from catalogo.api import roteador as roteador_catalogo
 from territorio.api import roteador as roteador_territorio
 
 _ROTAS_DA_TROCA = frozenset({'trocar_senha', 'sair'})
@@ -73,6 +74,7 @@ api = NinjaAPI(
 api.add_router('', roteador_identidade)
 api.add_router('', roteador_territorio)
 api.add_router('', roteador_permissao)
+api.add_router('', roteador_catalogo)
 
 
 @api.exception_handler(ErroDeEntrada)

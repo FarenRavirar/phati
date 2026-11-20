@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from django.db import connection
 
+from catalogo.models import Camada, Feicao, VersaoCamada
 from territorio.models import SubArea
 
 
@@ -36,15 +37,40 @@ def nos_da_fazenda(fazenda):
     return list(SubArea.objects.filter(fazenda=fazenda, arquivada_em__isnull=True).order_by('id').values_list('id', flat=True))
 
 
-def _area(cursor, ewkt_a, ewkt_b=None):
-    if ewkt_b is None:
-        cursor.execute('SELECT ST_Area(ST_GeomFromEWKT(%s)::geography)', [ewkt_a])
-    else:
-        cursor.execute(
-            'SELECT ST_Area(ST_Intersection(ST_GeomFromEWKT(%s)::geography, ST_GeomFromEWKT(%s)::geography))',
-            [ewkt_a, ewkt_b],
-        )
+def contornos_da_divisao(fazenda):
+    """{id do nó: geometria} da divisão da fazenda (D119): a camada marcada (`coluna_no`) e a versão mais recente dela.
+
+    A versão mais recente é a que vale para a sugestão: uma divisão republicada troca o contorno sem apagar a anterior. Sem
+    camada marcada (ou sem versão, ou sem feição ligada a nó), devolve {}: sem divisão, sem sugestão. Feição com o mesmo nó
+    várias vezes entra como união. A RLS é a do chamador: fora do escopo, a consulta não traz linha."""
+    divisao = Camada.objects.filter(fazenda=fazenda, coluna_no__isnull=False).first()
+    if divisao is None:
+        return {}
+    ultima = VersaoCamada.objects.filter(camada=divisao).order_by('-numero').first()
+    if ultima is None:
+        return {}
+    contornos = {}
+    for feicao in Feicao.objects.filter(versao=ultima, sub_area__isnull=False).order_by('id'):
+        atual = contornos.get(feicao.sub_area_id)
+        contornos[feicao.sub_area_id] = feicao.geometria if atual is None else atual.union(feicao.geometria)
+    return contornos
+
+
+def _area(cursor, ewkt):
+    cursor.execute('SELECT ST_Area(ST_GeomFromEWKT(%s)::geography)', [ewkt])
     return float(cursor.fetchone()[0] or 0.0)
+
+
+def _areas_de_interseccao(cursor, ewkt_feicao, nos):
+    """Área de interseção da feição com cada nó: uma consulta por feição, com todos os nós em `unnest` (medido: antes
+    eram N×M consultas, 1051 para 50 feições × 20 nós). Pares (id do nó, área) na ordem de `nos`."""
+    cursor.execute(
+        'SELECT t.id, ST_Area(ST_Intersection(ST_GeomFromEWKT(%s)::geography, ST_GeomFromEWKT(t.ewkt)::geography)) '
+        'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt)',
+        [ewkt_feicao, [id_no for id_no, _ in nos], [geometria.ewkt for _, geometria in nos]],
+    )
+    brutas = {id_no: float(area or 0.0) for id_no, area in cursor.fetchall()}
+    return [(id_no, brutas[id_no]) for id_no, _ in nos]
 
 
 def sugerir_no(feicao, nos, limiar=LimiarNo()):
@@ -54,10 +80,10 @@ def sugerir_no(feicao, nos, limiar=LimiarNo()):
         if area_feicao <= 0:
             return SugestaoNo(None, 'sem_area', {})
         areas = {}
-        for id_no, geometria in nos:
-            area = _area(cursor, feicao.ewkt, geometria.ewkt)
-            if area > 0:
-                areas[id_no] = area
+        if nos:
+            for id_no, area in _areas_de_interseccao(cursor, feicao.ewkt, nos):
+                if area > 0:
+                    areas[id_no] = area
     if not areas:
         return SugestaoNo(None, 'sem_intersecao', areas)
     relevantes = sorted(

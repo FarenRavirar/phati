@@ -1,4 +1,4 @@
-"""Catálogo de camadas (spec 008, §Modelo; R1, R2, R10). Cada tabela tem RLS na migração 0002 (T1.3).
+"""Catálogo de camadas (spec 008, §Modelo; R1, R2, R10). Cada tabela tem RLS na migração 0001 (T1.3).
 
 Tema → Estudo → Camada → VersaoCamada → Feição, com atributos da versão. Esta spec só cria versão "em análise":
 a CHECK abaixo impede qualquer outro estado; tornar vigente é da spec de revisão e vigência (R2)."""
@@ -25,7 +25,7 @@ class Tema(models.Model):
         db_table = 'catalogo_tema'
         constraints = [
             models.UniqueConstraint(fields=['empresa', 'nome'], name='tema_nome_unico_na_empresa'),
-            # Chave que o estudo referencia (FK composta, migração 0004): tema e empresa não andam separados.
+            # Chave que o estudo referencia (FK composta, migração 0001): tema e empresa não andam separados.
             models.UniqueConstraint(fields=['id', 'empresa'], name='tema_chave_composta'),
         ]
 
@@ -44,7 +44,7 @@ class Estudo(models.Model):
     class Meta:
         db_table = 'catalogo_estudo'
         constraints = [
-            # Chave que os filhos referenciam (FK composta, migração 0002): empresa e fazenda não andam separadas.
+            # Chave que os filhos referenciam (FK composta, migração 0001): empresa e fazenda não andam separadas.
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='estudo_chave_composta'),
         ]
 
@@ -56,6 +56,7 @@ class Camada(models.Model):
     empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
     fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     nome = models.CharField(max_length=200)
+    coluna_no = models.TextField(null=True, blank=True)  # D119: coluna do arquivo com o nome do nó; marca a divisão da fazenda
     estudo_id: int
     empresa_id: int
     fazenda_id: int
@@ -65,6 +66,8 @@ class Camada(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['estudo', 'nome'], name='camada_nome_unico_no_estudo'),
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='camada_chave_composta'),
+            # Índice único parcial (PostgreSQL: CREATE UNIQUE INDEX ... WHERE): uma divisão por fazenda.
+            models.UniqueConstraint(fields=['fazenda'], condition=Q(coluna_no__isnull=False), name='camada_divisao_unica_por_fazenda'),
         ]
 
 
@@ -143,10 +146,13 @@ class Feicao(models.Model):
     versao_id: int
     empresa_id: int
     fazenda_id: int
+    sub_area_id: int | None  # anotação para o pyright: o Django cria `sub_area_id` (FK nulável)
 
 
 class EnvioCamada(models.Model):
-    """Envio em prévia: linha temporária com expiração, não versão (R12). O arquivo temporário expira com ela."""
+    """Envio em prévia: linha temporária com expiração, não versão (R12). O arquivo temporário expira com ela.
+    `publico_id` é o identificador da URL (opaco, R11); o nome interno do arquivo nunca sai pela API (R15)."""
+    publico_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     criado_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
     empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
     fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
