@@ -7,9 +7,18 @@
 // "bloqueia" — cada um deles é um modo de falha em que o gate atrapalharia.
 
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const HOOK = path.join(__dirname, 'rtk-enforce.js');
+
+// Fixture próprio: o gate de `rtk grep` olha o disco (arquivo x diretório), então
+// os casos rodam num diretório temporário com `arquivo.md` e `specs/` de verdade.
+const FIXTURE = fs.mkdtempSync(path.join(os.tmpdir(), 'rtk-enforce-'));
+fs.writeFileSync(path.join(FIXTURE, 'arquivo.md'), '# exemplo\n');
+fs.writeFileSync(path.join(FIXTURE, 'outro.md'), '# outro\n');
+fs.mkdirSync(path.join(FIXTURE, 'specs'));
 
 const CASES = [
   // --- leitura-parcial-crua (regra nova, 2026-08-07) ---
@@ -46,9 +55,72 @@ const CASES = [
   // Com -r o grep nativo funciona: nao e o caso que o gate mira.
   { cmd: `rtk grep -r "termo" apps`, deny: false },
   { cmd: `rtk grep -rn "termo" apps`, deny: false },
-  // Arquivo unico e uso legitimo do grep, mas sem -r o gate nao distingue
-  // arquivo de diretorio; `rtk rg` cobre os dois, entao a correcao serve igual.
+  // `rtk rg` cobre arquivo e diretorio, entao nunca e bloqueado por esta regra.
   { cmd: `rtk rg "termo" apps`, deny: false },
+
+  // Regressão: sem -r, arquivo único é uso legítimo do grep. O gate olha o disco.
+  { cmd: `rtk grep -n X arquivo.md`, deny: false },
+  { cmd: `rtk grep -n "termo" arquivo.md`, deny: false },
+  { cmd: `rtk grep -n "a b" arquivo.md`, deny: false },
+  { cmd: `rtk grep -e "termo" arquivo.md`, deny: false },
+  { cmd: `rtk grep -A 2 "termo" arquivo.md`, deny: false },
+  { cmd: `rtk grep -n "termo" arquivo.md 2>&1`, deny: false },
+  { cmd: `rtk grep -n X specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  { cmd: `rtk grep -n "termo" arquivo.md specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  { cmd: `rtk grep -e "termo" specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  { cmd: `rtk grep -n "termo" arquivo.md && rtk grep -n "x" specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  { cmd: `rtk grep -rn X specs`, deny: false },
+  { cmd: `rtk grep -rn X arquivo.md`, deny: false },
+  // Sem alvo: grep lê stdin ou falha; sem -r continua bloqueado.
+  { cmd: `rtk grep -n "termo"`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  // Caminho inexistente: comportamento anterior preservado (bloqueia sem -r).
+  { cmd: `rtk grep -n "termo" inexistente.md`, deny: true, rule: 'rtk-grep-em-diretorio' },
+
+  // Regressão: grep lendo de pipe (stdin) sem alvo é legítimo. Sem pipe, sem alvo, continua bloqueado.
+  { cmd: `cmd 2>&1 | rtk grep -n X`, deny: false },
+  { cmd: `cmd | rtk grep -n -- "--agent"`, deny: false },
+  { cmd: `rtk grep -n X`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  // Pipe não libera alvo que é diretório: grep lê o diretório, não o stdin.
+  { cmd: `cmd | rtk grep -n X specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+
+  // A1 — opções com valor são consumidas como o grep faz (separado, anexado, `--`).
+  // `-r` que é valor de -e não é recursivo: o alvo `specs` é diretório -> deny.
+  { cmd: `rtk grep -e -r specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  // Padrão anexado (`-ePAT`) é padrão, não alvo: `arquivo.md` continua sendo o alvo.
+  { cmd: `rtk grep -nePADRAO arquivo.md`, deny: false },
+  { cmd: `rtk grep -nePADRAO specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  // Valor separado de opção longa (`--include *.md`) não vira alvo.
+  { cmd: `rtk grep --include *.md -n X arquivo.md`, deny: false },
+  { cmd: `rtk grep --include=*.md -n X arquivo.md`, deny: false },
+  { cmd: `rtk grep -A3 -n X arquivo.md`, deny: false },
+  // Após `--`, `-r` é padrão literal; aspa também torna o token padrão.
+  { cmd: `rtk grep -- -r arquivo.md`, deny: false },
+  { cmd: `rtk grep "-r" specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+
+  // A2 — alvo relativo resolve no diretório do `cd` literal encadeado por `&&`.
+  // `../arquivo.md` existe a partir de specs/ (é FIXTURE/arquivo.md).
+  { cmd: `cd specs && rtk grep -n X ../arquivo.md`, deny: false },
+  // `arquivo.md` só existe no cwd do hook, não em specs/: bloqueia.
+  { cmd: `cd specs && rtk grep -n X arquivo.md`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  // cd dinâmico: diretório desconhecido, alvo relativo bloqueia.
+  { cmd: `cd $ALVO && rtk grep -n X arquivo.md`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  // cd após `;` não é encadeado por `&&`: diretório desconhecido.
+  { cmd: `cd specs; rtk grep -n X ../arquivo.md`, deny: true, rule: 'rtk-grep-em-diretorio' },
+
+  // A3 — separadores dentro de aspa ou com escape não dividem o segmento.
+  { cmd: `rtk grep -n "a;b" arquivo.md`, deny: false },
+  { cmd: `rtk grep -n 'a|b' arquivo.md`, deny: false },
+  { cmd: `rtk grep -n "a && b" specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  { cmd: `rtk grep -n a\\;b arquivo.md`, deny: false },
+
+  // A4 — a sugestão reescreve só o segmento negado, não o primeiro `rtk grep`.
+  { cmd: `rtk grep -n X arquivo.md && rtk grep -n Y specs`, deny: true, rule: 'rtk-grep-em-diretorio', sugestao: `rtk grep -n X arquivo.md && rtk rg -n Y specs` },
+  { cmd: `rtk grep -n X specs && rtk grep -n Y specs`, deny: true, rule: 'rtk-grep-em-diretorio', sugestao: `rtk rg -n X specs && rtk rg -n Y specs` },
+
+  // A6 — vários arquivos existentes passam (contrato: todos os alvos são arquivos existentes).
+  { cmd: `rtk grep -n X arquivo.md outro.md`, deny: false },
+  { cmd: `rtk grep -n X arquivo.md inexistente.md`, deny: true, rule: 'rtk-grep-em-diretorio' },
+  { cmd: `rtk grep -n X arquivo.md outro.md specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
 
   // --- rtk-diff-solto (spec 101 F3.0) ---
   { cmd: `rtk diff AGENTS.md`, deny: true },
@@ -67,6 +139,7 @@ for (const testCase of CASES) {
     out = execFileSync(process.execPath, [HOOK], {
       input: JSON.stringify({ tool_input: { command: testCase.cmd } }),
       encoding: 'utf8',
+      cwd: FIXTURE,
     });
   } catch {
     console.log(`ERRO ao executar: ${testCase.cmd}`);
@@ -91,10 +164,19 @@ for (const testCase of CASES) {
       failed += 1;
       continue;
     }
+    if (testCase.sugestao && !reason.includes(`  ${testCase.sugestao}`)) {
+      console.log(`FALHOU  ${testCase.cmd}`);
+      console.log(`        sugestao esperada: ${testCase.sugestao}`);
+      console.log(`        motivo: ${reason}`);
+      failed += 1;
+      continue;
+    }
   }
 
   console.log(`ok      ${denied ? '[DENY]' : '[pass]'} ${testCase.cmd}`);
 }
+
+fs.rmSync(FIXTURE, { recursive: true, force: true });
 
 console.log('');
 if (failed > 0) {
