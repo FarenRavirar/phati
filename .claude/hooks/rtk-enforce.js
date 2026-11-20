@@ -151,7 +151,11 @@ function analisarGrep(args) {
 }
 
 // `dir` é o diretório efetivo do comando, ou null se desconhecido.
-function grepPermitido(args, recebePipe, dir) {
+// CHECAGEM DE HIGIENE, NÃO DE SEGURANÇA: o alvo é olhado no disco no momento deste hook, e o grep só roda depois.
+// Se o alvo sumir ou virar diretório entre as duas coisas, o próprio grep falha (erro, não saída errada). O hook não
+// revalida na execução e a regra não muda por isso: sem `--` antes dos alvos na sugestão. Teste: "alvo removido entre
+// a checagem e a execução só faz o comando falhar".
+function grepPermitido(args, recebePipe, dir, statSync = fs.statSync) {
   const { recursivo, temPadrao, posicionais } = analisarGrep(args);
   if (recursivo) return true;
   const alvos = (temPadrao ? posicionais : posicionais.slice(1)).filter((a) => a !== '-');
@@ -159,7 +163,7 @@ function grepPermitido(args, recebePipe, dir) {
   return alvos.every((alvo) => {
     if (dir === null && !path.isAbsolute(alvo)) return false;
     try {
-      return !fs.statSync(path.resolve(dir ?? '', alvo)).isDirectory();
+      return !statSync(path.resolve(dir ?? '', alvo)).isDirectory();
     } catch {
       return false; // inexistente: bloqueia, como antes
     }
@@ -308,7 +312,7 @@ const RULES = [
   },
 ];
 
-lerPayload((raw) => {
+if (require.main === module) lerPayload((raw) => {
   let command = '';
   try {
     command = JSON.parse(raw)?.tool_input?.command ?? '';
@@ -338,3 +342,5 @@ lerPayload((raw) => {
 
   process.exit(0);
 });
+
+module.exports = { grepPermitido };

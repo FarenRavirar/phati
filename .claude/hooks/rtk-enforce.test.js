@@ -184,3 +184,52 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log(`${CASES.length}/${CASES.length} passaram`);
+
+// --- Checagem de higiene do grep (TOCTOU): contrato fixado com statSync injetado, sem disco. ---
+// A regra olha o alvo no momento do hook. Alvo que some ou vira diretório depois só faz o grep falhar: o hook não
+// revalida na execução e não muda a decisão por isso.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { grepPermitido } = require('./rtk-enforce.js');
+
+const arg = (valor) => ({ valor, citado: false });
+const ARGS_ARQUIVO = [arg('-n'), arg('X'), arg('arquivo.md')];
+
+test('alvo que é arquivo no momento da checagem passa', () => {
+  const chamadas = [];
+  const statSync = (caminho) => {
+    chamadas.push(caminho);
+    return { isDirectory: () => false };
+  };
+
+  assert.equal(grepPermitido(ARGS_ARQUIVO, false, '/projeto', statSync), true);
+  assert.deepEqual(chamadas, [path.resolve('/projeto', 'arquivo.md')]);
+});
+
+test('alvo removido entre a checagem e a execução só faz o comando falhar: o hook não revalida nem nega de novo', () => {
+  let estado = 'arquivo';
+  let consultas = 0;
+  const statSync = () => {
+    consultas += 1;
+    if (estado === 'arquivo') return { isDirectory: () => false };
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+
+  assert.equal(grepPermitido(ARGS_ARQUIVO, false, '/projeto', statSync), true);
+  estado = 'removido'; // entre a checagem e o grep rodar
+  assert.equal(consultas, 1, 'o hook consulta o disco uma vez, na checagem');
+});
+
+test('alvo já removido na checagem é bloqueado (comportamento anterior preservado)', () => {
+  const statSync = () => {
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+
+  assert.equal(grepPermitido(ARGS_ARQUIVO, false, '/projeto', statSync), false);
+});
+
+test('alvo que é diretório na checagem é bloqueado', () => {
+  const statSync = () => ({ isDirectory: () => true });
+
+  assert.equal(grepPermitido([arg('-n'), arg('X'), arg('specs')], false, '/projeto', statSync), false);
+});
