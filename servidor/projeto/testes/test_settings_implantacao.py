@@ -125,9 +125,10 @@ def _bloco(texto, servico):
 def test_compose_de_implantacao_zera_as_portas_de_app_e_nginx_e_so_o_tunel_entra():
     # A1: o job `docker` do CI repete a prova com `docker compose config`, que expande o arquivo de verdade.
     texto = (RAIZ / 'compose.implantacao.yaml').read_text(encoding='utf-8')
-    for servico in ('app', 'nginx'):
+    for servico in ('app_azul', 'app_verde', 'nginx'):
         assert '    ports: !reset []' in _bloco(texto, servico)
     assert not any(linha.strip() == 'ports:' or linha.strip().startswith('- "') for linha in texto.splitlines())  # nada publica porta
-    assert '      PHATI_IMPLANTACAO: "1"' in _bloco(texto, 'app')
+    for servico in ('app_azul', 'app_verde'):
+        assert '      PHATI_IMPLANTACAO: "1"' in _bloco(texto, servico)
     assert '      TUNNEL_TOKEN: ${PHATI_TUNEL_TOKEN:?}' in _bloco(texto, 'cloudflared')
     assert any('@sha256:' in linha for linha in _bloco(texto, 'cloudflared'))  # imagem do túnel fixada por digest
