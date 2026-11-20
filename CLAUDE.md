@@ -5,6 +5,28 @@
 O `AGENTS.md` é a fonte canônica de governança e vale integralmente aqui. Este arquivo só
 acrescenta o que é específico do Claude Code; nada do `AGENTS.md` se repete aqui.
 
+## Regra pétrea de comunicação com o mantenedor (mandatória, vale acima de tudo abaixo)
+
+O mantenedor trabalha longe do computador e não vê texto parado no terminal. Por isso, **todo
+aviso, pendência, decisão ou parada que dependa dele vai em `AskUserQuestion`**, nunca só em
+texto de resposta. Sem exceção:
+
+1. **Parou esperando o mantenedor** (aprovação nominal, decisão de produto, autorização,
+   "terminei, e agora?", fase fechada, bloqueio): chamar `AskUserQuestion` com 2 a 4 opções,
+   a recomendada primeiro, e chamar `PushNotification` (`status: "proactive"`) na mesma vez,
+   para o aviso chegar ao celular. A pergunta diz o que está parado e por quê.
+2. **Nunca terminar o turno com texto do tipo "aguardo", "fico parado" ou "me chame"** sem a
+   pergunta correspondente. Texto assim faz o mantenedor achar que o agente trabalha, quando
+   está parado (ocorreu na spec 009).
+3. **Trabalho em andamento não vira pergunta**: enquanto há agente ou comando rodando, o
+   agente diz isso em uma linha, sem fingir que está bloqueado. Ao terminar o que rodava, se
+   restar algo que dependa do mantenedor, aplica a regra 1.
+4. **Cada aviso é uma pergunta nova e completa** (autossuficiente: o mantenedor pode ver só o
+   diálogo da pergunta). Não reaproveitar aprovação anterior (`AGENTS.md` §Decisão, pausa e
+   dúvida).
+5. Estado "parado, nada pendente" também é avisado por `AskUserQuestion` (opção "Parar, você
+   me chama" incluída), nunca só em texto.
+
 ## Específico do Claude Code
 
 - **Skills:** `.agents/skills/` é a pasta única. Não criar skill em `.claude/skills/`.

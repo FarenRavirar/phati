@@ -27,7 +27,54 @@
 
 
 const { lerPayload } = require(require('node:path').join(__dirname, 'ler-payload.js'));
+const fs = require('node:fs');
 const CWD_MARKER = /(^|\s)(cd\s+\S+\s*&&\s*)?/;
+
+// Segmento `rtk grep ...` sem -r passa só se todo alvo é arquivo existente.
+// Diretório, alvo inexistente ou nenhum alvo -> não passa (deny), salvo nenhum
+// alvo com entrada de pipe (`cmd | rtk grep -n X`): grep lê o stdin.
+// shortcut: caminho relativo resolve no cwd do hook, não no de um `cd` anterior
+// do mesmo comando; `--opt valor` (valor separado) fora de FLAGS_COM_VALOR pode
+// confundir o alvo. Subir se algum caso real aparecer.
+const FLAGS_COM_VALOR = new Set(['-e', '-f', '-A', '-B', '-C', '-m', '-d', '-D']);
+function grepSemDiretorio(seg, recebePipe = false) {
+  const tokens = seg.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  const args = tokens.slice(2); // descarta `rtk grep`
+  if (args.some((t) => /^-[a-zA-Z]*[rR]/.test(t) || t === '--recursive' || t === '--dereference-recursive')) return true;
+  const temPadraoExplicito = args.some((t) => t === '-e' || t === '-f' || t.startsWith('--regexp') || t.startsWith('--file'));
+  const alvos = [];
+  let pulaProximo = false;
+  for (const t of args) {
+    if (pulaProximo) { pulaProximo = false; continue; }
+    if (FLAGS_COM_VALOR.has(t)) { pulaProximo = true; continue; }
+    if (t.startsWith('-')) continue;
+    alvos.push(t.replace(/^(["'])(.*)\1$/, '$2'));
+  }
+  // Sem -e/-f, o primeiro não-flag é o padrão, não alvo.
+  if (!temPadraoExplicito) alvos.shift();
+  if (alvos.length === 0) return recebePipe;
+  return alvos.every((alvo) => {
+    try {
+      return !fs.statSync(alvo).isDirectory();
+    } catch {
+      return false; // inexistente: mantém o comportamento anterior (bloqueia)
+    }
+  });
+}
+
+// Quebra o comando em segmentos (`;`, `&&`, `||`, `|`, `&`) marcando quais vêm
+// logo depois de um `|` simples: esses recebem stdin do pipe. Redirecionamento
+// (2>&1, >out) sai antes, como antes.
+function segmentosComPipe(cmd) {
+  const partes = cmd.replace(/\d*[<>]&?\d*\S*/g, ' ').split(/([;&|]+)/);
+  const saida = [];
+  let separadorAnterior = '';
+  for (let i = 0; i < partes.length; i += 2) {
+    saida.push({ seg: partes[i], viaPipe: /^\|&?$/.test(separadorAnterior) });
+    separadorAnterior = partes[i + 1] ?? '';
+  }
+  return saida;
+}
 
 // Cada regra: se `test` casa e `allow` não casa, bloqueia com `fix`.
 // ORDEM IMPORTA — a primeira que casar decide. `pnpm-filter` vem antes de
@@ -119,9 +166,14 @@ const RULES = [
     // NATIVO, não pro ripgrep. Medido: `rtk grep "AGENTS" specs` devolve
     // "grep: specs: Is a directory" e a busca não acontece.
     test: /(^|[;&|]\s*)rtk\s+grep\s+/,
-    // `-r` pode vir em qualquer posição e agrupado (`-rn`, `-ri`): casar a
-    // flag em todo o resto do comando, não só depois do padrão.
-    allow: /(^|[;&|]\s*)rtk\s+grep\b[^;&|]*\s-[a-zA-Z]*[rR]/,
+    // Bloqueia só quando algum alvo é diretório (ou não há alvo, ou o alvo não
+    // existe — mantém o comportamento anterior). Arquivo único é uso legítimo:
+    // `rtk grep -n X arquivo.md` passa. Função, não regex, porque a decisão
+    // depende do disco. Cada segmento (separado por `;`, `&&`, `|`) é avaliado.
+    allow: (cmd) => segmentosComPipe(cmd)
+      .filter(({ seg }) => /^\s*rtk\s+grep\b/.test(seg))
+      .every(({ seg, viaPipe }) => grepSemDiretorio(seg, viaPipe)),
+
     fix: (cmd) => cmd.replace(/(^|[;&|]\s*)rtk\s+grep\s+/, '$1rtk rg '),
     why: '`rtk grep` é proxy pro grep nativo (não ripgrep): sem `-r` falha em diretório com "Is a directory". `rtk rg` faz busca recursiva.',
   },
@@ -147,7 +199,8 @@ lerPayload((raw) => {
 
   for (const rule of RULES) {
     if (!rule.test.test(command)) continue;
-    if (rule.allow.test(command)) continue;
+    const permitido = typeof rule.allow === 'function' ? rule.allow(command) : rule.allow.test(command);
+    if (permitido) continue;
 
     const suggestion = rule.fix(command);
     console.log(JSON.stringify({

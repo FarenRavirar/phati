@@ -1,5 +1,9 @@
 {
   "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "blockReadsOutsideWorkingDirectories": true,
+    "blockWritesOutsideWorkingDirectories": true,
     "allow": [
       "Bash(ssh maruko ls:*)",
       "Read(servidor/.env.exemplo)",
@@ -62,7 +66,6 @@
       "Bash(*docker volume rm*)",
       "Bash(*docker volume prune*)",
       "Edit(.claude/settings.json)",
-      "Write(.claude/settings.json)",
       "Bash(ssh maruko:*)",
       "Bash(scp *)",
       "Bash(rsync *)"
@@ -82,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/sync-p.ps1\""
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sync-p.js\""
           }
         ]
       },
@@ -134,6 +137,10 @@
     ]
   },
   "enabledPlugins": {
-    "agent-skills@addy-agent-skills": true
+    "agent-skills@addy-agent-skills": true,
+    "ponytail@ponytail": true,
+    "humanizer@humanizer": true,
+    "caveman@caveman": true,
+    "pyright-lsp@claude-plugins-official": true
   }
 }

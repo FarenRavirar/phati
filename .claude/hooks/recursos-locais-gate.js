@@ -18,8 +18,9 @@ const path = require('node:path');
 
 const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
 
-/** `executar(comando, args)` devolve a saída em texto; falha lança. Devolve o que ainda está de pé. */
-function medir(executar) {
+/** `executar(comando, args)` devolve a saída em texto; falha lança. Devolve o que ainda está de pé no Windows. */
+function medir(executar, plataforma = process.platform) {
+  if (plataforma !== 'win32') return [];
   const sobras = [];
   try {
     // Só contêiner do projeto (nome começa com `phati`: `phati-pg18-local`, `phatiteste-*` do compose): contêiner de outra
