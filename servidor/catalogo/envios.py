@@ -11,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from catalogo import original
-from catalogo.ingestao import ingerir_envio
+from catalogo.ingestao import LIMITES_PADRAO, MENSAGEM_TAMANHO, RecusaIngestao, ingerir_envio
 from catalogo.models import EnvioCamada
 from permissao.pode import com_permissao, pode
 
@@ -23,20 +23,24 @@ ACAO = 'publicar_camada'
 def criar_envio(pessoa, fazenda, dados, agora=None):
     """Cria a prévia. Recusa (ingestão, permissão ou banco) não deixa arquivo nem linha."""
     agora = agora or timezone.now()
-    with com_permissao(pessoa, ACAO):
-        if not pode(pessoa, ACAO, fazenda):
-            raise PermissionDenied
-        nome, digest = original.gravar(dados)
-        try:
+    nome = None
+    try:
+        with com_permissao(pessoa, ACAO):  # a saída do contexto também pode falhar: a limpeza cobre o bloco inteiro
+            if not pode(pessoa, ACAO, fazenda):
+                raise PermissionDenied
+            if len(dados) > LIMITES_PADRAO.tamanho_bytes:  # antes de gravar: mesma recusa de ingerir_envio
+                raise RecusaIngestao([MENSAGEM_TAMANHO])
+            nome, digest = original.gravar(dados)
             ingerir_envio(original.caminho_interno(nome))  # valida; o original fica se passar
             with transaction.atomic():
                 envio = EnvioCamada.objects.create(
                     criado_por=pessoa, empresa=fazenda.empresa, fazenda=fazenda, arquivo_temporario=nome,
                     hash_original=digest, expira_em=agora + VALIDADE_PREVIA,
                 )
-        except BaseException:
+    except BaseException:
+        if nome is not None:
             original.remover(nome)
-            raise
+        raise
     return envio
 
 

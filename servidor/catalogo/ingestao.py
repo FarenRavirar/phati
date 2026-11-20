@@ -12,12 +12,15 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 import zipfile
+from ctypes import c_char_p
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import NoReturn
 
-from django.contrib.gis.gdal import DataSource, GDALException, OGRGeometry, SpatialReference
+from django.contrib.gis.gdal import DataSource, Driver, GDALException, OGRGeometry, SpatialReference
+from django.contrib.gis.gdal.prototypes import ds as capi
 from django.contrib.gis.geos import GEOSException
+from django.utils.encoding import force_bytes
 
 from catalogo.models import SRID_GUARDA
 
@@ -29,6 +32,8 @@ EPSG = re.compile(r'(?:urn:ogc:def:crs:)?EPSG:(?:[^:]*:)?(\d+)')
 CRS84 = ('urn:ogc:def:crs:OGC:1.3:CRS84', 'urn:ogc:def:crs:OGC::CRS84')
 # XML 1.0 (W3C REC-xml, §2.2) não aceita U+0000: zero no arquivo é outra codificação (UTF-16, por exemplo).
 KML_FORA_DE_UTF8 = 'KML fora de UTF-8 (zeros no arquivo) recusado'
+GEOJSON_INVALIDO = 'GeoJSON inválido'
+MENSAGEM_TAMANHO = 'arquivo acima do limite de tamanho'  # também usada por envios.criar_envio, antes de gravar
 
 
 @dataclass(frozen=True)
@@ -159,7 +164,7 @@ def _propriedades_do_geojson(objeto):
         return None
     features = objeto.get('features')
     if not isinstance(features, list) or not all(isinstance(f, dict) for f in features):
-        raise RecusaIngestao(['GeoJSON inválido'])
+        raise RecusaIngestao([GEOJSON_INVALIDO])
     return tuple(f['properties'] if isinstance(f.get('properties'), dict) else {} for f in features)
 
 
@@ -185,10 +190,10 @@ def _precheck_geojson(dados):
         objeto = json.loads(dados.decode('utf-8-sig'), parse_constant=proibe)
     except _ConstanteProibida:
         raise RecusaIngestao(['coordenada NaN ou infinita no GeoJSON']) from None
-    except ValueError:  # UnicodeDecodeError é subclasse de ValueError
-        raise RecusaIngestao(['GeoJSON inválido']) from None
+    except (ValueError, RecursionError):  # UnicodeDecodeError é ValueError; aninhamento fundo estoura a pilha
+        raise RecusaIngestao([GEOJSON_INVALIDO]) from None
     if not isinstance(objeto, dict):
-        raise RecusaIngestao(['GeoJSON inválido'])
+        raise RecusaIngestao([GEOJSON_INVALIDO])
     srid, origem = _sistema_do_geojson(objeto)
     return srid, origem, _propriedades_do_geojson(objeto)
 
@@ -270,19 +275,24 @@ def _extrair(arquivo, info, destino, orcamento):
 def _zip_shapefile(arquivo, infos, shps, tmp, limites):
     if len(shps) != 1:
         _recusa('compactado com mais de um shapefile')
-    base = PurePosixPath(shps[0].filename.replace('\\', '/')).stem
+    principal = PurePosixPath(shps[0].filename.replace('\\', '/'))
     presentes = {}
     for info in infos:
         caminho = PurePosixPath(info.filename.replace('\\', '/'))
-        if caminho.stem == base and caminho.suffix.lower() in ('.shp', '.shx', '.dbf', '.prj', '.cpg'):
-            presentes[_ext(info.filename)] = info
+        if caminho.parent != principal.parent or caminho.stem != principal.stem:
+            continue  # componente de outra pasta ou de outra base não entra
+        if caminho.suffix.lower() not in ('.shp', '.shx', '.dbf', '.prj', '.cpg'):
+            continue
+        if _ext(info.filename) in presentes:
+            _recusa('shapefile com componente repetido na mesma pasta')
+        presentes[_ext(info.filename)] = info
     if 'prj' not in presentes:
         _recusa('shapefile sem arquivo de projeção (.prj): recusado')
     for ext in ('shx', 'dbf'):
         if ext not in presentes:
             _recusa(f'shapefile incompleto: falta .{ext}')
     orcamento = limites.descompactado_bytes
-    for ext, info in presentes.items():  # .cpg é opcional e vai junto: diz a codificação do dbf
+    for ext, info in presentes.items():  # .cpg é opcional e vai junto: diz a codificação do dbf (mesma pasta e base do .shp)
         orcamento = _extrair(arquivo, info, _destino(tmp, ext), orcamento)
     return _Leitura('shapefile', _destino(tmp, 'shp'), 'ESRI Shapefile', None, 'arquivo de projeção (.prj)')
 
@@ -345,9 +355,10 @@ def _anel_aberto(geometria):
 
 
 def _valor(valor):
-    if valor is None or isinstance(valor, (bool, int, float, str)):
+    # Lista e objeto vêm do JSON já decodificados e cabem no JSONField; str() daria repr do Python, não JSON.
+    if valor is None or isinstance(valor, (bool, int, float, str, list, dict)):
         return valor
-    return str(valor)
+    return str(valor)  # o leitor do GDAL só entrega escalar (data vira texto)
 
 
 def _transformacao(srid, srs):
@@ -359,10 +370,21 @@ def _transformacao(srid, srs):
     return 'aproximada'
 
 
+def _abrir_fonte(caminho, driver):
+    """Abre o arquivo só com o driver do formato. O `DataSource` do Django chama GDALOpenEx sem lista de drivers e
+    ignora `ds_driver` para caminho: medido em GDAL 3.10.3 com TopoJSON gravado como `.geojson`, aberto como TopoJSON."""
+    Driver.ensure_registered()
+    permitidos = (c_char_p * 2)(driver.encode('ascii'), None)
+    ponteiro = capi.open_ds(force_bytes(caminho), capi.GDAL_OF_READONLY | capi.GDAL_OF_VECTOR, permitidos, None, None)
+    if not ponteiro:
+        raise GDALException(f'Could not open the datasource at "{caminho}"')
+    return DataSource(ponteiro, capi.get_dataset_driver(ponteiro))
+
+
 def _abrir_camada(leitura):
     # shortcut: a abertura pelo GDAL (DataSource) não é interrompível pelo prazo, que só vale no laço de feições; subir para processo filho com timeout se um envio real demorar nessa etapa.
     try:
-        ds = DataSource(_caminho_seguro(leitura.caminho, leitura.caminho.parent), ds_driver=leitura.driver)
+        ds = _abrir_fonte(_caminho_seguro(leitura.caminho, leitura.caminho.parent), leitura.driver)
     except GDALException:
         raise RecusaIngestao([f'não foi possível ler o arquivo como {leitura.formato}']) from None
     if len(ds) != 1:
@@ -389,7 +411,7 @@ def _limites_da_camada(camada, limites):
         _recusa('arquivo com campos acima do limite')
     if any(len(nome) > limites.tamanho_nome_campo for nome in campos):
         _recusa('nome de campo acima do limite')
-    return campos
+    return tuple(campos)
 
 
 def _erro_geometria(indice, geometria, familia, ctx):
@@ -500,7 +522,7 @@ def ingerir_envio(caminho, limites=LIMITES_PADRAO):
     if caminho.is_symlink() or not caminho.is_file():
         _recusa('envio não é arquivo comum')
     if caminho.stat().st_size > limites.tamanho_bytes:
-        _recusa('arquivo acima do limite de tamanho')
+        _recusa(MENSAGEM_TAMANHO)
     dados = caminho.read_bytes()
     formato = _formato(dados)
     with tempfile.TemporaryDirectory() as pasta:

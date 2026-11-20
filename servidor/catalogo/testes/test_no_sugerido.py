@@ -57,6 +57,19 @@ def test_diferenca_de_0_4_por_cento_entre_os_dois_maiores_e_empate():
     assert resultado.motivo == 'empate'
 
 
+def test_areas_iguais_com_tolerancia_zero_sao_empate():
+    # Achado 8: com diferenca_minima=0, a comparação `<` deixava áreas iguais virarem 'maior_area'.
+    resultado = sugerir_no(FEICAO, [(1, no(-48.31, -48.28)), (2, no(-48.31, -48.28))], LimiarNo(diferenca_minima=0))
+    assert resultado.motivo == 'empate'
+    assert resultado.sub_area_id is None
+
+
+def test_areas_distintas_com_tolerancia_zero_ainda_sugerem_o_maior():
+    resultado = sugerir_no(FEICAO, [(1, no(*DIREITA_30)), (2, no(*ESQUERDA_70))], LimiarNo(diferenca_minima=0))
+    assert resultado.motivo == 'maior_area'
+    assert resultado.sub_area_id == 2
+
+
 def test_feicao_sem_interseccao_nao_recebe_no():
     resultado = sugerir_no(FEICAO, [(1, no(-48.5, -48.4))])
     assert resultado.motivo == 'sem_intersecao'
@@ -94,7 +107,7 @@ def test_feicao_sem_area_nao_recebe_no():
 def test_nos_de_outra_fazenda_nao_aparecem(cenario):
     no_da_outra = SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f2, nivel=1, nome='No da F2')
     ids = nos_da_fazenda(cenario.f1)
-    assert no_da_outra.id not in ids
+    assert no_da_outra.pk not in ids
     assert cenario.g1.id in ids
     assert cenario.t1.id in ids
     assert cenario.g2.id in ids

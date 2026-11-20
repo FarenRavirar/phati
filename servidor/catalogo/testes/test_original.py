@@ -3,6 +3,7 @@
 import hashlib
 import os
 import re
+from pathlib import Path
 
 import pytest
 
@@ -55,6 +56,17 @@ def test_gravacao_que_falha_no_meio_nao_deixa_arquivo_nem_temporario(camadas, mo
         raise OSError('disco cheio (simulado)')
 
     monkeypatch.setattr(os, 'fsync', falha)
+    with pytest.raises(OSError):
+        original.gravar(ARQUIVO)
+    assert list(camadas.iterdir()) == []
+
+
+def test_falha_na_conferencia_depois_do_rename_remove_o_destino(camadas, monkeypatch):
+    # Achado 9: a releitura depois do os.replace ficava fora do tratamento e deixava o destino instalado.
+    def falha(self):
+        raise OSError('leitura de conferência falhou (simulado)')
+
+    monkeypatch.setattr(Path, 'read_bytes', falha)
     with pytest.raises(OSError):
         original.gravar(ARQUIVO)
     assert list(camadas.iterdir()) == []

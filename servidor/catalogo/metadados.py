@@ -8,10 +8,13 @@ Atributos: cada coluna do arquivo vira um atributo consultável (R9). Valor ause
 não é convertido de tipo (R10). O tipo detectado (texto, número, lógico, vazio, misto) é só informação da prévia:
 o modelo `AtributoVersao` não tem coluna de tipo (ver relatório T2.3)."""
 
+import re
 from dataclasses import dataclass
 from datetime import date
 
 from catalogo.ingestao import Previa, RecusaIngestao
+
+DATA_AAAA_MM_DD = re.compile(r'[0-9]{4}-[0-9]{2}-[0-9]{2}')
 
 OBRIGATORIOS = ('nome', 'tema', 'origem')
 # §6.2 de DEFINICAO.md, o que não é de outra spec (situação, aprovação e histórico: revisão e vigência; "o que mudou",
@@ -48,7 +51,7 @@ class Metadados:
 @dataclass(frozen=True)
 class Atributo:
     nome: str
-    tipo: str  # 'texto', 'numero', 'logico', 'vazio' ou 'misto'; só informação da prévia
+    tipo: str  # 'texto', 'numero', 'logico', 'estrutura' (lista ou objeto do GeoJSON), 'vazio' ou 'misto'; só informação da prévia
     valores: tuple  # um por feição, na ordem da prévia; None é ausente
 
 
@@ -77,6 +80,17 @@ def _texto(bruto, campo, limite, erros, obrigatorio):
     return valor.strip()
 
 
+def _data_valida(texto):
+    # fromisoformat aceita formato compacto (20260502) e semana ISO (2026-W18-6): a forma exata vem antes do calendário.
+    if not DATA_AAAA_MM_DD.fullmatch(texto):
+        return False
+    try:
+        date.fromisoformat(texto)
+    except ValueError:
+        return False
+    return True
+
+
 def validar_metadados(bruto):
     """`bruto`: dict vindo do formulário ou da API. Levanta RecusaIngestao com todos os erros de uma vez."""
     erros = []
@@ -89,9 +103,7 @@ def validar_metadados(bruto):
         texto = opcionais[campo]
         if texto is None:
             continue
-        try:
-            date.fromisoformat(texto)
-        except ValueError:
+        if not _data_valida(texto):
             erros.append(f'{campo} deve ser data AAAA-MM-DD')
             opcionais[campo] = None
     if erros:
@@ -109,6 +121,8 @@ def _tipo(valores):
             tipos.add('logico')
         elif isinstance(valor, (int, float)):
             tipos.add('numero')
+        elif isinstance(valor, (list, dict)):
+            tipos.add('estrutura')
         else:
             tipos.add('texto')
     return tipos.pop() if len(tipos) == 1 else 'misto'

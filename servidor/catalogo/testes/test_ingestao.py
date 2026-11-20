@@ -219,6 +219,11 @@ def test_geojson_com_crs_sem_codigo_epsg_e_recusado(tmp_path):
     assert 'não reconhecido' in erros[0]
 
 
+@pytest.mark.parametrize('texto', [b'{nao e json', b'{"a": "\xff"}', b'{"type": "FeatureCollection", "features": "x"}'])
+def test_geojson_malformado_ou_sem_lista_de_feicoes_e_recusado(tmp_path, texto):
+    assert recusa(arquivo(tmp_path, texto)) == ['GeoJSON inválido']
+
+
 def test_tipo_nao_suportado_e_recusado(tmp_path):
     assert 'tipo de arquivo não suportado' in recusa(arquivo(tmp_path, b'texto puro sem formato'))[0]
 
@@ -350,8 +355,9 @@ class _ArquivoQueDescompactaMais:
 def test_descompressao_conta_bytes_reais_quando_o_cabecalho_mente(tmp_path):
     from catalogo.ingestao import _extrair
 
+    origem, destino = _ArquivoQueDescompactaMais(), tmp_path / 'x.kml'
     with pytest.raises(RecusaIngestao) as excinfo:
-        _extrair(_ArquivoQueDescompactaMais(), None, tmp_path / 'x.kml', 1024 * 1024)
+        _extrair(origem, None, destino, 1024 * 1024)
     assert 'descompacta acima do limite' in excinfo.value.erros[0]
 
 
@@ -442,4 +448,60 @@ def test_coordenada_finita_fora_do_dominio_da_projecao_vira_recusa_por_feicao(tm
     envio = geojson([ponto_com_propriedades({'codigo': 'x'}, x=1e100)], crs='urn:ogc:def:crs:EPSG::31983')
     erros = recusa(arquivo(tmp_path, envio))
     assert erros[0].startswith('feição 1:')
+
+
+def test_geojson_com_lista_e_objeto_preserva_a_estrutura_do_json(tmp_path):
+    # Achado K: lista e objeto viravam str() do Python ('[1, None, True]'); ficam como vieram no JSON.
+    envio = geojson([ponto_com_propriedades({'lista': [1, None, True], 'objeto': {'n': 2}})])
+    previa = ingerir_envio(arquivo(tmp_path, envio))
+    assert previa.feicoes[0].valores == {'lista': [1, None, True], 'objeto': {'n': 2}}
+    assert {atributo.nome: atributo.tipo for atributo in atributos_da_previa(previa)} == {'lista': 'estrutura', 'objeto': 'estrutura'}
+
+
+def entradas_do_zip(dados):
+    with zipfile.ZipFile(io.BytesIO(dados)) as z:
+        return {info.filename: z.read(info) for info in z.infolist()}
+
+
+def test_shapefile_com_prj_de_outra_pasta_nao_substitui_o_da_pasta_do_shp(tmp_path):
+    # Achado J: o .prj de outra pasta (UTM) não pode entrar no lugar do .prj da pasta do .shp.
+    de_a = entradas_do_zip(shapefile(1, [('ponto', -48.3, -10.7)]))
+    de_b = entradas_do_zip(shapefile(1, [('ponto', 700000.0, 8800000.0)], prj=SpatialReference(31983).wkt))
+    misto = zip_com({**{f'a/{nome}': dados for nome, dados in de_a.items()}, 'b/camada.prj': de_b['camada.prj']})
+    previa = ingerir_envio(arquivo(tmp_path, misto))
+    assert previa.sistema.startswith('EPSG:4674')
+    assert coords(previa) == pytest.approx((-48.3, -10.7), abs=1e-9)
+
+
+def test_shapefile_com_dbf_de_outra_pasta_e_recusado_como_incompleto(tmp_path):
+    de_a = entradas_do_zip(shapefile(1, [('ponto', -48.3, -10.7)]))
+    misto = zip_com({'a/camada.shp': de_a['camada.shp'], 'a/camada.shx': de_a['camada.shx'], 'a/camada.prj': de_a['camada.prj'], 'b/camada.dbf': de_a['camada.dbf']})
+    assert recusa(arquivo(tmp_path, misto)) == ['shapefile incompleto: falta .dbf']
+
+
+def test_shapefile_com_componente_repetido_na_mesma_pasta_e_recusado(tmp_path):
+    de_a = entradas_do_zip(shapefile(1, [('ponto', -48.3, -10.7)]))
+    repetido = zip_com({**{f'a/{nome}': dados for nome, dados in de_a.items()}, 'a/camada.DBF': de_a['camada.dbf']})
+    assert recusa(arquivo(tmp_path, repetido)) == ['shapefile com componente repetido na mesma pasta']
+
+
+def test_dbf_homonimo_em_outra_pasta_nao_substitui_o_da_pasta_do_shp(tmp_path):
+    # Achado 5 (J): dois camada.dbf em pastas diferentes; vale só o da pasta do .shp.
+    de_a = entradas_do_zip(shapefile(1, [('ponto', -48.3, -10.7)]))
+    de_b = entradas_do_zip(shapefile(1, [('ponto', -48.3, -10.7)], valor_dbf='outro'))
+    misto = zip_com({**{f'a/{nome}': dados for nome, dados in de_a.items()}, 'b/camada.dbf': de_b['camada.dbf']})
+    previa = ingerir_envio(arquivo(tmp_path, misto))
+    assert previa.feicoes[0].valores['nome'] == 'sintetico'
+
+
+def test_topojson_gravado_como_geojson_e_recusado(tmp_path):
+    # Achado 3: o DataSource do Django não limita o driver; aqui só o driver GeoJSON pode abrir.
+    topo = {'type': 'Topology', 'arcs': [[[0, 0], [1, 1]]], 'objects': {'l': {'type': 'LineString', 'arcs': [0]}}}
+    assert recusa(arquivo(tmp_path, json.dumps(topo).encode())) == ['não foi possível ler o arquivo como geojson']
+
+
+def test_json_muito_aninhado_e_recusado_como_geojson_invalido(tmp_path):
+    # Achado 4: aninhamento fundo estoura a recursão do json; vira recusa, não exceção.
+    profundo = b'{"a": ' + b'[' * 100000 + b']' * 100000 + b'}'
+    assert recusa(arquivo(tmp_path, profundo)) == ['GeoJSON inválido']
 

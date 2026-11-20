@@ -52,6 +52,11 @@ def test_nome_de_coluna_com_marcacao_e_guardado_como_veio(tmp_path):
     assert [atributo.nome for atributo in completa.atributos] == ['<b>x</b>']
 
 
+def test_lista_ou_objeto_e_tipo_estrutura_e_mistura_com_texto_e_misto():
+    assert atributos_da_previa(previa_sintetica(['v'], [{'v': [1]}, {'v': {'a': 1}}]))[0].tipo == 'estrutura'
+    assert atributos_da_previa(previa_sintetica(['v'], [{'v': [1]}, {'v': 'x'}]))[0].tipo == 'misto'
+
+
 def test_tipo_misto_e_marcado_sem_converter_valores():
     previa = previa_sintetica(['codigo'], [{'codigo': 1}, {'codigo': 'abc'}])
     atributo = atributos_da_previa(previa)[0]
@@ -106,27 +111,31 @@ def test_texto_acima_do_limite_e_recusado():
 # Caminho infeliz: atributos
 
 def test_nome_de_coluna_vazio_e_recusado():
+    previa = previa_sintetica(['codigo', '   '], [{'codigo': 'A1', '   ': 1}])
     with pytest.raises(RecusaIngestao) as excinfo:
-        atributos_da_previa(previa_sintetica(['codigo', '   '], [{'codigo': 'A1', '   ': 1}]))
+        atributos_da_previa(previa)
     assert excinfo.value.erros == ['coluna 2: nome vazio']
 
 
 def test_nome_de_coluna_com_caractere_de_controle_e_recusado():
+    previa = previa_sintetica(['a\x01b'], [{'a\x01b': 1}])
     with pytest.raises(RecusaIngestao) as excinfo:
-        atributos_da_previa(previa_sintetica(['a\x01b'], [{'a\x01b': 1}]))
+        atributos_da_previa(previa)
     assert 'caractere de controle' in excinfo.value.erros[0]
 
 
 def test_nome_de_coluna_acima_do_limite_e_recusado():
     nome = 'c' * 101
+    previa = previa_sintetica([nome], [{nome: 1}])
     with pytest.raises(RecusaIngestao) as excinfo:
-        atributos_da_previa(previa_sintetica([nome], [{nome: 1}]))
+        atributos_da_previa(previa)
     assert 'acima de 100 caracteres' in excinfo.value.erros[0]
 
 
 def test_nome_de_coluna_repetido_e_recusado():
+    previa = previa_sintetica(['codigo', 'codigo'], [{'codigo': 'A1'}])
     with pytest.raises(RecusaIngestao) as excinfo:
-        atributos_da_previa(previa_sintetica(['codigo', 'codigo'], [{'codigo': 'A1'}]))
+        atributos_da_previa(previa)
     assert excinfo.value.erros == ['coluna 2: nome repetido']
 
 
@@ -149,6 +158,14 @@ def test_erros_de_metadado_e_de_coluna_saem_juntos():
     assert 'tema é obrigatório' in erros
     assert 'origem é obrigatório' in erros
     assert 'coluna 2: nome repetido' in erros
+
+
+@pytest.mark.parametrize('data', ['20260502', '2026-W18-6', '2026-5-2', '2026-02-30'])
+def test_data_fora_da_forma_exata_ou_do_calendario_e_recusada(data):
+    # Achado 7: fromisoformat aceita 20260502 e 2026-W18-6; a forma AAAA-MM-DD vem antes do calendário.
+    with pytest.raises(RecusaIngestao) as excinfo:
+        validar_metadados(dict(MINIMO, data_coleta=data))
+    assert 'data_coleta deve ser data AAAA-MM-DD' in excinfo.value.erros
 
 
 def test_data_fora_do_formato_e_recusada_e_data_valida_aceita():

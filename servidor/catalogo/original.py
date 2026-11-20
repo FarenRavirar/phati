@@ -47,12 +47,12 @@ def gravar(dados):
             os.fsync(saida.fileno())
         os.chmod(temporario, 0o600)
         os.replace(temporario, destino)
-    except BaseException:
+        if hashlib.sha256(destino.read_bytes()).hexdigest() != digest:
+            raise OriginalInvalido('hash diferente depois de gravar')
+    except BaseException:  # a conferência também: falha de leitura não pode deixar o destino instalado
         Path(temporario).unlink(missing_ok=True)
-        raise
-    if hashlib.sha256(destino.read_bytes()).hexdigest() != digest:
         destino.unlink(missing_ok=True)
-        raise OriginalInvalido('hash diferente depois de gravar')
+        raise
     return nome, digest
 
 

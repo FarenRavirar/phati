@@ -3,6 +3,7 @@
 Gravado pela conexão padrão e lido pelo papel `app` (RLS), como em test_rls.py. Dado sintético (R17)."""
 
 import hashlib
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -10,7 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import connections, transaction
 
 from catalogo import envios, original
-from catalogo.ingestao import RecusaIngestao
+from catalogo.ingestao import Limites, RecusaIngestao
 from catalogo.models import EnvioCamada, Feicao, VersaoCamada
 from catalogo.testes.test_ingestao import geojson, kml, placemark_poligono, placemark_ponto, ponto_geojson, shapefile, zip_com
 from permissao.contexto import fixar_contexto
@@ -56,16 +57,18 @@ def test_envio_valido_cria_linha_com_nome_interno_e_hash(camadas, mundo):
 
 def test_kml_hostil_e_recusado_sem_arquivo_e_sem_linha(camadas, mundo):
     antes = EnvioCamada.objects.count()
+    hostil = _kml_hostil()
     with pytest.raises(RecusaIngestao):
-        envios.criar_envio(mundo.operador, mundo.f1, _kml_hostil())
+        envios.criar_envio(mundo.operador, mundo.f1, hostil)
     assert _arquivos(camadas) == []
     assert EnvioCamada.objects.count() == antes
 
 
 def test_shapefile_sem_prj_e_recusado_sem_arquivo_e_sem_linha(camadas, mundo):
     antes = EnvioCamada.objects.count()
+    sem_prj = shapefile(1, [('ponto', -48.3, -10.7)], prj=None, sem=('prj',))
     with pytest.raises(RecusaIngestao):
-        envios.criar_envio(mundo.operador, mundo.f1, shapefile(1, [('ponto', -48.3, -10.7)], prj=None, sem=('prj',)))
+        envios.criar_envio(mundo.operador, mundo.f1, sem_prj)
     assert _arquivos(camadas) == []
     assert EnvioCamada.objects.count() == antes
 
@@ -75,15 +78,17 @@ def test_falha_ao_gravar_a_linha_apaga_o_original(camadas, mundo, monkeypatch):
         raise RuntimeError('banco caiu (simulado)')
 
     monkeypatch.setattr(EnvioCamada.objects, 'create', falha)
+    envio = _envio_valido()
     with pytest.raises(RuntimeError):
-        envios.criar_envio(mundo.operador, mundo.f1, _envio_valido())
+        envios.criar_envio(mundo.operador, mundo.f1, envio)
     assert _arquivos(camadas) == []
 
 
 def test_quem_nao_tem_permissao_nao_grava_nada(camadas, mundo):
     antes = EnvioCamada.objects.count()
+    envio = _envio_valido()
     with pytest.raises(PermissionDenied):
-        envios.criar_envio(mundo.sem_permissao, mundo.f1, _envio_valido())
+        envios.criar_envio(mundo.sem_permissao, mundo.f1, envio)
     assert _arquivos(camadas) == []  # a permissão é checada antes de gravar
     assert EnvioCamada.objects.count() == antes
 
@@ -107,6 +112,30 @@ def test_sem_assinatura_o_papel_app_nao_enxerga_envio(camadas, mundo):
     with transaction.atomic(using='app'), connections['app'].cursor() as consulta:
         consulta.execute('SELECT count(*) FROM catalogo_envio_camada')
         assert consulta.fetchone()[0] == 0
+
+
+def test_falha_depois_do_insert_na_saida_da_permissao_apaga_o_original(camadas, mundo, monkeypatch):
+    # Achado 1: exceção depois da gravação (saída do contexto de permissão) deixava o original no disco.
+    @contextmanager
+    def saida_falha(pessoa, acao):
+        yield
+        raise RuntimeError('falha na saída da permissão (simulado)')
+
+    monkeypatch.setattr(envios, 'com_permissao', saida_falha)
+    with pytest.raises(RuntimeError):
+        envios.criar_envio(mundo.operador, mundo.f1, _envio_valido())
+    assert _arquivos(camadas) == []
+
+
+def test_entrada_acima_do_limite_e_recusada_antes_de_gravar(camadas, mundo, monkeypatch):
+    # Achado 2: o limite de tamanho vale antes de gravar, com a mesma mensagem de ingerir_envio.
+    monkeypatch.setattr(envios, 'LIMITES_PADRAO', Limites(tamanho_bytes=10))
+    antes = EnvioCamada.objects.count()
+    with pytest.raises(RecusaIngestao) as excinfo:
+        envios.criar_envio(mundo.operador, mundo.f1, _envio_valido())
+    assert excinfo.value.erros == ['arquivo acima do limite de tamanho']
+    assert _arquivos(camadas) == []
+    assert EnvioCamada.objects.count() == antes
 
 
 def _feicao(coordenadas):
@@ -140,7 +169,8 @@ def test_recusa_nao_deixa_linha_feicao_versao_nem_arquivo(camadas, mundo, nome):
     with pytest.raises((RecusaIngestao, PermissionDenied)) as excinfo:
         envios.criar_envio(mundo.operador, mundo.f1, RECUSAS[nome])
     assert isinstance(excinfo.value, RecusaIngestao), nome  # recusa de conteúdo, não de permissão
-    assert (EnvioCamada.objects.count(), Feicao.objects.count(), VersaoCamada.objects.count()) == antes, nome
+    depois = (EnvioCamada.objects.count(), Feicao.objects.count(), VersaoCamada.objects.count())
+    assert depois == antes, nome
     assert _arquivos(camadas) == [], nome
 
 
@@ -148,5 +178,6 @@ def test_envio_valido_nao_cria_versao_nem_feicao(camadas, mundo):
     # R12: a prévia não persiste versão nem feição; só a linha de envio temporário.
     antes = (VersaoCamada.objects.count(), Feicao.objects.count())
     envios.criar_envio(mundo.operador, mundo.f1, _envio_valido())
-    assert (VersaoCamada.objects.count(), Feicao.objects.count()) == antes
+    depois = (VersaoCamada.objects.count(), Feicao.objects.count())
+    assert depois == antes
 

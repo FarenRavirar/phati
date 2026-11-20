@@ -70,6 +70,6 @@ def sugerir_no(feicao, nos, limiar=LimiarNo()):
     if len(relevantes) == 1:
         return SugestaoNo(relevantes[0][0], 'unico', areas)
     (id_1, area_1), (_, area_2) = relevantes[0], relevantes[1]
-    if area_1 - area_2 < limiar.diferenca_minima * area_1:
+    if area_1 == area_2 or area_1 - area_2 < limiar.diferenca_minima * area_1:  # áreas iguais empatam mesmo com tolerância zero
         return SugestaoNo(None, 'empate', areas)
     return SugestaoNo(id_1, 'maior_area', areas)
