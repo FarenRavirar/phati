@@ -45,6 +45,6 @@ A suíte cria o banco `test_phati` com o papel `dono`; os papéis precisam exist
 
     docker compose up -d --build
 
-Sobe `banco` (`postgres:18`, sem porta publicada), roda `migracao` uma vez e sobe `app` (gunicorn em `127.0.0.1:8000`).
+Sobe `banco` (`postgres:18`, sem porta publicada), roda `migracao` uma vez e sobe `app_azul` (gunicorn em `127.0.0.1:8000`). A pilha verde (`app_verde`) só sobe na implantação (`compose.implantacao.yaml`, profile `bluegreen`); o app fala com o PgBouncer (`pgb_ns:6432`), não com o `banco`.
 Além das variáveis de `.env.exemplo`, o compose exige `PHATI_BANCO_SUPER_SENHA` (senha do superusuário do contêiner `banco`,
 usada só na criação do volume). `banco/inicializar-papeis.sh` cria `dono`, `app` e o banco na primeira subida.
