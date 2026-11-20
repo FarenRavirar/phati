@@ -32,15 +32,34 @@ test('docker ausente ou fora do ar não é erro nem sobra', () => {
   assert.deepEqual(medir(falso(new Error('docker: not found'), new Error('sem tasklist')), 'win32'), []);
 });
 
-test('fora do Windows não consulta Docker nem tasklist', () => {
+test('linux sem PHATI_GATE_DOCKER não consulta Docker nem tasklist', () => {
   const chamadas = [];
   const executar = (comando) => {
     chamadas.push(comando);
     return comando === 'docker' ? 'phati-app-1\n' : 'vmmemWSL.exe';
   };
 
-  assert.deepEqual(medir(executar, 'linux'), []);
+  assert.deepEqual(medir(executar, 'linux', {}), []);
+  assert.deepEqual(medir(executar, 'linux', { PHATI_GATE_DOCKER: '0' }), []);
   assert.deepEqual(chamadas, []);
+});
+
+test('linux com PHATI_GATE_DOCKER=1 consulta só docker ps e aponta contêiner phati', () => {
+  const chamadas = [];
+  const executar = (comando, args) => {
+    chamadas.push([comando, ...args]);
+    return comando === 'docker' ? 'banco-de-outro-projeto\nphati-app-1\n' : 'vmmemWSL.exe';
+  };
+
+  assert.deepEqual(medir(executar, 'linux', { PHATI_GATE_DOCKER: '1' }), ['contêineres: phati-app-1']);
+  assert.deepEqual(chamadas, [['docker', 'ps', '--format', '{{.Names}}']]);
+});
+
+test('linux com PHATI_GATE_DOCKER=1 e docker fora do ar não é erro', () => {
+  assert.deepEqual(
+    medir(falso(new Error('docker: not found'), ''), 'linux', { PHATI_GATE_DOCKER: '1' }),
+    [],
+  );
 });
 
 test('a mensagem manda fechar o contêiner e o wsl', () => {

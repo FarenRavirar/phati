@@ -74,6 +74,7 @@ privado/
 
 # --- Estado local do agente e das ferramentas ---
 .claude/settings.local.json
+.claude/mcp/node_modules/
 .playwright-mcp/
 .code-review-graph/
 
