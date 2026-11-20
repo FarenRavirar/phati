@@ -5,17 +5,21 @@ fora da resposta, do filtro e da busca, texto com marcação escapado, limite de
 hostil. Dado sintético (R17)."""
 
 import json
+from datetime import timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
+from django.utils import timezone
 
 from catalogo.ingestao import Limites, MENSAGEM_TAMANHO
 from catalogo.models import Camada, EnvioCamada, Estudo, Feicao, Tema, VersaoCamada
 from catalogo.testes.test_ingestao import geojson
 from identidade import cpf as modulo_cpf
+from projeto.ficha import CAMPOS, SEM_INFORMACAO
 from identidade import senha, sessao
 from permissao.cargos_base import criar_cargos_base
 
@@ -113,6 +117,74 @@ def test_feliz_envia_le_previa_publica_lista_e_le_feicoes(camadas, mundo):
     assert [i['indice'] for i in v2['itens']] == [1, 2]
     pks = list(Feicao.objects.filter(versao__camada__publico_id=camada_id, versao__numero=2).order_by('id').values_list('id', flat=True))
     assert pks[0] > 2
+
+
+# --- geometria da prévia para o mapa (R12) -----------------------------------------------------------------------------
+
+def _geometria(pessoa, envio_id, consulta=''):
+    return _ler(pessoa, f'envios/{envio_id}/geometria{consulta}')
+
+
+def _vencer(envio_id):
+    EnvioCamada.objects.filter(publico_id=envio_id).update(expira_em=timezone.now() - timedelta(minutes=1))
+
+
+def test_geometria_feliz_devolve_feicoes_em_4326_com_total_e_sem_truncado(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    resposta = _geometria(mundo.operador, envio_id)
+    corpo = resposta.json()
+    assert resposta.status_code == 200
+    assert corpo['type'] == 'FeatureCollection' and corpo['limite'] == 500  # GeoJSON: `type`, não `tipo`
+    assert corpo['total'] == 2 and corpo['truncado'] is False
+    assert [f['properties']['indice'] for f in corpo['features']] == [1, 2]
+    # Contrato do mapa.js: `camada_id` string (o id público do envio) e `cor` string; sem isso o mapa recusa a coleção.
+    assert all(f['properties']['camada_id'] == envio_id for f in corpo['features'])
+    # `cor` é nome de variável CSS: o mapa.js resolve com `getPropertyValue`, e nome sem valor em camadas.css derruba o mapa.
+    css = (Path(__file__).resolve().parents[2] / 'projeto' / 'static' / 'projeto' / 'camadas.css').read_text(encoding='utf-8')
+    assert all(f'{f["properties"]["cor"]}:' in css for f in corpo['features'])
+    # Contrato do mapa.js (`CAMPOS_DA_FICHA`): todo campo da ficha é string; o que o envio não tem vai "Sem informação".
+    for feicao in corpo['features']:
+        for campo in CAMPOS:
+            assert isinstance(feicao['properties'][campo], str), campo
+        assert feicao['properties']['fonte'] == SEM_INFORMACAO
+    assert corpo['features'][0]['geometry']['type'] == 'Point'
+    assert corpo['features'][0]['geometry']['coordinates'] == pytest.approx([-48.3, -10.7], abs=1e-4)
+
+
+def test_geometria_com_limite_menor_que_o_total_marca_truncado(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    corpo = _geometria(mundo.operador, envio_id, '?limite=1').json()
+    assert corpo['total'] == 2  # total real, não zero nem o tamanho da página
+    assert corpo['truncado'] is True and len(corpo['features']) == 1
+
+
+@pytest.mark.parametrize('consulta', ['?limite=0', '?limite=2001'])
+def test_geometria_com_limite_fora_da_faixa_e_422(camadas, mundo, consulta):
+    envio_id = _envio_do_operador(mundo)
+    assert _geometria(mundo.operador, envio_id, consulta).status_code == 422
+
+
+def test_geometria_sem_acesso_outra_empresa_e_inexistente_recebem_o_mesmo_404(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    sem = _geometria(mundo.sem_permissao, envio_id)
+    outra = _geometria(mundo.intrusa, envio_id)
+    ausente = _geometria(mundo.operador, uuid4())
+    assert sem.status_code == outra.status_code == ausente.status_code == 404
+    assert sem.json() == outra.json() == ausente.json() == NAO_ENCONTRADO
+
+
+def test_geometria_de_envio_vencido_e_404(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    _vencer(envio_id)
+    resposta = _geometria(mundo.operador, envio_id)
+    assert resposta.status_code == 404 and resposta.json() == NAO_ENCONTRADO
+
+
+def test_previa_de_envio_vencido_e_recusada(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    _vencer(envio_id)
+    resposta = _ler(mundo.operador, f'envios/{envio_id}')
+    assert resposta.status_code == 422 and resposta.json()['erros'] == ['envio vencido']
 
 
 # --- 404 idêntico (R11) ------------------------------------------------------------------------------------------------

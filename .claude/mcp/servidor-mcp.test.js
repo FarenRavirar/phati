@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const { executarServidor } = require('./servidor-mcp.js');
+const { executarServidor, montarInstalacao } = require('./servidor-mcp.js');
 
 const juntar = (...partes) => partes.join('');
 const CHAVE_SINTETICA = juntar('chave', '-sintetica');
@@ -205,8 +205,24 @@ test('Windows instala pelo ComSpec com comando fixo e sem shell', () => {
 
   assert.equal(chamadas[0].comando, 'C:\\Windows\\System32\\cmd.exe');
   assert.equal(chamadas[0].argumentos[0], '/d');
-  assert.match(chamadas[0].argumentos[3], /^npm ci --ignore-scripts --prefix "\/fake\/mcp"$/);
+  assert.equal(chamadas[0].argumentos[3], '"npm ci --ignore-scripts --prefix "/fake/mcp""');
   assert.equal(chamadas[0].opcoes.shell, false);
+  assert.equal(chamadas[0].opcoes.windowsVerbatimArguments, true);
+});
+
+test('montador Windows com caminho com espaço mantém o --prefix inteiro e sem escape', () => {
+  const { argumentos, opcoes } = montarInstalacao('win32', { ComSpec: 'cmd.exe' }, 'C:\\Meu Projeto\\mcp');
+  assert.equal(argumentos[3], '"npm ci --ignore-scripts --prefix "C:\\Meu Projeto\\mcp""');
+  assert.doesNotMatch(argumentos[3], /\\"/, 'nenhuma aspa escapada com barra invertida');
+  assert.equal(opcoes.windowsVerbatimArguments, true);
+});
+
+test('montador Linux chama npm direto, sem cmd e sem verbatim', () => {
+  const { comando, argumentos, opcoes } = montarInstalacao('linux', { PATH: '/usr/bin' }, '/fake/mcp');
+  assert.equal(comando, 'npm');
+  assert.deepEqual(argumentos, ['ci', '--ignore-scripts', '--prefix', '/fake/mcp']);
+  assert.equal(opcoes.shell, false);
+  assert.equal('windowsVerbatimArguments' in opcoes, false);
 });
 
 test('Windows sem ComSpec falha fechado na instalação sem executar processo', () => {

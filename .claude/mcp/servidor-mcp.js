@@ -51,20 +51,30 @@ function resolverBinario(pacote, dir = DIR_MCP) {
   return path.join(pasta, bin);
 }
 
+// Windows: `npm` é `npm.cmd`, que só roda por cmd.exe. Sem `windowsVerbatimArguments` o Node cita o argumento e
+// troca as aspas internas por `\"`, e o npm recebe `--prefix \"dir\"`. Com a flag, o texto segue cru e `cmd /s`
+// tira só as aspas externas (doc oficial do Node, child_process: "No quoting or escaping of arguments is done").
+function montarInstalacao(plataforma, env, dir) {
+  if (plataforma === 'win32') {
+    return {
+      comando: env.ComSpec,
+      argumentos: ['/d', '/s', '/c', `"npm ci --ignore-scripts --prefix "${dir}""`],
+      opcoes: { env, shell: false, stdio: 'inherit', windowsHide: true, windowsVerbatimArguments: true },
+    };
+  }
+  return {
+    comando: 'npm',
+    argumentos: ['ci', '--ignore-scripts', '--prefix', dir],
+    opcoes: { env, shell: false, stdio: 'inherit' },
+  };
+}
+
 // shortcut: só confere se a pasta node_modules existe; instalação corrompida exige apagar a pasta à mão.
 // Subir quando houver atualização automática de dependências: comparar com o package-lock.json.
 function instalarDependencias(executar, plataforma, env, dir) {
-  let resultado;
-  if (plataforma === 'win32') {
-    if (!env.ComSpec) return 'ComSpec ausente.';
-    resultado = executar(
-      env.ComSpec,
-      ['/d', '/s', '/c', `npm ci --ignore-scripts --prefix "${dir}"`],
-      { env, shell: false, stdio: 'inherit', windowsHide: true },
-    );
-  } else {
-    resultado = executar('npm', ['ci', '--ignore-scripts', '--prefix', dir], { env, shell: false, stdio: 'inherit' });
-  }
+  if (plataforma === 'win32' && !env.ComSpec) return 'ComSpec ausente.';
+  const { comando, argumentos, opcoes } = montarInstalacao(plataforma, env, dir);
+  const resultado = executar(comando, argumentos, opcoes);
   if (resultado.error || resultado.status !== 0) return 'falha ao instalar dependências do MCP.';
   return null;
 }
@@ -119,4 +129,4 @@ if (require.main === module) {
   process.exitCode = resultado.codigo;
 }
 
-module.exports = { executarServidor };
+module.exports = { executarServidor, montarInstalacao };

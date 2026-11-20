@@ -1,0 +1,19 @@
+{% extends "casca.html" %}
+{% load static %}
+{% block titulo %}Enviar camada{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Enviar camada" subtitulo="Envie um arquivo de camada vetorial da fazenda. Ele fica em análise: a prévia mostra o que foi lido antes de qualquer publicação." %}
+<section data-camadas="envio" data-api-criar="{{ urls.api_criar }}" data-url-previa="{{ urls.previa }}" aria-labelledby="titulo-envio">
+<form id="formulario-envio" method="post" enctype="multipart/form-data" novalidate>
+{% csrf_token %}
+<div class="campo">
+<label class="campo-rotulo" for="campo_arquivo">Arquivo</label>
+<input class="campo-controle" id="campo_arquivo" name="arquivo" type="file" accept=".zip,.kml,.kmz,.geojson,.json" required aria-describedby="ajuda-arquivo">
+<p class="campo-ajuda" id="ajuda-arquivo">Shapefile compactado em .zip (com o arquivo de projeção), KML, KMZ ou GeoJSON.</p>
+</div>
+<div class="aviso aviso-erro" id="aviso-envio" role="alert" hidden><p class="aviso-texto"></p></div>
+<p class="acoes-pagina"><button class="botao" id="enviar" type="submit">Enviar para prévia</button></p>
+</form>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{% static 'projeto/camadas.js' %}" {% csp_nonce_attr %}></script>{% endblock %}

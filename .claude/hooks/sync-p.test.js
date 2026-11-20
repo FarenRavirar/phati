@@ -102,3 +102,10 @@ test('falha ao criar a trava sai 1 sem rodar o script', () => {
   assert.equal(sincronizar({ plataforma: 'win32', executar: () => { rodou = true; return { status: 0 }; }, trava }), 1);
   assert.equal(rodou, false);
 });
+
+test('hook Stop usa o wrapper multiplataforma', () => {
+  const settings = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'settings.json'), 'utf8'));
+  const comandos = settings.hooks.Stop.flatMap((grupo) => grupo.hooks.map((hook) => hook.command));
+  assert.ok(comandos.some((comando) => comando.includes('/.claude/hooks/sync-p.js')));
+  assert.ok(comandos.every((comando) => !comando.includes('sync-p.ps1')));
+});

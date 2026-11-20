@@ -86,12 +86,12 @@ test('validarColecao aceita FeatureCollection e recusa o que foge da forma', asy
 test('validarColecao confere a geometria e todos os campos que a ficha mostra', async () => {
   const { validarColecao, CAMPOS_DA_FICHA } = await import('./mapa.js');
   const com = (mudar) => { const f = feicao(1, 'a'); mudar(f); return { type: 'FeatureCollection', features: [f] }; };
-  assert.throws(() => validarColecao(com((f) => { delete f.geometry; })), /geometria Polygon/);
-  assert.throws(() => validarColecao(com((f) => { f.geometry = { type: 'Point', coordinates: [1, 2] }; })), /geometria Polygon/);
-  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = []; })), /geometria Polygon/);
-  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = [[[1, 2], [3, 4]]]; })), /geometria Polygon/); // anel curto
-  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][0] = [999, 2]; })), /geometria Polygon/); // fora de WGS 84
-  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][1] = ['3', 2]; })), /geometria Polygon/); // texto no lugar de número
+  assert.throws(() => validarColecao(com((f) => { delete f.geometry; })), /geometria válida/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry = { type: 'GeometryCollection', geometries: [] }; })), /geometria válida/); // tipo fora da lista
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = []; })), /geometria válida/);
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates = [[[1, 2], [3, 4]]]; })), /geometria válida/); // anel curto
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][0] = [999, 2]; })), /geometria válida/); // fora de WGS 84
+  assert.throws(() => validarColecao(com((f) => { f.geometry.coordinates[0][1] = ['3', 2]; })), /geometria válida/); // texto no lugar de número
   for (const campo of CAMPOS_DA_FICHA) {
     assert.throws(() => validarColecao(com((f) => { delete f.properties[campo]; })), new RegExp(`campo ${campo}`));
     assert.throws(() => validarColecao(com((f) => { f.properties[campo] = 3; })), new RegExp(`campo ${campo}`)); // número no lugar de texto
@@ -117,7 +117,7 @@ test('transparência vira opacidade complementar, presa entre 0 e 1', async () =
 
 test('o desenho vai de baixo para cima e o contorno fica logo acima do preenchimento', async () => {
   const { ordemDeDesenho } = await import('./mapa.js');
-  assert.deepEqual(ordemDeDesenho(['a', 'b']), ['b-preenchimento', 'b-contorno', 'a-preenchimento', 'a-contorno']);
+  assert.deepEqual(ordemDeDesenho(['a', 'b']), ['b-preenchimento', 'b-contorno', 'b-linhas', 'b-pontos', 'a-preenchimento', 'a-contorno', 'a-linhas', 'a-pontos']);
   assert.deepEqual(ordemDeDesenho([]), []);
 });
 
@@ -231,18 +231,59 @@ test('a ortofoto tem um só id de desenho e as camadas do produto seguem com pre
   const { idsDeDesenho } = await import('./mapa.js');
   const { ID_ORTOFOTO } = await import('./fundo-aberto.js');
   assert.deepEqual(idsDeDesenho(ID_ORTOFOTO), { imagem: ID_ORTOFOTO });
-  assert.deepEqual(idsDeDesenho('camada-a'), { preenchimento: 'camada-a-preenchimento', contorno: 'camada-a-contorno' });
+  assert.deepEqual(idsDeDesenho('camada-a'), { preenchimento: 'camada-a-preenchimento', contorno: 'camada-a-contorno', linhas: 'camada-a-linhas', pontos: 'camada-a-pontos' });
 });
 
 test('na ordem de desenho a ortofoto ocupa uma posição e respeita subir e descer como qualquer camada', async () => {
   const { ordemDeDesenho, moverNaOrdem } = await import('./mapa.js');
   const ordem = ['camada-a', 'camada-ortofoto'];
-  assert.deepEqual(ordemDeDesenho(ordem), ['camada-ortofoto', 'camada-a-preenchimento', 'camada-a-contorno']);
-  assert.deepEqual(ordemDeDesenho(moverNaOrdem(ordem, 'camada-ortofoto', -1)), ['camada-a-preenchimento', 'camada-a-contorno', 'camada-ortofoto']);
+  assert.deepEqual(ordemDeDesenho(ordem), ['camada-ortofoto', 'camada-a-preenchimento', 'camada-a-contorno', 'camada-a-linhas', 'camada-a-pontos']);
+  assert.deepEqual(ordemDeDesenho(moverNaOrdem(ordem, 'camada-ortofoto', -1)), ['camada-a-preenchimento', 'camada-a-contorno', 'camada-a-linhas', 'camada-a-pontos', 'camada-ortofoto']);
 });
 
 test('o nome da ortofoto leva a data de captura em dia/mês/ano, e sem data fica só o nome', async () => {
   const { nomeDaOrtofoto } = await import('./mapa.js');
   assert.equal(nomeDaOrtofoto({ capturadaEm: '2026-01-15' }), 'Ortofoto (captura em 15/01/2026)');
   assert.equal(nomeDaOrtofoto({ capturadaEm: '' }), 'Ortofoto');
+});
+
+// ---- Geometria por tipo (ponto, linha e polígono): feliz e infeliz; a forma de cada tipo é a do GeoJSON --------------------
+
+const colecaoCom = (geometria) => ({ type: 'FeatureCollection', features: [{ type: 'Feature', id: 1, geometry: geometria, properties: { ...FICHA, camada: 'A', camada_id: 'a', cor: '--c' } }] });
+
+test('validarColecao aceita cada tipo de geometria GeoJSON na forma certa', async () => {
+  const { validarColecao } = await import('./mapa.js');
+  const aneis = [[1, 2], [3, 2], [3, 4], [1, 2]];
+  for (const geometria of [
+    { type: 'Point', coordinates: [1, 2] },
+    { type: 'MultiPoint', coordinates: [[1, 2], [3, 4]] },
+    { type: 'LineString', coordinates: [[1, 2], [3, 4]] },
+    { type: 'MultiLineString', coordinates: [[[1, 2], [3, 4]], [[5, 6], [7, 8]]] },
+    { type: 'Polygon', coordinates: [aneis] },
+    { type: 'MultiPolygon', coordinates: [[aneis], [aneis]] },
+  ]) {
+    assert.doesNotThrow(() => validarColecao(colecaoCom(geometria)), geometria.type);
+  }
+});
+
+test('validarColecao recusa tipo desconhecido, coordenada NaN, linha com um ponto e anel aberto', async () => {
+  const { validarColecao } = await import('./mapa.js');
+  const recusa = /geometria válida/;
+  assert.throws(() => validarColecao(colecaoCom({ type: 'GeometryCollection', geometries: [] })), recusa); // tipo fora da lista
+  assert.throws(() => validarColecao(colecaoCom({ type: 'Point', coordinates: [NaN, 2] })), recusa); // NaN não é coordenada
+  assert.throws(() => validarColecao(colecaoCom({ type: 'Point', coordinates: [1, Infinity] })), recusa);
+  assert.throws(() => validarColecao(colecaoCom({ type: 'LineString', coordinates: [[1, 2]] })), recusa); // linha com 1 ponto
+  assert.throws(() => validarColecao(colecaoCom({ type: 'MultiPoint', coordinates: [] })), recusa);
+  assert.throws(() => validarColecao(colecaoCom({ type: 'Polygon', coordinates: [[[1, 2], [3, 2], [3, 4], [1, 5]]] })), recusa); // anel aberto
+});
+
+test('limitesDaColecao lê ponto e linha, não só polígono', async () => {
+  const { limitesDaColecao } = await import('./mapa.js');
+  assert.deepEqual(limitesDaColecao(colecaoCom({ type: 'Point', coordinates: [5, 6] })), [[5, 6], [5, 6]]);
+  assert.deepEqual(limitesDaColecao(colecaoCom({ type: 'LineString', coordinates: [[1, 2], [3, 4]] })), [[1, 2], [3, 4]]);
+});
+
+test('TOLERANCIA_DE_TOQUE_PX é a constante nomeada da caixa de toque (linha e ponto)', async () => {
+  const { TOLERANCIA_DE_TOQUE_PX } = await import('./mapa.js');
+  assert.equal(TOLERANCIA_DE_TOQUE_PX, 6);
 });

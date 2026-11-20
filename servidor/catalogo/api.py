@@ -9,6 +9,7 @@ import json
 from typing import Annotated
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Count, F, Func, OuterRef, Q, Subquery, TextField, Value
 from django.db.models.functions import Cast
 from ninja import Router, Schema, Status
@@ -119,6 +120,19 @@ def previa(request, envio_id: UUID):
     envio = EnvioCamada.objects.get(publico_id=envio_id)
     try:
         return publicacao.ler_previa(envio)
+    except (RecusaPublicacao, RecusaIngestao) as erro:
+        return _recusado(erro.erros)
+
+
+@roteador.get('envios/{envio_id}/geometria', url_name='catalogo_geometria', response={200: dict, 422: dict})
+@exige_permissao('publicar_camada', _envio_visivel('publicar_camada'))
+def geometria(request, envio_id: UUID,
+              limite: Annotated[int, parametros.Query(ge=1, le=settings.CATALOGO_GEOMETRIA_LIMITE_MAXIMO)] = settings.CATALOGO_GEOMETRIA_LIMITE_PADRAO):
+    envio = EnvioCamada.objects.get(publico_id=envio_id)
+    try:
+        return publicacao.ler_geometria(envio, limite)
+    except EnvioNaoEncontrado:
+        raise EnvioCamada.DoesNotExist() from None
     except (RecusaPublicacao, RecusaIngestao) as erro:
         return _recusado(erro.erros)
 

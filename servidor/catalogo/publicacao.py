@@ -16,6 +16,7 @@ Divisão (D119): a camada marcada com `coluna_no` é a divisão da fazenda; cada
 coluna (`SubArea.nome`). A sugestão de nó de outras publicações usa a versão mais recente da divisão.
 """
 
+import json
 import tempfile
 from collections import defaultdict
 from pathlib import Path
@@ -31,6 +32,7 @@ from catalogo.metadados import atributos_da_previa, montar_previa
 from catalogo.models import ESTADO_EM_ANALISE, AtributoVersao, Camada, EnvioCamada, Estudo, Feicao, VersaoCamada
 from catalogo.no_sugerido import contornos_da_divisao, nos_da_fazenda, sugerir_no
 from comum.auditoria import auditar
+from projeto.ficha import CAMPOS, SEM_INFORMACAO
 from permissao.pode import com_permissao, escopo_arquivado, esquecer, pode
 from territorio.models import SubArea
 
@@ -270,7 +272,10 @@ def publicar_envio(pessoa, envio_id, *, estudo_id, metadados, camada_id=None, oc
 
 def ler_previa(envio):
     """Prévia de um envio já guardado (R12): relê o original com hash, ingere de novo e sugere nós. Sem valor de atributo:
-    só colunas, sistema, transformação, avisos, contagem e o nó sugerido de cada feição."""
+    só colunas, sistema, transformação, avisos, contagem e o nó sugerido de cada feição. Envio vencido é recusado (mesma regra de
+    `publicar_envio`: `expira_em <= agora`)."""
+    if _vencido(envio):
+        raise RecusaPublicacao(['envio vencido'])
     previa = _ingerir_original(envio)
     sugeridos = _sugeridos(envio, previa.feicoes, contornos_da_divisao(envio.fazenda))
     return {
@@ -278,4 +283,31 @@ def ler_previa(envio):
         'origem_sistema': previa.origem_sistema, 'transformacao': previa.transformacao,
         'avisos': list(previa.avisos), 'contagem': previa.contagem, 'colunas': list(previa.campos),
         'nos_sugeridos': sugeridos,
+    }
+
+
+COR_DA_PREVIA = '--cor-camada-provisoria-1'  # nome da variável CSS (camadas.css), não cor: o mapa.js resolve `cor` por getPropertyValue
+FICHA_DA_PREVIA = {**{campo: SEM_INFORMACAO for campo in CAMPOS}, 'camada': 'Prévia do envio (em análise)'}
+
+
+def _vencido(envio):
+    return envio.expira_em <= timezone.now()
+
+
+def ler_geometria(envio, limite):
+    """Geometria do envio para o mapa de teste (008 R12): até `limite` feições em 4326, com o total e a flag de truncado.
+    Sem atributo. Envio vencido é o mesmo `EnvioNaoEncontrado` de publicar (a API responde 404)."""
+    if _vencido(envio):
+        raise EnvioNaoEncontrado()
+    feicoes = _ingerir_original(envio).feicoes
+    return {
+        'type': 'FeatureCollection',  # GeoJSON: a chave é `type`, como o `validarColecao` do mapa.js espera
+        'features': [
+            # Contrato do `mapa.js` (`validarColecao`): `camada_id` e `cor` strings, e todo campo da ficha string. O envio não tem
+            # fonte, data, situação nem origem: vai "Sem informação" (ausente, nunca zero), como na ficha das camadas publicadas.
+            {'type': 'Feature', 'properties': {**FICHA_DA_PREVIA, 'indice': indice, 'camada_id': str(envio.publico_id), 'cor': COR_DA_PREVIA},
+             'geometry': json.loads(feicao.geometria.transform(4326, clone=True).json)}
+            for indice, feicao in enumerate(feicoes[:limite], start=1)
+        ],
+        'total': len(feicoes), 'limite': limite, 'truncado': len(feicoes) > limite,
     }

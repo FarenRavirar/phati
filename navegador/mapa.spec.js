@@ -105,7 +105,7 @@ test('as três camadas abrem ligadas, o mapa enquadra a extensão e a legenda li
   await expect(page.locator('[data-lista-camadas] input[type="checkbox"]:checked')).toHaveCount(3);
   await expect(page.locator('[data-legenda] li')).toHaveText(['Camada A', 'Camada B', 'Camada C']);
   expect(await idsDasCamadas(page)).toEqual([
-    'camada-c-preenchimento', 'camada-c-contorno', 'camada-b-preenchimento', 'camada-b-contorno', 'camada-a-preenchimento', 'camada-a-contorno']);
+    'camada-c-preenchimento', 'camada-c-contorno', 'camada-c-linhas', 'camada-c-pontos', 'camada-b-preenchimento', 'camada-b-contorno', 'camada-b-linhas', 'camada-b-pontos', 'camada-a-preenchimento', 'camada-a-contorno', 'camada-a-linhas', 'camada-a-pontos']);
   const cobre = await noMapa(page, (m, pontos) => {
     const b = m.getBounds();
     return pontos.every((ponto) => b.contains(ponto));
@@ -143,7 +143,7 @@ test('subir e descer muda a ordem de desenho no estilo, na lista e na legenda', 
   await expect(page.getByRole('button', { name: 'Descer Camada C na ordem de desenho' })).toBeDisabled();
   await page.getByRole('button', { name: 'Subir Camada B na ordem de desenho' }).click();
   expect(await idsDasCamadas(page)).toEqual([
-    'camada-c-preenchimento', 'camada-c-contorno', 'camada-a-preenchimento', 'camada-a-contorno', 'camada-b-preenchimento', 'camada-b-contorno']);
+    'camada-c-preenchimento', 'camada-c-contorno', 'camada-c-linhas', 'camada-c-pontos', 'camada-a-preenchimento', 'camada-a-contorno', 'camada-a-linhas', 'camada-a-pontos', 'camada-b-preenchimento', 'camada-b-contorno', 'camada-b-linhas', 'camada-b-pontos']);
   await expect(page.locator('[data-legenda] li')).toHaveText(['Camada B', 'Camada A', 'Camada C']);
   await tocar(page, P1); // a consulta segue a nova ordem de desenho
   await expect(itensDaConsulta(page).first()).toContainText('Camada B');

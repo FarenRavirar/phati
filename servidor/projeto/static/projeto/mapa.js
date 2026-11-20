@@ -33,6 +33,20 @@ export const CAMPOS_DA_FICHA = ['camada', 'atributo', 'valor', 'fonte', 'data', 
 
 const ehPosicao = (p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 180 && Math.abs(p[1]) <= 90;
 const ehAnel = (anel) => Array.isArray(anel) && anel.length >= 4 && anel.every(ehPosicao);
+const ehAnelFechado = (anel) => ehAnel(anel) && anel[0][0] === anel[anel.length - 1][0] && anel[0][1] === anel[anel.length - 1][1];
+const ehLinha = (linha) => Array.isArray(linha) && linha.length >= 2 && linha.every(ehPosicao);
+const ehPoligono = (poligono) => Array.isArray(poligono) && poligono.length > 0 && poligono.every(ehAnelFechado);
+
+// Estrito por tipo (GeoJSON): coordenada numérica finita, linha com pelo menos 2 posições, anel de polígono fechado. Tipo fora
+// desta lista é recusado. Nada de Multi* sem o formato certo.
+const GEOMETRIAS_ACEITAS = {
+  Polygon: (c) => Array.isArray(c) && c.length > 0 && c.every(ehAnelFechado),
+  MultiPolygon: (c) => Array.isArray(c) && c.length > 0 && c.every(ehPoligono),
+  Point: ehPosicao,
+  MultiPoint: (c) => Array.isArray(c) && c.length > 0 && c.every(ehPosicao),
+  LineString: ehLinha,
+  MultiLineString: (c) => Array.isArray(c) && c.length > 0 && c.every(ehLinha),
+};
 
 export function validarColecao(colecao) {
   if (typeof colecao !== 'object' || colecao === null || colecao.type !== 'FeatureCollection' || !Array.isArray(colecao.features)) {
@@ -44,8 +58,8 @@ export function validarColecao(colecao) {
       throw new Error('feição sem camada_id, camada ou cor');
     }
     const g = feicao.geometry;
-    if (g?.type !== 'Polygon' || !Array.isArray(g.coordinates) || g.coordinates.length === 0 || !g.coordinates.every(ehAnel)) {
-      throw new Error('feição sem geometria Polygon válida');
+    if (!Object.hasOwn(GEOMETRIAS_ACEITAS, g?.type) || !GEOMETRIAS_ACEITAS[g.type](g.coordinates)) {
+      throw new Error('feição sem geometria válida (Polygon, MultiPolygon, Point, MultiPoint, LineString ou MultiLineString)');
     }
     const faltando = CAMPOS_DA_FICHA.find((campo) => typeof p[campo] !== 'string');
     if (faltando) throw new Error(`feição sem camada_id, camada ou cor: falta o campo ${faltando} da ficha`);
@@ -63,7 +77,13 @@ export function camadasDaColecao(colecao) {
 }
 
 // A ortofoto (004b R8) é uma camada raster só: um id de desenho, sem preenchimento nem contorno, e fora da consulta (sem valor de raster).
-export const idsDeDesenho = (id) => (id === ID_ORTOFOTO ? { imagem: id } : { preenchimento: `${id}-preenchimento`, contorno: `${id}-contorno` });
+// Uma camada desenha cada tipo de geometria na própria camada do MapLibre: polígono (preenchimento e contorno), linha e ponto.
+export const idsDeDesenho = (id) => (id === ID_ORTOFOTO ? { imagem: id } : {
+  preenchimento: `${id}-preenchimento`, contorno: `${id}-contorno`, linhas: `${id}-linhas`, pontos: `${id}-pontos`,
+});
+
+// Tolerância do toque em linha e ponto, em pixels: uma linha de 2 px e um ponto de 10 px não se acham só no pixel exato.
+export const TOLERANCIA_DE_TOQUE_PX = 6;
 
 export const opacidadeDe = (transparencia) => Math.min(1, Math.max(0, 1 - Number(transparencia) / 100));
 
@@ -98,8 +118,11 @@ export function ordenarConsulta(feicoes, ordem) {
 }
 
 // Caixa [[oeste, sul], [leste, norte]] de todos os vértices, para enquadrar (R6).
+// Posições de qualquer geometria (ponto, linha, polígono e os Multi*): a profundidade varia, então desce até o número.
+const posicoesDe = (coordenadas) => (typeof coordenadas[0] === 'number' ? [coordenadas] : coordenadas.flatMap(posicoesDe));
+
 export function limitesDaColecao(colecao) {
-  const pontos = colecao.features.flatMap((f) => f.geometry.coordinates.flat(1));
+  const pontos = colecao.features.flatMap((f) => posicoesDe(f.geometry.coordinates));
   const lons = pontos.map((p) => p[0]);
   const lats = pontos.map((p) => p[1]);
   return [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]];
@@ -329,18 +352,20 @@ function desenharCamadas(mapa, colecao, estado, imagem) {
       for (const camada of imagem.camadas) mapa.addLayer({ ...camada, paint: { ...camada.paint, 'raster-opacity': opacidadeDe(estado.transparencia.get(id)) } });
       continue;
     }
-    const { preenchimento, contorno } = idsDeDesenho(id);
+    const { preenchimento, contorno, linhas, pontos } = idsDeDesenho(id);
     const cor = estado.camadas.get(id).corResolvida;
     const opacidade = opacidadeDe(estado.transparencia.get(id));
-    const filtro = ['==', ['get', 'camada_id'], id];
-    mapa.addLayer({ id: preenchimento, type: 'fill', source: 'camadas', filter: filtro, paint: { 'fill-color': cor, 'fill-opacity': opacidade } });
-    mapa.addLayer({ id: contorno, type: 'line', source: 'camadas', filter: filtro, paint: { 'line-color': cor, 'line-width': 2, 'line-opacity': opacidade } });
+    const daCamada = (tipo) => ['all', ['==', ['get', 'camada_id'], id], ['==', ['geometry-type'], tipo]];
+    mapa.addLayer({ id: preenchimento, type: 'fill', source: 'camadas', filter: daCamada('Polygon'), paint: { 'fill-color': cor, 'fill-opacity': opacidade } });
+    mapa.addLayer({ id: contorno, type: 'line', source: 'camadas', filter: daCamada('Polygon'), paint: { 'line-color': cor, 'line-width': 2, 'line-opacity': opacidade } });
+    mapa.addLayer({ id: linhas, type: 'line', source: 'camadas', filter: daCamada('LineString'), paint: { 'line-color': cor, 'line-width': 3, 'line-opacity': opacidade } });
+    mapa.addLayer({ id: pontos, type: 'circle', source: 'camadas', filter: daCamada('Point'), paint: { 'circle-color': cor, 'circle-radius': 5, 'circle-opacity': opacidade } });
   }
 }
 
 function aplicar(mapa, estado, mudanca) {
   const { id } = mudanca;
-  const { preenchimento, contorno, imagem } = idsDeDesenho(id);
+  const { preenchimento, contorno, linhas, pontos, imagem } = idsDeDesenho(id);
   if (mudanca.tipo === 'ligar') {
     estado.ligadas[mudanca.ligada ? 'add' : 'delete'](id);
     for (const camada of Object.values(idsDeDesenho(id))) mapa.setLayoutProperty(camada, 'visibility', mudanca.ligada ? 'visible' : 'none');
@@ -351,6 +376,8 @@ function aplicar(mapa, estado, mudanca) {
     } else {
       mapa.setPaintProperty(preenchimento, 'fill-opacity', opacidadeDe(mudanca.valor));
       mapa.setPaintProperty(contorno, 'line-opacity', opacidadeDe(mudanca.valor));
+      mapa.setPaintProperty(linhas, 'line-opacity', opacidadeDe(mudanca.valor));
+      mapa.setPaintProperty(pontos, 'circle-opacity', opacidadeDe(mudanca.valor));
     }
   } else if (mudanca.tipo === 'mover') {
     estado.ordem = moverNaOrdem(estado.ordem, id, mudanca.passo);
@@ -395,9 +422,18 @@ function ligarCamadas(mapa, alvo, colecao, imagem) {
   });
   limparEstado('camadas');
   mapa.on('click', (e) => {
-    const alcancaveis = ligadasNaOrdem(estado.ordem, estado.ligadas).map((id) => idsDeDesenho(id).preenchimento).filter(Boolean);
-    const achadas = alcancaveis.length ? mapa.queryRenderedFeatures(e.point, { layers: alcancaveis }) : [];
-    mostrarConsulta(ordenarConsulta(achadas, ligadasNaOrdem(estado.ordem, estado.ligadas)), e.lngLat);
+    const ligadas = ligadasNaOrdem(estado.ordem, estado.ligadas);
+    const delinear = (chave) => ligadas.map((id) => idsDeDesenho(id)[chave]).filter(Boolean);
+    // Polígono: o toque tem de cair dentro. Linha e ponto: a caixa de TOLERANCIA_DE_TOQUE_PX em volta do toque.
+    const { x, y } = e.point;
+    const caixa = [[x - TOLERANCIA_DE_TOQUE_PX, y - TOLERANCIA_DE_TOQUE_PX], [x + TOLERANCIA_DE_TOQUE_PX, y + TOLERANCIA_DE_TOQUE_PX]];
+    const emPoligono = delinear('preenchimento');
+    const emLinhaOuPonto = [...delinear('linhas'), ...delinear('pontos')];
+    const achadas = [
+      ...(emPoligono.length ? mapa.queryRenderedFeatures(e.point, { layers: emPoligono }) : []),
+      ...(emLinhaOuPonto.length ? mapa.queryRenderedFeatures(caixa, { layers: emLinhaOuPonto }) : []),
+    ];
+    mostrarConsulta(ordenarConsulta(achadas, ligadas), e.lngLat);
   });
   alvo.dataset.mapaCamadas = String(lista.length);
 }

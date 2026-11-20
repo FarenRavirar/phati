@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 
-from projeto import auditoria_paginas, cargos_paginas, empresas, fazenda, inicio, mapa, monitor_google, paginas, paginas_acesso, pessoas_paginas, saude, termos, territorio_paginas
+from projeto import auditoria_paginas, camadas_paginas, cargos_paginas, empresas, fazenda, inicio, mapa, monitor_google, paginas, paginas_acesso, pessoas_paginas, saude, termos, territorio_paginas
 from projeto.api import api
 
 _EMPRESA = 'empresa/<int:empresa_id>/'
@@ -36,6 +36,13 @@ PESSOAS = [
     path(_EMPRESA + 'pessoa/<int:pessoa_id>/conceder', pessoas_paginas.conceder, name='pessoa_conceder'),
 ]
 
+# Telas de camadas (008 T4.1): envio, prévia e publicação, só para quem publica na fazenda (`publicar_camada`).
+CAMADAS = [
+    path(_FAZENDA + 'camadas/novo', camadas_paginas.envio, name='camadas_novo'),
+    path(_FAZENDA + 'camadas/envio/<uuid:envio_id>', camadas_paginas.previa, name='camadas_previa'),
+    path(_FAZENDA + 'camadas/envio/<uuid:envio_id>/publicar', camadas_paginas.confirmacao, name='camadas_confirmacao'),
+]
+
 # Telas de cargos (003 R18): da empresa, não da fazenda.
 CARGOS = [
     path(_EMPRESA + 'cargos/', cargos_paginas.cargos, name='cargos'),
@@ -64,7 +71,7 @@ urlpatterns = [path('api/v1/', api.urls), path('painel/', admin.site.urls),
                path('monitor-google', monitor_google.monitor, name='monitor_google'),
                path('auditoria/', auditoria_paginas.auditoria, name='auditoria'),
                path('', include('pacote.urls')),
-               *TERRITORIO, *PESSOAS, *CARGOS]
+               *TERRITORIO, *CAMADAS, *PESSOAS, *CARGOS]
 
 # O padrão do Django renderiza o 500 sem a requisição, e sem ela o molde não leva o nonce da política de conteúdo.
 handler500 = 'projeto.paginas.erro_500'
