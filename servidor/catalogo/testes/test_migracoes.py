@@ -75,3 +75,36 @@ def test_reverter_as_chaves_tira_as_fks_compostas_do_estudo_e_a_leitura_do_tema(
         assert not _existe_politica('catalogo_tema', 'leitura_por_fazenda')
         transaction.set_rollback(True)
     assert _existe_restricao('estudo_tema_da_empresa')
+
+
+def _colunas(tabela):
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT column_name FROM information_schema.columns WHERE table_name = %s', [tabela])
+        return {linha[0] for linha in consulta.fetchall()}
+
+
+def test_reverter_a_0002_tira_as_colunas_de_metadado_e_a_check_de_origem():
+    from django.db.migrations.executor import MigrationExecutor
+
+    assert 'origem' in _colunas('catalogo_versao_camada')
+    assert _existe_restricao('versao_camada_origem_nao_vazia')
+    with transaction.atomic():
+        MigrationExecutor(connection).migrate([('catalogo', '0001_initial')])
+        assert 'origem' not in _colunas('catalogo_versao_camada')
+        assert 'data_coleta' not in _colunas('catalogo_versao_camada')
+        assert not _existe_restricao('versao_camada_origem_nao_vazia')
+        transaction.set_rollback(True)
+    assert 'origem' in _colunas('catalogo_versao_camada')  # a transação desfeita devolve as colunas
+
+
+def test_colunas_de_metadado_herdam_o_grant_do_papel_app_pela_tabela():
+    # O grant é por tabela (0001): coluna nova não precisa de grant próprio. Medido com has_column_privilege.
+    assert _app_coluna('catalogo_versao_camada', 'origem', 'INSERT')
+    assert _app_coluna('catalogo_versao_camada', 'data_publicacao', 'UPDATE')
+
+
+def _app_coluna(tabela, coluna, privilegio):
+    with connection.cursor() as consulta:
+        consulta.execute('SELECT has_column_privilege(%s, %s, %s, %s)', [APP, tabela, coluna, privilegio])
+        return consulta.fetchone()[0]
+

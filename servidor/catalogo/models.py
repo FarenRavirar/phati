@@ -76,6 +76,21 @@ class VersaoCamada(models.Model):
     numero = models.PositiveIntegerField()
     estado = models.CharField(max_length=20, default=ESTADO_EM_ANALISE)
     sistema_original = models.TextField()
+    origem = models.TextField()  # obrigatório (R8, DEFINICAO §6.2): origem e arquivos de base; a CHECK recusa vazio
+    metodo = models.TextField(null=True, blank=True)  # opcionais: NULL é "Sem dados", nunca zero (R8, R10)
+    escala_resolucao = models.TextField(null=True, blank=True)
+    unidades = models.TextField(null=True, blank=True)
+    limitacoes = models.TextField(null=True, blank=True)
+    ressalvas = models.TextField(null=True, blank=True)
+    notas_tecnicas = models.TextField(null=True, blank=True)
+    validade_vigencia = models.TextField(null=True, blank=True)  # texto: validade e vigência não se presumem iguais
+    elaborador = models.TextField(null=True, blank=True)
+    revisor = models.TextField(null=True, blank=True)
+    data_coleta = models.DateField(null=True, blank=True)
+    data_referencia = models.DateField(null=True, blank=True)
+    data_elaboracao = models.DateField(null=True, blank=True)
+    data_documento = models.DateField(null=True, blank=True)
+    data_publicacao = models.DateField(null=True, blank=True)
     hash_original = models.CharField(max_length=64)
     caminho_original = models.CharField(max_length=300)  # interno, nunca servido por rota (R15)
     enviada_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
@@ -91,6 +106,8 @@ class VersaoCamada(models.Model):
             models.UniqueConstraint(fields=['camada', 'numero'], name='versao_camada_numero_unico'),
             models.CheckConstraint(condition=Q(numero__gte=1), name='versao_camada_numero_positivo'),
             models.CheckConstraint(condition=Q(estado=ESTADO_EM_ANALISE), name='versao_camada_so_em_analise'),
+            # `origem` não pode ser vazia nem só espaço: pelo menos um caractere que não seja espaço.
+            models.CheckConstraint(condition=Q(origem__regex=r'[^[:space:]]'), name='versao_camada_origem_nao_vazia'),
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='versao_camada_chave_composta'),
         ]
 
@@ -134,6 +151,7 @@ class EnvioCamada(models.Model):
     empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
     fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     arquivo_temporario = models.CharField(max_length=300)
+    hash_original = models.CharField(max_length=64)  # sha256 do original em CAMADAS_DIR (R15): a confirmação confere sem reler o envio
     expira_em = models.DateTimeField()
     criado_em = models.DateTimeField(auto_now_add=True)
     criado_por_id: int
@@ -142,3 +160,6 @@ class EnvioCamada(models.Model):
 
     class Meta:
         db_table = 'catalogo_envio_camada'
+        constraints = [
+            models.CheckConstraint(condition=Q(hash_original__regex=r'^[0-9a-f]{64}$'), name='envio_camada_hash_valido'),
+        ]

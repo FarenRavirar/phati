@@ -6,7 +6,7 @@ import pytest
 from django.contrib.gis.geos import GEOSGeometry
 from django.db import IntegrityError, transaction
 
-from catalogo.models import AtributoVersao, Camada, Estudo, Feicao, Tema, VersaoCamada
+from catalogo.models import AtributoVersao, Camada, EnvioCamada, Estudo, Feicao, Tema, VersaoCamada
 from identidade.models import Pessoa
 
 POLIGONO = 'POLYGON((-48.30 -10.70,-48.29 -10.70,-48.29 -10.69,-48.30 -10.69,-48.30 -10.70))'
@@ -25,6 +25,7 @@ def pessoa(cenario, cpf_novo):
 
 
 def _versao(camada, pessoa, numero=1, **extra):
+    extra.setdefault('origem', 'Levantamento sintético')
     return VersaoCamada.objects.create(
         camada=camada, empresa=camada.empresa, fazenda=camada.fazenda, numero=numero, sistema_original='EPSG:4674', hash_original='a' * 64,
         caminho_original='originais/x.bin', enviada_por=pessoa, **extra,
@@ -148,7 +149,61 @@ def test_sistema_original_aceita_nome_longo_sem_teto_de_50(camada, pessoa):
     longo = 'Sistema de referência ' + 'x' * 180
     versao = VersaoCamada.objects.create(
         camada=camada, empresa=camada.empresa, fazenda=camada.fazenda, numero=1, sistema_original=longo,
-        hash_original='a' * 64, caminho_original='originais/x.bin', enviada_por=pessoa,
+        origem='Levantamento sintético', hash_original='a' * 64, caminho_original='originais/x.bin', enviada_por=pessoa,
     )
     versao.refresh_from_db()
     assert versao.sistema_original == longo
+
+
+# Metadados de §6.2 na versão (T2.3; R8): origem obrigatória no banco, opcionais NULL, datas como data
+
+
+@pytest.mark.parametrize('origem', ['', '   ', '\t\n'])
+def test_origem_vazia_ou_so_espacos_e_recusada_pelo_banco(camada, pessoa, origem):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        _versao(camada, pessoa, origem=origem)
+
+
+def test_origem_preenchida_e_aceita(camada, pessoa):
+    assert _versao(camada, pessoa, origem='Levantamento sintético').origem == 'Levantamento sintético'
+
+
+def test_opcional_nulo_e_sem_dados_e_nao_vira_texto_vazio(camada, pessoa):
+    versao = _versao(camada, pessoa)
+    versao.refresh_from_db()
+    assert versao.metodo is None  # NULL é "Sem dados", não ''
+    assert versao.data_coleta is None
+    assert versao.escala_resolucao is None
+
+
+def test_data_de_metadado_e_gravada_como_data(camada, pessoa):
+    from datetime import date
+
+    versao = _versao(camada, pessoa, data_coleta=date(2026, 5, 2))
+    versao.refresh_from_db()
+    assert versao.data_coleta == date(2026, 5, 2)
+
+
+def test_todo_opcional_da_lista_e_campo_do_modelo():
+    from catalogo.metadados import OPCIONAIS
+
+    campos = {campo.name for campo in VersaoCamada._meta.get_fields()}
+    assert set(OPCIONAIS) <= campos
+
+
+@pytest.mark.parametrize('hash_original', ['', 'xyz', 'A' * 64, 'a' * 63, 'g' * 64])
+def test_hash_de_envio_fora_do_formato_e_recusado_pelo_banco(cenario, pessoa, hash_original):
+    from django.utils import timezone
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        EnvioCamada.objects.create(criado_por=pessoa, empresa=cenario.x, fazenda=cenario.f1, arquivo_temporario='a' * 32 + '.bin',
+                                   hash_original=hash_original, expira_em=timezone.now())
+
+
+def test_hash_sha256_de_envio_e_aceito(cenario, pessoa):
+    from django.utils import timezone
+
+    envio = EnvioCamada.objects.create(criado_por=pessoa, empresa=cenario.x, fazenda=cenario.f1, arquivo_temporario='a' * 32 + '.bin',
+                                       hash_original='0' * 64, expira_em=timezone.now())
+    assert envio.hash_original == '0' * 64
+
