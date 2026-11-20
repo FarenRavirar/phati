@@ -9,7 +9,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 
-from catalogo import envios
+from catalogo import envios, publicacao
 from catalogo.models import EnvioCamada
 from catalogo.testes.test_ingestao import geojson, ponto_geojson
 from identidade.models import Pessoa
@@ -40,10 +40,12 @@ def _envio(mundo, agora=None):
     return envios.criar_envio(mundo.operador, mundo.f1, geojson([ponto_geojson()]), agora=agora)
 
 
-def test_expirado_some_com_o_original_e_o_nao_expirado_fica(camadas, mundo):
+def test_expirado_some_com_o_original_e_o_nao_expirado_fica(camadas, mundo, django_capture_on_commit_callbacks):
     vencido = _envio(mundo, agora=timezone.now() - timedelta(hours=48))
     vigente = _envio(mundo)
-    call_command('limpar_envios_camada', operador=mundo.operador.pk, stdout=StringIO())
+    # O original sai no COMMIT da limpeza (on_commit): o fixture executa o callback, que o teste não faz sozinho.
+    with django_capture_on_commit_callbacks(execute=True):
+        call_command('limpar_envios_camada', operador=mundo.operador.pk, stdout=StringIO())
     assert not EnvioCamada.objects.filter(pk=vencido.pk).exists()
     assert EnvioCamada.objects.filter(pk=vigente.pk).exists()
     assert not (camadas / vencido.arquivo_temporario).exists()
@@ -75,6 +77,16 @@ def test_segunda_execucao_nao_remove_nada(camadas, mundo):
     _envio(mundo, agora=timezone.now() - timedelta(hours=48))
     assert envios.limpar_expirados(mundo.operador) == (1, 0)
     assert envios.limpar_expirados(mundo.operador) == (0, 0)
+
+
+def test_envio_removido_pela_limpeza_nao_pode_mais_ser_publicado(camadas, mundo, django_capture_on_commit_callbacks):
+    vencido = _envio(mundo, agora=timezone.now() - timedelta(hours=48))
+    arquivo = camadas / vencido.arquivo_temporario
+    with django_capture_on_commit_callbacks(execute=True):
+        assert envios.limpar_expirados(mundo.operador) == (1, 0)
+    assert not arquivo.exists()
+    with pytest.raises(publicacao.EnvioNaoEncontrado):
+        publicacao.publicar_envio(mundo.operador, vencido.pk, estudo_id=0, metadados={}, nos=[])
 
 
 def test_saida_do_comando_conta_removidos(camadas, mundo):

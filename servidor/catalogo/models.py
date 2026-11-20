@@ -146,6 +146,7 @@ class Feicao(models.Model):
     versao_id: int
     empresa_id: int
     fazenda_id: int
+    sub_area_id: int | None  # anotação para o pyright: o Django cria `sub_area_id` (FK nulável)
 
 
 class EnvioCamada(models.Model):

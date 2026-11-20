@@ -1,12 +1,14 @@
 """Publicação de um envio em análise (008 T3.1, T3.1b; R4, R7, R9, R12, R13, R14, R15; D119).
 
-`publicar_envio` roda numa transação só (`com_permissao`). Ordem: envio travado, permissão e expiração, estudo travado,
-original relido com hash, ingestão de novo, metadados, sistema de referência, nós, divisão, camada e versão, atributos,
-feições, auditoria e, por último, a linha do envio sai. O original não é apagado: vira `caminho_original` da versão (R15).
+`publicar_envio` roda numa transação só (`com_permissao`). Ordem: envio travado, permissão e expiração (depois da trava),
+estudo travado, original relido com hash, ingestão de novo, metadados, sistema de referência, nós (travados), divisão,
+camada e versão, atributos, feições, auditoria e, por último, a linha do envio sai. O original não é apagado: vira
+`caminho_original` da versão (R15).
 
-Trava (R13): `select_for_update` no envio (publicar o mesmo envio duas vezes) e no estudo (dois envios da mesma camada, ou
-a criação de camada nova com o mesmo nome, não calculam o mesmo número). Ordem fixa: envio, depois estudo, para não haver
-impasse. Doc: Django 6.1, `QuerySet.select_for_update()`; PostgreSQL 18, "Explicit Locking" (linha travada até o COMMIT).
+Trava (R13): `select_for_update` no envio (publicar o mesmo envio duas vezes; e a limpeza de vencidos pula o envio travado),
+no estudo (dois envios da mesma camada, ou a criação de camada nova com o mesmo nome, não calculam o mesmo número) e nos
+nós escolhidos ou lidos (arquivamento concorrente não passa). Ordem fixa: envio, estudo, nós por pk, para não haver impasse.
+Doc: Django 6.1, `QuerySet.select_for_update()`; PostgreSQL 18, "Explicit Locking" (linha travada até o COMMIT).
 Uma divisão por fazenda é garantida pelo índice único parcial (`camada_divisao_unica_por_fazenda`), que cobre a corrida
 entre estudos diferentes da mesma fazenda que a trava do estudo não serializa.
 
@@ -46,8 +48,12 @@ class RecusaPublicacao(Exception):
 
 
 def _envio_da_confirmacao(pessoa, envio_id):
-    """Envio travado e visível a `pessoa`. Inexistente e sem permissão viram a mesma exceção (R11)."""
+    """Envio travado e visível a `pessoa`. Inexistente e sem permissão viram a mesma exceção (R11).
+
+    A permissão é relida depois da trava: `com_permissao` já carregou a memória de permissão antes da espera, e uma
+    revogação enquanto a publicação esperava não pode passar (CodeRabbit, PR #69)."""
     envio = EnvioCamada.objects.select_for_update().filter(pk=envio_id).first()
+    esquecer(pessoa)
     if envio is None or not pode(pessoa, ACAO, envio.fazenda):
         raise EnvioNaoEncontrado()
     return envio
@@ -68,8 +74,19 @@ def _original_conferido(envio):
         raise RecusaPublicacao(['original não confere com o hash guardado no envio']) from None
 
 
+def _ingerir_original(envio):
+    """Prévia do original guardado: relê com hash e ingere de novo (a ingestão não guarda estado)."""
+    dados = _original_conferido(envio)
+    with tempfile.TemporaryDirectory() as pasta:
+        copia = Path(pasta) / 'envio.bin'
+        copia.write_bytes(dados)
+        return ingerir_envio(copia)
+
+
 def _nos_escolhidos(envio, nos, feicoes):
-    """Cada feição tem um nó (R7). Com nós na fazenda, `None` é recusado; sem nós, só `None` passa."""
+    """Cada feição tem um nó (R7). Com nós na fazenda, `None` é recusado; sem nós, só `None` passa.
+
+    Os nós escolhidos são travados (ordem por pk) e revalidados aqui: arquivamento concorrente espera a publicação (R13)."""
     if len(nos) != len(feicoes):
         raise RecusaPublicacao(['escolha de nó não confere com a quantidade de feições'])
     ativos = set(nos_da_fazenda(envio.fazenda))
@@ -82,7 +99,7 @@ def _nos_escolhidos(envio, nos, feicoes):
         raise RecusaPublicacao(['feição sem nó: a fazenda tem nós'])
     if not escolhidos <= ativos:
         raise RecusaPublicacao(['nó inexistente, arquivado ou de outra fazenda'])
-    for no in SubArea.objects.filter(pk__in=escolhidos):  # revalida na confirmação: arquivado ou com ancestral arquivado (R13)
+    for no in SubArea.objects.select_for_update().filter(pk__in=escolhidos).order_by('pk'):
         if escopo_arquivado(no):
             raise RecusaPublicacao(['nó arquivado, ou com ancestral arquivado'])
 
@@ -93,7 +110,9 @@ def _nos_pelo_nome(envio, coluna, atributos, feicoes):
     if coluna not in atributos:
         raise RecusaPublicacao(['coluna do nó não existe no arquivo'])
     por_nome = defaultdict(list)
-    for id_no, nome in SubArea.objects.filter(fazenda_id=envio.fazenda_id, arquivada_em__isnull=True).values_list('id', 'nome'):
+    nos_ativos = SubArea.objects.select_for_update().filter(
+        fazenda_id=envio.fazenda_id, arquivada_em__isnull=True).order_by('pk').values_list('id', 'nome')
+    for id_no, nome in nos_ativos:
         por_nome[nome].append(id_no)
     if any(len(ids) > 1 for ids in por_nome.values()):
         raise RecusaPublicacao(['nome de nó repetido na fazenda: a divisão não pode ser marcada'])
@@ -157,6 +176,68 @@ def _camada_da_publicacao(estudo, camada_id, nome):
     return camada
 
 
+def _conferir_previa(estudo, previa, completa, ocultos, sistema_confirmado):
+    """Regras da prévia contra o estudo e a entrada. Devolve os nomes de atributo do arquivo."""
+    if completa.metadados.obrigatorios['tema'] != estudo.tema.nome:
+        raise RecusaPublicacao(['tema do arquivo diferente do tema do estudo'])
+    if previa.transformacao != 'nenhuma' and not sistema_confirmado:
+        raise RecusaPublicacao([f'sistema de referência {previa.sistema} exige confirmação antes de publicar'])
+    atributos = {a.nome for a in completa.atributos}
+    if set(ocultos) - atributos:
+        raise RecusaPublicacao(['atributo a ocultar não existe no arquivo'])
+    return atributos
+
+
+def _nos_da_publicacao(envio, previa, atributos, nos, coluna_no):
+    """Nó de cada feição: pelo nome na coluna da divisão (D119), ou o escolhido pelo Administrador (R7)."""
+    if coluna_no is None:
+        _nos_escolhidos(envio, nos, previa.feicoes)
+        return nos
+    if previa.tipo != 'poligono':  # contorno de área (D119): divisão de ponto ou linha não tem onde ser sugerida
+        raise RecusaPublicacao([f'a divisão da fazenda precisa de polígonos, não de {previa.tipo}'])
+    nos_da_coluna = _nos_pelo_nome(envio, coluna_no, atributos, previa.feicoes)
+    if nos and list(nos) != nos_da_coluna:
+        raise RecusaPublicacao(['nó escolhido diverge do nome na coluna marcada'])
+    return nos_da_coluna
+
+
+def _gravar_versao(pessoa, envio, camada, previa, completa, ocultos, nos):
+    """Versão "em análise" com atributos e feições. Chamado com o estudo travado (o número depende disso)."""
+    m = completa.metadados
+    numero = _proximo_numero(camada)
+    versao = VersaoCamada.objects.create(
+        camada=camada, empresa_id=envio.empresa_id, fazenda_id=envio.fazenda_id, numero=numero,
+        estado=ESTADO_EM_ANALISE, sistema_original=f'{previa.sistema}; {previa.origem_sistema}',
+        origem=m.obrigatorios['origem'], hash_original=envio.hash_original,
+        caminho_original=envio.arquivo_temporario, enviada_por=pessoa, **m.opcionais,
+    )
+    AtributoVersao.objects.bulk_create([
+        AtributoVersao(versao=versao, empresa_id=envio.empresa_id, fazenda_id=envio.fazenda_id,
+                       nome=a.nome, visivel=a.nome not in ocultos)
+        for a in completa.atributos
+    ])
+    Feicao.objects.bulk_create([
+        Feicao(versao=versao, empresa_id=envio.empresa_id, fazenda_id=envio.fazenda_id,
+               geometria=f.geometria, valores=f.valores, sub_area_id=no)
+        for f, no in zip(previa.feicoes, nos)
+    ])
+    return versao
+
+
+def _auditar(pessoa, envio, versao, camada, previa, ocultos, nos, sugeridos):
+    numero = versao.numero
+    auditar('camada_publicada', pessoa, versao, envio.empresa_id, {'nome_camada': camada.nome, 'versao': numero})
+    if previa.transformacao != 'nenhuma':
+        auditar('sistema_confirmado', pessoa, versao, envio.empresa_id,
+                {'camada': camada.pk, 'versao': numero, 'sistema': previa.sistema})
+    for nome in sorted(set(ocultos)):
+        auditar('atributo_ocultado', pessoa, versao, envio.empresa_id,
+                {'nome_atributo': nome, 'versao': numero, 'camada': camada.pk})
+    trocados = sum(1 for escolhido, sugerido in zip(nos, sugeridos) if sugerido is not None and escolhido != sugerido)
+    if trocados:  # R14 pede o evento de troca de nó, não um por feição: uma linha por publicação, com a contagem
+        auditar('no_trocado', pessoa, versao, envio.empresa_id, {'camada': camada.pk, 'versao': numero, 'quantidade': trocados})
+
+
 def publicar_envio(pessoa, envio_id, *, estudo_id, metadados, camada_id=None, ocultos=(), nos=(), coluna_no=None,
                    sistema_confirmado=False, agora=None):
     """Publica o envio como versão "em análise" (R2). Qualquer recusa ou falha deixa o banco como estava (R13).
@@ -165,70 +246,24 @@ def publicar_envio(pessoa, envio_id, *, estudo_id, metadados, camada_id=None, oc
     da fazenda e liga cada feição ao nó pelo nome dessa coluna; `nos`, se vier, tem de bater com o que o nome dá.
     `ocultos`: nomes de coluna a ocultar (R9). `sistema_confirmado`: obrigatório fora de SIRGAS 2000 (R4).
     Sugestão de nó: pelos contornos da divisão marcada da fazenda (D119); sem divisão, não há sugestão.
+    `agora` (opcional) é tomado depois da trava: a espera pela trava conta para a expiração (R12).
     """
-    agora = agora or timezone.now()
-    esquecer(pessoa)  # a permissão sai do banco nesta transação, não da memória do objeto (revogação entre prévia e confirmação)
     with com_permissao(pessoa, ACAO):
         envio = _envio_da_confirmacao(pessoa, envio_id)
+        agora = agora or timezone.now()
         if envio.expira_em <= agora:
             raise RecusaPublicacao(['envio expirado: envie o arquivo de novo'])
         estudo = _estudo_da_fazenda(envio, estudo_id)
-        dados = _original_conferido(envio)
-        with tempfile.TemporaryDirectory() as pasta:
-            copia = Path(pasta) / 'envio.bin'
-            copia.write_bytes(dados)
-            previa = ingerir_envio(copia)
+        previa = _ingerir_original(envio)
         completa = montar_previa(previa, metadados)
-        m = completa.metadados
-        if m.obrigatorios['tema'] != estudo.tema.nome:
-            raise RecusaPublicacao(['tema do arquivo diferente do tema do estudo'])
-        if previa.transformacao != 'nenhuma' and not sistema_confirmado:
-            raise RecusaPublicacao([f'sistema de referência {previa.sistema} exige confirmação antes de publicar'])
-        atributos = {a.nome for a in completa.atributos}
-        if set(ocultos) - atributos:
-            raise RecusaPublicacao(['atributo a ocultar não existe no arquivo'])
-        if coluna_no is not None:
-            if previa.tipo != 'poligono':  # contorno de área (D119): divisão de ponto ou linha não tem onde ser sugerida
-                raise RecusaPublicacao([f'a divisão da fazenda precisa de polígonos, não de {previa.tipo}'])
-            nos_da_coluna = _nos_pelo_nome(envio, coluna_no, atributos, previa.feicoes)
-            if nos and list(nos) != nos_da_coluna:
-                raise RecusaPublicacao(['nó escolhido diverge do nome na coluna marcada'])
-            nos = nos_da_coluna
-        else:
-            _nos_escolhidos(envio, nos, previa.feicoes)
+        atributos = _conferir_previa(estudo, previa, completa, ocultos, sistema_confirmado)
+        nos = _nos_da_publicacao(envio, previa, atributos, nos, coluna_no)
         contornos = {} if coluna_no is not None else contornos_da_divisao(envio.fazenda)
         sugeridos = _sugeridos(envio, previa.feicoes, contornos)
-
-        camada = _camada_da_publicacao(estudo, camada_id, m.obrigatorios['nome'])
+        camada = _camada_da_publicacao(estudo, camada_id, completa.metadados.obrigatorios['nome'])
         _alinhar_divisao(camada, coluna_no)
-        numero = _proximo_numero(camada)
-        versao = VersaoCamada.objects.create(
-            camada=camada, empresa_id=envio.empresa_id, fazenda_id=envio.fazenda_id, numero=numero,
-            estado=ESTADO_EM_ANALISE, sistema_original=f'{previa.sistema}; {previa.origem_sistema}',
-            origem=m.obrigatorios['origem'], hash_original=envio.hash_original,
-            caminho_original=envio.arquivo_temporario, enviada_por=pessoa, **m.opcionais,
-        )
-        AtributoVersao.objects.bulk_create([
-            AtributoVersao(versao=versao, empresa_id=envio.empresa_id, fazenda_id=envio.fazenda_id,
-                           nome=a.nome, visivel=a.nome not in ocultos)
-            for a in completa.atributos
-        ])
-        Feicao.objects.bulk_create([
-            Feicao(versao=versao, empresa_id=envio.empresa_id, fazenda_id=envio.fazenda_id,
-                   geometria=f.geometria, valores=f.valores, sub_area_id=no)
-            for f, no in zip(previa.feicoes, nos)
-        ])
-
-        auditar('camada_publicada', pessoa, versao, envio.empresa_id, {'nome_camada': camada.nome, 'versao': numero})
-        if previa.transformacao != 'nenhuma':
-            auditar('sistema_confirmado', pessoa, versao, envio.empresa_id,
-                    {'camada': camada.pk, 'versao': numero, 'sistema': previa.sistema})
-        for nome in sorted(set(ocultos)):
-            auditar('atributo_ocultado', pessoa, versao, envio.empresa_id,
-                    {'nome_atributo': nome, 'versao': numero, 'camada': camada.pk})
-        trocados = sum(1 for escolhido, sugerido in zip(nos, sugeridos) if sugerido is not None and escolhido != sugerido)
-        if trocados:  # R14 pede o evento de troca de nó, não um por feição: uma linha por publicação, com a contagem
-            auditar('no_trocado', pessoa, versao, envio.empresa_id, {'camada': camada.pk, 'versao': numero, 'quantidade': trocados})
+        versao = _gravar_versao(pessoa, envio, camada, previa, completa, ocultos, nos)
+        _auditar(pessoa, envio, versao, camada, previa, ocultos, nos, sugeridos)
         envio.delete()  # o original fica: é `caminho_original` da versão (R15); só a linha do envio sai
     return versao
 
@@ -236,11 +271,7 @@ def publicar_envio(pessoa, envio_id, *, estudo_id, metadados, camada_id=None, oc
 def ler_previa(envio):
     """Prévia de um envio já guardado (R12): relê o original com hash, ingere de novo e sugere nós. Sem valor de atributo:
     só colunas, sistema, transformação, avisos, contagem e o nó sugerido de cada feição."""
-    dados = _original_conferido(envio)
-    with tempfile.TemporaryDirectory() as pasta:
-        copia = Path(pasta) / 'envio.bin'
-        copia.write_bytes(dados)
-        previa = ingerir_envio(copia)
+    previa = _ingerir_original(envio)
     sugeridos = _sugeridos(envio, previa.feicoes, contornos_da_divisao(envio.fazenda))
     return {
         'formato': previa.formato, 'tipo': previa.tipo, 'sistema': previa.sistema,

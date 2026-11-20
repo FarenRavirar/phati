@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 from django.contrib.gis.geos import GEOSGeometry
-from django.db import connections
+from django.db import connections, transaction
 from django.utils import timezone
 
 from catalogo import envios, original, publicacao
@@ -139,7 +139,8 @@ def test_publica_em_analise_guarda_original_e_consome_o_envio(camadas, mundo):
 def test_ausente_fica_ausente_e_zero_fica_zero(camadas, mundo):
     versao = _publicar(mundo, _criar(mundo))
     valores = [f.valores for f in Feicao.objects.filter(versao=versao).order_by('id')]
-    assert valores[0]['valor'] == 0 and valores[0]['valor'] is not None  # zero continua zero
+    assert valores[0]['valor'] is not None  # zero não vira ausente
+    assert valores[0]['valor'] == 0  # zero continua zero
     assert valores[1]['valor'] is None  # ausente continua ausente, nunca vira 0 ou texto vazio (R10)
 
 
@@ -227,8 +228,9 @@ def test_permissao_revogada_entre_previa_e_confirmacao_recusa(camadas, mundo):
 def test_envio_expirado_recusa_e_mantem_o_envio(camadas, mundo):
     envio = _criar(mundo)
     antes = _contagem()
+    depois = timezone.now() + timedelta(hours=25)
     with pytest.raises(RecusaPublicacao) as excinfo:
-        _publicar(mundo, envio, agora=timezone.now() + timedelta(hours=25))
+        _publicar(mundo, envio, agora=depois)
     assert excinfo.value.erros == ['envio expirado: envie o arquivo de novo']
     assert _contagem() == antes
 
@@ -370,13 +372,22 @@ def test_escopo_so_de_outra_fazenda_nao_publica_pelo_papel_app(camadas, mundo, f
 
 # --- duas publicações simultâneas (transações reais, R13) ------------------------------------------------------------
 
+ESPERA_DE_TRAVA = '10s'  # teto de espera de trava por conexão de teste: um impasse vira erro, não teste pendurado
+
+
 def _rodar_em_threads(alvos):
-    """Roda cada função em sua thread, com conexões próprias, e devolve (resultado ou exceção) por thread."""
+    """Roda cada função em sua thread, com conexões próprias, e devolve (resultado ou exceção) por thread.
+
+    Cada conexão recebe `lock_timeout`: espera de trava acima dele vira erro de banco, em vez de travar o teste. Thread
+    ainda viva depois do `join` falha o teste explicitamente."""
     barreira = threading.Barrier(len(alvos))
     resultados: list[object] = [None] * len(alvos)
 
     def corre(indice, alvo):
         try:
+            for alias in connections:
+                with connections[alias].cursor() as cursor:
+                    cursor.execute(f"SET lock_timeout = '{ESPERA_DE_TRAVA}'")
             barreira.wait()
             resultados[indice] = alvo()
         except BaseException as erro:  # noqa: BLE001 — o teste confere o que cada thread recebeu
@@ -389,6 +400,8 @@ def _rodar_em_threads(alvos):
         fio.start()
     for fio in fios:
         fio.join(timeout=60)
+    vivas = [fio.name for fio in fios if fio.is_alive()]
+    assert not vivas, f'thread ainda viva depois de 60 s: {vivas}'
     return resultados
 
 
@@ -421,7 +434,8 @@ def test_mesmo_envio_publicado_duas_vezes_publica_uma(camadas, mundo, monkeypatc
     resultados = _rodar_em_threads([_publicador(mundo, envio.pk), _publicador(mundo, envio.pk)])
     publicadas = [r for r in resultados if isinstance(r, VersaoCamada)]
     recusadas = [r for r in resultados if isinstance(r, EnvioNaoEncontrado)]
-    assert len(publicadas) == 1 and len(recusadas) == 1, resultados
+    assert len(publicadas) == 1, resultados
+    assert len(recusadas) == 1, resultados
     assert VersaoCamada.objects.count() == 1  # o envio não gera duas versões
 
 
@@ -515,7 +529,8 @@ def test_sugestao_por_maior_area_usa_a_divisao_publicada(camadas, mundo):
     _publicar(mundo, _criar(mundo, _divisao({'G1': BIG, 'G2': FAR})), nos=(), coluna_no='no', nome='Divisao')
     versao = _publicar(mundo, _criar(mundo, _poligonos(1)), nos=[mundo.g2.pk])  # o contorno de G1 cobre a feição
     evento = _eventos('no_trocado')
-    assert len(evento) == 1 and evento[0].detalhes['quantidade'] == 1
+    assert len(evento) == 1
+    assert evento[0].detalhes['quantidade'] == 1
     assert evento[0].detalhes['camada'] == versao.camada_id
 
 
@@ -531,7 +546,8 @@ def test_sugestao_usa_a_versao_mais_recente_da_divisao(camadas, mundo):
               nome='Divisao')
     versao = _publicar(mundo, _criar(mundo, _poligonos(1)), nos=[mundo.g1.pk])  # a v2 põe o contorno de G2 sobre a feição
     evento = _eventos('no_trocado')
-    assert len(evento) == 1 and evento[0].detalhes['quantidade'] == 1
+    assert len(evento) == 1
+    assert evento[0].detalhes['quantidade'] == 1
     assert evento[0].detalhes['camada'] == versao.camada_id
 
 
@@ -555,8 +571,9 @@ def test_divisao_de_pontos_ou_linhas_e_recusada_sem_gravar(camadas, mundo):
     assert _contagem() == antes
     linha = geojson([{'type': 'Feature', 'properties': {'no': 'G1'}, 'geometry': {'type': 'LineString',
                       'coordinates': [[-48.3, -10.7], [-48.29, -10.69]]}}])
+    envio_linha = _criar(mundo, linha)
     with pytest.raises(RecusaPublicacao) as excinfo:
-        _publicar(mundo, _criar(mundo, linha), nos=(), coluna_no='no', nome='Divisao')
+        _publicar(mundo, envio_linha, nos=(), coluna_no='no', nome='Divisao')
     assert excinfo.value.erros == ['a divisão da fazenda precisa de polígonos, não de linha']
 
 
@@ -577,7 +594,9 @@ def test_corrida_entre_estudos_da_mesma_fazenda_marca_so_uma_divisao(camadas, mu
     def gravar_com_pausa(self, *args, **kwargs):
         if 'update_fields' in kwargs:  # só a marcação da divisão (create() também chama save)
             if next(gravacoes) == 0:
-                segunda_passou.wait(timeout=10)
+                # Pausa curta: a trava dos nós da fazenda (008 T3.1) faz a segunda publicação esperar esta; a pausa
+                # precisa ficar abaixo do lock_timeout do teste (10 s), senão a espera vira erro de banco.
+                segunda_passou.wait(timeout=1)
             else:
                 segunda_passou.set()
         return gravacao_original(self, *args, **kwargs)
@@ -594,6 +613,149 @@ def test_corrida_entre_estudos_da_mesma_fazenda_marca_so_uma_divisao(camadas, mu
     resultados = _rodar_em_threads([publicador(envio_a, mundo.estudo.pk, 'Div A'), publicador(envio_b, outro.pk, 'Div B')])
     publicadas = [r for r in resultados if isinstance(r, VersaoCamada)]
     recusadas = [r for r in resultados if isinstance(r, RecusaPublicacao)]
-    assert len(publicadas) == 1 and len(recusadas) == 1, resultados
+    assert len(publicadas) == 1, resultados
+    assert len(recusadas) == 1, resultados
     assert recusadas[0].erros == ['já existe divisão desta fazenda']
     assert Camada.objects.filter(fazenda=mundo.f1, coluna_no__isnull=False).count() == 1
+
+
+# --- trava x revogação, arquivamento, limpeza e expiração (R13) ---------------------------------------------------------
+
+def _capturar(alvo):
+    try:
+        return alvo()
+    except BaseException as erro:  # noqa: BLE001 — o teste confere o que cada thread recebeu
+        return erro
+    finally:
+        connections.close_all()
+
+
+def _esperar_trava(timeout=10):
+    """Espera até alguma sessão do banco ficar bloqueada por trava (pg_stat_activity), sem depender de tempo fixo."""
+    prazo = time.monotonic() + timeout
+    while time.monotonic() < prazo:
+        with connections['default'].cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()")
+            if cursor.fetchone()[0]:
+                return True
+        time.sleep(0.05)
+    return False
+
+
+def _travar_envio(envio_pk, segurando, soltar):
+    """Thread que trava o envio numa transação até `soltar`: a publicação concorrente fica esperando a trava."""
+    def segura():
+        try:
+            with transaction.atomic():
+                EnvioCamada.objects.select_for_update().get(pk=envio_pk)
+                segurando.set()
+                soltar.wait(timeout=30)
+        finally:
+            connections.close_all()
+    return segura
+
+
+def test_revogacao_durante_a_espera_da_trava_impede_a_publicacao(camadas, mundo):
+    envio = _criar(mundo)
+    antes = _contagem()
+    segurando, soltar = threading.Event(), threading.Event()
+    dono = threading.Thread(target=_travar_envio(envio.pk, segurando, soltar))
+    dono.start()
+    assert segurando.wait(timeout=10)
+    resultados = []
+    publicadora = threading.Thread(target=lambda: resultados.append(_capturar(_publicador(mundo, envio.pk))))
+    publicadora.start()
+    assert _esperar_trava(), 'a publicação não chegou à trava'  # ela já leu a permissão antes de esperar
+    Concessao.objects.filter(pessoa=mundo.operador).delete()  # revoga enquanto espera
+    soltar.set()
+    dono.join(timeout=10)
+    publicadora.join(timeout=10)
+    assert not publicadora.is_alive()
+    assert isinstance(resultados[0], EnvioNaoEncontrado), resultados
+    assert _contagem() == antes  # sem versão, feição, atributo, camada nem auditoria
+
+
+def test_arquivamento_durante_a_publicacao_espera_a_trava(camadas, mundo, monkeypatch):
+    envio = _criar(mundo)
+    pausado, arquivou = threading.Event(), threading.Event()
+    visto_na_publicacao = []
+    numero_original = publicacao._proximo_numero
+
+    def numero_com_pausa(camada):
+        valor = numero_original(camada)  # os nós já estão travados aqui
+        pausado.set()
+        arquivou.wait(timeout=3)
+        visto_na_publicacao.append(arquivou.is_set())
+        return valor
+
+    monkeypatch.setattr(publicacao, '_proximo_numero', numero_com_pausa)
+
+    def arquiva():
+        try:
+            _arquivar(mundo.g1, mundo)
+        finally:
+            arquivou.set()
+            connections.close_all()
+
+    resultados = []
+    publicadora = threading.Thread(target=lambda: resultados.append(_capturar(_publicador(mundo, envio.pk))))
+    publicadora.start()
+    assert pausado.wait(timeout=10)
+    arquivadora = threading.Thread(target=arquiva)
+    arquivadora.start()
+    publicadora.join(timeout=30)
+    arquivadora.join(timeout=30)
+    assert not publicadora.is_alive() and not arquivadora.is_alive()
+    assert visto_na_publicacao == [False], 'o arquivamento não podia terminar durante a publicação'
+    assert isinstance(resultados[0], VersaoCamada), resultados
+    assert SubArea.objects.get(pk=mundo.g1.pk).arquivada_em is not None
+
+
+def test_limpeza_de_vencidos_pula_envio_em_publicacao(camadas, mundo, monkeypatch):
+    envio = _criar(mundo)
+    antes_do_vencimento = timezone.now()
+    depois_do_vencimento = antes_do_vencimento + timedelta(hours=48)
+    pausado, liberar = threading.Event(), threading.Event()
+    numero_original = publicacao._proximo_numero
+
+    def numero_com_pausa(camada):
+        valor = numero_original(camada)
+        pausado.set()
+        liberar.wait(timeout=30)
+        return valor
+
+    monkeypatch.setattr(publicacao, '_proximo_numero', numero_com_pausa)
+    resultados = []
+    publicadora = threading.Thread(
+        target=lambda: resultados.append(_capturar(_publicador(mundo, envio.pk, agora=antes_do_vencimento))))
+    publicadora.start()
+    assert pausado.wait(timeout=10)
+    # A publicação começou antes do vencimento e segura a trava: a limpeza pula o envio e o original fica.
+    assert envios.limpar_expirados(mundo.operador, depois_do_vencimento) == (0, 1)
+    liberar.set()
+    publicadora.join(timeout=30)
+    assert not publicadora.is_alive()
+    versao = resultados[0]
+    assert isinstance(versao, VersaoCamada), resultados
+    assert (camadas / versao.caminho_original).exists()  # sem versão apontando para arquivo apagado
+    assert original.ler(versao.caminho_original, versao.hash_original)
+
+
+def test_expiracao_e_conferida_depois_da_espera_pela_trava(camadas, mundo):
+    envio = _criar(mundo)
+    EnvioCamada.objects.filter(pk=envio.pk).update(expira_em=timezone.now() + timedelta(seconds=2))
+    segurando, soltar = threading.Event(), threading.Event()
+    dono = threading.Thread(target=_travar_envio(envio.pk, segurando, soltar))
+    dono.start()
+    assert segurando.wait(timeout=10)
+    resultados = []
+    publicadora = threading.Thread(target=lambda: resultados.append(_capturar(_publicador(mundo, envio.pk))))
+    publicadora.start()
+    assert _esperar_trava()
+    time.sleep(2.5)  # o envio vence enquanto a publicação espera a trava
+    soltar.set()
+    dono.join(timeout=10)
+    publicadora.join(timeout=10)
+    assert isinstance(resultados[0], RecusaPublicacao), resultados
+    assert resultados[0].erros == ['envio expirado: envie o arquivo de novo']
+    assert VersaoCamada.objects.count() == 0

@@ -6,11 +6,13 @@ permissão, fora do escopo ou inexistentes, a resposta é a mesma 404 `nao_encon
 """
 
 import json
+from typing import Annotated
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.db.models.fields.json import KeyTextTransform
-from ninja import File, Query, Router, Schema, Status
+from ninja import Router, Schema, Status
+from ninja.params import functions as parametros  # as funções reais: o `File`/`Query` de `ninja` é alias para o type checker
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
@@ -29,7 +31,7 @@ LIMITE_MAXIMO = 100
 class EntradaPublicacao(Schema):
     estudo_id: int
     metadados: dict
-    camada_id: int | None = None
+    camada_id: UUID | None = None  # id público (R1), o mesmo que a API devolve
     ocultos: list[str] = []
     nos: list[int | None] = []
     coluna_no: str | None = None
@@ -70,15 +72,35 @@ def _camada_visivel(acao):
     return obter
 
 
+def _ler_limitado(arquivo):
+    """Conteúdo do arquivo, ou None se passa do limite (R16). `size` conhecido acima do limite recusa sem ler. Tamanho
+    desconhecido (`size` None) não é presumido: lê no máximo limite+1 bytes e recusa se passar."""
+    limite = LIMITES_PADRAO.tamanho_bytes
+    if arquivo.size is not None and arquivo.size > limite:
+        return None
+    dados = arquivo.read(limite + 1)
+    return None if len(dados) > limite else dados
+
+
+def _camada_pk(camada_publica):
+    """Camada pelo id público, dentro da RLS da pessoa. Inexistente ou de outro estudo: a mesma recusa (sem vazar)."""
+    if camada_publica is None:
+        return None
+    camada = Camada.objects.filter(publico_id=camada_publica).first()
+    if camada is None:
+        raise RecusaPublicacao(['camada não encontrada neste estudo'])
+    return camada.pk
+
+
 @roteador.post('fazendas/{fazenda_id}/envios', url_name='catalogo_criar_envio', response={201: dict, 422: dict})
 @exige_permissao('publicar_camada', _fazenda_visivel('publicar_camada'))
-def criar_envio(request, fazenda_id: int, arquivo: UploadedFile = File(...)):
-    # Tamanho antes de ler o conteúdo (`size` é do envio, sem ler o arquivo). Recusa igual à da ingestão (R16).
-    if arquivo.size > LIMITES_PADRAO.tamanho_bytes:
+def criar_envio(request, fazenda_id: int, arquivo: Annotated[UploadedFile, parametros.File()]):
+    dados = _ler_limitado(arquivo)
+    if dados is None:
         return _recusado([MENSAGEM_TAMANHO])
     fazenda = Fazenda.objects.get(pk=fazenda_id)
     try:
-        envio = envios.criar_envio(request.user, fazenda, arquivo.read())
+        envio = envios.criar_envio(request.user, fazenda, dados)
     except RecusaIngestao as erro:
         return _recusado(erro.erros)
     return Status(201, {'envio_id': str(envio.publico_id)})
@@ -100,7 +122,7 @@ def publicar(request, envio_id: UUID, dados: EntradaPublicacao):
     envio = EnvioCamada.objects.get(publico_id=envio_id)
     try:
         versao = publicar_envio(
-            request.user, envio.pk, estudo_id=dados.estudo_id, metadados=dados.metadados, camada_id=dados.camada_id,
+            request.user, envio.pk, estudo_id=dados.estudo_id, metadados=dados.metadados, camada_id=_camada_pk(dados.camada_id),
             ocultos=tuple(dados.ocultos), nos=dados.nos, coluna_no=dados.coluna_no,
             sistema_confirmado=dados.sistema_confirmado,
         )
@@ -113,8 +135,8 @@ def publicar(request, envio_id: UUID, dados: EntradaPublicacao):
 
 @roteador.get('fazendas/{fazenda_id}/camadas', url_name='catalogo_camadas_listar', response={200: dict})
 @exige_permissao('ver', _fazenda_visivel('ver'))
-def camadas(request, fazenda_id: int, limite: int = Query(LIMITE_PADRAO, ge=1, le=LIMITE_MAXIMO),
-            deslocamento: int = Query(0, ge=0)):
+def camadas(request, fazenda_id: int, limite: Annotated[int, parametros.Query(ge=1, le=LIMITE_MAXIMO)] = LIMITE_PADRAO,
+            deslocamento: Annotated[int, parametros.Query(ge=0)] = 0):
     itens = [
         {'camada_id': str(c.publico_id), 'nome': c.nome, 'divisao': c.coluna_no is not None}
         for c in Camada.objects.filter(fazenda_id=fazenda_id).order_by('id')[deslocamento:deslocamento + limite]
@@ -124,15 +146,19 @@ def camadas(request, fazenda_id: int, limite: int = Query(LIMITE_PADRAO, ge=1, l
 
 @roteador.get('camadas/{camada_id}/versoes/{numero}/feicoes', url_name='catalogo_feicoes_listar', response={200: dict, 422: dict})
 @exige_permissao('ver', _camada_visivel('ver'))
-def feicoes(request, camada_id: UUID, numero: int, limite: int = Query(LIMITE_PADRAO, ge=1, le=LIMITE_MAXIMO),
-            deslocamento: int = Query(0, ge=0), coluna: str | None = None, valor: str | None = None,
+def feicoes(request, camada_id: UUID, numero: int, limite: Annotated[int, parametros.Query(ge=1, le=LIMITE_MAXIMO)] = LIMITE_PADRAO,
+            deslocamento: Annotated[int, parametros.Query(ge=0)] = 0, coluna: str | None = None, valor: str | None = None,
             busca: str | None = None):
     camada = Camada.objects.get(publico_id=camada_id)
     versao = VersaoCamada.objects.get(camada=camada, numero=numero)
     visiveis = sorted(AtributoVersao.objects.filter(versao=versao, visivel=True).values_list('nome', flat=True))
     if coluna is not None and (coluna not in visiveis or valor is None):
         raise HttpError(422, 'filtro_invalido')  # coluna oculta ou inexistente: 422, nunca "sem resultado" (R9)
-    qs = Feicao.objects.filter(versao=versao).order_by('id')
+    # `_indice`: ordinal da feição na versão COMPLETA (pela pk), calculado antes de filtrar, então não muda com filtro,
+    # busca ou página. Subconsulta correlata: conta as feições da versão com pk ≤ a da linha (custo por linha, não medido).
+    ordinal = Feicao.objects.filter(versao=versao, pk__lte=OuterRef('pk')).order_by().values('versao').annotate(
+        total=Count('pk')).values('total')
+    qs = Feicao.objects.filter(versao=versao).annotate(_indice=Subquery(ordinal)).order_by('id')
     if coluna is not None:
         qs = qs.annotate(_filtro=KeyTextTransform(coluna, 'valores')).filter(_filtro=valor)
     if busca:
@@ -142,10 +168,9 @@ def feicoes(request, camada_id: UUID, numero: int, limite: int = Query(LIMITE_PA
         for i in range(len(visiveis)):
             alcance |= Q(**{f'_c{i}__icontains': busca})
         qs = qs.filter(alcance)
-    # `indice` é o ordinal da feição na versão (1..N, pela pk): identificador que não expõe a chave primária (T3.8).
     itens = [
-        {'indice': deslocamento + i, 'geometria': json.loads(f.geometria.json),
-         'valores': {nome: f.valores.get(nome) for nome in visiveis}}
-        for i, f in enumerate(qs[deslocamento:deslocamento + limite], start=1)
+        {'indice': linha['_indice'], 'geometria': json.loads(linha['geometria'].json),
+         'valores': {nome: linha['valores'].get(nome) for nome in visiveis}}
+        for linha in qs.values('_indice', 'geometria', 'valores')[deslocamento:deslocamento + limite]
     ]
     return {'itens': itens, 'limite': limite, 'deslocamento': deslocamento}
