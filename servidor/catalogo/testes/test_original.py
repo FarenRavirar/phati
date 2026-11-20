@@ -41,7 +41,8 @@ def test_arquivo_alterado_no_disco_e_recusado_na_leitura(camadas):
 def test_nome_interno_e_gerado_e_nao_e_o_nome_enviado(camadas):
     nome, _ = original.gravar(ARQUIVO)
     assert re.fullmatch(r'[0-9a-f]{32}\.bin', nome)
-    assert 'camada' not in nome and 'envio' not in nome  # o nome enviado nunca chega aqui
+    assert 'camada' not in nome  # o nome enviado nunca chega aqui
+    assert 'envio' not in nome
 
 
 def test_nomes_gerados_nao_se_repetem(camadas):

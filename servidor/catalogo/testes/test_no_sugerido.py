@@ -95,7 +95,9 @@ def test_nos_de_outra_fazenda_nao_aparecem(cenario):
     no_da_outra = SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f2, nivel=1, nome='No da F2')
     ids = nos_da_fazenda(cenario.f1)
     assert no_da_outra.id not in ids
-    assert cenario.g1.id in ids and cenario.t1.id in ids and cenario.g2.id in ids
+    assert cenario.g1.id in ids
+    assert cenario.t1.id in ids
+    assert cenario.g2.id in ids
 
 
 def test_no_arquivado_nao_e_carregado(cenario, fabrica_pessoa):

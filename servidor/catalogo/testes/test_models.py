@@ -171,7 +171,8 @@ def test_origem_preenchida_e_aceita(camada, pessoa):
 def test_opcional_nulo_e_sem_dados_e_nao_vira_texto_vazio(camada, pessoa):
     versao = _versao(camada, pessoa)
     versao.refresh_from_db()
-    assert versao.metodo is None and versao.data_coleta is None  # NULL é "Sem dados", não ''
+    assert versao.metodo is None  # NULL é "Sem dados", não ''
+    assert versao.data_coleta is None
     assert versao.escala_resolucao is None
 
 

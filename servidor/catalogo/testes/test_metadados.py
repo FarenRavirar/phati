@@ -146,7 +146,9 @@ def test_erros_de_metadado_e_de_coluna_saem_juntos():
     with pytest.raises(RecusaIngestao) as excinfo:
         montar_previa(previa, {'nome': 'x'})
     erros = excinfo.value.erros
-    assert 'tema é obrigatório' in erros and 'origem é obrigatório' in erros and 'coluna 2: nome repetido' in erros
+    assert 'tema é obrigatório' in erros
+    assert 'origem é obrigatório' in erros
+    assert 'coluna 2: nome repetido' in erros
 
 
 def test_data_fora_do_formato_e_recusada_e_data_valida_aceita():

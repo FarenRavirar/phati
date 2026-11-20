@@ -48,7 +48,7 @@ def limpar_expirados(pessoa, agora=None):
     agora = agora or timezone.now()
     removidos = ignorados = 0
     with com_permissao(pessoa, ACAO):
-        for envio in list(EnvioCamada.objects.filter(expira_em__lte=agora)):
+        for envio in EnvioCamada.objects.filter(expira_em__lte=agora):
             try:
                 original.remover(envio.arquivo_temporario)
             except original.OriginalInvalido:

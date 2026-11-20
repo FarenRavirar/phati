@@ -12,6 +12,7 @@ import pytest
 from django.contrib.gis.gdal import SpatialReference
 
 from catalogo.ingestao import Limites, RecusaIngestao, ingerir_envio
+from catalogo.metadados import atributos_da_previa
 from catalogo.models import Feicao
 
 POLIGONO = [[(-48.30, -10.70), (-48.29, -10.70), (-48.29, -10.69), (-48.30, -10.69), (-48.30, -10.70)]]
@@ -78,8 +79,8 @@ def _conteudo_forma(tipo_forma, forma):
     return corpo + b''.join(struct.pack('<dd', x, y) for x, y in pontos)
 
 
-def shapefile(tipo_forma, formas, prj=None, sem=()):
-    """Zip com camada.shp, .shx, .dbf e .prj; `sem` retira arquivos (ex.: ('prj',))."""
+def shapefile(tipo_forma, formas, prj=None, sem=(), cpg=None, valor_dbf='sintetico'):
+    """Zip com camada.shp, .shx, .dbf e .prj (e .cpg se dado); `sem` retira arquivos (ex.: ('prj',))."""
     conteudos = [_conteudo_forma(tipo_forma, f) for f in formas]
     corpo = b''.join(struct.pack('>ii', i + 1, len(c) // 2) + c for i, c in enumerate(conteudos))
     shp = _cabecalho_shp(tipo_forma, 100 + len(corpo)) + corpo
@@ -92,13 +93,15 @@ def shapefile(tipo_forma, formas, prj=None, sem=()):
     dbf += b'nome'.ljust(11, b'\x00') + b'C' + b'\x00' * 4 + struct.pack('<BB', 10, 0) + b'\x00' * 14
     dbf += b'\x0d'
     for _ in formas:
-        dbf += b' ' + b'sintetico'.ljust(10)
+        dbf += b' ' + valor_dbf.encode(cpg.lower() if cpg else 'utf-8').ljust(10)[:10]
     dbf += b'\x1a'
     arquivos = {'camada.shp': shp, 'camada.shx': shx, 'camada.dbf': dbf}
     if prj is None:
         prj = SpatialReference(4674).wkt
     if prj:
         arquivos['camada.prj'] = prj.encode('utf-8')
+    if cpg:
+        arquivos['camada.cpg'] = cpg.encode('ascii')
     return zip_com({nome: dados for nome, dados in arquivos.items() if nome.rsplit('.', 1)[1] not in sem})
 
 
@@ -410,4 +413,33 @@ def test_feicoes_acima_do_limite_sao_recusadas(tmp_path):
 def test_campos_acima_do_limite_sao_recusados(tmp_path):
     erros = recusa(arquivo(tmp_path, geojson([ponto_geojson()])), Limites(campos=0))
     assert 'campos acima do limite' in erros[0]
+
+
+# Revisão PR #68 (A, B, C)
+
+
+@pytest.mark.parametrize('cpg', ['UTF-8', 'ISO-8859-1'])
+def test_cpg_declarado_e_preservado_e_acento_sai_certo(tmp_path, cpg):
+    # Achado A: o .cpg (codificação do dbf) era descartado; sem ele o GDAL lê os acentos com outra codificação.
+    previa = ingerir_envio(arquivo(tmp_path, shapefile(1, [('ponto', -48.3, -10.7)], cpg=cpg, valor_dbf='São Paulo')))
+    assert previa.feicoes[0].valores['nome'] == 'São Paulo'
+
+
+def ponto_com_propriedades(propriedades, x=-48.3):
+    return {'type': 'Feature', 'properties': propriedades, 'geometry': {'type': 'Point', 'coordinates': [x, -10.7]}}
+
+
+def test_geojson_com_tipos_mistos_na_coluna_preserva_os_valores_originais(tmp_path):
+    # Achado B: o GDAL unifica o esquema da coluna e entregaria '1' em vez de 1.
+    envio = geojson([ponto_com_propriedades({'codigo': 1}), ponto_com_propriedades({'codigo': 'abc'}, x=-48.2)])
+    previa = ingerir_envio(arquivo(tmp_path, envio))
+    assert [feicao.valores['codigo'] for feicao in previa.feicoes] == [1, 'abc']
+    assert atributos_da_previa(previa)[0].tipo == 'misto'
+
+
+def test_coordenada_finita_fora_do_dominio_da_projecao_vira_recusa_por_feicao(tmp_path):
+    # Achado C: 1e100 é finito, mas o GDAL não transforma em EPSG:31983; a exceção não pode vazar.
+    envio = geojson([ponto_com_propriedades({'codigo': 'x'}, x=1e100)], crs='urn:ogc:def:crs:EPSG::31983')
+    erros = recusa(arquivo(tmp_path, envio))
+    assert erros[0].startswith('feição 1:')
 

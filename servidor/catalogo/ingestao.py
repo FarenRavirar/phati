@@ -22,10 +22,13 @@ from django.contrib.gis.geos import GEOSException
 from catalogo.models import SRID_GUARDA
 
 ARQUIVO_TEMP = 'camada'
+EXTENSOES_LEITURA = frozenset({'geojson', 'kml', 'shp', 'shx', 'dbf', 'prj', 'cpg'})
 TAMANHO_BLOCO = 64 * 1024
 FAMILIAS = (('Point', 'ponto'), ('LineString', 'linha'), ('Polygon', 'poligono'))
 EPSG = re.compile(r'(?:urn:ogc:def:crs:)?EPSG:(?:[^:]*:)?(\d+)')
 CRS84 = ('urn:ogc:def:crs:OGC:1.3:CRS84', 'urn:ogc:def:crs:OGC::CRS84')
+# XML 1.0 (W3C REC-xml, §2.2) não aceita U+0000: zero no arquivo é outra codificação (UTF-16, por exemplo).
+KML_FORA_DE_UTF8 = 'KML fora de UTF-8 (zeros no arquivo) recusado'
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,24 @@ class _Leitura:
     driver: str
     srid: int | None  # None: vem da camada (shapefile)
     origem: str
+    propriedades: tuple | None = None  # GeoJSON: propriedades como vieram no JSON (tipo original, sem o esquema do GDAL)
+
+
+@dataclass(frozen=True)
+class _Contexto:
+    srid: int
+    origem_srs: SpatialReference
+    alvo: SpatialReference
+    campos: tuple
+    propriedades: tuple | None
+
+
+@dataclass(frozen=True)
+class _Feicao:
+    familia: str | None
+    zm: bool
+    previa: FeicaoPrevia | None
+    erro: str | None
 
 
 class _ConstanteProibida(Exception):
@@ -94,9 +115,21 @@ def _recusa(*erros) -> NoReturn:
     raise RecusaIngestao(list(erros))
 
 
+def _destino(tmp, extensao):
+    """Único ponto de escrita do envio: `camada.<extensão>` dentro da pasta temporária, com extensão de uma lista fixa."""
+    if extensao not in EXTENSOES_LEITURA:
+        _recusa('extensão de leitura fora da lista')
+    destino = (tmp / f'{ARQUIVO_TEMP}.{extensao}').resolve()
+    if not destino.is_relative_to(tmp.resolve()):
+        _recusa('destino de escrita fora da pasta do envio')
+    return destino
+
+
 def _formato(dados):
     if dados[:4] == b'PK\x03\x04':
         return 'zip'
+    if dados[:2] in (b'\xff\xfe', b'\xfe\xff') or b'\x00' in dados[:4]:
+        return 'kml'  # UTF-16: a recusa com a mensagem certa sai de _precheck_kml
     inicio = dados.lstrip(b'\xef\xbb\xbf \t\r\n')[:1]
     if inicio == b'{':
         return 'geojson'
@@ -117,18 +150,20 @@ def _srid_de_nome(nome):
     return codigo
 
 
-def _precheck_geojson(dados):
-    def proibe(constante):
-        raise _ConstanteProibida(constante)
-
-    try:
-        objeto = json.loads(dados.decode('utf-8-sig'), parse_constant=proibe)
-    except _ConstanteProibida:
-        raise RecusaIngestao(['coordenada NaN ou infinita no GeoJSON']) from None
-    except (ValueError, UnicodeDecodeError):
-        raise RecusaIngestao(['GeoJSON inválido']) from None
-    if not isinstance(objeto, dict):
+def _propriedades_do_geojson(objeto):
+    """Propriedades de cada feição, como vieram no JSON. Geometria solta não tem propriedades: devolve None."""
+    tipo = objeto.get('type')
+    if tipo == 'Feature':
+        return (objeto.get('properties') if isinstance(objeto.get('properties'), dict) else {},)
+    if tipo != 'FeatureCollection':
+        return None
+    features = objeto.get('features')
+    if not isinstance(features, list) or not all(isinstance(f, dict) for f in features):
         raise RecusaIngestao(['GeoJSON inválido'])
+    return tuple(f['properties'] if isinstance(f.get('properties'), dict) else {} for f in features)
+
+
+def _sistema_do_geojson(objeto):
     crs = objeto.get('crs')
     if crs is None:
         return 4326, 'formato (WGS 84 assumido pelo GeoJSON)'
@@ -142,26 +177,55 @@ def _precheck_geojson(dados):
     return srid, 'membro crs legado do GeoJSON'
 
 
-def _precheck_kml(dados):
+def _precheck_geojson(dados):
+    def proibe(constante):
+        raise _ConstanteProibida(constante)
+
+    try:
+        objeto = json.loads(dados.decode('utf-8-sig'), parse_constant=proibe)
+    except _ConstanteProibida:
+        raise RecusaIngestao(['coordenada NaN ou infinita no GeoJSON']) from None
+    except ValueError:  # UnicodeDecodeError é subclasse de ValueError
+        raise RecusaIngestao(['GeoJSON inválido']) from None
+    if not isinstance(objeto, dict):
+        raise RecusaIngestao(['GeoJSON inválido'])
+    srid, origem = _sistema_do_geojson(objeto)
+    return srid, origem, _propriedades_do_geojson(objeto)
+
+
+def _proibe_dtd(dados):
+    if b'\x00' in dados:
+        _recusa(KML_FORA_DE_UTF8)
     if re.search(rb'<!\s*(?:DOCTYPE|ENTITY)', dados, re.IGNORECASE):
         _recusa('KML com DOCTYPE ou entidade recusado')
+
+
+def _valida_coordenada_kml(token):
+    try:
+        valor = float(token)
+    except ValueError:
+        raise RecusaIngestao(['coordenada KML não numérica']) from None
+    if not math.isfinite(valor):
+        raise RecusaIngestao(['coordenada KML NaN ou infinita'])
+
+
+def _coordenadas_kml(raiz):
+    for elemento in raiz.iter():
+        if elemento.tag.endswith('coordinates') and elemento.text:
+            for token in re.split(r'[\s,]+', elemento.text.strip()):
+                if token:
+                    _valida_coordenada_kml(token)
+
+
+def _precheck_kml(dados):
+    _proibe_dtd(dados)  # antes de qualquer leitura XML: o analisador expande entidade interna
     try:
         raiz = ET.fromstring(dados)  # sem DOCTYPE, o analisador não resolve entidade
     except ET.ParseError:
         raise RecusaIngestao(['KML inválido']) from None
     if not raiz.tag.endswith('kml'):
         raise RecusaIngestao(['XML que não é KML'])
-    for elemento in raiz.iter():
-        if elemento.tag.endswith('coordinates') and elemento.text:
-            for token in re.split(r'[\s,]+', elemento.text.strip()):
-                if not token:
-                    continue
-                try:
-                    valor = float(token)
-                except ValueError:
-                    raise RecusaIngestao(['coordenada KML não numérica']) from None
-                if not math.isfinite(valor):
-                    raise RecusaIngestao(['coordenada KML NaN ou infinita'])
+    _coordenadas_kml(raiz)
 
 
 def _ext(nome):
@@ -198,7 +262,7 @@ def _extrair(arquivo, info, destino, orcamento):
                 if orcamento < 0:
                     _recusa('compactado descompacta acima do limite')
                 saida.write(bloco)
-    except (zipfile.BadZipFile, RuntimeError, NotImplementedError):
+    except (zipfile.BadZipFile, RuntimeError):  # NotImplementedError é subclasse de RuntimeError
         _recusa('compactado inválido ou criptografado')
     return orcamento
 
@@ -210,7 +274,7 @@ def _zip_shapefile(arquivo, infos, shps, tmp, limites):
     presentes = {}
     for info in infos:
         caminho = PurePosixPath(info.filename.replace('\\', '/'))
-        if caminho.stem == base and caminho.suffix.lower() in ('.shp', '.shx', '.dbf', '.prj'):
+        if caminho.stem == base and caminho.suffix.lower() in ('.shp', '.shx', '.dbf', '.prj', '.cpg'):
             presentes[_ext(info.filename)] = info
     if 'prj' not in presentes:
         _recusa('shapefile sem arquivo de projeção (.prj): recusado')
@@ -218,15 +282,15 @@ def _zip_shapefile(arquivo, infos, shps, tmp, limites):
         if ext not in presentes:
             _recusa(f'shapefile incompleto: falta .{ext}')
     orcamento = limites.descompactado_bytes
-    for ext, info in presentes.items():
-        orcamento = _extrair(arquivo, info, tmp / f'{ARQUIVO_TEMP}.{ext}', orcamento)
-    return _Leitura('shapefile', tmp / f'{ARQUIVO_TEMP}.shp', 'ESRI Shapefile', None, 'arquivo de projeção (.prj)')
+    for ext, info in presentes.items():  # .cpg é opcional e vai junto: diz a codificação do dbf
+        orcamento = _extrair(arquivo, info, _destino(tmp, ext), orcamento)
+    return _Leitura('shapefile', _destino(tmp, 'shp'), 'ESRI Shapefile', None, 'arquivo de projeção (.prj)')
 
 
 def _zip_kmz(arquivo, kmls, tmp, limites):
     if len(kmls) != 1:
         _recusa('KMZ com mais de um KML')
-    destino = tmp / f'{ARQUIVO_TEMP}.kml'
+    destino = _destino(tmp, 'kml')
     _extrair(arquivo, kmls[0], destino, limites.descompactado_bytes)
     _precheck_kml(destino.read_bytes())
     return _Leitura('kmz', destino, 'KML', 4326, 'formato (WGS 84 assumido pelo KML dentro do KMZ)')
@@ -295,7 +359,7 @@ def _transformacao(srid, srs):
     return 'aproximada'
 
 
-def _ler(leitura, limites, prazo):
+def _abrir_camada(leitura):
     # shortcut: a abertura pelo GDAL (DataSource) não é interrompível pelo prazo, que só vale no laço de feições; subir para processo filho com timeout se um envio real demorar nessa etapa.
     try:
         ds = DataSource(_caminho_seguro(leitura.caminho, leitura.caminho.parent), ds_driver=leitura.driver)
@@ -303,12 +367,19 @@ def _ler(leitura, limites, prazo):
         raise RecusaIngestao([f'não foi possível ler o arquivo como {leitura.formato}']) from None
     if len(ds) != 1:
         raise RecusaIngestao(['o arquivo tem mais de uma camada'])
-    camada = ds[0]
-    srid, origem = leitura.srid, leitura.origem
-    if leitura.formato == 'shapefile':
-        srid = camada.srs.srid if camada.srs is not None else None
-        if srid is None:
-            _recusa('shapefile com projeção não reconhecida')
+    return ds[0]
+
+
+def _sistema(leitura, camada):
+    if leitura.formato != 'shapefile':
+        return leitura.srid, leitura.origem
+    srid = camada.srs.srid if camada.srs is not None else None
+    if srid is None:
+        _recusa('shapefile com projeção não reconhecida')
+    return srid, leitura.origem
+
+
+def _limites_da_camada(camada, limites):
     if len(camada) == 0:
         _recusa('arquivo sem feições')
     if len(camada) > limites.feicoes:
@@ -318,59 +389,63 @@ def _ler(leitura, limites, prazo):
         _recusa('arquivo com campos acima do limite')
     if any(len(nome) > limites.tamanho_nome_campo for nome in campos):
         _recusa('nome de campo acima do limite')
+    return campos
 
-    origem_srs = SpatialReference(srid)
-    alvo = SpatialReference(SRID_GUARDA)
-    erros, familias, feicoes = [], set(), []
-    zm = 0
-    for indice, feicao in enumerate(camada, start=1):
-        if time.monotonic() > prazo:
-            _recusa('tempo de leitura excedido')
-        try:
-            bruta = feicao.geom
-        except GDALException:
-            erros.append(f'feição {indice}: geometria ausente')
-            continue
-        if bruta.empty:
-            erros.append(f'feição {indice}: geometria vazia ou com coordenada NaN')
-            continue
-        geometria = OGRGeometry(memoryview(bruta.wkb), srs=origem_srs)
-        familia = _familia(geometria)
-        if familia is None:
-            erros.append(f'feição {indice}: tipo de geometria sem suporte')
-            continue
-        familias.add(familia)
-        if geometria.is_measured or geometria.coord_dim > 2:
-            zm += 1
-            geometria.set_measured(False)
-            geometria.set_3d(False)
-        if not all(math.isfinite(c) for ponto in _pontos(geometria.tuple) for c in ponto):
-            erros.append(f'feição {indice}: coordenada NaN ou infinita')
-            continue
-        if familia == 'poligono' and _anel_aberto(geometria):
-            erros.append(f'feição {indice}: anel aberto')
-            continue
-        if srid != SRID_GUARDA:
-            geometria.transform(alvo)
-        if not all(-180 <= x <= 180 and -90 <= y <= 90 for x, y in _pontos(geometria.tuple)):
-            erros.append(f'feição {indice}: coordenada fora da faixa do sistema')
-            continue
-        try:
-            geos = geometria.geos
-        except GEOSException:
-            erros.append(f'feição {indice}: geometria recusada pelo GEOS')
-            continue
-        if not geos.valid:
-            erros.append(f'feição {indice}: geometria inválida ({geos.valid_reason})')
-            continue
-        geos.srid = SRID_GUARDA
-        feicoes.append(FeicaoPrevia(geos, {nome: _valor(feicao.get(nome)) for nome in campos}))
-    if len(familias) > 1:
-        erros.append('tipo misturado na mesma camada: ' + ', '.join(sorted(familias)))
-    if erros:
-        raise RecusaIngestao(erros)
 
-    transformacao = _transformacao(srid, origem_srs)
+def _erro_geometria(indice, geometria, familia, ctx):
+    """Checa a geometria já lida e a leva ao sistema de guarda. Devolve o erro da feição, ou None se passou."""
+    if not all(math.isfinite(c) for ponto in _pontos(geometria.tuple) for c in ponto):
+        return f'feição {indice}: coordenada NaN ou infinita'
+    if familia == 'poligono' and _anel_aberto(geometria):
+        return f'feição {indice}: anel aberto'
+    if ctx.srid != SRID_GUARDA:
+        try:
+            geometria.transform(ctx.alvo)
+        except GDALException:  # coordenada finita fora do domínio da projeção de origem
+            return f'feição {indice}: coordenada fora do domínio do sistema de origem'
+    if not all(-180 <= x <= 180 and -90 <= y <= 90 for x, y in _pontos(geometria.tuple)):
+        return f'feição {indice}: coordenada fora da faixa do sistema'
+    return None
+
+
+def _valores(indice, feicao, ctx):
+    """Valores como vieram: do JSON quando é GeoJSON (o GDAL unificaria o tipo da coluna), do leitor no resto."""
+    if ctx.propriedades is not None:
+        original = ctx.propriedades[indice - 1]
+        return {nome: _valor(original.get(nome)) for nome in ctx.campos}
+    return {nome: _valor(feicao.get(nome)) for nome in ctx.campos}
+
+
+def _processar_feicao(indice, feicao, ctx):
+    try:
+        bruta = feicao.geom
+    except GDALException:
+        return _Feicao(None, False, None, f'feição {indice}: geometria ausente')
+    if bruta.empty:
+        return _Feicao(None, False, None, f'feição {indice}: geometria vazia ou com coordenada NaN')
+    geometria = OGRGeometry(memoryview(bruta.wkb), srs=ctx.origem_srs)
+    familia = _familia(geometria)
+    if familia is None:
+        return _Feicao(None, False, None, f'feição {indice}: tipo de geometria sem suporte')
+    zm = geometria.is_measured or geometria.coord_dim > 2
+    if zm:
+        geometria.set_measured(False)
+        geometria.set_3d(False)
+    erro = _erro_geometria(indice, geometria, familia, ctx)
+    if erro:
+        return _Feicao(familia, zm, None, erro)
+    try:
+        geos = geometria.geos
+    except GEOSException:
+        return _Feicao(familia, zm, None, f'feição {indice}: geometria recusada pelo GEOS')
+    if not geos.valid:
+        return _Feicao(familia, zm, None, f'feição {indice}: geometria inválida ({geos.valid_reason})')
+    geos.srid = SRID_GUARDA
+    return _Feicao(familia, zm, FeicaoPrevia(geos, _valores(indice, feicao, ctx)), None)
+
+
+def _previa(leitura, origem, ctx, familias, feicoes, zm):
+    transformacao = _transformacao(ctx.srid, ctx.origem_srs)
     avisos = []
     if 'legado' in origem:
         avisos.append('membro crs do GeoJSON é legado (a RFC 7946 o removeu); sistema lido e mostrado na prévia')
@@ -382,14 +457,40 @@ def _ler(leitura, limites, prazo):
     return Previa(
         formato=leitura.formato,
         tipo=next(iter(familias)),
-        sistema=f'EPSG:{srid} ({origem_srs.name})',
+        sistema=f'EPSG:{ctx.srid} ({ctx.origem_srs.name})',
         origem_sistema=origem,
         transformacao=transformacao,
         avisos=tuple(avisos),
         extensao=(min(e[0] for e in extensoes), min(e[1] for e in extensoes), max(e[2] for e in extensoes), max(e[3] for e in extensoes)),
         feicoes=tuple(feicoes),
-        campos=tuple(campos),
+        campos=ctx.campos,
     )
+
+
+def _ler(leitura, limites, prazo):
+    camada = _abrir_camada(leitura)
+    srid, origem = _sistema(leitura, camada)
+    campos = _limites_da_camada(camada, limites)
+    if leitura.propriedades is not None and len(leitura.propriedades) != len(camada):
+        _recusa('GeoJSON com feições inconsistentes entre o JSON e a leitura')
+    ctx = _Contexto(srid, SpatialReference(srid), SpatialReference(SRID_GUARDA), campos, leitura.propriedades)
+    erros, familias, feicoes, zm = [], set(), [], 0
+    for indice, feicao in enumerate(camada, start=1):
+        if time.monotonic() > prazo:
+            _recusa('tempo de leitura excedido')
+        resultado = _processar_feicao(indice, feicao, ctx)
+        if resultado.familia:
+            familias.add(resultado.familia)
+        zm += resultado.zm
+        if resultado.erro:
+            erros.append(resultado.erro)
+        elif resultado.previa:
+            feicoes.append(resultado.previa)
+    if len(familias) > 1:
+        erros.append('tipo misturado na mesma camada: ' + ', '.join(sorted(familias)))
+    if erros:
+        raise RecusaIngestao(erros)
+    return _previa(leitura, origem, ctx, familias, feicoes, zm)
 
 
 def ingerir_envio(caminho, limites=LIMITES_PADRAO):
@@ -407,13 +508,15 @@ def ingerir_envio(caminho, limites=LIMITES_PADRAO):
         if formato == 'zip':
             leitura = _zip(dados, limites, tmp)
         elif formato == 'geojson':
-            srid, origem = _precheck_geojson(dados)
-            (tmp / f'{ARQUIVO_TEMP}.geojson').write_bytes(dados)
-            leitura = _Leitura('geojson', tmp / f'{ARQUIVO_TEMP}.geojson', 'GeoJSON', srid, origem)
+            srid, origem, propriedades = _precheck_geojson(dados)
+            destino = _destino(tmp, 'geojson')
+            destino.write_bytes(dados)
+            leitura = _Leitura('geojson', destino, 'GeoJSON', srid, origem, propriedades)
         elif formato == 'kml':
             _precheck_kml(dados)
-            (tmp / f'{ARQUIVO_TEMP}.kml').write_bytes(dados)
-            leitura = _Leitura('kml', tmp / f'{ARQUIVO_TEMP}.kml', 'KML', 4326, 'formato (WGS 84 assumido pelo KML)')
+            destino = _destino(tmp, 'kml')
+            destino.write_bytes(dados)
+            leitura = _Leitura('kml', destino, 'KML', 4326, 'formato (WGS 84 assumido pelo KML)')
         else:
             _recusa('tipo de arquivo não suportado')
         return _ler(leitura, limites, prazo)

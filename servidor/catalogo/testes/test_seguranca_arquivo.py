@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from catalogo.ingestao import Limites
+from catalogo.ingestao import Limites, RecusaIngestao, ingerir_envio
 from catalogo.testes.test_ingestao import arquivo, geojson, kml, placemark_ponto, ponto_geojson, recusa, shapefile, zip_com
 
 
@@ -122,3 +122,56 @@ def test_arquivo_acima_do_limite_de_tamanho_e_recusado(tmp_path):
 def test_tempo_de_leitura_excedido_e_recusado(tmp_path):
     erros = recusa(arquivo(tmp_path, geojson([ponto_geojson()])), Limites(tempo_segundos=-1))
     assert 'tempo de leitura excedido' in erros[0]
+
+
+# Revisão PR #68 (D): KML em UTF-16 contornava a checagem de DOCTYPE feita em bytes ASCII.
+
+
+def _kml_em(codificacao, texto):
+    return texto.encode(codificacao)
+
+
+KML_VALIDO = '<?xml version="1.0" encoding="UTF-8"?>' + kml(placemark_ponto('-48.3,-10.7')).decode('utf-8')
+KML_COM_DTD = '<!DOCTYPE kml [<!ENTITY a "x">]>' + kml(placemark_ponto('-48.3,-10.7')).decode('utf-8')
+BOMBA_TEXTO = bomba_de_entidades().decode('utf-8')
+BOM_UTF16_BE = bytes([0xFE, 0xFF])
+
+
+@pytest.mark.parametrize('codificacao', ['utf-16', 'utf-16-le', 'utf-16-be'])
+@pytest.mark.parametrize('texto', [KML_COM_DTD, BOMBA_TEXTO, KML_VALIDO])
+def test_kml_que_nao_e_utf8_e_recusado_antes_de_qualquer_leitura_xml(tmp_path, codificacao, texto):
+    erros = recusa(arquivo(tmp_path, _kml_em(codificacao, texto)))
+    assert erros == ['KML fora de UTF-8 (zeros no arquivo) recusado']
+
+
+def test_kml_utf16_com_bom_big_endian_e_recusado(tmp_path):
+    erros = recusa(arquivo(tmp_path, BOM_UTF16_BE + BOMBA_TEXTO.encode('utf-16-be')))
+    assert erros == ['KML fora de UTF-8 (zeros no arquivo) recusado']
+
+
+def test_kmz_com_kml_utf16_e_recusado(tmp_path):
+    erros = recusa(arquivo(tmp_path, zip_com({'doc.kml': _kml_em('utf-16', KML_COM_DTD)})))
+    assert erros == ['KML fora de UTF-8 (zeros no arquivo) recusado']
+
+
+def test_kml_utf8_valido_continua_aceito(tmp_path):
+    previa = ingerir_envio(arquivo(tmp_path, KML_VALIDO.encode('utf-8')))
+    assert previa.contagem == 1
+
+
+# Revisão PR #68 (E): o caminho de escrita sai de um ponto só e a extensão vem de lista fixa.
+
+
+def test_destino_de_escrita_so_aceita_extensao_da_lista_fixa(tmp_path):
+    from catalogo.ingestao import _destino
+
+    with pytest.raises(RecusaIngestao, match='extensão de leitura fora da lista'):
+        _destino(tmp_path, '../x')
+
+
+def test_nome_do_envio_nao_muda_o_destino_da_leitura(tmp_path):
+    # O arquivo enviado é lido pelo conteúdo; o nome (aqui 'fora.kml') não define onde nada é escrito.
+    previa = ingerir_envio(arquivo(tmp_path, geojson([ponto_geojson()]), nome='fora.kml'))
+    assert previa.formato == 'geojson'
+    assert not (tmp_path / 'fora.kml.geojson').exists()
+
