@@ -111,17 +111,18 @@ jobs:
       - name: Implantação não publica porta em nenhum serviço (spec 006 A1)
         env:
           PHATI_TUNEL_TOKEN: token-de-teste
+          PHATI_ALVO_DIR: ./nginx/alvo
         run: |
           publicadas="$(docker compose -f compose.yaml -f compose.implantacao.yaml config --format json | jq -r '.services | to_entries[] | select(.value.ports) | .key')"
           test -z "$publicadas" || { echo "publicam porta: $publicadas"; exit 1; }
       - name: Banco e app saudáveis, migração saiu 0, app responde 404
         run: |
           for _ in $(seq 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy ] && break
             sleep 2
           done
           test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q banco)")" = healthy
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy
           test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migracao)")" = 0
           # `/` sem sessão redireciona ao login (302) e `/entrar` renderiza (200); rota inexistente segue 404.
           codigo='%{http_code}'
@@ -209,13 +210,13 @@ jobs:
           PHATI_MAPA_FUNDO_GOOGLE_ATIVO: "1"
           PHATI_MAPA_GOOGLE_CHAVE: chave-sintetica-ci
         run: |
-          docker compose up -d app
+          docker compose up -d app_azul
           docker compose restart nginx
           for _ in $(seq 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy ] && break
             sleep 2
           done
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy
           for _ in $(seq 30); do
             [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
             sleep 2
@@ -228,13 +229,13 @@ jobs:
         env:
           PHATI_MAPA_TESTE_ATIVO: "0"
         run: |
-          docker compose up -d app
+          docker compose up -d app_azul
           docker compose restart nginx
           for _ in $(seq 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy ] && break
             sleep 2
           done
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy
           for _ in $(seq 30); do
             [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
             sleep 2
