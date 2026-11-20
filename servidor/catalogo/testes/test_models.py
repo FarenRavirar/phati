@@ -207,3 +207,21 @@ def test_hash_sha256_de_envio_e_aceito(cenario, pessoa):
                                        hash_original='0' * 64, expira_em=timezone.now())
     assert envio.hash_original == '0' * 64
 
+
+def test_camada_divisao_unica_por_fazenda_e_recusada_pelo_banco(cenario, camada):
+    # D119: uma camada marcada com coluna_no por fazenda; o índice único parcial recusa a segunda, de outro estudo.
+    outro = Estudo.objects.create(empresa=cenario.x, fazenda=cenario.f1, tema=camada.estudo.tema, nome='Outro')
+    camada.coluna_no = 'no'
+    camada.save(update_fields=['coluna_no'])
+    Camada.objects.create(estudo=camada.estudo, empresa=cenario.x, fazenda=cenario.f1, nome='sem marca')  # sem marca: sem limite
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Camada.objects.create(estudo=outro, empresa=cenario.x, fazenda=cenario.f1, nome='segunda divisao', coluna_no='no')
+
+
+def test_camada_divisao_de_outra_fazenda_e_aceita(cenario, camada):
+    camada.coluna_no = 'no'
+    camada.save(update_fields=['coluna_no'])
+    tema = camada.estudo.tema
+    estudo_f2 = Estudo.objects.create(empresa=cenario.x, fazenda=cenario.f2, tema=tema, nome='F2')
+    segunda = Camada.objects.create(estudo=estudo_f2, empresa=cenario.x, fazenda=cenario.f2, nome='divisao F2', coluna_no='no')
+    assert segunda.pk is not None

@@ -38,6 +38,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.csp.ContentSecurityPolicyMiddleware',
+    # Envio de camada acima do limite é recusado antes do parse do multipart (008 R16): ver projeto/limite_corpo.py.
+    'projeto.limite_corpo.LimiteDeCorpoDoEnvio',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',

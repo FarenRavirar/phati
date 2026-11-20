@@ -118,6 +118,6 @@ class SubArea(Arquivavel):
             ),
             # Alvo da chave estrangeira composta de concessao (permissao 0002): sub-área e fazenda da concessão andam juntas.
             models.UniqueConstraint(fields=['id', 'fazenda'], name='sub_area_id_fazenda_unico'),
-            # Alvo da FK composta de feicao (catalogo 0003): a feição só aponta sub-área da própria fazenda (008 T1.3).
+            # Alvo da FK composta de feicao (catalogo 0001): a feição só aponta sub-área da própria fazenda (008 T1.3).
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='sub_area_chave_composta'),
         ]

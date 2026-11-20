@@ -9,7 +9,7 @@ import pytest
 from django.contrib.gis.geos import GEOSGeometry
 from django.utils import timezone
 
-from catalogo.no_sugerido import LimiarNo, nos_da_fazenda, sugerir_no
+from catalogo.no_sugerido import LimiarNo, contornos_da_divisao, nos_da_fazenda, sugerir_no
 from territorio.models import SubArea
 
 pytestmark = pytest.mark.django_db  # sugerir_no consulta o PostGIS para as áreas
@@ -119,3 +119,61 @@ def test_no_arquivado_nao_e_carregado(cenario, fabrica_pessoa):
     cenario.g2.arquivamento = uuid.uuid4()
     cenario.g2.save(update_fields=['arquivada_em', 'arquivada_por', 'arquivamento'])
     assert cenario.g2.id not in nos_da_fazenda(cenario.f1)
+
+
+def test_contornos_sem_divisao_marcada_devolvem_vazio(cenario):
+    assert contornos_da_divisao(cenario.f1) == {}  # sem divisão, sem sugestão
+
+
+def test_contorno_de_no_com_duas_feicoes_e_a_uniao(cenario, fabrica_pessoa):
+    from catalogo.models import Camada, Estudo, Feicao, Tema, VersaoCamada
+    pessoa = fabrica_pessoa('Autora Sintetica')
+    tema = Tema.objects.create(empresa=cenario.x, nome='Solo')
+    estudo = Estudo.objects.create(empresa=cenario.x, fazenda=cenario.f1, tema=tema, nome='Estudo F1')
+    camada = Camada.objects.create(estudo=estudo, empresa=cenario.x, fazenda=cenario.f1, nome='Divisao', coluna_no='no')
+    versao = VersaoCamada.objects.create(camada=camada, empresa=cenario.x, fazenda=cenario.f1, numero=1,
+                                         sistema_original='EPSG:4674', origem='Levantamento sintetico',
+                                         hash_original='a' * 64, caminho_original='x.bin', enviada_por=pessoa)
+    esquerda = GEOSGeometry('POLYGON((-48.40 -10.80,-48.30 -10.80,-48.30 -10.60,-48.40 -10.60,-48.40 -10.80))', srid=4674)
+    direita = GEOSGeometry('POLYGON((-48.30 -10.80,-48.20 -10.80,-48.20 -10.60,-48.30 -10.60,-48.30 -10.80))', srid=4674)
+    for geometria in (esquerda, direita):
+        Feicao.objects.create(versao=versao, empresa=cenario.x, fazenda=cenario.f1, geometria=geometria,
+                              sub_area=cenario.g1)
+    contorno = contornos_da_divisao(cenario.f1)[cenario.g1.pk]
+    assert round(contorno.area, 6) == round(esquerda.area + direita.area, 6)
+    assert contorno.intersection(esquerda).area == pytest.approx(esquerda.area)
+
+
+# --- consultas em lote (medido: N×M consultas antes, 2 por feição depois; resultado igual) -------------------------------
+
+def test_area_do_no_pela_metade_da_feicao_e_metade_da_area_total():
+    resultado = sugerir_no(FEICAO, [(1, no(*METADE_ESQ)), (2, no(-48.5, -48.4))])
+    assert resultado.areas.keys() == {1}  # o nó sem interseção não entra nas áreas
+    total = sugerir_no(FEICAO, [(9, no(-48.31, -48.28))]).areas[9]
+    assert resultado.areas[1] == pytest.approx(total / 2, rel=1e-3)
+
+
+def test_consultas_por_feicao_sao_duas_com_varios_nos():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    nos = [(i, no(-48.31 + i * 0.001, -48.30 + i * 0.001)) for i in range(20)]
+    with CaptureQueriesContext(connection) as contexto:
+        resultado = sugerir_no(FEICAO, nos)
+    assert len(contexto.captured_queries) == 2  # área da feição + interseções com todos os nós numa consulta
+    assert resultado.sub_area_id is not None
+
+
+def test_sem_nos_so_a_area_da_feicao_e_consultada():
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    with CaptureQueriesContext(connection) as contexto:
+        resultado = sugerir_no(FEICAO, [])
+    assert len(contexto.captured_queries) == 1
+    assert resultado.motivo == 'sem_intersecao'
+    assert resultado.areas == {}
+
+
+def test_no_fora_da_feicao_nao_entra_nas_areas():
+    resultado = sugerir_no(FEICAO, [(1, no(-48.40, -48.35))])
+    assert resultado.motivo == 'sem_intersecao'
+    assert resultado.areas == {}
