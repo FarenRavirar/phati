@@ -12,14 +12,6 @@ permissions:
 jobs:
   testes:
     runs-on: ubuntu-24.04
-    services:
-      banco:
-        image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
-        env:
-          POSTGRES_PASSWORD: ${{ github.run_id }}-superusuario
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -h 127.0.0.1 -U postgres" --health-interval 5s --health-retries 10
     env:
       PHATI_CHAVE_SECRETA: chave-de-teste-ci
       PHATI_CHAVE_CPF: Y2hhdmUtZGUtdGVzdGUtY2ktMzItYnl0ZXMtLS0tLS0=
@@ -36,6 +28,16 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      # Banco com a imagem do repositório (D114: PostgreSQL 18 por digest + PostGIS 3.6.4). `services:` não builda imagem, então sobe-se o contêiner aqui.
+      - name: Banco
+        run: |
+          docker build -t phati-banco-ci banco
+          docker run -d --name phati-banco-ci -p 5432:5432 -e POSTGRES_PASSWORD="${{ github.run_id }}-superusuario" phati-banco-ci
+          for i in $(seq 1 30); do docker exec phati-banco-ci pg_isready -h 127.0.0.1 -U postgres && exit 0; sleep 2; done
+          exit 1
+      # GeoDjango (D114 b): GDAL, GEOS e PROJ do sistema. Ubuntu 24.04 traz GDAL 3.8.4, versão diferente da imagem do app (trixie, 3.10.3).
+      - name: Bibliotecas geoespaciais do sistema
+        run: sudo apt-get install -y --no-install-recommends libgdal34t64 libgeos-c1t64 libproj25
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
@@ -58,6 +60,12 @@ jobs:
           echo "PHATI_BANCO_APP_SENHA=$PHATI_BANCO_APP_SENHA" >> "$GITHUB_ENV"
           PGPASSWORD="${{ github.run_id }}-superusuario" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f banco/papeis.sql
       - run: python manage.py check
+      # Imagem do nginx dos testes (`nginx -t` com `--pull never`): puxa a referência fixada em compose.yaml, sem copiar o digest.
+      - name: Imagem do nginx dos testes
+        run: |
+          ref="$(sed -n 's/^ *image: *\(nginx:[^ ]*\)$/\1/p' compose.yaml)"
+          [ "$(printf '%s\n' "$ref" | grep -c .)" -eq 1 ] || { echo "compose.yaml: esperava uma linha nginx" >&2; exit 1; }
+          docker pull "$ref"
       - run: python -m pytest -q --cov=. --cov-report=xml
       # D076: piso nas linhas alteradas da PR, sem piso global.
       - name: Cobertura das linhas alteradas
@@ -109,17 +117,18 @@ jobs:
       - name: Implantação não publica porta em nenhum serviço (spec 006 A1)
         env:
           PHATI_TUNEL_TOKEN: token-de-teste
+          PHATI_ALVO_DIR: ./nginx/alvo
         run: |
           publicadas="$(docker compose -f compose.yaml -f compose.implantacao.yaml config --format json | jq -r '.services | to_entries[] | select(.value.ports) | .key')"
           test -z "$publicadas" || { echo "publicam porta: $publicadas"; exit 1; }
       - name: Banco e app saudáveis, migração saiu 0, app responde 404
         run: |
           for _ in $(seq 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy ] && break
             sleep 2
           done
           test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q banco)")" = healthy
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy
           test "$(docker inspect -f '{{.State.ExitCode}}' "$(docker compose ps -aq migracao)")" = 0
           # `/` sem sessão redireciona ao login (302) e `/entrar` renderiza (200); rota inexistente segue 404.
           codigo='%{http_code}'
@@ -207,13 +216,13 @@ jobs:
           PHATI_MAPA_FUNDO_GOOGLE_ATIVO: "1"
           PHATI_MAPA_GOOGLE_CHAVE: chave-sintetica-ci
         run: |
-          docker compose up -d app
+          docker compose up -d app_azul
           docker compose restart nginx
           for _ in $(seq 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy ] && break
             sleep 2
           done
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy
           for _ in $(seq 30); do
             [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
             sleep 2
@@ -226,13 +235,13 @@ jobs:
         env:
           PHATI_MAPA_TESTE_ATIVO: "0"
         run: |
-          docker compose up -d app
+          docker compose up -d app_azul
           docker compose restart nginx
           for _ in $(seq 30); do
-            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy ] && break
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy ] && break
             sleep 2
           done
-          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app)")" = healthy
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q app_azul)")" = healthy
           for _ in $(seq 30); do
             [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/entrar)" = 200 ] && break
             sleep 2

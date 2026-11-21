@@ -25,9 +25,11 @@ dev = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "projeto.settings"
 pythonpath = ["."]
+# `docker`: precisa do daemon Docker e da imagem nginx local (spec 009, A9). Sem eles, rodar com -m "not docker".
+markers = ["docker: precisa do daemon Docker e da imagem nginx local; deselecionar com -m 'not docker'"]
 # testpaths explícito: o pytest coleta teste de qualquer pasta (armadilha medida na prova de conceito).
-testpaths = ["comum", "identidade", "territorio", "permissao", "pacote", "projeto"]
+testpaths = ["comum", "identidade", "territorio", "permissao", "pacote", "catalogo", "projeto"]
 
 [tool.pyright]
-include = ["comum", "identidade", "territorio", "permissao", "pacote", "projeto"]
+include = ["comum", "identidade", "territorio", "permissao", "pacote", "catalogo", "projeto"]
 exclude = ["**/migrations"]

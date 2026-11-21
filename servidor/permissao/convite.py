@@ -99,7 +99,7 @@ def _registrar(quem, pessoa, proposta, categorias, inicio):
                 envios_anteriores = igual.envios
             igual.cancelado_em = timezone.now()
             igual.save(update_fields=['cancelado_em'])
-            auditar('convite_cancelado', quem, igual, igual.empresa_id, {'substituido': True})
+            auditar('convite_cancelado', quem, igual, igual.empresa_id, {'substituido': True, 'pessoa_id': igual.pessoa_id})
         if ja_tem:
             return  # a pessoa já tem exatamente este acesso: nada a convidar (o pendente antigo já saiu acima)
         convite = Convite.objects.create(
@@ -200,7 +200,7 @@ def aceitar(pessoa, convite_id):
             concessao = concessao_igual(pessoa, proposta, categorias) or _gravar(convidador, proposta, pessoa, categorias)
         convite.aceito_em = timezone.now()
         convite.save(update_fields=['aceito_em'])
-        auditar('convite_aceito', pessoa, convite, convite.empresa_id, {'concessao_id': concessao.pk})
+        auditar('convite_aceito', pessoa, convite, convite.empresa_id, {'concessao_id': concessao.pk, 'pessoa_id': pessoa.pk})
     return concessao
 
 
@@ -211,7 +211,7 @@ def recusar(pessoa, convite_id):
         _exigir_em_aberto(convite)
         convite.recusado_em = timezone.now()
         convite.save(update_fields=['recusado_em'])
-        auditar('convite_recusado', pessoa, convite, convite.empresa_id)
+        auditar('convite_recusado', pessoa, convite, convite.empresa_id, {'pessoa_id': pessoa.pk})
 
 
 
@@ -242,7 +242,7 @@ def cancelar(quem, convite_id):
         convite = _convite_de_quem_convidou(quem, convite_id)
         convite.cancelado_em = timezone.now()
         convite.save(update_fields=['cancelado_em'])
-        auditar('convite_cancelado', quem, convite, convite.empresa_id)
+        auditar('convite_cancelado', quem, convite, convite.empresa_id, {'pessoa_id': convite.pessoa_id})
 
 
 def reenviar(quem, convite_id):

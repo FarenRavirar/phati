@@ -33,7 +33,7 @@ GRUPOS_DE_PERMISSOES = (
                                'aprovar_atributo', 'aprovar_geometria', 'tornar_revisao_vigente', 'publicar_camada'), None),
     ('Território', ('criar_fazenda', 'criar_sub_area', 'renomear', 'arquivar', 'desarquivar', 'configurar_niveis_divisao'), None),
     ('Configurações', ('configurar_prazos_escalada', 'configurar_categorias_campos', 'ajustar_expiracao_pacote'), None),
-    ('Pessoas e cargos', ('convidar_pessoa', 'revogar_acesso', 'redefinir_senha', 'gerenciar_cargo'),
+    ('Pessoas e cargos', ('convidar_pessoa', 'revogar_acesso', 'redefinir_senha', 'gerenciar_cargo', 'ver_auditoria'),
      'Quem tem estas permissões controla o acesso de outras pessoas.'),
 )
 AJUDA_DA_MATRIZ = 'Você só marca o que o seu próprio acesso permite.'

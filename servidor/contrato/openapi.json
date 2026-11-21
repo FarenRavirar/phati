@@ -250,6 +250,76 @@
         "title": "EntradaNome",
         "type": "object"
       },
+      "EntradaPublicacao": {
+        "properties": {
+          "camada_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camada Id"
+          },
+          "coluna_no": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coluna No"
+          },
+          "estudo_id": {
+            "title": "Estudo Id",
+            "type": "integer"
+          },
+          "metadados": {
+            "additionalProperties": true,
+            "title": "Metadados",
+            "type": "object"
+          },
+          "nos": {
+            "default": [],
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Nos",
+            "type": "array"
+          },
+          "ocultos": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Ocultos",
+            "type": "array"
+          },
+          "sistema_confirmado": {
+            "default": false,
+            "title": "Sistema Confirmado",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "estudo_id",
+          "metadados"
+        ],
+        "title": "EntradaPublicacao",
+        "type": "object"
+      },
       "EntradaRenovar": {
         "properties": {
           "segredo": {
@@ -317,6 +387,102 @@
           "senha_nova"
         ],
         "title": "EntradaTrocarSenha",
+        "type": "object"
+      },
+      "ParametrosDaAuditoria": {
+        "description": "Cursor por id decrescente: `depois` é o último id recebido e 0 pede a primeira página (005 R2).",
+        "properties": {
+          "acao": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acao"
+          },
+          "alvo_pessoa_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alvo Pessoa Id"
+          },
+          "ate": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ate"
+          },
+          "depois": {
+            "default": 0,
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "title": "Depois",
+            "type": "integer"
+          },
+          "desde": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desde"
+          },
+          "empresa_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empresa Id"
+          },
+          "limite": {
+            "default": 30,
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limite",
+            "type": "integer"
+          },
+          "pessoa_id": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pessoa Id"
+          }
+        },
+        "title": "ParametrosDaAuditoria",
         "type": "object"
       },
       "ParametrosDaLista": {
@@ -658,6 +824,56 @@
         "title": "SaidaErro",
         "type": "object"
       },
+      "SaidaEventoAuditoria": {
+        "description": "Sem CPF, e-mail nem JSON cru (005 R4): nomes e um resumo em português.",
+        "properties": {
+          "acao": {
+            "title": "Acao",
+            "type": "string"
+          },
+          "alvo": {
+            "title": "Alvo",
+            "type": "string"
+          },
+          "empresa": {
+            "title": "Empresa",
+            "type": "string"
+          },
+          "hora": {
+            "format": "date-time",
+            "title": "Hora",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "quem": {
+            "title": "Quem",
+            "type": "string"
+          },
+          "resumo": {
+            "title": "Resumo",
+            "type": "string"
+          },
+          "rotulo": {
+            "title": "Rotulo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hora",
+          "acao",
+          "rotulo",
+          "quem",
+          "alvo",
+          "empresa",
+          "resumo"
+        ],
+        "title": "SaidaEventoAuditoria",
+        "type": "object"
+      },
       "SaidaFazenda": {
         "properties": {
           "empresa_id": {
@@ -867,6 +1083,305 @@
         "summary": "Renovar Acesso",
         "tags": [
           "identidade"
+        ]
+      }
+    },
+    "/api/v1/auditoria": {
+      "get": {
+        "operationId": "permissao_api_listar_auditoria",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depois",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Depois",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "desde",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desde"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ate",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ate"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acao",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 60,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acao"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pessoa_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pessoa Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "alvo_pessoa_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Alvo Pessoa Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "empresa_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 9223372036854775807,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Empresa Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SaidaEventoAuditoria"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Listar Auditoria",
+        "tags": [
+          "permissao"
+        ]
+      }
+    },
+    "/api/v1/camadas/{camada_id}/versoes/{numero}/feicoes": {
+      "get": {
+        "operationId": "catalogo_api_feicoes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camada_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Camada Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "numero",
+            "required": true,
+            "schema": {
+              "title": "Numero",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deslocamento",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Deslocamento",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "coluna",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Coluna"
+            }
+          },
+          {
+            "in": "query",
+            "name": "valor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Valor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "busca",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Busca"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Feicoes",
+        "tags": [
+          "catalogo"
         ]
       }
     },
@@ -1236,6 +1751,193 @@
         ]
       }
     },
+    "/api/v1/envios/{envio_id}": {
+      "get": {
+        "operationId": "catalogo_api_previa",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "envio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Envio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Previa",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/api/v1/envios/{envio_id}/geometria": {
+      "get": {
+        "operationId": "catalogo_api_geometria",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "envio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Envio Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Geometria",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/api/v1/envios/{envio_id}/publicar": {
+      "post": {
+        "operationId": "catalogo_api_publicar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "envio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Envio Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaPublicacao"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Publicar",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
     "/api/v1/fazendas": {
       "get": {
         "operationId": "territorio_api_listar_fazendas",
@@ -1267,6 +1969,146 @@
         "summary": "Listar Fazendas",
         "tags": [
           "territorio"
+        ]
+      }
+    },
+    "/api/v1/fazendas/{fazenda_id}/camadas": {
+      "get": {
+        "operationId": "catalogo_api_camadas",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fazenda_id",
+            "required": true,
+            "schema": {
+              "title": "Fazenda Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deslocamento",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Deslocamento",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Camadas",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
+    "/api/v1/fazendas/{fazenda_id}/envios": {
+      "post": {
+        "operationId": "catalogo_api_criar_envio",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fazenda_id",
+            "required": true,
+            "schema": {
+              "title": "Fazenda Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "arquivo": {
+                    "format": "binary",
+                    "title": "Arquivo",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "arquivo"
+                ],
+                "title": "FileParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Criar Envio",
+        "tags": [
+          "catalogo"
         ]
       }
     },

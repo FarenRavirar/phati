@@ -1,0 +1,9 @@
+{
+  "name": "phati-mcp-local",
+  "private": true,
+  "description": "Servidores MCP locais do agente, com versões fixas e lockfile.",
+  "dependencies": {
+    "@upstash/context7-mcp": "4.4.4",
+    "@21st-dev/magic": "0.2.3"
+  }
+}

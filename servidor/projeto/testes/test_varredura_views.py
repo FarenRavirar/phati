@@ -64,7 +64,7 @@ def test_toda_view_autenticada_declara_a_acao_que_exige():
 def test_acao_declarada_existe_no_catalogo_ou_e_da_propria_pessoa():
     catalogo = {
         codigo
-        for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google')
+        for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google', '0011_ver_auditoria')
         for codigo, _, _ in import_module(f'permissao.migrations.{migracao}').ACOES
     }
     assert {getattr(visao, 'acao_exigida') for _, visao, _ in _autenticadas()} <= catalogo | {PROPRIA_PESSOA}
@@ -84,6 +84,10 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
         'pessoa_redefinir_senha': 'redefinir_senha', 'titularidade': 'ver', 'pessoa_conceder': 'convidar_pessoa',
         # Telas de cargos (003 R18): a mesma ação da API e do painel.
         'cargos': 'gerenciar_cargo', 'cargo_novo': 'gerenciar_cargo', 'cargo_editar': 'gerenciar_cargo',
+        # Tela da auditoria (005 R6): a mesma ação da API.
+        'auditoria': 'ver_auditoria',
+        # Telas de camadas (008 T4.1): envio, prévia e publicação, as ações que a API exige para as mesmas operações.
+        'camadas_novo': 'publicar_camada', 'camadas_previa': 'publicar_camada', 'camadas_confirmacao': 'publicar_camada',
     }
     assert {nome: getattr(por_nome[nome], 'acao_exigida') for nome in esperadas} == esperadas
 
@@ -91,7 +95,8 @@ def test_pagina_de_terceiro_declara_a_acao_do_catalogo_e_as_da_pessoa_declaram_a
 def test_pagina_de_terceiro_com_alvo_na_url_nega_a_quem_nao_tem_acesso(cliente_logado, cenario):
     # A declaração sozinha não prova a checagem (Qodo, PR #21): quem declara uma ação do catálogo e recebe 200 de
     # quem não tem concessão está declarando sem checar.
-    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1, 'cargo_id': 1, 'nome': 'fundo.pmtiles'}
+    ids = {'empresa_id': cenario.x.pk, 'fazenda_id': cenario.f1.pk, 'sub_area_id': cenario.g1.pk, 'pessoa_id': 1, 'concessao_id': 1, 'convite_id': 1, 'cargo_id': 1, 'nome': 'fundo.pmtiles',
+           'envio_id': '00000000-0000-0000-0000-000000000001'}
     de_terceiro = [(nome, parametros) for nome, visao, parametros in _autenticadas()
                    if getattr(visao, 'acao_exigida') != PROPRIA_PESSOA and parametros]
     assert de_terceiro

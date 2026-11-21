@@ -113,7 +113,7 @@ def catalogo_da_corrida(transactional_db):
 
     from permissao.models import Permissao
 
-    for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google'):
+    for migracao in ('0001_initial', '0007_acoes_territorio', '0010_acao_monitor_google', '0011_ver_auditoria'):
         for codigo, descricao, delegavel in import_module(f'permissao.migrations.{migracao}').ACOES:
             Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
 

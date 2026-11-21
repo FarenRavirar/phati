@@ -8,12 +8,17 @@ as credenciais do dono do banco (serviço `migracao` do compose): o papel `app` 
 import json
 import os
 import secrets
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
+from catalogo.envios import criar_envio
+from catalogo.models import Camada, EnvioCamada, Estudo, Feicao, Tema, VersaoCamada
 from comum.sintetico import cpf_sintetico
+from django.contrib.gis.geos import GEOSGeometry
 from identidade import senha
 from identidade.models import Pessoa
 from pacote.sintetico import instalar_referencia
@@ -68,6 +73,48 @@ def _turma(indice, credencial, administrador_a, administrador_b, empresa_a, empr
     }
 
 
+def _envio_vencido(administrador, fazenda):
+    """Envio sintético já vencido na fazenda A1: a tela de camadas mostra o aviso de expiração sem alteração posterior no banco."""
+    conteudo = json.dumps({'type': 'FeatureCollection', 'features': [
+        {'type': 'Feature', 'properties': {'valor': 1}, 'geometry': {'type': 'Point', 'coordinates': [-48.3, -10.7]}},
+    ]}).encode()
+    envio = criar_envio(administrador, fazenda, conteudo)
+    EnvioCamada.objects.filter(pk=envio.pk).update(expira_em=timezone.now() - timedelta(minutes=1))
+    return str(envio.publico_id)
+
+
+def _estudo(empresa, fazenda):
+    """Estudo sintético na fazenda A3: a tela de publicação mostra o formulário. A A1 fica sem estudo de propósito."""
+    tema = Tema.objects.create(empresa=empresa, nome='Tema sintético')
+    return Estudo.objects.create(empresa=empresa, fazenda=fazenda, tema=tema, nome='Estudo sintético')
+
+
+# Divisão sintética da A3 (008 R7): dois nós adjacentes. As coordenadas ficam aqui e são exportadas em `dados.json`, para o
+# Playwright montar o GeoJSON sem número solto no spec. Os anéis são WGS 84 (SRID 4674 é o do banco, mesma origem).
+NOS_DA_A3 = (
+    ('Talhão A3-1', ((-48.31, -10.71), (-48.30, -10.71), (-48.30, -10.70), (-48.31, -10.70), (-48.31, -10.71))),
+    ('Talhão A3-2', ((-48.30, -10.71), (-48.29, -10.71), (-48.29, -10.70), (-48.30, -10.70), (-48.30, -10.71))),
+)
+# Feição que cruza os dois nós (maior parte no nó 1: sugestão pela maior área) e feição fora de todo nó.
+FEICAO_QUE_CRUZA = ((-48.3075, -10.7050), (-48.2975, -10.7050), (-48.2975, -10.6950), (-48.3075, -10.6950), (-48.3075, -10.7050))
+FEICAO_FORA_DE_NOS = ((-48.50, -10.90), (-48.49, -10.90), (-48.49, -10.89), (-48.50, -10.89), (-48.50, -10.90))
+
+
+def _divisao_da_a3(administrador, empresa, fazenda, estudo):
+    """Divisão da A3: camada com `coluna_no` (marca a divisão, D119), uma versão e as feições dos dois nós. Nó criado por
+    `cadastro`; a feição de cada nó leva o nó (`sub_area`), e a divisão é a união deles (`contornos_da_divisao`)."""
+    nos = []
+    for nome, anel in NOS_DA_A3:
+        no = cadastro.criar_sub_area(administrador, fazenda, nome)
+        nos.append((no, GEOSGeometry('POLYGON((%s))' % ', '.join(f'{x} {y}' for x, y in anel), srid=4674)))
+    camada = Camada.objects.create(estudo=estudo, empresa=empresa, fazenda=fazenda, nome='Divisão sintética', coluna_no='no')
+    versao = VersaoCamada.objects.create(camada=camada, empresa=empresa, fazenda=fazenda, numero=1,
+                                         sistema_original='WGS 84', origem='Divisão sintética', enviada_por=administrador)
+    for no, geometria in nos:
+        Feicao.objects.create(versao=versao, empresa=empresa, fazenda=fazenda, sub_area=no, geometria=geometria, valores={'no': no.nome})
+    return [no.pk for no, _ in nos]
+
+
 def popular():
     """Devolve o dicionário que os testes de navegador leem.
 
@@ -90,6 +137,9 @@ def popular():
         empresa_b, administrador_b = _empresa(plataforma, 'Empresa Inventada B', 'Administrador Beta', 3, credencial)
         fazendas_a = [cadastro.criar_fazenda(administrador_a, empresa_a, f'Fazenda Inventada A{n}') for n in (1, 2, 3)]
         fazenda_b = cadastro.criar_fazenda(administrador_b, empresa_b, 'Fazenda Inventada B1')
+        envio_vencido = _envio_vencido(administrador_a, fazendas_a[0])
+        estudo_a3 = _estudo(empresa_a, fazendas_a[2])  # estudo na A3 para a publicação (008 T4.2); a A1 segue sem estudo (estado vazio)
+        nos_a3 = _divisao_da_a3(administrador_a, empresa_a, fazendas_a[2], estudo_a3)
         instalar_referencia(fazendas_a[1])  # pacote de referência só na A2: as fazendas A1 e A3 seguem sem pacote (testes do mapa da 004 e da 004b)
         raiz = cadastro.criar_sub_area(administrador_a, fazendas_a[0], 'Talhao 1')
         filha = cadastro.criar_sub_area(administrador_a, fazendas_a[0], 'Gleba 1', raiz)
@@ -111,6 +161,12 @@ def popular():
         'empresa_b': empresa_b.pk,
         'fazendas_a': [fazenda.pk for fazenda in fazendas_a],
         'fazenda_b': fazenda_b.pk,
+        'camadas': {
+            'envio_vencido': envio_vencido,  # tela de camadas (008 T4.2): aviso de envio expirado sem mexer no banco depois
+            'nos_a3': nos_a3,
+            'cruza': [list(p) for p in FEICAO_QUE_CRUZA],
+            'fora': [list(p) for p in FEICAO_FORA_DE_NOS],
+        },
     }
 
 

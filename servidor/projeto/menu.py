@@ -5,7 +5,7 @@ Esconder o item não protege a rota: ela responde 404 a quem não pode (R3). A 0
 
 from dataclasses import dataclass, replace
 
-from permissao.pode import administrador_da_empresa, age_em_algum_escopo, escopos_da_acao, permissoes_efetivas
+from permissao.pode import administrador_da_empresa, age_em_algum_escopo, age_na_plataforma_ou_em_empresa, escopos_da_acao, permissoes_efetivas
 from permissao.uso import usos_da_pessoa
 from territorio.listagem import empresas_autorizadas
 
@@ -17,12 +17,16 @@ class ItemDoMenu:
     acoes: tuple[str, ...] = ()  # sem ação, o item é de toda pessoa autenticada
     prefixos: tuple[str, ...] = ()  # páginas filhas que também marcam o item como atual
     atual: str = ''  # `aria-current` do link: 'page' na própria página, 'true' numa página filha; vazio fora disso
+    # Com `em_empresa`, `acoes` vale na plataforma ou em alguma empresa inteira, não só na plataforma (005 Q1: o Administrador de
+    # empresa lê a auditoria). `permissoes_efetivas(pessoa, None)` dá ação só à plataforma, por isso o item usa o helper.
+    em_empresa: bool = False
 
 
 ITENS = (
     ItemDoMenu('Início', '/'),
     ItemDoMenu('Fazendas', '/empresas/', prefixos=('/empresa/',)),
     ItemDoMenu('Uso do Google', '/monitor-google', acoes=('ver_monitor_google',)),  # só o Administrador da plataforma (004b R13)
+    ItemDoMenu('Auditoria', '/auditoria/', acoes=('ver_auditoria',), em_empresa=True),  # 005 R6: a plataforma e o Administrador de empresa
 )
 
 
@@ -117,4 +121,6 @@ def _atual(item, caminho):
 def _visivel(item, pessoa, efetivas):
     if not item.acoes:
         return True
+    if item.em_empresa:
+        return age_na_plataforma_ou_em_empresa(pessoa, *item.acoes)
     return bool(efetivas & set(item.acoes))

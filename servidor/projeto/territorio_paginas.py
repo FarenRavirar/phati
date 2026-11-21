@@ -58,6 +58,7 @@ _ACOES_DA_PAGINA = {
         ('criar_sub_area', 'Cadastrar sub-área', 'sub_area_nova'),
         (ACOES_DE_PESSOAS, 'Pessoas', 'pessoas'),
         ('renomear', 'Renomear fazenda', 'fazenda_editar'),
+        ('publicar_camada', 'Publicar camada', 'camadas_novo'),
         ('arquivar', 'Arquivar fazenda', 'fazenda_arquivar'),
     ),
     SubArea: (

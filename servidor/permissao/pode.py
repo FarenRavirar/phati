@@ -30,7 +30,7 @@ _CONTA_PELO_NIVEL = ACOES_DE_DELEGACAO | ACOES_DO_ADMINISTRADOR
 # Em escopo arquivado (alvo ou ancestral) `pode()` nega toda ação fora destas duas listas (003 R11). Ação nova do
 # catálogo conta como escrita até entrar aqui: o lado seguro. `desarquivar`, `revogar_acesso` e `redefinir_senha`
 # valem em arquivado para desfazer o ato e desligar quem saiu da empresa (inferência a confirmar).
-ACOES_DE_LEITURA = frozenset({'ver', 'baixar_pacote_offline', 'baixar_documento'})
+ACOES_DE_LEITURA = frozenset({'ver', 'baixar_pacote_offline', 'baixar_documento', 'ver_auditoria'})
 ACOES_VALIDAS_ARQUIVADO = frozenset({'desarquivar', 'revogar_acesso', 'redefinir_senha'})
 _ATRIBUTO_MEMORIA = '_memoria_do_pode'
 
@@ -278,6 +278,13 @@ def age_em_algum_escopo(pessoa, *acoes):
         if escopos.plataforma or escopos.empresas or escopos.fazendas or escopos.sub_areas:
             return True
     return False
+
+
+def age_na_plataforma_ou_em_empresa(pessoa, *acoes):
+    """A pessoa exerce alguma das `acoes` na plataforma ou em alguma empresa inteira. Fazenda e sub-área não contam
+    (005 Q1: a auditoria é do Administrador da plataforma e do de empresa); cada item de menu que exige isso usa esta função."""
+    escopos = unir_escopos(pessoa, *acoes)
+    return escopos.plataforma or bool(escopos.empresas)
 
 
 def permissoes_efetivas(pessoa, escopo=None):

@@ -7,6 +7,7 @@
     "redefinir_senha_solicitar": "Esqueci a senha — 002 R6",
     "redefinir_senha_confirmar": "Página de redefinição — 002 R6",
     "acesso_renovar": "Sem tela: renova o token do aplicativo Android; a web usa cookie",
+    "auditoria_listar": "Lista da auditoria — 005 R6 (tela /auditoria/)",
     "pessoas_listar": "Lista de pessoas — 003 R13 (tela /empresa/<id>/pessoas/)",
     "pessoas_convidar": "Convidar pessoa — 003 R13 (tela /empresa/<id>/pessoas/convidar)",
     "concessoes_criar": "Conceder cargo — 003 R19 (tela /empresa/<id>/pessoa/<id>/conceder)",
@@ -31,7 +32,13 @@
     "pacote_manifesto": "Sem tela própria: o aplicativo Android baixa o manifesto do pacote offline (004b R3); a web usa os arquivos por Range (Fase 2).",
     "pacote_camadas": "Sem tela própria: o aplicativo Android baixa as camadas do pacote offline (004b R4); dado sintético, só com a flag do mapa.",
     "pacote_arquivo": "Fundo e ortofoto do pacote lidos por Range: PMTiles do mapa da web (004b R7, R8, Fase 2) e download do aplicativo (R3).",
-    "saude": "Sonda do healthcheck e da conferência pós-deploy — 006 R10; sem tela de propósito, devolve só o estado."
+    "saude": "Sonda do healthcheck e da conferência pós-deploy — 006 R10; sem tela de propósito, devolve só o estado.",
+    "catalogo_criar_envio": "Envio de camada (upload) — tela /empresa/<id>/fazenda/<id>/camadas/novo, chamada por camadas.js (008 T4.1); spec 008 R3, R16",
+    "catalogo_previa": "Prévia do envio (colunas, sistema, avisos, nó sugerido) — tela /camadas/envio/<id>, chamada por camadas.js (008 T4.1); spec 008 R12",
+    "catalogo_geometria": "Geometria do envio para o mapa de teste (até o limite, em 4326, com total e truncado) — mapa da prévia, chamado pelo mapa.js com a flag do mapa ligada (008 R12); sem a flag, a página não o chama",
+    "catalogo_publicar": "Publicação do envio em análise — tela /camadas/envio/<id>/publicar, chamada por camadas.js (008 T4.1); spec 008 R4, R7, R9, R13",
+    "catalogo_camadas_listar": "Lista de camadas da fazenda, paginada — tela de camadas (008 Fase 4); spec 008 R11",
+    "catalogo_feicoes_listar": "Feições da versão, paginadas, só colunas visíveis — tela de camadas (008 Fase 4); spec 008 R9, R11"
   },
   "funcoes": {
     "permissao.uso.registrar_uso": "Contador dos atalhos do Início — 003 R26 (sem tela própria: roda depois de convidar, criar ou editar cargo e criar fazenda)",
@@ -81,6 +88,9 @@
     "permissao.convite.convites_da_pessoa": "Início — 002 R9",
     "permissao.convite.aceitar": "Início — 002 R9",
     "permissao.convite.recusar": "Início — 002 R9",
+    "comum.compat_migracao.analisar_arquivo": "Sem tela: verificador de compatibilidade das migrações, roda no CI e no implantar (spec 009 R4 e R5)",
+    "comum.compat_migracao.principal": "Sem tela: CLI do verificador de compatibilidade das migrações (spec 009 R4 e R5)",
+    "comum.compat_migracao.verificar_arquivo": "Sem tela: verificador de compatibilidade das migrações (spec 009 R4 e R5)",
     "comum.sintetico.cpf_sintetico": "Dado sintético e fixtures — 002 R20",
     "permissao.delegacao.exigir_categoria_compativel": "Sem tela: auxiliar interno de conceder e convidar — 003",
     "permissao.delegacao.pode_conceder": "Sem tela: auxiliar interno: checagem de delegação de conceder e convidar — 003",
@@ -133,7 +143,14 @@
     "permissao.delegacao.travar_escopo": "Sem tela: trava a linha do escopo ao convidar ou conceder, para não nascer convite em escopo que está sendo arquivado — 003 R11",
     "permissao.delegacao.criar_pessoa_e_conceder": "Sem tela: efeito interno de pessoas_convidar (CPF novo) — 003",
     "territorio.niveis.limpar_nivel": "Nomes dos níveis da divisão (campo em branco) — 003 R10; sem rota na API",
-    "territorio.cadastro.nome_unico": "Sem tela: traduz a restrição de nome único entre irmãos ativos em `nome_duplicado` nas funções de criar, renomear e desarquivar — 003 R9"
+    "territorio.cadastro.nome_unico": "Sem tela: traduz a restrição de nome único entre irmãos ativos em `nome_duplicado` nas funções de criar, renomear e desarquivar — 003 R9",
+    "permissao.auditoria_leitura.consultar": "Lista da auditoria — 005 R6 (tela /auditoria/; a rota GET /api/v1/auditoria chama a mesma função)",
+    "permissao.auditoria_leitura.pode_ver_auditoria": "Teste de acesso da página /auditoria/ — 005 R6 (usa o mesmo helper de consultar)",
+    "permissao.auditoria_leitura.pessoas_citadas": "Opções dos selects Quem agiu e Pessoa afetada da tela /auditoria/ — 005 R6 (pessoas da atividade que quem lê vê, não do diretório)",
+    "permissao.auditoria_leitura.data_da_janela_padrao": "Início da janela padrão de 90 dias da tela /auditoria/ e da API, e data do link Mais antigos — 005 R2 e R6",
+    "permissao.auditoria_leitura.inicio_do_dia": "Meia-noite local que começa o filtro de data da tela e da janela padrão — 005 R2 e R6",
+    "permissao.pode.age_na_plataforma_ou_em_empresa": "Item Auditoria do menu (campo em_empresa) e guarda de consultar — 005 Q1 e R3: plataforma ou empresa inteira, nunca fazenda ou sub-área",
+    "comum.auditoria_rotulos.rotulo_e_resumo": "Rótulo e resumo de cada evento da lista da auditoria — 005 R4 e R5 (texto da tela /auditoria/ e da rota GET /api/v1/auditoria)"
   },
   "acoes": {
     "ver": "002 (Início, seletor, página da fazenda)",
@@ -149,7 +166,7 @@
     "aprovar_atributo": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "aprovar_geometria": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "tornar_revisao_vigente": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
-    "publicar_camada": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
+    "publicar_camada": "Enviar, publicar e ocultar atributo: telas de camadas (008 T4.1) sobre catalogo_criar_envio, catalogo_previa e catalogo_publicar (008 T3.2, D041); troca de nó por feição ainda sem tela (pendência T4.1)",
     "subir_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "definir_validade_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "convidar_pessoa": "003",
@@ -166,9 +183,8 @@
     "gerenciar_cargo": "003 R18 (telas de cargos)",
     "renomear": "003 R9 (telas de renomear e API); só a base Administrador",
     "arquivar": "003 R11 (tela de confirmação e API); só a base Administrador",
-    "desarquivar": "003 R11 (tela de confirmação, seção Arquivadas e API); só a base Administrador"
+    "desarquivar": "003 R11 (tela de confirmação, seção Arquivadas e API); só a base Administrador",
+    "ver_auditoria": "005 R6 (tela /auditoria/ e GET /api/v1/auditoria; só o Administrador)"
   },
-  "sem_acao": {
-    "leitura_de_auditoria": "Não há ação de leitura; spec 004 (D060)"
-  }
+  "sem_acao": {}
 }
