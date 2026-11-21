@@ -81,7 +81,7 @@ function contarNos(nosSugeridos) {
 function textoDosNos(nosSugeridos) {
   const { comNo, semNo } = contarNos(nosSugeridos);
   if (semNo === 0) return `${comNo} feições com nó sugerido.`;
-  return `${comNo} feições com nó sugerido e ${semNo} sem nó: a publicação só passa com divisão por coluna ou com nó para cada uma.`;
+  return `${comNo} feições com nó sugerido e ${semNo} sem nó: ficam na própria fazenda; troque o nó na lista abaixo se quiser.`;
 }
 
 // Nó de texto com `textContent`: é o único jeito de pôr texto do arquivo na tela (R21).
@@ -209,6 +209,25 @@ function resultadoDaPublicacao(documento, status, corpo) {
   return mostrarAviso(documento, 'publicacao-erro', mensagemDoErro(status, corpo));
 }
 
+// Um item da revisão: o rótulo aponta ao select pelo `for`/`id`, para o leitor de tela anunciar o nome do campo.
+function montarItemDeRevisao(documento, item, nosDaFazenda) {
+  const linha = documento.createElement('li');
+  const seletor = documento.createElement('select');
+  seletor.id = `revisao_no_${item.indice}`;
+  seletor.dataset.indice = String(item.indice);
+  for (const opcao of opcoesDeNo(nosDaFazenda)) {
+    const elemento = documento.createElement('option');
+    elemento.value = opcao.valor;
+    elemento.textContent = opcao.rotulo;
+    seletor.append(elemento);
+  }
+  seletor.value = item.sugerido === null ? '' : String(item.sugerido);
+  const rotulo = criarNo(documento, 'label', rotuloDaRevisao(item));
+  rotulo.htmlFor = seletor.id;
+  linha.append(rotulo, seletor);
+  return linha;
+}
+
 // Lista de revisão: um select por feição, com a sugestão como valor inicial. Acima do limite, só o aviso.
 function montarRevisao(documento, previa) {
   const lista = documento.getElementById('revisao-nos');
@@ -219,21 +238,7 @@ function montarRevisao(documento, previa) {
     aviso.hidden = false;
     return;
   }
-  lista.replaceChildren(...previa.revisao.map((item) => {
-    const linha = documento.createElement('li');
-    const seletor = documento.createElement('select');
-    seletor.id = `revisao_no_${item.indice}`;
-    seletor.dataset.indice = String(item.indice);
-    for (const opcao of opcoesDeNo(previa.nos_da_fazenda || [])) {
-      const elemento = documento.createElement('option');
-      elemento.value = opcao.valor;
-      elemento.textContent = opcao.rotulo;
-      seletor.append(elemento);
-    }
-    seletor.value = item.sugerido === null ? '' : String(item.sugerido);
-    linha.append(criarNo(documento, 'label', rotuloDaRevisao(item)), seletor);
-    return linha;
-  }));
+  lista.replaceChildren(...previa.revisao.map((item) => montarItemDeRevisao(documento, item, previa.nos_da_fazenda || [])));
 }
 
 // Escolhas da pessoa: `{indice: no ou null}`. Só as feições da revisão entram; o resto vai pela sugestão da prévia.
@@ -287,5 +292,5 @@ function iniciar(documento) {
 
 if (typeof document !== 'undefined') iniciar(document);
 if (typeof module !== 'undefined') {
-  module.exports = { mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha, resultadoDaPublicacao, esconderAvisosDePublicacao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO };
+  module.exports = { mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha, resultadoDaPublicacao, esconderAvisosDePublicacao, montarItemDeRevisao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO };
 }

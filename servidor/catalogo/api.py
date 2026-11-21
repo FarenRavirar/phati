@@ -70,7 +70,8 @@ def _alcance_de_feicoes(pessoa, fazenda):
     só com `ver` na fazenda. Lista vazia: a pessoa não lê nenhuma feição desta camada."""
     if pode(pessoa, 'ver', fazenda):
         return None
-    nos = SubArea.objects.filter(fazenda=fazenda, arquivada_em__isnull=True).order_by('pk')
+    # Nó arquivado entra: `ver` é ação de leitura e vale em escopo arquivado (`ACOES_DE_LEITURA`, pode.py:33).
+    nos = SubArea.objects.filter(fazenda=fazenda).order_by('pk')
     return [no.pk for no in nos if pode(pessoa, 'ver', no)]
 
 

@@ -3,7 +3,7 @@
 // tamanhos exigidos (1280×720 e 320×568, em `playwright.config.js`). Dado inventado: o envio sai da API com um GeoJSON
 // sintético, e os estados de erro e de carregamento vêm de `page.route`, então nenhum teste grava dado de negócio além do envio.
 const { test, expect } = require('@playwright/test');
-const { dados, entrar, semRolagemHorizontal, acessivel } = require('./apoio.js');
+const { dados, entrar, semRolagemHorizontal, acessivel, turmaDe } = require('./apoio.js');
 
 const ENVIO_INEXISTENTE = '00000000-0000-0000-0000-000000000001';
 const ARQUIVO_SINTETICO = Buffer.from(JSON.stringify({
@@ -158,6 +158,7 @@ test('trocar nó e publicar: a feição que cruza dois nós recebe o nó escolhi
   await entrar(page, dados.administradora_a.cpf);
   await enviarEPrevia(page, geojsonDeRevisao([dados.camadas.cruza]));
   await expect(page.locator('#revisao-nos li')).toHaveCount(1);
+  await conferirTela(page); // com a revisão aberta: axe (rótulo ligado ao select) e sem rolagem horizontal
   await page.locator('#revisao_no_1').selectOption({ label: 'Talhão A3-2' });
   await preencherEPublicar(page, informacoes);
   await expect(page.locator('#publicacao-sucesso')).toContainText('Versão 1 criada em análise.');
@@ -225,4 +226,19 @@ test('envio inexistente por URL direta: 404 igual ao de envio alheio', async ({ 
   const resposta = await page.goto(urlDaFazenda(`camadas/envio/${ENVIO_INEXISTENTE}`));
   expect(resposta.status()).toBe(404);
   await expect(page.getByText('object (')).toHaveCount(0);
+});
+
+// Entrada pela página da fazenda (P2 navegação): a ação "Publicar camada" leva à tela de envio; quem não publica não a vê.
+test('a página da fazenda leva à publicação pela ação, e quem não publica não vê o link', async ({ page }, informacoes) => {
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto(urlDaFazendaComEstudo(''));
+  await page.getByRole('link', { name: 'Publicar camada' }).click();
+  await expect(page).toHaveURL(/\/camadas\/novo$/);
+  await expect(page.locator('#formulario-envio')).toBeVisible();
+  await conferirTela(page);
+  await page.context().clearCookies();
+  await entrar(page, turmaDe(informacoes).usuaria.cpf);
+  await page.goto(urlDaFazenda(''));
+  await expect(page.getByRole('link', { name: 'Publicar camada' })).toHaveCount(0);
+  await conferirTela(page);
 });

@@ -277,6 +277,8 @@ def test_feicao_fora_de_todo_no_fica_na_fazenda_mesmo_com_nos_na_fazenda(camadas
     envio = _criar(mundo)
     publicada = _publicar(mundo, envio, nos=[None, mundo.g1.pk])
     assert publicada.numero == 1
+    gravadas = Feicao.objects.filter(versao=publicada).order_by('id').values_list('sub_area_id', flat=True)
+    assert list(gravadas) == [None, mundo.g1.pk]  # na ordem de gravação: a da fazenda e a do nó 1
 
 
 def test_quantidade_de_nos_diferente_das_feicoes_recusa(camadas, mundo):

@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const {
   mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha,
-  resultadoDaPublicacao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO,
+  resultadoDaPublicacao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO, montarItemDeRevisao,
 } = require('./camadas.js');
 
 const PROJETO = path.join(__dirname, '..', '..');
@@ -73,7 +73,7 @@ test('resumo mostra ausente como "Sem dados" e zero como zero (R10: ausente nunc
 test('contagem de nós separa feição com sugestão de feição sem nó', () => {
   assert.deepEqual(contarNos([1, null, 2, null]), { comNo: 2, semNo: 2 });
   assert.equal(textoDosNos([1, 2]), '2 feições com nó sugerido.');
-  assert.match(textoDosNos([null]), /0 feições com nó sugerido e 1 sem nó/);
+  assert.match(textoDosNos([null]), /0 feições com nó sugerido e 1 sem nó: ficam na própria fazenda/);
   assert.equal(textoDosNos([]), '0 feições com nó sugerido.');
 });
 
@@ -157,4 +157,24 @@ test('rotuloDaRevisao diz o motivo sem interpretar o arquivo, e o limite é uma 
   assert.match(rotuloDaRevisao({ indice: 1, motivo: 'empate', areas: [{ no: 1 }, { no: 2 }] }), /empate/);
   assert.match(rotuloDaRevisao({ indice: 3, motivo: 'maior_area', areas: [{ no: 1 }, { no: 2 }] }), /cruza 2 nós/);
   assert.equal(LIMITE_DE_ITENS_DE_REVISAO, 50);
+});
+
+// Acessibilidade da revisão: o rótulo de cada select aponta ao select pelo `for` (= id do select).
+function documentoFalso() {
+  const criar = (tag) => {
+    const no = { tagName: tag, id: '', htmlFor: '', value: '', textContent: '', dataset: {}, children: [] };
+    no.append = (...filhos) => no.children.push(...filhos);
+    no.querySelector = () => null;
+    return no;
+  };
+  return { createElement: criar };
+}
+
+test('montarItemDeRevisao liga o rótulo ao select pelo for = id, e o select traz as opções da fazenda', () => {
+  const item = { indice: 3, motivo: 'empate', sugerido: null, areas: [{}, {}] };
+  const [rotulo, seletor] = montarItemDeRevisao(documentoFalso(), item, [{ no: 9, nome: 'Talhão 9' }]).children;
+  assert.equal(seletor.id, 'revisao_no_3');
+  assert.equal(rotulo.htmlFor, seletor.id);
+  assert.match(rotulo.textContent, /empate/);
+  assert.deepEqual(seletor.children.map((opcao) => opcao.textContent), ['Própria fazenda', 'Talhão 9']);
 });

@@ -157,3 +157,15 @@ def test_pagina_da_fazenda_tem_as_quatro_regioes_em_estado_vazio_sem_zero_invent
         assert texto in conteudo
     assert 'title=' not in conteudo
     assert not re.search(r'https?://', conteudo)  # R25: nenhum recurso de terceiro
+
+
+def test_publicar_camada_aparece_na_fazenda_so_para_quem_tem_a_permissao(cliente_logado, conta, cenario, conceder_direto):
+    # A ação segue `_ACOES_DA_PAGINA`: some para quem não tem `publicar_camada` efetiva na fazenda (usuário sem a ação).
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.f1)
+    html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
+    assert 'Publicar camada' not in html
+    assert f'/fazenda/{cenario.f1.pk}/camadas/novo' not in html
+    conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
+    html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
+    assert f'href="/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/camadas/novo"' in html
+    assert 'Publicar camada' in html

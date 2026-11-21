@@ -17,6 +17,13 @@ from territorio.listagem import fazendas_autorizadas
 from territorio.models import Empresa, Fazenda, SubArea
 
 
+@pytest.fixture(autouse=True)
+def _camadas_em_tmp(settings, tmp_path):
+    # O envio vencido do seed grava o original no disco privado de camadas: tmp, como os testes de catalogo/testes.
+    settings.CAMADAS_DIR = tmp_path / 'camadas'
+    settings.CAMADAS_DIR.mkdir()
+
+
 @pytest.fixture
 def dados(db, monkeypatch, settings, tmp_path):
     settings.PACOTES_DIR = tmp_path / 'pacotes'  # o comando instala o pacote de referência numa fazenda

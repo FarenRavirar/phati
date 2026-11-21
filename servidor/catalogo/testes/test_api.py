@@ -23,6 +23,7 @@ from projeto.ficha import CAMPOS, SEM_INFORMACAO
 from identidade import senha, sessao
 from permissao.cargos_base import criar_cargos_base
 from permissao.models import Cargo, CargoPermissao
+from territorio.cadastro import arquivar
 
 pytestmark = pytest.mark.django_db(transaction=True, databases=['default', 'app'])
 NAO_ENCONTRADO = {'detalhe': 'nao_encontrado'}
@@ -428,7 +429,7 @@ def _camada_com_feicoes_por_no(mundo, cenario):
                                          sistema_original='WGS 84', origem='Sintético', enviada_por=mundo.operador)
     quadrado = 'POLYGON((-48.3 -10.7, -48.29 -10.7, -48.29 -10.69, -48.3 -10.69, -48.3 -10.7))'
     AtributoVersao.objects.create(versao=versao, empresa=cenario.x, fazenda=cenario.f1, nome='no')  # coluna visível: a resposta traz o valor
-    for no in (cenario.g1, cenario.g2, None):
+    for no in (cenario.g2, cenario.g1, None):  # G2 antes de G1: a feição proibida vem antes da permitida (ordinal, T3.8)
         Feicao.objects.create(versao=versao, empresa=cenario.x, fazenda=cenario.f1, sub_area=no,
                               geometria=GEOSGeometry(quadrado, srid=4674), valores={'no': no.nome if no else 'fazenda'})
     return camada
@@ -462,3 +463,16 @@ def test_sem_nenhum_ver_na_camada_e_404_igual_a_inexistente(camadas, mundo, cena
     inexistente = _ler(sem, f'camadas/{uuid4()}/versoes/1/feicoes')
     assert de_fora.status_code == inexistente.status_code == 404
     assert de_fora.json() == inexistente.json() == NAO_ENCONTRADO
+
+
+def test_no_arquivado_com_ver_continua_lendo_as_proprias_feicoes(camadas, mundo, cenario, fabrica_pessoa, conceder_direto):
+    # 003 R11: `ver` é ação de leitura e vale em escopo arquivado (`ACOES_DE_LEITURA`). Nó arquivado não some do alcance.
+    camada = _camada_com_feicoes_por_no(mundo, cenario)
+    arquivar(mundo.operador, cenario.g1)  # o ato do próprio cadastro (grava `arquivamento`, como a tela)
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Ver no G1 arquivado', base='usuario')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    leitor = fabrica_pessoa('Leitor de G1 arquivado')
+    conceder_direto(leitor, cargo, cenario.g1)
+    resposta = _ler(leitor, f'camadas/{camada.publico_id}/versoes/1/feicoes')
+    assert resposta.status_code == 200
+    assert [i['valores']['no'] for i in resposta.json()['itens']] == ['G1']
