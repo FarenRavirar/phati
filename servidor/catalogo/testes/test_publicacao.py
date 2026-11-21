@@ -802,3 +802,28 @@ def test_expiracao_e_conferida_depois_da_espera_pela_trava(camadas, mundo):
     assert isinstance(resultados[0], RecusaPublicacao), resultados
     assert resultados[0].erros == ['envio expirado: envie o arquivo de novo']
     assert VersaoCamada.objects.count() == 0
+
+
+# --- empate exige escolha; fora de todos os nós segue na fazenda (R7; spec 008:55 e A3) --------------------------------------
+
+def test_empate_sem_escolha_e_recusado_com_erro_claro(camadas, mundo):
+    _publicar(mundo, _criar(mundo, _divisao({'G1': BIG, 'T1': BIG})), nos=(), coluna_no='no', nome='Divisao')
+    envio = _criar(mundo, _poligonos(1))
+    antes = _contagem()
+    with pytest.raises(RecusaPublicacao) as excinfo:
+        _publicar(mundo, envio, nos=[None])
+    assert excinfo.value.erros == ['feição em empate entre dois nós: escolha o nó']
+    assert _contagem() == antes  # nada gravado
+
+
+def test_empate_com_no_escolhido_e_aceito(camadas, mundo):
+    _publicar(mundo, _criar(mundo, _divisao({'G1': BIG, 'T1': BIG})), nos=(), coluna_no='no', nome='Divisao')
+    versao = _publicar(mundo, _criar(mundo, _poligonos(1)), nos=[mundo.g2.pk])
+    assert versao.numero == 1
+
+
+def test_sem_intersecao_com_none_continua_aceito(camadas, mundo):
+    _publicar(mundo, _criar(mundo, _divisao({'G1': BIG})), nos=(), coluna_no='no', nome='Divisao')
+    longe = geojson([{'type': 'Feature', 'properties': {'valor': 1}, 'geometry': {'type': 'Polygon', 'coordinates': [FAR]}}])
+    versao = _publicar(mundo, _criar(mundo, longe), nos=[None])
+    assert versao.numero == 1  # fora de todo nó: fica na fazenda (decisão do mantenedor)

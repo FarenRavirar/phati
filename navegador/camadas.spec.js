@@ -89,9 +89,11 @@ test('carregando: a prévia mostra o aviso enquanto a API não responde', async 
 // (`popular_sintetico`); a A1 segue sem, para o estado vazio. Nome de camada com sufixo: a publicação recusa nome repetido.
 const FAZENDA_COM_ESTUDO = dados.fazendas_a[2];
 const urlDaFazendaComEstudo = (sufixo) => `/empresa/${dados.empresa_a}/fazenda/${FAZENDA_COM_ESTUDO}/${sufixo}`;
+// Polígono fora de todo nó: fica na própria fazenda sem escolha. (O quadrado antigo cruzava os dois nós com áreas iguais,
+// que agora é empate e exige escolha, R7; este fluxo testa o formulário, não a escolha de nó.)
 const GEOJSON_DE_POLIGONO = Buffer.from(JSON.stringify({
   type: 'FeatureCollection',
-  features: [{ type: 'Feature', properties: { valor: 1, obs: 'sintetico' }, geometry: { type: 'Polygon', coordinates: [[[-48.31, -10.71], [-48.29, -10.71], [-48.29, -10.69], [-48.31, -10.69], [-48.31, -10.71]]] } }],
+  features: [{ type: 'Feature', properties: { valor: 1, obs: 'sintetico' }, geometry: { type: 'Polygon', coordinates: [dados.camadas.fora] } }],
 }));
 
 test('pela interface: envia o arquivo, vê a prévia, publica e a versão fica em análise', async ({ page }, informacoes) => {
@@ -226,6 +228,36 @@ test('envio inexistente por URL direta: 404 igual ao de envio alheio', async ({ 
   const resposta = await page.goto(urlDaFazenda(`camadas/envio/${ENVIO_INEXISTENTE}`));
   expect(resposta.status()).toBe(404);
   await expect(page.getByText('object (')).toHaveCount(0);
+});
+
+test('escolha explícita de Própria fazenda numa feição que cruza: publica, e o texto da revisão diz o comportamento', async ({ page }, informacoes) => {
+  await entrar(page, dados.administradora_a.cpf);
+  await enviarEPrevia(page, geojsonDeRevisao([dados.camadas.cruza]));
+  const texto = await page.locator('#revisao-bloco .campo-ajuda').first().textContent();
+  expect(texto).toContain('já vêm com o nó de maior área escolhido');
+  expect(texto).toContain('ficam na própria fazenda');
+  await page.locator('#revisao_no_1').selectOption({ label: 'Própria fazenda' });
+  await preencherEPublicar(page, informacoes);
+  await expect(page.locator('#publicacao-sucesso')).toContainText('Versão 1 criada em análise.');
+  await conferirTela(page);
+});
+
+// Empate (R7): sem sugestão, a publicação não sai sem escolha; o aviso aparece na tela e nada é gravado.
+test('empate: sem escolher, o aviso aparece e nada é publicado; escolhendo, publica', async ({ page }, informacoes) => {
+  await entrar(page, dados.administradora_a.cpf);
+  await enviarEPrevia(page, geojsonDeRevisao([dados.camadas.empate]));
+  const select = page.locator('#revisao_no_1');
+  await expect(select).toHaveValue('');
+  await expect(select.locator('option').first()).toBeDisabled();
+  await expect(select.locator('option').first()).toHaveText('Escolha o nó');
+  await preencherEPublicar(page, informacoes);
+  await expect(page.locator('#publicacao-erro')).toContainText('Escolha o nó das feições em empate antes de publicar.');
+  await expect(page.locator('#publicacao-sucesso')).toBeHidden();
+  await conferirTela(page);
+  await select.selectOption({ label: 'Talhão A3-1' });
+  await page.getByRole('button', { name: 'Publicar em análise' }).click();
+  await expect(page.locator('#publicacao-sucesso')).toContainText('Versão 1 criada em análise.');
+  await conferirTela(page);
 });
 
 // Entrada pela página da fazenda (P2 navegação): a ação "Publicar camada" leva à tela de envio; quem não publica não a vê.

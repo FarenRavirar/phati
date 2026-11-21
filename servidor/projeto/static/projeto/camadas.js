@@ -27,6 +27,7 @@ function urlDoEnvio(modelo, envioId) {
 // Acima deste número de itens a revisão não vira lista de selects: a divisão por coluna é o caminho (R7 e R12, tela leve).
 const LIMITE_DE_ITENS_DE_REVISAO = 50;
 const ROTULO_PROPRIA_FAZENDA = 'Própria fazenda';
+const ROTULO_ESCOLHA_NO = 'Escolha o nó';
 
 // Nó de cada feição para a publicação. Feição da revisão recebe a escolha da pessoa (`null` = própria fazenda); as demais, a
 // sugestão da prévia. Sem escolha, vale a sugestão.
@@ -209,6 +210,16 @@ function resultadoDaPublicacao(documento, status, corpo) {
   return mostrarAviso(documento, 'publicacao-erro', mensagemDoErro(status, corpo));
 }
 
+// Feições em empate sem escolha: a publicação não sai (R7). Conta só o que falta; o servidor recusa o mesmo caso.
+function pendenciasDeEscolha(documento) {
+  return [...documento.querySelectorAll('#revisao-nos select[data-empate="true"]')].filter((seletor) => seletor.value === '').length;
+}
+
+// Texto que bloqueia a publicação no cliente (antes da API), ou null. O servidor recusa o mesmo caso (R7).
+function avisoDeBloqueio(documento) {
+  return pendenciasDeEscolha(documento) > 0 ? 'Escolha o nó das feições em empate antes de publicar.' : null;
+}
+
 // Um item da revisão: o rótulo aponta ao select pelo `for`/`id`, para o leitor de tela anunciar o nome do campo.
 function montarItemDeRevisao(documento, item, nosDaFazenda) {
   const campo = documento.createElement('div');  // o mesmo molde dos outros campos da tela (componentes/campo.html)
@@ -217,13 +228,22 @@ function montarItemDeRevisao(documento, item, nosDaFazenda) {
   seletor.className = 'campo-controle';
   seletor.id = `revisao_no_${item.indice}`;
   seletor.dataset.indice = String(item.indice);
+  const empate = item.motivo === 'empate';
+  seletor.dataset.empate = String(empate);
+  if (empate) { // sem sugestão: a pessoa escolhe; "Escolha o nó" fica pré-selecionado e não pode ser escolhido de novo
+    const escolha = documento.createElement('option');
+    escolha.value = '';
+    escolha.textContent = ROTULO_ESCOLHA_NO;
+    escolha.disabled = true;
+    seletor.append(escolha);
+  }
   for (const opcao of opcoesDeNo(nosDaFazenda)) {
     const elemento = documento.createElement('option');
     elemento.value = opcao.valor;
     elemento.textContent = opcao.rotulo;
     seletor.append(elemento);
   }
-  seletor.value = item.sugerido === null ? '' : String(item.sugerido);
+  seletor.value = empate || item.sugerido === null ? '' : String(item.sugerido);
   const rotulo = criarNo(documento, 'label', rotuloDaRevisao(item));
   rotulo.className = 'campo-rotulo';
   rotulo.htmlFor = seletor.id;
@@ -263,9 +283,11 @@ async function iniciarConfirmacao(documento, secao) {
   const botao = documento.getElementById('publicar');
   formulario.addEventListener('submit', async (evento) => {
     evento.preventDefault();
+    esconderAvisosDePublicacao(documento); // aviso de uma tentativa anterior não fica na tela
+    const bloqueio = avisoDeBloqueio(documento);
+    if (bloqueio) return mostrarAviso(documento, 'publicacao-erro', bloqueio);
     botao.disabled = true;
     botao.textContent = 'Publicando…';
-    esconderAvisosDePublicacao(documento); // aviso de uma tentativa anterior não fica na tela
     try {
       const { status, corpo } = await buscarJson(secao.dataset.apiPublicar, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': tokenCsrf(formulario) },
@@ -296,5 +318,5 @@ function iniciar(documento) {
 
 if (typeof document !== 'undefined') iniciar(document);
 if (typeof module !== 'undefined') {
-  module.exports = { mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha, resultadoDaPublicacao, esconderAvisosDePublicacao, montarItemDeRevisao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO };
+  module.exports = { mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha, resultadoDaPublicacao, esconderAvisosDePublicacao, montarItemDeRevisao, montarNos, opcoesDeNo, rotuloDaRevisao, pendenciasDeEscolha, avisoDeBloqueio, LIMITE_DE_ITENS_DE_REVISAO };
 }
