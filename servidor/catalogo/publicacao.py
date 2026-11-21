@@ -16,6 +16,7 @@ Divisão (D119): a camada marcada com `coluna_no` é a divisão da fazenda; cada
 coluna (`SubArea.nome`). A sugestão de nó de outras publicações usa a versão mais recente da divisão.
 """
 
+import json
 import tempfile
 from collections import defaultdict
 from pathlib import Path
@@ -29,8 +30,9 @@ from catalogo.envios import ACAO
 from catalogo.ingestao import ingerir_envio
 from catalogo.metadados import atributos_da_previa, montar_previa
 from catalogo.models import ESTADO_EM_ANALISE, AtributoVersao, Camada, EnvioCamada, Estudo, Feicao, VersaoCamada
-from catalogo.no_sugerido import contornos_da_divisao, nos_da_fazenda, sugerir_no
+from catalogo.no_sugerido import SugestaoNo, contornos_da_divisao, nos_da_fazenda, sugerir_no
 from comum.auditoria import auditar
+from projeto.ficha import CAMPOS, SEM_INFORMACAO
 from permissao.pode import com_permissao, escopo_arquivado, esquecer, pode
 from territorio.models import SubArea
 
@@ -84,19 +86,18 @@ def _ingerir_original(envio):
 
 
 def _nos_escolhidos(envio, nos, feicoes):
-    """Cada feição tem um nó (R7). Com nós na fazenda, `None` é recusado; sem nós, só `None` passa.
+    """Nó de cada feição (R7). `None` é a própria fazenda: vale com ou sem nós na fazenda, e a publicação não exige escolha
+    (decisão do mantenedor). Nó escolhido precisa ser ativo e da fazenda; lista com tamanho errado é recusada.
 
     Os nós escolhidos são travados (ordem por pk) e revalidados aqui: arquivamento concorrente espera a publicação (R13)."""
     if len(nos) != len(feicoes):
         raise RecusaPublicacao(['escolha de nó não confere com a quantidade de feições'])
     ativos = set(nos_da_fazenda(envio.fazenda))
-    escolhidos = set(nos)
+    escolhidos = set(nos) - {None}
     if not ativos:
-        if escolhidos - {None}:
+        if escolhidos:
             raise RecusaPublicacao(['a fazenda não tem nós, mas uma feição recebeu nó'])
         return
-    if None in escolhidos:
-        raise RecusaPublicacao(['feição sem nó: a fazenda tem nós'])
     if not escolhidos <= ativos:
         raise RecusaPublicacao(['nó inexistente, arquivado ou de outra fazenda'])
     for no in SubArea.objects.select_for_update().filter(pk__in=escolhidos).order_by('pk'):
@@ -148,13 +149,19 @@ def _alinhar_divisao(camada, coluna):
         raise RecusaPublicacao(['camada é a divisão da fazenda: publique com a coluna do nó marcada'])
 
 
-def _sugeridos(envio, feicoes, contornos):
-    """Nó sugerido de cada feição, recalculado aqui e não confiado ao cliente (R7). Sem divisão, nada é sugerido."""
+def _sugestoes(envio, feicoes, contornos):
+    """Sugestão completa de cada feição (motivo e área por nó), recalculada aqui e não confiada ao cliente (R7).
+    Sem divisão, toda feição fica sem sugestão."""
     if not contornos:
-        return [None] * len(feicoes)
+        return [SugestaoNo(None, 'sem_divisao', {}) for _ in feicoes]
     ativos = set(nos_da_fazenda(envio.fazenda))
     nos = [(id_no, geometria) for id_no, geometria in contornos.items() if id_no in ativos]
-    return [sugerir_no(feicao.geometria, nos).sub_area_id for feicao in feicoes]
+    return [sugerir_no(feicao.geometria, nos) for feicao in feicoes]
+
+
+def _sugeridos(envio, feicoes, contornos):
+    """Nó sugerido (id) de cada feição: a parte da publicação que não precisa do motivo."""
+    return [sugestao.sub_area_id for sugestao in _sugestoes(envio, feicoes, contornos)]
 
 
 def _proximo_numero(camada):
@@ -270,12 +277,54 @@ def publicar_envio(pessoa, envio_id, *, estudo_id, metadados, camada_id=None, oc
 
 def ler_previa(envio):
     """Prévia de um envio já guardado (R12): relê o original com hash, ingere de novo e sugere nós. Sem valor de atributo:
-    só colunas, sistema, transformação, avisos, contagem e o nó sugerido de cada feição."""
+    só colunas, sistema, transformação, avisos, contagem e o nó sugerido de cada feição. Envio vencido é recusado (mesma regra de
+    `publicar_envio`: `expira_em <= agora`)."""
+    if _vencido(envio):
+        raise RecusaPublicacao(['envio vencido'])
     previa = _ingerir_original(envio)
-    sugeridos = _sugeridos(envio, previa.feicoes, contornos_da_divisao(envio.fazenda))
+    sugestoes = _sugestoes(envio, previa.feicoes, contornos_da_divisao(envio.fazenda))
+    ativos = SubArea.objects.filter(fazenda=envio.fazenda, arquivada_em__isnull=True).order_by('pk')
+    nomes = {no.pk: no.nome for no in ativos}
+    # Revisão (R7/R12): feição que cruza dois ou mais nós, empata nas duas maiores áreas, ou fica fora de todos os nós. Fora
+    # de todos fica na própria fazenda (nó None), sem escolha obrigatória. O motivo e as áreas vêm do `sugerir_no`, não do JS.
+    revisao = [
+        {'indice': indice, 'motivo': sugestao.motivo, 'sugerido': sugestao.sub_area_id,
+         'areas': [{'no': no, 'nome': nomes.get(no, ''), 'area': area} for no, area in sugestao.areas.items()]}
+        for indice, sugestao in enumerate(sugestoes, start=1)
+        if len(sugestao.areas) >= 2 or sugestao.motivo in ('empate', 'sem_intersecao')
+    ] if nomes else []
     return {
         'formato': previa.formato, 'tipo': previa.tipo, 'sistema': previa.sistema,
         'origem_sistema': previa.origem_sistema, 'transformacao': previa.transformacao,
         'avisos': list(previa.avisos), 'contagem': previa.contagem, 'colunas': list(previa.campos),
-        'nos_sugeridos': sugeridos,
+        'nos_sugeridos': [sugestao.sub_area_id for sugestao in sugestoes],
+        'nos_da_fazenda': [{'no': no, 'nome': nome} for no, nome in nomes.items()],
+        'revisao': revisao,
+    }
+
+
+COR_DA_PREVIA = '--cor-camada-provisoria-1'  # nome da variável CSS (camadas.css), não cor: o mapa.js resolve `cor` por getPropertyValue
+FICHA_DA_PREVIA = {**dict.fromkeys(CAMPOS, SEM_INFORMACAO), 'camada': 'Prévia do envio (em análise)'}
+
+
+def _vencido(envio):
+    return envio.expira_em <= timezone.now()
+
+
+def ler_geometria(envio, limite):
+    """Geometria do envio para o mapa de teste (008 R12): até `limite` feições em 4326, com o total e a flag de truncado.
+    Sem atributo. Envio vencido é o mesmo `EnvioNaoEncontrado` de publicar (a API responde 404)."""
+    if _vencido(envio):
+        raise EnvioNaoEncontrado()
+    feicoes = _ingerir_original(envio).feicoes
+    return {
+        'type': 'FeatureCollection',  # GeoJSON: a chave é `type`, como o `validarColecao` do mapa.js espera
+        'features': [
+            # Contrato do `mapa.js` (`validarColecao`): `camada_id` e `cor` strings, e todo campo da ficha string. O envio não tem
+            # fonte, data, situação nem origem: vai "Sem informação" (ausente, nunca zero), como na ficha das camadas publicadas.
+            {'type': 'Feature', 'properties': {**FICHA_DA_PREVIA, 'indice': indice, 'camada_id': str(envio.publico_id), 'cor': COR_DA_PREVIA},
+             'geometry': json.loads(feicao.geometria.transform(4326, clone=True).json)}
+            for indice, feicao in enumerate(feicoes[:limite], start=1)
+        ],
+        'total': len(feicoes), 'limite': limite, 'truncado': len(feicoes) > limite,
     }

@@ -5,19 +5,25 @@ fora da resposta, do filtro e da busca, texto com marcação escapado, limite de
 hostil. Dado sintético (R17)."""
 
 import json
+from datetime import timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
+from django.utils import timezone
 
 from catalogo.ingestao import Limites, MENSAGEM_TAMANHO
-from catalogo.models import Camada, EnvioCamada, Estudo, Feicao, Tema, VersaoCamada
+from catalogo.models import AtributoVersao, Camada, EnvioCamada, Estudo, Feicao, Tema, VersaoCamada
 from catalogo.testes.test_ingestao import geojson
 from identidade import cpf as modulo_cpf
+from projeto.ficha import CAMPOS, SEM_INFORMACAO
 from identidade import senha, sessao
 from permissao.cargos_base import criar_cargos_base
+from permissao.models import Cargo, CargoPermissao
+from territorio.cadastro import arquivar
 
 pytestmark = pytest.mark.django_db(transaction=True, databases=['default', 'app'])
 NAO_ENCONTRADO = {'detalhe': 'nao_encontrado'}
@@ -113,6 +119,80 @@ def test_feliz_envia_le_previa_publica_lista_e_le_feicoes(camadas, mundo):
     assert [i['indice'] for i in v2['itens']] == [1, 2]
     pks = list(Feicao.objects.filter(versao__camada__publico_id=camada_id, versao__numero=2).order_by('id').values_list('id', flat=True))
     assert pks[0] > 2
+
+
+# --- geometria da prévia para o mapa (R12) -----------------------------------------------------------------------------
+
+def _geometria(pessoa, envio_id, consulta=''):
+    return _ler(pessoa, f'envios/{envio_id}/geometria{consulta}')
+
+
+def _vencer(envio_id):
+    EnvioCamada.objects.filter(publico_id=envio_id).update(expira_em=timezone.now() - timedelta(minutes=1))
+
+
+def test_geometria_feliz_devolve_feicoes_em_4326_com_total_e_sem_truncado(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    resposta = _geometria(mundo.operador, envio_id)
+    corpo = resposta.json()
+    assert resposta.status_code == 200
+    assert corpo['type'] == 'FeatureCollection'  # GeoJSON: `type`, não `tipo`
+    assert corpo['limite'] == 500
+    assert corpo['total'] == 2
+    assert corpo['truncado'] is False
+    assert [f['properties']['indice'] for f in corpo['features']] == [1, 2]
+    # Contrato do mapa.js: `camada_id` string (o id público do envio) e `cor` string; sem isso o mapa recusa a coleção.
+    assert all(f['properties']['camada_id'] == envio_id for f in corpo['features'])
+    assert all(f['properties']['camada'] == 'Prévia do envio (em análise)' for f in corpo['features'])
+    # `cor` é nome de variável CSS: o mapa.js resolve com `getPropertyValue`, e nome sem valor em camadas.css derruba o mapa.
+    css = (Path(__file__).resolve().parents[2] / 'projeto' / 'static' / 'projeto' / 'camadas.css').read_text(encoding='utf-8')
+    assert all(f'{f["properties"]["cor"]}:' in css for f in corpo['features'])
+    # Contrato do mapa.js (`CAMPOS_DA_FICHA`): todo campo da ficha é string; o que o envio não tem vai "Sem informação".
+    for feicao in corpo['features']:
+        for campo in CAMPOS:
+            assert isinstance(feicao['properties'][campo], str), campo
+        assert feicao['properties']['fonte'] == SEM_INFORMACAO
+    assert corpo['features'][0]['geometry']['type'] == 'Point'
+    assert corpo['features'][0]['geometry']['coordinates'] == pytest.approx([-48.3, -10.7], abs=1e-4)
+
+
+def test_geometria_com_limite_menor_que_o_total_marca_truncado(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    corpo = _geometria(mundo.operador, envio_id, '?limite=1').json()
+    assert corpo['total'] == 2  # total real, não zero nem o tamanho da página
+    assert corpo['truncado'] is True
+    assert len(corpo['features']) == 1
+
+
+@pytest.mark.parametrize('consulta', ['?limite=0', '?limite=2001'])
+def test_geometria_com_limite_fora_da_faixa_e_422(camadas, mundo, consulta):
+    envio_id = _envio_do_operador(mundo)
+    assert _geometria(mundo.operador, envio_id, consulta).status_code == 422
+
+
+def test_geometria_sem_acesso_outra_empresa_e_inexistente_recebem_o_mesmo_404(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    sem = _geometria(mundo.sem_permissao, envio_id)
+    outra = _geometria(mundo.intrusa, envio_id)
+    ausente = _geometria(mundo.operador, uuid4())
+    assert sem.status_code == outra.status_code == ausente.status_code == 404
+    assert sem.json() == outra.json() == ausente.json() == NAO_ENCONTRADO
+
+
+def test_geometria_de_envio_vencido_e_404(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    _vencer(envio_id)
+    resposta = _geometria(mundo.operador, envio_id)
+    assert resposta.status_code == 404
+    assert resposta.json() == NAO_ENCONTRADO
+
+
+def test_previa_de_envio_vencido_e_recusada(camadas, mundo):
+    envio_id = _envio_do_operador(mundo)
+    _vencer(envio_id)
+    resposta = _ler(mundo.operador, f'envios/{envio_id}')
+    assert resposta.status_code == 422
+    assert resposta.json()['erros'] == ['envio vencido']
 
 
 # --- 404 idêntico (R11) ------------------------------------------------------------------------------------------------
@@ -338,3 +418,61 @@ def test_coluna_com_nome_numerico_filtra_e_entra_na_busca(camadas, mundo):
     assert [i['valores']['2026'] for i in filtrado] == [7]
     busca = _ler(mundo.operador, f'{caminho}?busca=8').json()['itens']
     assert [i['valores']['2026'] for i in busca] == [8]
+
+
+# --- leitura de feição por nó (plan.md:63, R11; decisão do mantenedor): ver no nó lê só as feições do nó ----------------------
+
+def _camada_com_feicoes_por_no(mundo, cenario):
+    from django.contrib.gis.geos import GEOSGeometry  # noqa: PLC0415 (import local: só esta fixture usa geometria)
+    camada = Camada.objects.create(estudo=mundo.estudo, empresa=cenario.x, fazenda=cenario.f1, nome='Camada por nó')
+    versao = VersaoCamada.objects.create(camada=camada, empresa=cenario.x, fazenda=cenario.f1, numero=1,
+                                         sistema_original='WGS 84', origem='Sintético', enviada_por=mundo.operador)
+    quadrado = 'POLYGON((-48.3 -10.7, -48.29 -10.7, -48.29 -10.69, -48.3 -10.69, -48.3 -10.7))'
+    AtributoVersao.objects.create(versao=versao, empresa=cenario.x, fazenda=cenario.f1, nome='no')  # coluna visível: a resposta traz o valor
+    for no in (cenario.g2, cenario.g1, None):  # G2 antes de G1: a feição proibida vem antes da permitida (ordinal, T3.8)
+        Feicao.objects.create(versao=versao, empresa=cenario.x, fazenda=cenario.f1, sub_area=no,
+                              geometria=GEOSGeometry(quadrado, srid=4674), valores={'no': no.nome if no else 'fazenda'})
+    return camada
+
+
+def test_no_com_ver_le_so_as_feicoes_do_proprio_no(camadas, mundo, cenario, fabrica_pessoa, conceder_direto):
+    camada = _camada_com_feicoes_por_no(mundo, cenario)
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Ver no G1', base='usuario')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    so_g1 = fabrica_pessoa('So G1')
+    conceder_direto(so_g1, cargo, cenario.g1)
+    resposta = _ler(so_g1, f'camadas/{camada.publico_id}/versoes/1/feicoes')
+    assert resposta.status_code == 200
+    itens = resposta.json()['itens']
+    assert [i['valores']['no'] for i in itens] == ['G1']  # nem G2 nem a da fazenda (nó None)
+    assert itens[0]['indice'] == 1  # o ordinal conta só o que a pessoa lê: não vaza a posição das outras
+    # Os valores de nó de outras feições não aparecem em nenhum lugar da resposta.
+    assert 'G2' not in resposta.content.decode() and 'fazenda' not in resposta.content.decode()
+
+
+def test_admin_da_fazenda_le_todas_as_feicoes_inclusive_da_fazenda(camadas, mundo, cenario):
+    camada = _camada_com_feicoes_por_no(mundo, cenario)
+    itens = _ler(mundo.operador, f'camadas/{camada.publico_id}/versoes/1/feicoes').json()['itens']
+    assert sorted(i['valores']['no'] for i in itens) == ['G1', 'G2', 'fazenda']
+
+
+def test_sem_nenhum_ver_na_camada_e_404_igual_a_inexistente(camadas, mundo, cenario, fabrica_pessoa):
+    camada = _camada_com_feicoes_por_no(mundo, cenario)
+    sem = fabrica_pessoa('Sem ver nenhum')
+    de_fora = _ler(sem, f'camadas/{camada.publico_id}/versoes/1/feicoes')
+    inexistente = _ler(sem, f'camadas/{uuid4()}/versoes/1/feicoes')
+    assert de_fora.status_code == inexistente.status_code == 404
+    assert de_fora.json() == inexistente.json() == NAO_ENCONTRADO
+
+
+def test_no_arquivado_com_ver_continua_lendo_as_proprias_feicoes(camadas, mundo, cenario, fabrica_pessoa, conceder_direto):
+    # 003 R11: `ver` é ação de leitura e vale em escopo arquivado (`ACOES_DE_LEITURA`). Nó arquivado não some do alcance.
+    camada = _camada_com_feicoes_por_no(mundo, cenario)
+    arquivar(mundo.operador, cenario.g1)  # o ato do próprio cadastro (grava `arquivamento`, como a tela)
+    cargo = Cargo.objects.create(empresa=cenario.x, nome='Ver no G1 arquivado', base='usuario')
+    CargoPermissao.objects.create(cargo=cargo, permissao_id='ver')
+    leitor = fabrica_pessoa('Leitor de G1 arquivado')
+    conceder_direto(leitor, cargo, cenario.g1)
+    resposta = _ler(leitor, f'camadas/{camada.publico_id}/versoes/1/feicoes')
+    assert resposta.status_code == 200
+    assert [i['valores']['no'] for i in resposta.json()['itens']] == ['G1']

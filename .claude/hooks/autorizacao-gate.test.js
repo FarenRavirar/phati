@@ -13,7 +13,11 @@ const path = require('node:path');
 
 const HOOK = path.join(__dirname, 'autorizacao-gate.js');
 
-function rodar(command) {
+// `ambiente` sobrepõe o do processo; sem `PHATI_GATE_WORKTREE` explícita, a variável sai do ambiente do filho
+// (o teste não herda a configuração da máquina de quem roda).
+function rodar(command, ambiente = {}) {
+  const env = { ...process.env, ...ambiente };
+  if (!('PHATI_GATE_WORKTREE' in ambiente)) delete env.PHATI_GATE_WORKTREE;
   const saida = execFileSync('node', [HOOK], {
     input: JSON.stringify({
       hook_event_name: 'PreToolUse',
@@ -21,6 +25,7 @@ function rodar(command) {
       tool_input: { command },
     }),
     encoding: 'utf8',
+    env,
   });
   if (!saida.trim()) return null;
   return JSON.parse(saida).hookSpecificOutput;
@@ -93,15 +98,32 @@ const CASOS = [
 
   // --- BLOQUEIA: substituicao dentro de echo executa de verdade ---
   ['echo "$(git commit -m x)"', 'commit-sem-autorizacao'],
+
+  // --- PHATI_GATE_WORKTREE: só `0` desliga a regra worktree; o resto dela segue igual ---
+  // Ausente = ativa (padrão de fábrica).
+  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', {}],
+  // Valor inválido mantém ativa: desligar exige `0` exato.
+  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: '1' }],
+  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: '' }],
+  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: 'false' }],
+  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: '00' }],
+  // `0` desliga a regra worktree (add, move e remove).
+  ['git worktree add ../phati-x', null, { PHATI_GATE_WORKTREE: '0' }],
+  ['git worktree move ../phati-x ../phati-y', null, { PHATI_GATE_WORKTREE: '0' }],
+  ['git worktree remove ../phati-x', null, { PHATI_GATE_WORKTREE: '0' }],
+  // Desligar worktree não desliga as outras regras de ask.
+  ['git commit -m x', 'commit-sem-autorizacao', { PHATI_GATE_WORKTREE: '0' }],
+  ['sudo apt install foo', 'pacote-novo', { PHATI_GATE_WORKTREE: '0' }],
+  ['git push --force origin dev', 'push-force', { PHATI_GATE_WORKTREE: '0' }],
 ];
 
 let ok = 0;
 const falhas = [];
 
-for (const [cmd, esperado] of CASOS) {
+for (const [cmd, esperado, ambiente] of CASOS) {
   let obtido = null;
   try {
-    const r = rodar(cmd);
+    const r = rodar(cmd, ambiente);
     obtido = r ? r.permissionDecisionReason.match(/\[autorizacao-gate\/([^\]]+)\]/)?.[1] : null;
   } catch (e) {
     falhas.push(`ERRO  ${cmd} -> ${e.message}`);

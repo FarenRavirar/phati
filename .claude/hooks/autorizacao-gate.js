@@ -104,6 +104,9 @@ const REGRAS = [
   {
     nome: 'worktree-sem-aprovacao',
     decisao: 'ask',
+    // Desligável só por `PHATI_GATE_WORKTREE=0` (máquina do mantenedor que decide worktree sozinho). Ausente ou
+    // qualquer outro valor mantém a regra ativa: desligar exige valor exato, nunca por engano.
+    desligavel: 'PHATI_GATE_WORKTREE',
     test: /\bgit\s+worktree\s+(?:add|move|remove)\b/,
     porque: 'AGENTS.md §Decisao, pausa e duvida: criar/mover/remover worktree exige aprovacao nominal PREVIA. Explique antes por que o cwd nao pode ser usado, o caminho exato, e como o trabalho volta. `git worktree list` e livre.',
   },
@@ -123,6 +126,11 @@ const REGRAS = [
   },
 ];
 
+// Tira a regra que o ambiente desligou. Regra sem `desligavel` é sempre ativa.
+function regrasAtivas(ambiente) {
+  return REGRAS.filter((regra) => !regra.desligavel || ambiente[regra.desligavel] !== '0');
+}
+
 lerPayload((raw) => {
   let command = '';
   try {
@@ -134,7 +142,7 @@ lerPayload((raw) => {
 
   const alvo = normalizar(command);
 
-  for (const regra of REGRAS) {
+  for (const regra of regrasAtivas(process.env)) {
     if (!regra.test.test(alvo)) continue;
 
     console.log(JSON.stringify({

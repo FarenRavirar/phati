@@ -9,6 +9,7 @@ import json
 from typing import Annotated
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Count, F, Func, OuterRef, Q, Subquery, TextField, Value
 from django.db.models.functions import Cast
 from ninja import Router, Schema, Status
@@ -21,7 +22,7 @@ from catalogo.ingestao import LIMITES_PADRAO, MENSAGEM_TAMANHO, RecusaIngestao
 from catalogo.models import AtributoVersao, Camada, EnvioCamada, Feicao, VersaoCamada
 from catalogo.publicacao import EnvioNaoEncontrado, RecusaPublicacao, publicar_envio
 from permissao.pode import exige_permissao, pode
-from territorio.models import Fazenda
+from territorio.models import Fazenda, SubArea
 
 roteador = Router(tags=['catalogo'])
 LIMITE_PADRAO = 50
@@ -63,12 +64,30 @@ def _envio_visivel(acao):
     return obter
 
 
+def _alcance_de_feicoes(pessoa, fazenda):
+    """Feições que a pessoa lê na camada da fazenda (plan.md:63, R11; decisão do mantenedor). `None`: todas (`ver` na fazenda).
+    Senão, só as dos nós em que `pode(ver)` vale (descendentes incluídos pela regra de `pode`). Feição da fazenda (nó None)
+    só com `ver` na fazenda. Lista vazia: a pessoa não lê nenhuma feição desta camada."""
+    if pode(pessoa, 'ver', fazenda):
+        return None
+    # Nó arquivado entra: `ver` é ação de leitura e vale em escopo arquivado (`ACOES_DE_LEITURA`, pode.py:33).
+    nos = SubArea.objects.filter(fazenda=fazenda).order_by('pk')
+    return [no.pk for no in nos if pode(pessoa, 'ver', no)]
+
+
 def _camada_visivel(acao):
+    """Alvo da rota por camada: a fazenda (ver na fazenda) ou um nó visível (plan.md:63: alvo SubArea ou Fazenda). Sem nenhum:
+    404 igual ao de camada inexistente (R11)."""
     def obter(requisicao, camada_id, **_):
         camada = Camada.objects.filter(publico_id=camada_id).select_related('fazenda').first()
-        if camada is None or not pode(requisicao.user, acao, camada.fazenda):
+        if camada is None:
             raise Camada.DoesNotExist()
-        return camada.fazenda
+        if pode(requisicao.user, acao, camada.fazenda):
+            return camada.fazenda
+        visiveis = _alcance_de_feicoes(requisicao.user, camada.fazenda)
+        if not visiveis:
+            raise Camada.DoesNotExist()
+        return SubArea.objects.get(pk=visiveis[0])
     return obter
 
 
@@ -123,6 +142,19 @@ def previa(request, envio_id: UUID):
         return _recusado(erro.erros)
 
 
+@roteador.get('envios/{envio_id}/geometria', url_name='catalogo_geometria', response={200: dict, 422: dict})
+@exige_permissao('publicar_camada', _envio_visivel('publicar_camada'))
+def geometria(request, envio_id: UUID,
+              limite: Annotated[int, parametros.Query(ge=1, le=settings.CATALOGO_GEOMETRIA_LIMITE_MAXIMO)] = settings.CATALOGO_GEOMETRIA_LIMITE_PADRAO):
+    envio = EnvioCamada.objects.get(publico_id=envio_id)
+    try:
+        return publicacao.ler_geometria(envio, limite)
+    except EnvioNaoEncontrado:
+        raise EnvioCamada.DoesNotExist() from None
+    except (RecusaPublicacao, RecusaIngestao) as erro:
+        return _recusado(erro.erros)
+
+
 @roteador.post('envios/{envio_id}/publicar', url_name='catalogo_publicar', response={201: dict, 422: dict})
 @exige_permissao('publicar_camada', _envio_visivel('publicar_camada'))
 def publicar(request, envio_id: UUID, dados: EntradaPublicacao):
@@ -158,14 +190,17 @@ def feicoes(request, camada_id: UUID, numero: int, limite: Annotated[int, parame
             busca: str | None = None):
     camada = Camada.objects.get(publico_id=camada_id)
     versao = VersaoCamada.objects.get(camada=camada, numero=numero)
+    alcance = _alcance_de_feicoes(request.user, camada.fazenda)
+    # Filtro único de leitura: o ordinal também conta só o alcance, para não vazar a posição das feições de outros nós.
+    filtro = Q() if alcance is None else Q(sub_area_id__in=alcance)
     visiveis = sorted(AtributoVersao.objects.filter(versao=versao, visivel=True).values_list('nome', flat=True))
     if coluna is not None and (coluna not in visiveis or valor is None):
         raise HttpError(422, 'filtro_invalido')  # coluna oculta ou inexistente: 422, nunca "sem resultado" (R9)
     # `_indice`: ordinal da feição na versão COMPLETA (pela pk), calculado antes de filtrar, então não muda com filtro,
     # busca ou página. Subconsulta correlata: conta as feições da versão com pk ≤ a da linha (custo por linha, não medido).
-    ordinal = Feicao.objects.filter(versao=versao, pk__lte=OuterRef('pk')).order_by().values('versao').annotate(
+    ordinal = Feicao.objects.filter(versao=versao).filter(filtro, pk__lte=OuterRef('pk')).order_by().values('versao').annotate(
         total=Count('pk')).values('total')
-    qs = Feicao.objects.filter(versao=versao).annotate(_indice=Subquery(ordinal)).order_by('id')
+    qs = Feicao.objects.filter(versao=versao).filter(filtro).annotate(_indice=Subquery(ordinal)).order_by('id')
     if coluna is not None:
         qs = qs.annotate(_filtro=_valor_texto(coluna)).filter(_filtro=valor)
     if busca:

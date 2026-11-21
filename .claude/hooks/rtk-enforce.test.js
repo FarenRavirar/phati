@@ -65,6 +65,10 @@ const CASES = [
   { cmd: `rtk grep -e "termo" arquivo.md`, deny: false },
   { cmd: `rtk grep -A 2 "termo" arquivo.md`, deny: false },
   { cmd: `rtk grep -n "termo" arquivo.md 2>&1`, deny: false },
+  // Redirecionamento (`> saida.txt`) não é alvo: o gate não o trata como diretório nem como arquivo a checar.
+  { cmd: `rtk grep -n X arquivo.md > saida.txt`, deny: false },
+  // `--` antes do padrão: `--agent` é padrão literal, `arquivo.md` é o único alvo.
+  { cmd: `rtk grep -n -- --agent arquivo.md`, deny: false },
   { cmd: `rtk grep -n X specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
   { cmd: `rtk grep -n "termo" arquivo.md specs`, deny: true, rule: 'rtk-grep-em-diretorio' },
   { cmd: `rtk grep -e "termo" specs`, deny: true, rule: 'rtk-grep-em-diretorio' },

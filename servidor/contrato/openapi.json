@@ -1806,6 +1806,73 @@
         ]
       }
     },
+    "/api/v1/envios/{envio_id}/geometria": {
+      "get": {
+        "operationId": "catalogo_api_geometria",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "envio_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Envio Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "AutenticacaoAplicativo": []
+          },
+          {
+            "AutenticacaoNavegador": []
+          }
+        ],
+        "summary": "Geometria",
+        "tags": [
+          "catalogo"
+        ]
+      }
+    },
     "/api/v1/envios/{envio_id}/publicar": {
       "post": {
         "operationId": "catalogo_api_publicar",

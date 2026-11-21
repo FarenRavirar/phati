@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from django.core.exceptions import PermissionDenied
+from django.http import Http404
 from django.shortcuts import redirect, render
 from django.utils.cache import add_never_cache_headers
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -113,10 +114,11 @@ def pagina(acao):
     return declarar
 
 
-def exigir(requisicao, acao, alvo=None):
-    """Alcance sem a ação: 403 (a regra é a mesma da API)."""
+def exigir(requisicao, acao, alvo=None, *, nao_encontrado=False):
+    """Alcance sem a ação: 403 (a regra é a mesma da API). `nao_encontrado=True` responde 404, o de alvo inexistente (telas que
+    escondem a existência da fazenda, como as de camadas)."""
     if not pode(requisicao.user, acao, alvo):
-        raise PermissionDenied
+        raise Http404 if nao_encontrado else PermissionDenied
 
 
 def campo(nome, rotulo, valor='', erro=None, ajuda=None, **extra):

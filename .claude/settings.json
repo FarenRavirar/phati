@@ -39,7 +39,9 @@
       "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_AMBIENTE)",
       "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_MAPA_TESTE_ATIVO)",
       "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_MAPA_FUNDO_GOOGLE_ATIVO)",
-      "Bash(ssh maruko docker exec phati-app-1 sh -c 'test -n \"$PHATI_MAPA_GOOGLE_CHAVE\" && echo chave=presente || echo chave=ausente')"
+      "Bash(ssh maruko docker exec phati-app-1 sh -c 'test -n \"$PHATI_MAPA_GOOGLE_CHAVE\" && echo chave=presente || echo chave=ausente')",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)"
     ],
     "ask": [
       "Bash(git commit:*)",
@@ -49,8 +51,6 @@
       "Bash(gh pr merge:*)",
       "Bash(*docker volume rm*)",
       "Bash(*docker volume prune*)",
-      "Edit(.claude/settings.json)",
-      "Write(.claude/settings.json)",
       "Bash(ssh maruko:*)",
       "Bash(scp *)",
       "Bash(rsync *)"
