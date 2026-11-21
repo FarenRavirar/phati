@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const {
   mensagemDoErro, urlDoEnvio, montarPublicacao, linhasDoResumo, contarNos, textoDosNos, criarNo, tratarFalha,
-  resultadoDaPublicacao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO, montarItemDeRevisao,
+  resultadoDaPublicacao, montarNos, opcoesDeNo, rotuloDaRevisao, LIMITE_DE_ITENS_DE_REVISAO, montarItemDeRevisao, pendenciasDeEscolha, avisoDeBloqueio,
 } = require('./camadas.js');
 
 const PROJETO = path.join(__dirname, '..', '..');
@@ -176,5 +176,53 @@ test('montarItemDeRevisao liga o rótulo ao select pelo for = id, e o select tra
   assert.equal(seletor.id, 'revisao_no_3');
   assert.equal(rotulo.htmlFor, seletor.id);
   assert.match(rotulo.textContent, /empate/);
-  assert.deepEqual(seletor.children.map((opcao) => opcao.textContent), ['Própria fazenda', 'Talhão 9']);
+  assert.deepEqual(seletor.children.map((opcao) => opcao.textContent), ['Escolha o nó', 'Própria fazenda', 'Talhão 9']); // item de empate
+});
+
+// Molde dos campos (componentes/campo.html): cada item é um `div.campo` com o rótulo `campo-rotulo` antes do `campo-controle`.
+test('montarItemDeRevisao usa o molde de campo: div.campo, rótulo antes do select, mesmas classes', () => {
+  const item = { indice: 1, motivo: 'empate', sugerido: null, areas: [{}, {}] };
+  const campo = montarItemDeRevisao(documentoFalso(), item, [{ no: 9, nome: 'Talhão 9' }]);
+  assert.equal(campo.className, 'campo');
+  const [rotulo, seletor] = campo.children;
+  assert.equal(rotulo.className, 'campo-rotulo');
+  assert.equal(seletor.className, 'campo-controle');
+  assert.equal(rotulo.htmlFor, seletor.id);
+});
+
+// Escolha explícita de "Própria fazenda" numa feição que tem sugestão: publica nó nulo; sem mexer, vale a sugestão.
+test('escolher Própria fazenda numa feição com sugestão publica null, e sem mexer vale a sugestão', () => {
+  const previa = { nos_sugeridos: [7, 8] };
+  assert.deepEqual(montarNos(previa, { 1: null }), [null, 8]);
+  assert.deepEqual(montarNos(previa, {}), [7, 8]);
+  assert.deepEqual(opcoesDeNo([{ no: 7, nome: 'G1' }])[0], { valor: '', rotulo: 'Própria fazenda' });
+});
+
+// Empate (R7): "Escolha o nó" pré-selecionado e desabilitado; sem escolha, a publicação é bloqueada antes da API.
+function documentoComSelects(selects) {
+  // Honra o seletor `[data-empate="true"]`, como o DOM real faz.
+  return { querySelectorAll: (seletor) => (seletor.includes('data-empate="true"') ? selects.filter((s) => s.dataset.empate === 'true') : selects) };
+}
+
+test('empate sem escolha bloqueia a publicação; com nó escolhido, libera; fora de nó (sem empate) não bloqueia', () => {
+  const documento = (valores) => documentoComSelects(valores.map((valor) => ({ dataset: { empate: 'true' }, value: valor })));
+  assert.equal(pendenciasDeEscolha(documento([''])), 1);
+  assert.equal(pendenciasDeEscolha(documento(['3'])), 0);
+  assert.equal(pendenciasDeEscolha(documentoComSelects([{ dataset: { empate: 'false' }, value: '' }])), 0);
+});
+
+test('o select de empate começa em "Escolha o nó", desabilitado, e o de cruzamento com maior área começa no sugerido', () => {
+  const empate = montarItemDeRevisao(documentoFalso(), { indice: 1, motivo: 'empate', sugerido: null, areas: [{}, {}] }, [{ no: 9, nome: 'T9' }]);
+  const [, seletorEmpate] = empate.children;
+  assert.equal(seletorEmpate.dataset.empate, 'true');
+  assert.equal(seletorEmpate.children[0].textContent, 'Escolha o nó');
+  assert.equal(seletorEmpate.children[0].disabled, true);
+  assert.equal(seletorEmpate.value, '');
+  assert.equal(seletorEmpate.children.some((o) => o.textContent === 'Própria fazenda'), true);
+});
+
+test('avisoDeBloqueio devolve o texto só quando falta escolha de empate (bloqueio no cliente, antes da API)', () => {
+  const com = (valor) => documentoComSelects([{ dataset: { empate: 'true' }, value: valor }]);
+  assert.equal(avisoDeBloqueio(com('')), 'Escolha o nó das feições em empate antes de publicar.');
+  assert.equal(avisoDeBloqueio(com('4')), null);
 });

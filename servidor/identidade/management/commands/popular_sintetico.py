@@ -98,6 +98,8 @@ NOS_DA_A3 = (
 # Feição que cruza os dois nós (maior parte no nó 1: sugestão pela maior área) e feição fora de todo nó.
 FEICAO_QUE_CRUZA = ((-48.3075, -10.7050), (-48.2975, -10.7050), (-48.2975, -10.6950), (-48.3075, -10.6950), (-48.3075, -10.7050))
 FEICAO_FORA_DE_NOS = ((-48.50, -10.90), (-48.49, -10.90), (-48.49, -10.89), (-48.50, -10.89), (-48.50, -10.90))
+# Feição em empate: metade sobre cada nó, mesma área (R7: sem sugestão, a pessoa escolhe).
+FEICAO_EM_EMPATE = ((-48.305, -10.705), (-48.295, -10.705), (-48.295, -10.695), (-48.305, -10.695), (-48.305, -10.705))
 
 
 def _divisao_da_a3(administrador, empresa, fazenda, estudo):
@@ -166,6 +168,7 @@ def popular():
             'nos_a3': nos_a3,
             'cruza': [list(p) for p in FEICAO_QUE_CRUZA],
             'fora': [list(p) for p in FEICAO_FORA_DE_NOS],
+            'empate': [list(p) for p in FEICAO_EM_EMPATE],
         },
     }
 

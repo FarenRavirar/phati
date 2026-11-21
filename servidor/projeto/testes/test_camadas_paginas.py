@@ -91,6 +91,9 @@ def test_publicacao_lista_estudo_e_leva_a_api_de_publicar(cliente_logado, public
     assert 'id="formulario-publicacao" hidden' in html  # aparece depois que a prévia carrega (camadas.js)
     assert '<output id="publicacao-carregando">' in html
     assert 'id="revisao-nos"' in html  # lista de revisão de nós, preenchida pelo camadas.js
+    # Texto fiel ao comportamento: sugestão pré-selecionada, fora de nó fica na fazenda, e 'Própria fazenda' é a escolha explícita.
+    for trecho in ('já vêm com o nó de maior área escolhido', 'Feições fora de todos os nós ficam na própria fazenda', "escolha 'Própria fazenda'", 'precisam de escolha'):
+        assert trecho in html, trecho
     assert '<output class="aviso aviso-sucesso" id="publicacao-sucesso" hidden>' in html
 
 
