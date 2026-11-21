@@ -178,3 +178,14 @@ test('montarItemDeRevisao liga o rótulo ao select pelo for = id, e o select tra
   assert.match(rotulo.textContent, /empate/);
   assert.deepEqual(seletor.children.map((opcao) => opcao.textContent), ['Própria fazenda', 'Talhão 9']);
 });
+
+// Molde dos campos (componentes/campo.html): cada item é um `div.campo` com o rótulo `campo-rotulo` antes do `campo-controle`.
+test('montarItemDeRevisao usa o molde de campo: div.campo, rótulo antes do select, mesmas classes', () => {
+  const item = { indice: 1, motivo: 'empate', sugerido: null, areas: [{}, {}] };
+  const campo = montarItemDeRevisao(documentoFalso(), item, [{ no: 9, nome: 'Talhão 9' }]);
+  assert.equal(campo.className, 'campo');
+  const [rotulo, seletor] = campo.children;
+  assert.equal(rotulo.className, 'campo-rotulo');
+  assert.equal(seletor.className, 'campo-controle');
+  assert.equal(rotulo.htmlFor, seletor.id);
+});

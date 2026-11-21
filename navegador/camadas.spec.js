@@ -157,7 +157,7 @@ async function preencherEPublicar(page, informacoes) {
 test('trocar nó e publicar: a feição que cruza dois nós recebe o nó escolhido na lista', async ({ page }, informacoes) => {
   await entrar(page, dados.administradora_a.cpf);
   await enviarEPrevia(page, geojsonDeRevisao([dados.camadas.cruza]));
-  await expect(page.locator('#revisao-nos li')).toHaveCount(1);
+  await expect(page.locator('#revisao-nos .campo')).toHaveCount(1);
   await conferirTela(page); // com a revisão aberta: axe (rótulo ligado ao select) e sem rolagem horizontal
   await page.locator('#revisao_no_1').selectOption({ label: 'Talhão A3-2' });
   await preencherEPublicar(page, informacoes);

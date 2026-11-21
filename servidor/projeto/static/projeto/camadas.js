@@ -211,8 +211,10 @@ function resultadoDaPublicacao(documento, status, corpo) {
 
 // Um item da revisão: o rótulo aponta ao select pelo `for`/`id`, para o leitor de tela anunciar o nome do campo.
 function montarItemDeRevisao(documento, item, nosDaFazenda) {
-  const linha = documento.createElement('li');
+  const campo = documento.createElement('div');  // o mesmo molde dos outros campos da tela (componentes/campo.html)
+  campo.className = 'campo';
   const seletor = documento.createElement('select');
+  seletor.className = 'campo-controle';
   seletor.id = `revisao_no_${item.indice}`;
   seletor.dataset.indice = String(item.indice);
   for (const opcao of opcoesDeNo(nosDaFazenda)) {
@@ -223,15 +225,17 @@ function montarItemDeRevisao(documento, item, nosDaFazenda) {
   }
   seletor.value = item.sugerido === null ? '' : String(item.sugerido);
   const rotulo = criarNo(documento, 'label', rotuloDaRevisao(item));
+  rotulo.className = 'campo-rotulo';
   rotulo.htmlFor = seletor.id;
-  linha.append(rotulo, seletor);
-  return linha;
+  campo.append(rotulo, seletor);
+  return campo;
 }
 
 // Lista de revisão: um select por feição, com a sugestão como valor inicial. Acima do limite, só o aviso.
 function montarRevisao(documento, previa) {
   const lista = documento.getElementById('revisao-nos');
   if (!previa.revisao || previa.revisao.length === 0) return;
+  documento.getElementById('revisao-bloco').hidden = false;
   if (previa.revisao.length > LIMITE_DE_ITENS_DE_REVISAO) {
     const aviso = documento.getElementById('revisao-aviso');
     aviso.textContent = `Há ${previa.revisao.length} feições para revisar: acima de ${LIMITE_DE_ITENS_DE_REVISAO}, use a divisão por coluna.`;
