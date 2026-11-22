@@ -260,6 +260,35 @@ test('empate: sem escolher, o aviso aparece e nada é publicado; escolhendo, pub
   await conferirTela(page);
 });
 
+// Pontos e linhas (R7 pela decisão do mantenedor): o ponto dentro do nó 1 vai a ele sem entrar na lista; a linha que cruza
+// os dois nós aparece na lista, com o rótulo de cruzamento, e a pessoa pode publicar sem trocar (nó de maior comprimento).
+// Um arquivo tem um tipo de geometria (test_tipo_misturado_na_mesma_camada_e_recusado): ponto e linha vão em envios separados.
+test('ponto dentro do nó: publica sem lista (vai ao nó que o contém)', async ({ page }, informacoes) => {
+  await entrar(page, dados.administradora_a.cpf);
+  const conteudo = Buffer.from(JSON.stringify({ type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { valor: 1 }, geometry: { type: 'Point', coordinates: dados.camadas.ponto } },
+  ] }));
+  await enviarEPrevia(page, conteudo);
+  await expect(page.locator('#revisao-bloco')).toBeHidden();  // ponto dentro de um nó não entra na lista
+  await preencherEPublicar(page, informacoes);
+  await expect(page.locator('#publicacao-sucesso')).toContainText('Versão 1 criada em análise.');
+  await conferirTela(page);
+});
+
+test('linha que cruza dois nós: entra na lista com o rótulo de cruzamento e publica', async ({ page }, informacoes) => {
+  await entrar(page, dados.administradora_a.cpf);
+  const conteudo = Buffer.from(JSON.stringify({ type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: { valor: 2 }, geometry: { type: 'LineString', coordinates: dados.camadas.linha } },
+  ] }));
+  await enviarEPrevia(page, conteudo);
+  await expect(page.locator('#revisao-nos .campo')).toHaveCount(1);
+  await expect(page.locator('#revisao-nos label').first()).toContainText('cruza 2 nós');
+  await conferirTela(page);
+  await preencherEPublicar(page, informacoes);
+  await expect(page.locator('#publicacao-sucesso')).toContainText('Versão 1 criada em análise.');
+  await conferirTela(page);
+});
+
 // Entrada pela página da fazenda (P2 navegação): a ação "Publicar camada" leva à tela de envio; quem não publica não a vê.
 test('a página da fazenda leva à publicação pela ação, e quem não publica não vê o link', async ({ page }, informacoes) => {
   await entrar(page, dados.administradora_a.cpf);

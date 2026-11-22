@@ -295,7 +295,7 @@ def ler_previa(envio):
         {'indice': indice, 'motivo': sugestao.motivo, 'sugerido': sugestao.sub_area_id,
          'areas': [{'no': no, 'nome': nomes.get(no, ''), 'area': area} for no, area in sugestao.areas.items()]}
         for indice, sugestao in enumerate(sugestoes, start=1)
-        if len(sugestao.areas) >= 2 or sugestao.motivo in ('empate', 'sem_intersecao')
+        if len(sugestao.areas) >= 2 or sugestao.motivo in ('empate', 'sem_intersecao', 'abaixo_do_limiar')
     ] if nomes else []
     return {
         'formato': previa.formato, 'tipo': previa.tipo, 'sistema': previa.sistema,

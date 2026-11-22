@@ -56,46 +56,86 @@ def contornos_da_divisao(fazenda):
     return contornos
 
 
-def _area(cursor, ewkt):
-    cursor.execute('SELECT ST_Area(ST_GeomFromEWKT(%s)::geography)', [ewkt])
+# Medida por tipo de geometria (008 R7). Polígono: área de interseção. Linha: comprimento da interseção (geography, metros).
+# Ponto e multiponto: quantos pontos da feição caem no nó, na borda inclusive (ST_Intersection devolve os pontos contidos).
+# Fragmentos fixos abaixo: nenhum valor do cliente entra no SQL, só o nome do tipo, que vem do GEOS.
+_MEDIDA_DA_INTERSECAO = {
+    'Polygon': 'ST_Area(ST_Intersection(feicao.f, no.g)::geography)',
+    'MultiPolygon': 'ST_Area(ST_Intersection(feicao.f, no.g)::geography)',
+    'LineString': 'ST_Length(ST_Intersection(feicao.f, no.g)::geography)',
+    'MultiLineString': 'ST_Length(ST_Intersection(feicao.f, no.g)::geography)',
+    'Point': 'ST_NumGeometries(ST_Intersection(feicao.f, no.g))',
+    'MultiPoint': 'ST_NumGeometries(ST_Intersection(feicao.f, no.g))',
+}
+_TOTAL_DA_FEICAO = {
+    'Polygon': 'ST_Area(f::geography)',
+    'MultiPolygon': 'ST_Area(f::geography)',
+    'LineString': 'ST_Length(f::geography)',
+    'MultiLineString': 'ST_Length(f::geography)',
+    'Point': 'ST_NumGeometries(f)',
+    'MultiPoint': 'ST_NumGeometries(f)',
+}
+# shortcut: coleção mista (GeometryCollection) não tem medida única; vai como sem_area até a spec dizer o que fazer com ela.
+TIPOS_DE_PONTO = frozenset({'Point', 'MultiPoint'})
+
+
+def _total(cursor, ewkt, tipo):
+    """Medida total da feição (área, comprimento ou quantidade de pontos). 0 para tipo sem medida (coleção mista)."""
+    expressao = _TOTAL_DA_FEICAO.get(tipo)
+    if expressao is None:
+        return 0.0
+    cursor.execute(f'SELECT COALESCE({expressao}, 0) FROM (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao', [ewkt])
     return float(cursor.fetchone()[0] or 0.0)
 
 
-def _areas_de_interseccao(cursor, ewkt_feicao, nos):
-    """Área de interseção da feição com cada nó: uma consulta por feição, com todos os nós em `unnest` (medido: antes
-    eram N×M consultas, 1051 para 50 feições × 20 nós). Pares (id do nó, área) na ordem de `nos`."""
+def _medidas(cursor, ewkt_feicao, tipo, nos):
+    """Medida da feição em cada nó, numa consulta só (medido antes: N×M consultas eram o problema, 1051 para 50×20).
+    Pares (id do nó, medida) na ordem de `nos`."""
+    medida = _MEDIDA_DA_INTERSECAO[tipo]
     cursor.execute(
-        'SELECT t.id, ST_Area(ST_Intersection(ST_GeomFromEWKT(%s)::geography, ST_GeomFromEWKT(t.ewkt)::geography)) '
-        'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt)',
-        [ewkt_feicao, [id_no for id_no, _ in nos], [geometria.ewkt for _, geometria in nos]],
+        f'SELECT t.id, COALESCE({medida}, 0) '
+        'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt) '
+        'CROSS JOIN (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao '
+        'CROSS JOIN LATERAL (SELECT ST_GeomFromEWKT(t.ewkt) AS g) AS no',
+        [[id_no for id_no, _ in nos], [geometria.ewkt for _, geometria in nos], ewkt_feicao],
     )
-    brutas = {id_no: float(area or 0.0) for id_no, area in cursor.fetchall()}
+    brutas = {id_no: float(valor or 0.0) for id_no, valor in cursor.fetchall()}
     return [(id_no, brutas[id_no]) for id_no, _ in nos]
 
 
 def sugerir_no(feicao, nos, limiar=LimiarNo()):
-    """`feicao`: GEOSGeometry em SRID 4674 (polígono). `nos`: pares (id, GEOSGeometry) da mesma fazenda."""
+    """`feicao`: GEOSGeometry em SRID 4674. `nos`: pares (id, GEOSGeometry) da mesma fazenda.
+
+    Regra única por tipo, com os mesmos limiares: fração mínima de 1% do total, e diferença de 1% entre os dois maiores para
+    empate. Ponto vai ao nó que o contém (borda conta); linha vai ao nó de maior comprimento; polígono, ao de maior área."""
+    tipo = feicao.geom_type
+    if feicao.empty:
+        return SugestaoNo(None, 'sem_area', {})
     with connection.cursor() as cursor:
-        area_feicao = _area(cursor, feicao.ewkt)
-        if area_feicao <= 0:
+        total = _total(cursor, feicao.ewkt, tipo)
+        if total <= 0:
             return SugestaoNo(None, 'sem_area', {})
-        areas = {}
+        medidas = {}
         if nos:
-            for id_no, area in _areas_de_interseccao(cursor, feicao.ewkt, nos):
-                if area > 0:
-                    areas[id_no] = area
-    if not areas:
-        return SugestaoNo(None, 'sem_intersecao', areas)
+            for id_no, valor in _medidas(cursor, feicao.ewkt, tipo, nos):
+                if valor > 0:
+                    medidas[id_no] = valor
+    if not medidas:
+        return SugestaoNo(None, 'sem_intersecao', medidas)
     relevantes = sorted(
-        ((id_no, area) for id_no, area in areas.items() if area >= limiar.fracao_minima_do_no * area_feicao),
+        ((id_no, valor) for id_no, valor in medidas.items() if valor >= limiar.fracao_minima_do_no * total),
         key=lambda par: par[1],
         reverse=True,
     )
     if not relevantes:
-        return SugestaoNo(None, 'abaixo_do_limiar', areas)
+        return SugestaoNo(None, 'abaixo_do_limiar', medidas)
     if len(relevantes) == 1:
-        return SugestaoNo(relevantes[0][0], 'unico', areas)
-    (id_1, area_1), (_, area_2) = relevantes[0], relevantes[1]
-    if area_1 == area_2 or area_1 - area_2 < limiar.diferenca_minima * area_1:  # áreas iguais empatam mesmo com tolerância zero
-        return SugestaoNo(None, 'empate', areas)
-    return SugestaoNo(id_1, 'maior_area', areas)
+        return SugestaoNo(relevantes[0][0], 'contido' if tipo in TIPOS_DE_PONTO else 'unico', medidas)
+    (id_1, valor_1), (_, valor_2) = relevantes[0], relevantes[1]
+    if valor_1 == valor_2 or valor_1 - valor_2 < limiar.diferenca_minima * valor_1:  # iguais empatam mesmo com tolerância zero
+        return SugestaoNo(None, 'empate', medidas)
+    if tipo in TIPOS_DE_PONTO:
+        return SugestaoNo(id_1, 'maior_contagem', medidas)
+    if tipo in ('LineString', 'MultiLineString'):
+        return SugestaoNo(id_1, 'maior_comprimento', medidas)
+    return SugestaoNo(id_1, 'maior_area', medidas)

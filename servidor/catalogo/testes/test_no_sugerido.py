@@ -98,10 +98,75 @@ def test_limiar_de_diferenca_configuravel_muda_o_empate():
     assert sugerir_no(FEICAO, [(1, no(*sessenta)), (2, no(*quarenta))], LimiarNo(diferenca_minima=0.5)).motivo == 'empate'
 
 
-def test_feicao_sem_area_nao_recebe_no():
-    linha = GEOSGeometry('LINESTRING(-48.30 -10.70,-48.29 -10.69)', srid=4674)
+def test_poligono_degenerado_sem_area_nao_recebe_no():
+    degenerado = GEOSGeometry('POLYGON((-48.30 -10.70,-48.29 -10.69,-48.29 -10.69,-48.30 -10.70))', srid=4674)  # área zero
+    assert sugerir_no(degenerado, [(1, no(-48.31, -48.28))]).motivo == 'sem_area'
+
+
+def test_linha_em_um_no_recebe_esse_no_pelo_comprimento():
+    linha = GEOSGeometry('LINESTRING(-48.305 -10.70,-48.285 -10.70)', srid=4674)  # dentro do nó
     resultado = sugerir_no(linha, [(1, no(-48.31, -48.28))])
-    assert resultado.motivo == 'sem_area'
+    assert (resultado.sub_area_id, resultado.motivo) == (1, 'unico')
+
+
+def test_linha_cruzando_dois_nos_vai_ao_de_maior_comprimento():
+    linha = GEOSGeometry('LINESTRING(-48.3075 -10.70,-48.2975 -10.70)', srid=4674)  # 0,0075 no A e 0,0025 no B
+    resultado = sugerir_no(linha, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert (resultado.sub_area_id, resultado.motivo) == (1, 'maior_comprimento')
+
+
+def test_linha_com_comprimentos_iguais_e_empate():
+    linha = GEOSGeometry('LINESTRING(-48.305 -10.70,-48.295 -10.70)', srid=4674)  # metade em cada nó
+    resultado = sugerir_no(linha, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert resultado.motivo == 'empate'
+
+
+def test_linha_so_encostando_no_no_fica_fora_de_todo_no():
+    linha = GEOSGeometry('LINESTRING(-48.32 -10.70,-48.31 -10.70)', srid=4674)  # só toca a borda do nó num ponto: comprimento zero dentro
+    resultado = sugerir_no(linha, [(1, no(-48.31, -48.30))])
+    assert resultado.motivo == 'sem_intersecao' and resultado.sub_area_id is None
+
+
+def test_ponto_dentro_de_um_no_recebe_esse_no():
+    ponto = GEOSGeometry('POINT(-48.305 -10.70)', srid=4674)
+    resultado = sugerir_no(ponto, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert (resultado.sub_area_id, resultado.motivo) == (1, 'contido')
+
+
+def test_ponto_fora_de_todos_os_nos_fica_fora():
+    ponto = GEOSGeometry('POINT(-48.50 -10.90)', srid=4674)
+    resultado = sugerir_no(ponto, [(1, no(-48.31, -48.30))])
+    assert resultado.motivo == 'sem_intersecao' and resultado.sub_area_id is None
+
+
+def test_ponto_na_borda_comum_de_dois_nos_e_empate():
+    ponto = GEOSGeometry('POINT(-48.30 -10.70)', srid=4674)  # cai na borda entre os dois nós (ST_Covers conta a borda)
+    resultado = sugerir_no(ponto, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert resultado.motivo == 'empate' and resultado.sub_area_id is None
+
+
+def test_multiponto_vai_ao_no_com_mais_pontos():
+    multi = GEOSGeometry('MULTIPOINT((-48.305 -10.70),(-48.302 -10.69),(-48.295 -10.70))', srid=4674)  # 2 no A, 1 no B
+    resultado = sugerir_no(multi, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert (resultado.sub_area_id, resultado.motivo) == (1, 'maior_contagem')
+
+
+def test_multiponto_com_contagem_igual_e_empate():
+    multi = GEOSGeometry('MULTIPOINT((-48.305 -10.70),(-48.295 -10.70))', srid=4674)  # um em cada nó
+    resultado = sugerir_no(multi, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert resultado.motivo == 'empate'
+
+
+def test_poligono_inalterado_mesmo_resultado_de_antes():
+    resultado = sugerir_no(FEICAO, [(1, no(*ESQUERDA_70)), (2, no(*DIREITA_30))])
+    assert (resultado.sub_area_id, resultado.motivo) == (1, 'maior_area')
+
+
+def test_ausente_nao_e_zero_medida_zero_nao_vira_no():
+    # Ausente (sem nó que intercepte) e zero (medida 0) dão o mesmo resultado sem nó, mas não são o mesmo motivo.
+    longe = GEOSGeometry('POINT(-48.50 -10.90)', srid=4674)
+    assert sugerir_no(longe, [(1, no(-48.31, -48.30))]).motivo == 'sem_intersecao'
+    assert sugerir_no(FEICAO, []).motivo == 'sem_intersecao'
 
 
 def test_nos_de_outra_fazenda_nao_aparecem(cenario):

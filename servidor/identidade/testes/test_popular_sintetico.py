@@ -165,3 +165,4 @@ def test_a3_tem_divisao_com_dois_nos_e_feicoes_que_cruzam_e_ficam_fora(dados):
     assert len(dados['camadas']['cruza']) == 5 and dados['camadas']['cruza'][0] == dados['camadas']['cruza'][-1]  # anel fechado
     assert dados['camadas']['fora'] != dados['camadas']['cruza']
     assert len(dados['camadas']['empate']) == 5  # feição em empate exportada para o Playwright (R7)
+    assert len(dados['camadas']['linha']) == 2 and len(dados['camadas']['ponto']) == 2  # ponto no nó 1 e linha que cruza (R7)
