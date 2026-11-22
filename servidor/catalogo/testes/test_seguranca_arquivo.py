@@ -175,3 +175,29 @@ def test_nome_do_envio_nao_muda_o_destino_da_leitura(tmp_path):
     assert previa.formato == 'geojson'
     assert not (tmp_path / 'fora.kml.geojson').exists()
 
+
+
+# Profundidade de aninhamento (R16): o GeoJSON com a propriedade `aninhado` tem 7 níveis (objeto, lista, objeto,
+# objeto de propriedades, lista, lista, lista). O limite é inclusivo: 7 passa, 6 recusa.
+
+def ponto_aninhado():
+    feicao = ponto_geojson()
+    feicao['properties']['aninhado'] = [[[1]]]
+    return feicao
+
+
+def test_profundidade_conta_o_caminho_mais_fundo_sem_recursao():
+    from catalogo.ingestao import _profundidade
+    assert _profundidade({'a': [{'b': []}]}) == 4  # objeto, lista, objeto e a lista vazia (que também é nível)
+    assert _profundidade({}) == 1
+    assert _profundidade(1) == 0
+
+
+def test_geojson_no_limite_de_profundidade_e_aceito(tmp_path):
+    previa = ingerir_envio(arquivo(tmp_path, geojson([ponto_aninhado()])), Limites(profundidade_aninhamento=7))
+    assert previa.contagem == 1
+
+
+def test_geojson_acima_do_limite_de_profundidade_e_recusado_antes_de_ler_feicoes(tmp_path):
+    erros = recusa(arquivo(tmp_path, geojson([ponto_aninhado()])), Limites(profundidade_aninhamento=6))
+    assert erros == ['GeoJSON com aninhamento acima do limite de profundidade']

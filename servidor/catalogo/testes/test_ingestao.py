@@ -494,6 +494,23 @@ def test_dbf_homonimo_em_outra_pasta_nao_substitui_o_da_pasta_do_shp(tmp_path):
     assert previa.feicoes[0].valores['nome'] == 'sintetico'
 
 
+def test_abrir_fonte_com_driver_certo_devolve_a_camada(tmp_path):
+    from catalogo.ingestao import _abrir_fonte
+    caminho = arquivo(tmp_path, geojson([ponto_geojson()]))
+    assert len(_abrir_fonte(caminho, 'GeoJSON')) == 1
+
+
+def test_abrir_fonte_que_o_gdal_nao_abre_levanta_mensagem_em_portugues(tmp_path, monkeypatch):
+    # O errcheck do Django lança antes do nosso `if not ponteiro` quando o GDAL falha; o ramo nosso é forçado aqui.
+    from django.contrib.gis.gdal import GDALException
+    from django.contrib.gis.gdal.prototypes import ds as capi
+    from catalogo.ingestao import _abrir_fonte
+    monkeypatch.setattr(capi, 'open_ds', lambda *args: None)
+    caminho = tmp_path / 'nao_abre.geojson'
+    with pytest.raises(GDALException, match=r'^Não foi possível abrir a fonte de dados em ".*nao_abre\.geojson"$'):
+        _abrir_fonte(caminho, 'GeoJSON')
+
+
 def test_topojson_gravado_como_geojson_e_recusado(tmp_path):
     # Achado 3: o DataSource do Django não limita o driver; aqui só o driver GeoJSON pode abrir.
     topo = {'type': 'Topology', 'arcs': [[[0, 0], [1, 1]]], 'objects': {'l': {'type': 'LineString', 'arcs': [0]}}}
