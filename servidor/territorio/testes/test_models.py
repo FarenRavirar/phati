@@ -122,3 +122,11 @@ def test_gatilho_ignora_tabela_temporaria_com_o_mesmo_nome(fazenda, empresa):
                 "VALUES (%s, %s, %s, 2, 'filho', '/')",
                 [empresa.pk, fazenda.pk, pai_real.pk],
             )
+
+
+def test_chave_composta_da_sub_area_esta_no_modelo_e_as_migracoes_em_dia():
+    # Alvo da FK composta de feicao (catalogo 0001). Sem a constraint no modelo, o banco de teste (vindo das migrações)
+    # continua igual e nenhum teste de banco reclama; por isso a checagem é do modelo contra as migrações.
+    from django.core.management import call_command
+    assert 'sub_area_chave_composta' in {c.name for c in SubArea._meta.constraints}
+    call_command('makemigrations', '--check', '--dry-run', verbosity=0)
