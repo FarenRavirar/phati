@@ -100,7 +100,8 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-enforce.js\"" },
           { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\"" },
-          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\"" }
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/branch-gate.js\"" }
         ]
       },
       {
