@@ -139,6 +139,10 @@ cd "$dir/repo"
 git fetch -q origin
 git cat-file -e "$sha^{commit}" 2>/dev/null || erro "o SHA $sha não existe no repositório"
 git merge-base --is-ancestor "$sha" "$ref" || erro "o SHA $sha não é ancestral de $ref: só entra o que foi promovido"
+# Antes do checkout: sem a infraestrutura, o checkout apaga o `servidor/nginx` que o nginx monta (bug da VM, spec 009 T3.4).
+for arquivo_infra in servidor/compose.implantacao.yaml servidor/nginx/default.conf; do
+  git cat-file -e "$sha:$arquivo_infra" 2>/dev/null || erro "o SHA não traz a infraestrutura de implantação blue-green: $arquivo_infra"
+done
 anterior="$(git rev-parse HEAD 2>/dev/null || echo nenhum)"
 git checkout -q --detach "$sha"
 repo_mudou=1
@@ -188,6 +192,14 @@ nginx_recarrega() {
   if [[ -z "$ativa" ]]; then
     compor run --rm --no-deps nginx nginx -t >/dev/null || return 1
     compor up -d --no-deps nginx >/dev/null || return 1
+    return 0
+  fi
+  # Autocura: se o clone foi recriado sob um nginx de pé, o bind de `servidor/nginx` aponta para diretório vazio. Então
+  # recria o contêiner (ele lê o alvo.conf ao subir) em vez de só recarregar, e registra o motivo.
+  if ! compor exec -T nginx test -f /etc/nginx/conf.d/default.conf >/dev/null 2>&1; then
+    compor up -d --no-deps --force-recreate nginx >/dev/null || return 1
+    registrar "nginx-recriado=bind-obsoleto"
+    compor exec -T nginx nginx -t >/dev/null || return 1
     return 0
   fi
   compor exec -T nginx nginx -t >/dev/null || return 1

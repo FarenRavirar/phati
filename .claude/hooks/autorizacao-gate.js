@@ -91,32 +91,16 @@ const REGRAS = [
   // Estas PERGUNTAM ao mantenedor; nao bloqueiam. Emitiam `deny` ate 2026-09-10,
   // o que tornava a acao impossivel por este harness mesmo com a autorizacao ja
   // dada: o gate nao distinguia "nao autorizado" de "autorizado", porque nunca
-  // chegava a perguntar. O AGENTS.md ja dizia o correto — "commit, worktree,
-  // escrita na VM, SQL write e pacote novo sao `ask`" — e era o hook que
-  // divergia do texto que implementa. Achado ao tentar commitar a propria
-  // spec 101 (F5), com autorizacao nominal dada e recusada pelo gate.
+  // chegava a perguntar. Achado ao tentar commitar a propria spec 101 (F5), com
+  // autorizacao nominal dada e recusada pelo gate.
+  // Em 2026-11-22 o mantenedor reduziu o ask deste hook a commit (ordem: "Autorizacao
+  // e so pra commit"). Worktree e escrita na VM sairam daqui; merge fica no
+  // `permissions.ask` de .claude/settings.json.
   {
     nome: 'commit-sem-autorizacao',
     decisao: 'ask',
     test: /\bgit\s+commit\b/,
     porque: 'AGENTS.md §Decisao, pausa e duvida: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
-  },
-  {
-    nome: 'worktree-sem-aprovacao',
-    decisao: 'ask',
-    // Desligável só por `PHATI_GATE_WORKTREE=0` (máquina do mantenedor que decide worktree sozinho). Ausente ou
-    // qualquer outro valor mantém a regra ativa: desligar exige valor exato, nunca por engano.
-    desligavel: 'PHATI_GATE_WORKTREE',
-    test: /\bgit\s+worktree\s+(?:add|move|remove)\b/,
-    porque: 'AGENTS.md §Decisao, pausa e duvida: criar/mover/remover worktree exige aprovacao nominal PREVIA. Explique antes por que o cwd nao pode ser usado, o caminho exato, e como o trabalho volta. `git worktree list` e livre.',
-  },
-  {
-    nome: 'vm-escrita',
-    decisao: 'ask',
-    // `ssh maruko` com subcomando de mutacao. Read-only na VM e livre por regra
-    // petrea e nao pode cair aqui — dai a lista fechada de verbos de escrita.
-    test: /\bssh\s+maruko\b[^;&|]*\b(?:docker\s+(?:restart|stop|start|rm|kill|compose\s+(?:up|down))|systemctl\s+(?:start|stop|restart)|rm\s+-|mv\s|cp\s|tee\s|>\s*\/)/,
-    porque: 'AGENTS.md §Decisao, pausa e duvida: escrita na VM maruko exige aprovacao nominal a cada vez. Inspecao read-only (docker ps|logs|inspect, cat, ls) e SEMPRE permitida e nao passa por aqui.',
   },
   {
     nome: 'pacote-novo',
