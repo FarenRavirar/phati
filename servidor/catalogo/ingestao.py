@@ -50,6 +50,7 @@ class Limites:
     campos: int = 100
     tamanho_nome_campo: int = 100
     tempo_segundos: float = 60.0
+    profundidade_aninhamento: int = 64  # shortcut: valor inicial não medido (como os demais); medir com GeoJSON real antes de fechar a Fase 2
 
 
 LIMITES_PADRAO = Limites()
@@ -183,7 +184,34 @@ def _sistema_do_geojson(objeto):
     return srid, 'membro crs legado do GeoJSON'
 
 
-def _precheck_geojson(dados):
+def _iterador_de_filhos(valor):
+    if isinstance(valor, dict):
+        return iter(valor.values())
+    if isinstance(valor, list):
+        return iter(valor)
+    return None
+
+
+def _profundidade(valor):
+    """Níveis de lista e de objeto no caminho mais fundo. Iterativa: a pilha do Python não entra na conta.
+    A pilha guarda um iterador por nível, não os filhos, para uma coleção larga não ser empilhada inteira."""
+    raiz = _iterador_de_filhos(valor)
+    if raiz is None:
+        return 0
+    pilha, maior = [raiz], 1
+    while pilha:
+        for filho in pilha[-1]:
+            sub = _iterador_de_filhos(filho)
+            if sub is not None:
+                pilha.append(sub)
+                maior = max(maior, len(pilha))
+                break
+        else:
+            pilha.pop()
+    return maior
+
+
+def _precheck_geojson(dados, limites):
     def proibe(constante):
         raise _ConstanteProibida(constante)
 
@@ -195,6 +223,8 @@ def _precheck_geojson(dados):
         raise RecusaIngestao([GEOJSON_INVALIDO]) from None
     if not isinstance(objeto, dict):
         raise RecusaIngestao([GEOJSON_INVALIDO])
+    if _profundidade(objeto) > limites.profundidade_aninhamento:
+        raise RecusaIngestao(['GeoJSON com aninhamento acima do limite de profundidade'])
     srid, origem = _sistema_do_geojson(objeto)
     return srid, origem, _propriedades_do_geojson(objeto)
 
@@ -378,7 +408,7 @@ def _abrir_fonte(caminho, driver):
     permitidos = (c_char_p * 2)(driver.encode('ascii'), None)
     ponteiro = capi.open_ds(force_bytes(caminho), capi.GDAL_OF_READONLY | capi.GDAL_OF_VECTOR, permitidos, None, None)
     if not ponteiro:
-        raise GDALException(f'Could not open the datasource at "{caminho}"')
+        raise GDALException(f'Não foi possível abrir a fonte de dados em "{caminho}"')
     return DataSource(ponteiro, capi.get_dataset_driver(ponteiro))
 
 
@@ -531,7 +561,7 @@ def ingerir_envio(caminho, limites=LIMITES_PADRAO):
         if formato == 'zip':
             leitura = _zip(dados, limites, tmp)
         elif formato == 'geojson':
-            srid, origem, propriedades = _precheck_geojson(dados)
+            srid, origem, propriedades = _precheck_geojson(dados, limites)
             destino = _destino(tmp, 'geojson')
             destino.write_bytes(dados)
             leitura = _Leitura('geojson', destino, 'GeoJSON', srid, origem, propriedades)

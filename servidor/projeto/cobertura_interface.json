@@ -166,7 +166,7 @@
     "aprovar_atributo": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "aprovar_geometria": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "tornar_revisao_vigente": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
-    "publicar_camada": "Enviar, publicar e ocultar atributo: telas de camadas (008 T4.1) sobre catalogo_criar_envio, catalogo_previa e catalogo_publicar (008 T3.2, D041); troca de nó por feição ainda sem tela (pendência T4.1)",
+    "publicar_camada": "Enviar, publicar e ocultar atributo: telas de camadas (008 T4.1) sobre catalogo_criar_envio, catalogo_previa e catalogo_publicar (008 T3.2, D041); troca de nó por feição tem tela: lista de conferência de nós na confirmação da camada (008 T4.1)",
     "subir_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "definir_validade_documento": "Reservada: pertence às specs de camada, documento, campo e pacote (catálogo da 001, D041); sem função hoje",
     "convidar_pessoa": "003",
