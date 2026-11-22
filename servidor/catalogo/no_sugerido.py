@@ -56,51 +56,97 @@ def contornos_da_divisao(fazenda):
     return contornos
 
 
-# Medida por tipo de geometria (008 R7). Polígono: área de interseção. Linha: comprimento da interseção (geography, metros).
-# Ponto e multiponto: quantos pontos da feição caem no nó, na borda inclusive (ST_Intersection devolve os pontos contidos).
-# Fragmentos fixos abaixo: nenhum valor do cliente entra no SQL, só o nome do tipo, que vem do GEOS.
-_MEDIDA_DA_INTERSECAO = {
-    'Polygon': 'ST_Area(ST_Intersection(feicao.f, no.g)::geography)',
-    'MultiPolygon': 'ST_Area(ST_Intersection(feicao.f, no.g)::geography)',
-    'LineString': 'ST_Length(ST_Intersection(feicao.f, no.g)::geography)',
-    'MultiLineString': 'ST_Length(ST_Intersection(feicao.f, no.g)::geography)',
-    'Point': 'ST_NumGeometries(ST_Intersection(feicao.f, no.g))',
-    'MultiPoint': 'ST_NumGeometries(ST_Intersection(feicao.f, no.g))',
+# Consultas fixas por tipo (008 R7): o SQL é constante, sem formatação; o único valor do cliente vai por %s.
+# Polígono: área da interseção. Linha: comprimento da interseção (geography, metros). Ponto e multiponto: quantos componentes
+# originais da feição caem no nó, borda inclusive (ST_Covers). Total e medida usam a mesma base (componentes da feição), então
+# pontos repetidos contam cada ocorrência nos dois lados.
+_SQL_TOTAL_AREA = 'SELECT COALESCE(ST_Area(feicao.f::geography), 0) FROM (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao'
+_SQL_TOTAL_COMPRIMENTO = 'SELECT COALESCE(ST_Length(feicao.f::geography), 0) FROM (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao'
+_SQL_TOTAL_COMPONENTES = 'SELECT COALESCE(ST_NumGeometries(feicao.f), 0) FROM (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao'
+_TOTAL_POR_TIPO = {
+    'Polygon': _SQL_TOTAL_AREA,
+    'MultiPolygon': _SQL_TOTAL_AREA,
+    'LineString': _SQL_TOTAL_COMPRIMENTO,
+    'MultiLineString': _SQL_TOTAL_COMPRIMENTO,
+    'Point': _SQL_TOTAL_COMPONENTES,
+    'MultiPoint': _SQL_TOTAL_COMPONENTES,
 }
-_TOTAL_DA_FEICAO = {
-    'Polygon': 'ST_Area(f::geography)',
-    'MultiPolygon': 'ST_Area(f::geography)',
-    'LineString': 'ST_Length(f::geography)',
-    'MultiLineString': 'ST_Length(f::geography)',
-    'Point': 'ST_NumGeometries(f)',
-    'MultiPoint': 'ST_NumGeometries(f)',
+_SQL_MEDIDAS_AREA = (
+    'SELECT t.id, COALESCE(ST_Area(ST_Intersection(feicao.f, no.g)::geography), 0) '
+    'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt) '
+    'CROSS JOIN (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao '
+    'CROSS JOIN LATERAL (SELECT ST_GeomFromEWKT(t.ewkt) AS g) AS no'
+)
+_SQL_MEDIDAS_COMPRIMENTO = (
+    'SELECT t.id, COALESCE(ST_Length(ST_Intersection(feicao.f, no.g)::geography), 0) '
+    'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt) '
+    'CROSS JOIN (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao '
+    'CROSS JOIN LATERAL (SELECT ST_GeomFromEWKT(t.ewkt) AS g) AS no'
+)
+_SQL_MEDIDAS_COMPONENTES = (
+    'SELECT t.id, COALESCE((SELECT count(*) FROM ST_Dump(feicao.f) AS d WHERE ST_Covers(no.g, d.geom)), 0) '
+    'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt) '
+    'CROSS JOIN (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao '
+    'CROSS JOIN LATERAL (SELECT ST_GeomFromEWKT(t.ewkt) AS g) AS no'
+)
+_MEDIDAS_POR_TIPO = {
+    'Polygon': _SQL_MEDIDAS_AREA,
+    'MultiPolygon': _SQL_MEDIDAS_AREA,
+    'LineString': _SQL_MEDIDAS_COMPRIMENTO,
+    'MultiLineString': _SQL_MEDIDAS_COMPRIMENTO,
+    'Point': _SQL_MEDIDAS_COMPONENTES,
+    'MultiPoint': _SQL_MEDIDAS_COMPONENTES,
 }
 # shortcut: coleção mista (GeometryCollection) não tem medida única; vai como sem_area até a spec dizer o que fazer com ela.
 TIPOS_DE_PONTO = frozenset({'Point', 'MultiPoint'})
+TIPOS_DE_LINHA = frozenset({'LineString', 'MultiLineString'})
 
 
 def _total(cursor, ewkt, tipo):
-    """Medida total da feição (área, comprimento ou quantidade de pontos). 0 para tipo sem medida (coleção mista)."""
-    expressao = _TOTAL_DA_FEICAO.get(tipo)
-    if expressao is None:
+    """Medida total da feição (área, comprimento ou quantidade de componentes). 0 para tipo sem medida (coleção mista)."""
+    consulta = _TOTAL_POR_TIPO.get(tipo)
+    if consulta is None:
         return 0.0
-    cursor.execute(f'SELECT COALESCE({expressao}, 0) FROM (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao', [ewkt])
+    cursor.execute(consulta, [ewkt])
     return float(cursor.fetchone()[0] or 0.0)
 
 
 def _medidas(cursor, ewkt_feicao, tipo, nos):
     """Medida da feição em cada nó, numa consulta só (medido antes: N×M consultas eram o problema, 1051 para 50×20).
     Pares (id do nó, medida) na ordem de `nos`."""
-    medida = _MEDIDA_DA_INTERSECAO[tipo]
     cursor.execute(
-        f'SELECT t.id, COALESCE({medida}, 0) '
-        'FROM unnest(%s::bigint[], %s::text[]) AS t(id, ewkt) '
-        'CROSS JOIN (SELECT ST_GeomFromEWKT(%s) AS f) AS feicao '
-        'CROSS JOIN LATERAL (SELECT ST_GeomFromEWKT(t.ewkt) AS g) AS no',
+        _MEDIDAS_POR_TIPO[tipo],
         [[id_no for id_no, _ in nos], [geometria.ewkt for _, geometria in nos], ewkt_feicao],
     )
     brutas = {id_no: float(valor or 0.0) for id_no, valor in cursor.fetchall()}
     return [(id_no, brutas[id_no]) for id_no, _ in nos]
+
+
+def _relevantes(medidas, total, limiar):
+    """Nós com medida de pelo menos a fração mínima do total, do maior para o menor."""
+    return sorted(
+        ((id_no, valor) for id_no, valor in medidas.items() if valor >= limiar.fracao_minima_do_no * total),
+        key=lambda par: par[1],
+        reverse=True,
+    )
+
+
+def _decidir(tipo, relevantes, medidas, limiar):
+    """Classificação com os dois maiores: sem nó relevante, abaixo do limiar; um só, contido ou único; iguais ou quase
+    iguais, empate; senão o maior, pelo critério do tipo."""
+    if not relevantes:
+        return SugestaoNo(None, 'abaixo_do_limiar', medidas)
+    (id_1, valor_1) = relevantes[0]
+    if len(relevantes) == 1:
+        return SugestaoNo(id_1, 'contido' if tipo in TIPOS_DE_PONTO else 'unico', medidas)
+    valor_2 = relevantes[1][1]
+    if valor_1 == valor_2 or valor_1 - valor_2 < limiar.diferenca_minima * valor_1:  # iguais empatam mesmo com tolerância zero
+        return SugestaoNo(None, 'empate', medidas)
+    if tipo in TIPOS_DE_PONTO:
+        return SugestaoNo(id_1, 'maior_contagem', medidas)
+    if tipo in TIPOS_DE_LINHA:
+        return SugestaoNo(id_1, 'maior_comprimento', medidas)
+    return SugestaoNo(id_1, 'maior_area', medidas)
 
 
 def sugerir_no(feicao, nos, limiar=LimiarNo()):
@@ -122,20 +168,4 @@ def sugerir_no(feicao, nos, limiar=LimiarNo()):
                     medidas[id_no] = valor
     if not medidas:
         return SugestaoNo(None, 'sem_intersecao', medidas)
-    relevantes = sorted(
-        ((id_no, valor) for id_no, valor in medidas.items() if valor >= limiar.fracao_minima_do_no * total),
-        key=lambda par: par[1],
-        reverse=True,
-    )
-    if not relevantes:
-        return SugestaoNo(None, 'abaixo_do_limiar', medidas)
-    if len(relevantes) == 1:
-        return SugestaoNo(relevantes[0][0], 'contido' if tipo in TIPOS_DE_PONTO else 'unico', medidas)
-    (id_1, valor_1), (_, valor_2) = relevantes[0], relevantes[1]
-    if valor_1 == valor_2 or valor_1 - valor_2 < limiar.diferenca_minima * valor_1:  # iguais empatam mesmo com tolerância zero
-        return SugestaoNo(None, 'empate', medidas)
-    if tipo in TIPOS_DE_PONTO:
-        return SugestaoNo(id_1, 'maior_contagem', medidas)
-    if tipo in ('LineString', 'MultiLineString'):
-        return SugestaoNo(id_1, 'maior_comprimento', medidas)
-    return SugestaoNo(id_1, 'maior_area', medidas)
+    return _decidir(tipo, _relevantes(medidas, total, limiar), medidas, limiar)

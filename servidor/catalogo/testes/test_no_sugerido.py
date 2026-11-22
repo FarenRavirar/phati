@@ -124,7 +124,8 @@ def test_linha_com_comprimentos_iguais_e_empate():
 def test_linha_so_encostando_no_no_fica_fora_de_todo_no():
     linha = GEOSGeometry('LINESTRING(-48.32 -10.70,-48.31 -10.70)', srid=4674)  # só toca a borda do nó num ponto: comprimento zero dentro
     resultado = sugerir_no(linha, [(1, no(-48.31, -48.30))])
-    assert resultado.motivo == 'sem_intersecao' and resultado.sub_area_id is None
+    assert resultado.motivo == 'sem_intersecao'
+    assert resultado.sub_area_id is None
 
 
 def test_ponto_dentro_de_um_no_recebe_esse_no():
@@ -136,13 +137,15 @@ def test_ponto_dentro_de_um_no_recebe_esse_no():
 def test_ponto_fora_de_todos_os_nos_fica_fora():
     ponto = GEOSGeometry('POINT(-48.50 -10.90)', srid=4674)
     resultado = sugerir_no(ponto, [(1, no(-48.31, -48.30))])
-    assert resultado.motivo == 'sem_intersecao' and resultado.sub_area_id is None
+    assert resultado.motivo == 'sem_intersecao'
+    assert resultado.sub_area_id is None
 
 
 def test_ponto_na_borda_comum_de_dois_nos_e_empate():
     ponto = GEOSGeometry('POINT(-48.30 -10.70)', srid=4674)  # cai na borda entre os dois nós (ST_Covers conta a borda)
     resultado = sugerir_no(ponto, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
-    assert resultado.motivo == 'empate' and resultado.sub_area_id is None
+    assert resultado.motivo == 'empate'
+    assert resultado.sub_area_id is None
 
 
 def test_multiponto_vai_ao_no_com_mais_pontos():
@@ -242,3 +245,19 @@ def test_no_fora_da_feicao_nao_entra_nas_areas():
     resultado = sugerir_no(FEICAO, [(1, no(-48.40, -48.35))])
     assert resultado.motivo == 'sem_intersecao'
     assert resultado.areas == {}
+
+
+def test_multiponto_com_pontos_repetidos_todos_no_mesmo_no_e_contido():
+    # Pontos repetidos contam por ocorrência: 101 pontos iguais dentro de A são 101 de 101, não 1 de 101.
+    repetidos = GEOSGeometry('MULTIPOINT(' + ','.join(['(-48.305 -10.70)'] * 101) + ')', srid=4674)
+    resultado = sugerir_no(repetidos, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert resultado.sub_area_id == 1
+    assert resultado.motivo == 'contido'
+
+
+def test_multiponto_com_pontos_repetidos_distribuidos_conta_por_ocorrencia():
+    # 3 ocorrências em A e 1 em B: a contagem é por ocorrência, então A vence pela maior contagem.
+    multi = GEOSGeometry('MULTIPOINT((-48.305 -10.70),(-48.305 -10.70),(-48.305 -10.70),(-48.295 -10.70))', srid=4674)
+    resultado = sugerir_no(multi, [(1, no(-48.31, -48.30)), (2, no(-48.30, -48.29))])
+    assert resultado.sub_area_id == 1
+    assert resultado.motivo == 'maior_contagem'
