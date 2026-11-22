@@ -190,7 +190,20 @@ def test_profundidade_conta_o_caminho_mais_fundo_sem_recursao():
     from catalogo.ingestao import _profundidade
     assert _profundidade({'a': [{'b': []}]}) == 4  # objeto, lista, objeto e a lista vazia (que também é nível)
     assert _profundidade({}) == 1
+    assert _profundidade([]) == 1
     assert _profundidade(1) == 0
+
+
+def test_profundidade_de_colecao_larga_nao_empilha_os_filhos():
+    from catalogo.ingestao import _profundidade
+    assert _profundidade([[] for _ in range(100_000)]) == 2
+
+
+def test_profundidade_de_objeto_largo_com_um_ramo_fundo_e_o_do_ramo():
+    from catalogo.ingestao import _profundidade
+    # raiz (1), 'ramo' (2), 'fundo' com quatro listas aninhadas (3 a 6): a largura de 100_000 chaves escalares não conta.
+    objeto = {**{f'k{i}': i for i in range(100_000)}, 'ramo': {'fundo': [[[[]]]]}}
+    assert _profundidade(objeto) == 6
 
 
 def test_geojson_no_limite_de_profundidade_e_aceito(tmp_path):

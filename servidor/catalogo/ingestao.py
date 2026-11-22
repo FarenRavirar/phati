@@ -184,19 +184,30 @@ def _sistema_do_geojson(objeto):
     return srid, 'membro crs legado do GeoJSON'
 
 
+def _iterador_de_filhos(valor):
+    if isinstance(valor, dict):
+        return iter(valor.values())
+    if isinstance(valor, list):
+        return iter(valor)
+    return None
+
+
 def _profundidade(valor):
-    """Níveis de lista e de objeto no caminho mais fundo. Iterativa: a pilha do Python não entra na conta."""
-    maior, pilha = 0, [(valor, 1)]
+    """Níveis de lista e de objeto no caminho mais fundo. Iterativa: a pilha do Python não entra na conta.
+    A pilha guarda um iterador por nível, não os filhos, para uma coleção larga não ser empilhada inteira."""
+    raiz = _iterador_de_filhos(valor)
+    if raiz is None:
+        return 0
+    pilha, maior = [raiz], 1
     while pilha:
-        atual, nivel = pilha.pop()
-        if isinstance(atual, dict):
-            filhos = atual.values()
-        elif isinstance(atual, list):
-            filhos = atual
+        for filho in pilha[-1]:
+            sub = _iterador_de_filhos(filho)
+            if sub is not None:
+                pilha.append(sub)
+                maior = max(maior, len(pilha))
+                break
         else:
-            continue
-        maior = max(maior, nivel)
-        pilha.extend((filho, nivel + 1) for filho in filhos)
+            pilha.pop()
     return maior
 
 
