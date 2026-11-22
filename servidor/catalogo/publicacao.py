@@ -92,6 +92,10 @@ def _nos_escolhidos(envio, nos, feicoes):
     Os nós escolhidos são travados (ordem por pk) e revalidados aqui: arquivamento concorrente espera a publicação (R13)."""
     if len(nos) != len(feicoes):
         raise RecusaPublicacao(['escolha de nó não confere com a quantidade de feições'])
+    # Empate entre dois nós (R7; spec 008:55): sem sugestão automática, então a pessoa escolhe. Recalculado aqui, não do cliente.
+    sugestoes = _sugestoes(envio, feicoes, contornos_da_divisao(envio.fazenda))
+    if any(sugestao.motivo == 'empate' and escolha is None for sugestao, escolha in zip(sugestoes, nos)):
+        raise RecusaPublicacao(['feição em empate entre dois nós: escolha o nó'])
     ativos = set(nos_da_fazenda(envio.fazenda))
     escolhidos = set(nos) - {None}
     if not ativos:

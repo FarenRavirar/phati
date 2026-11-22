@@ -17,8 +17,12 @@
 {% csrf_token %}
 {% for c in campos %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo opcoes=c.opcoes obrigatorio=c.obrigatorio %}
 {% endfor %}
+<div class="campo" id="revisao-bloco" hidden>
+<p class="campo-rotulo" id="revisao-titulo">Feições para conferir o nó</p>
+<p class="campo-ajuda">Feições que cruzam mais de um nó já vêm com o nó de maior área escolhido; mude se quiser. Feições em empate entre dois nós precisam de escolha: escolha um nó. Feições fora de todos os nós ficam na própria fazenda. Para deixar uma feição que cruza na fazenda, escolha 'Própria fazenda'.</p>
 <output id="revisao-aviso" class="campo-ajuda" hidden></output>
-<ul id="revisao-nos" class="revisao-nos"></ul>
+<div id="revisao-nos"></div>
+</div>
 <fieldset class="campo campo-caixas" id="campo-ocultos">
 <legend class="campo-rotulo">Atributos a ocultar</legend>
 <p class="campo-ajuda">Coluna oculta não aparece na tela nem na API, e não serve de filtro ou busca.</p>
