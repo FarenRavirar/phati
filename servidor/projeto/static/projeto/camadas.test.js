@@ -226,3 +226,8 @@ test('avisoDeBloqueio devolve o texto só quando falta escolha de empate (bloque
   assert.equal(avisoDeBloqueio(com('')), 'Escolha o nó das feições em empate antes de publicar.');
   assert.equal(avisoDeBloqueio(com('4')), null);
 });
+
+test('rotuloDaRevisao diz "fora de todos os nós" também para o abaixo do limiar, e o de comprimento e contagem como cruzamento', () => {
+  assert.match(rotuloDaRevisao({ indice: 4, motivo: 'abaixo_do_limiar', areas: [{}] }), /fora de todos os nós/);
+  assert.match(rotuloDaRevisao({ indice: 5, motivo: 'maior_comprimento', areas: [{}, {}] }), /cruza 2 nós/);
+});

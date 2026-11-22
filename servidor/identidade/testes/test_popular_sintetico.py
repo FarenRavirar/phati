@@ -162,6 +162,9 @@ def test_a3_tem_divisao_com_dois_nos_e_feicoes_que_cruzam_e_ficam_fora(dados):
     assert SubArea.objects.filter(pk__in=nos, fazenda_id=dados['fazendas_a'][2]).count() == 2
     assert Camada.objects.filter(fazenda_id=dados['fazendas_a'][2], coluna_no='no').count() == 1
     assert Feicao.objects.filter(versao__camada__fazenda_id=dados['fazendas_a'][2], sub_area__isnull=False).count() == 2
-    assert len(dados['camadas']['cruza']) == 5 and dados['camadas']['cruza'][0] == dados['camadas']['cruza'][-1]  # anel fechado
+    assert len(dados['camadas']['cruza']) == 5  # anel de cinco posições
+    assert dados['camadas']['cruza'][0] == dados['camadas']['cruza'][-1]  # anel fechado
     assert dados['camadas']['fora'] != dados['camadas']['cruza']
     assert len(dados['camadas']['empate']) == 5  # feição em empate exportada para o Playwright (R7)
+    assert len(dados['camadas']['linha']) == 2  # linha que cruza os dois nós (R7)
+    assert len(dados['camadas']['ponto']) == 2  # ponto dentro do nó 1 (R7)

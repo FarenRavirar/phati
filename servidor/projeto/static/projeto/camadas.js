@@ -56,7 +56,7 @@ function opcoesDeNo(nosDaFazenda) {
 
 // Texto da feição na revisão, sem interpretar nada do arquivo: o motivo vem do servidor (`sugerir_no`).
 function rotuloDaRevisao(item) {
-  if (item.motivo === 'sem_intersecao') return `Feição ${item.indice}: fora de todos os nós. Fica na própria fazenda.`;
+  if (item.motivo === 'sem_intersecao' || item.motivo === 'abaixo_do_limiar') return `Feição ${item.indice}: fora de todos os nós. Fica na própria fazenda.`;
   if (item.motivo === 'empate') return `Feição ${item.indice}: empate entre os dois maiores nós. Escolha o nó.`;
   return `Feição ${item.indice}: cruza ${item.areas.length} nós. Confira o nó sugerido.`;
 }

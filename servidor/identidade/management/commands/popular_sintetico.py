@@ -99,6 +99,9 @@ NOS_DA_A3 = (
 FEICAO_QUE_CRUZA = ((-48.3075, -10.7050), (-48.2975, -10.7050), (-48.2975, -10.6950), (-48.3075, -10.6950), (-48.3075, -10.7050))
 FEICAO_FORA_DE_NOS = ((-48.50, -10.90), (-48.49, -10.90), (-48.49, -10.89), (-48.50, -10.89), (-48.50, -10.90))
 # Feição em empate: metade sobre cada nó, mesma área (R7: sem sugestão, a pessoa escolhe).
+# Ponto dentro do nó 1 (vai ao nó que o contém, sem lista) e linha que cruza os dois nós (maior comprimento: nó 1).
+PONTO_NO_1 = (-48.305, -10.705)
+LINHA_QUE_CRUZA = ((-48.3075, -10.705), (-48.2975, -10.705))
 FEICAO_EM_EMPATE = ((-48.305, -10.705), (-48.295, -10.705), (-48.295, -10.695), (-48.305, -10.695), (-48.305, -10.705))
 
 
@@ -169,6 +172,8 @@ def popular():
             'cruza': [list(p) for p in FEICAO_QUE_CRUZA],
             'fora': [list(p) for p in FEICAO_FORA_DE_NOS],
             'empate': [list(p) for p in FEICAO_EM_EMPATE],
+            'ponto': list(PONTO_NO_1),
+            'linha': [list(p) for p in LINHA_QUE_CRUZA],
         },
     }
 

@@ -18,7 +18,7 @@ from django.utils import timezone
 from catalogo import envios, original, publicacao
 from catalogo.models import AtributoVersao, Camada, EnvioCamada, Estudo, Feicao, Tema, VersaoCamada
 from catalogo.no_sugerido import contornos_da_divisao
-from catalogo.publicacao import EnvioNaoEncontrado, RecusaPublicacao, publicar_envio
+from catalogo.publicacao import EnvioNaoEncontrado, RecusaPublicacao, ler_previa, publicar_envio
 from catalogo.testes.test_ingestao import geojson, ponto_geojson
 from comum.models import EventoAuditoria
 from identidade.models import Pessoa
@@ -827,3 +827,13 @@ def test_sem_intersecao_com_none_continua_aceito(camadas, mundo):
     longe = geojson([{'type': 'Feature', 'properties': {'valor': 1}, 'geometry': {'type': 'Polygon', 'coordinates': [FAR]}}])
     versao = _publicar(mundo, _criar(mundo, longe), nos=[None])
     assert versao.numero == 1  # fora de todo nó: fica na fazenda (decisão do mantenedor)
+
+
+def test_interseccao_positiva_abaixo_de_um_por_cento_entra_na_revisao_como_fora_de_nos(camadas, mundo):
+    # Um nó que toca só 0,5% da feição: o motivo é 'abaixo_do_limiar', a feição fica sem sugestão e aparece na revisão.
+    tira = [[-48.30, -10.70], [-48.29995, -10.70], [-48.29995, -10.69], [-48.30, -10.69], [-48.30, -10.70]]
+    _publicar(mundo, _criar(mundo, _divisao({'G1': tira})), nos=(), coluna_no='no', nome='Divisao')
+    previa = ler_previa(_criar(mundo, _poligonos(1)))
+    assert [item['motivo'] for item in previa['revisao']] == ['abaixo_do_limiar']
+    assert previa['revisao'][0]['sugerido'] is None
+    assert previa['nos_sugeridos'] == [None]
