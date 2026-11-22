@@ -37,6 +37,13 @@ function criarVm({ comEnv = true } = {}) {
   fs.writeFileSync(path.join(trabalho, 'servidor', 'arquivo'), 'a\n');
   git(trabalho, 'add', '.');
   git(trabalho, 'commit', '-q', '-m', 'um');
+  // Ancestral de main sem a infraestrutura de implantação (o SHA que apagou o nginx do clone na VM): a pré-checagem recusa.
+  const semInfra = git(trabalho, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(trabalho, 'servidor', 'compose.implantacao.yaml'), 'services: {}\n');
+  fs.mkdirSync(path.join(trabalho, 'servidor', 'nginx'));
+  fs.writeFileSync(path.join(trabalho, 'servidor', 'nginx', 'default.conf'), 'server {}\n');
+  git(trabalho, 'add', '.');
+  git(trabalho, 'commit', '-q', '-m', 'dois: infraestrutura de implantação');
   git(trabalho, 'branch', '-M', 'main');
   git(trabalho, 'push', '-q', 'origin', 'main');
   const promovido = git(trabalho, 'rev-parse', 'HEAD');
@@ -87,6 +94,8 @@ function criarVm({ comEnv = true } = {}) {
       '  *"nginx -t"*) cat "$ALVO_DIR/alvo.conf" >> "$VISTO" 2>/dev/null; echo "--" >> "$VISTO"; [[ "${DUBLE_NGINX_TESTE_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"nginx -s reload"*) [[ "${DUBLE_RELOAD_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_RELOAD_2_FALHA:-0}" == 1 && "$(grep -c "nginx -s reload" "$CHAMADAS")" -ge 2 ]] && exit 1 ;;',
       '  *"exec -T nginx wget"*) [[ "${DUBLE_SAUDA_NGINX_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"exec -T nginx test -f"*) [[ "${DUBLE_CONF_AUSENTE:-0}" == 1 ]] && exit 1 ;;',
+      '  *"force-recreate nginx"*) [[ "${DUBLE_RECRIAR_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
       '  *inspect*app_azul*) echo "${DUBLE_SAUDE_AZUL:-${DUBLE_SAUDE:-healthy}}" ;;',
       '  *inspect*app_verde*) echo "${DUBLE_SAUDE_VERDE:-${DUBLE_SAUDE:-healthy}}" ;;',
@@ -162,7 +171,7 @@ function criarVm({ comEnv = true } = {}) {
   const contarChamadas = (trecho) => lerChamadas().filter((linha) => linha.includes(trecho)).length;
   const lerProjetos = () => (fs.existsSync(projetos) ? fs.readFileSync(projetos, 'utf8').split('\n').filter(Boolean) : []);
   const lerAlvoVars = () => (fs.existsSync(alvoVars) ? fs.readFileSync(alvoVars, 'utf8').split('\n').filter(Boolean) : []);
-  return { vm, repo, promovido, foraDeMain, lerAlvoVars, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
+  return { vm, repo, promovido, semInfra, foraDeMain, lerAlvoVars, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
 }
 let contadorPromocao = 0;
 
@@ -1641,6 +1650,70 @@ test('X3c: primeira implantação que falha não faz checkout de volta (anterior
     assert.equal(r.status, 1);
     assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido);
     assert.doesNotMatch(v.registro(), /repo-restaurado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Bug da VM (spec 009 T3.4): SHA ancestral de main sem `servidor/nginx` fez o checkout apagar o diretório que o nginx
+// monta. A pré-checagem recusa antes do checkout; a autocura recria o nginx quando o `default.conf` montado sumiu.
+test('SHA sem a infraestrutura de implantação é recusado antes do checkout: clone intacto, nada de Docker, registro FALHOU', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.semInfra]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /o SHA não traz a infraestrutura de implantação blue-green: servidor\/compose\.implantacao\.yaml/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não muda de SHA');
+    assert.ok(fs.existsSync(path.join(v.repo, 'servidor', 'nginx', 'default.conf')), 'o servidor/nginx segue no clone');
+    assert.deepEqual(v.lerChamadas(), [], 'nada de Docker antes da recusa');
+    assert.match(v.registro(), /FALHOU: o SHA não traz a infraestrutura/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: nginx de pé sem o default.conf montado é recriado (bind obsoleto) e não só recarregado', () => {
+  const v = criarVm();
+  try {
+    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+    const b = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('up -d --no-deps --force-recreate nginx'), 1, 'recriado uma vez');
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'sem recarga: o contêiner novo lê o alvo.conf ao subir');
+    assert.match(v.registro(), /nginx-recriado=bind-obsoleto/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: com o default.conf montado o nginx só recarrega, sem recriar e sem registrar', () => {
+  const v = criarVm();
+  try {
+    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+    const b = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('force-recreate'), 0);
+    assert.equal(v.contarChamadas('nginx -s reload'), 1);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: se a recriação do nginx falha, a implantação falha, registra FALHOU e não diz que recriou', () => {
+  const v = criarVm();
+  try {
+    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+    const b = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_RECRIAR_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(v.registro(), /FALHOU/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
   } finally {
     v.limpar();
   }
