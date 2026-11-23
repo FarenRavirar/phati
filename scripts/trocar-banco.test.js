@@ -1982,6 +1982,63 @@ test('R5: marcador que não pode ser removido na completagem aborta com erro, se
   }
 });
 
+// Regressão (review): remover o marcador no fim do modo físico ou do lógico (depois do RESUME) é falha, não trocar_ok.
+test('R5 físico: marcador que não pode ser removido no fim aborta com erro, sem trocar_ok, com marcador preservado', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(['trocar', '--modo', 'fisica'], { PATH: `${shimRm(v)}:${process.env.PATH}`, DUBLE_RM_FALHA: 'troca-banco-em-curso' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /trocar_ok/);
+    assert.match(r.stderr, /não consegui remover o marcador .*troca-banco-em-curso/);
+    assert.ok(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), 'marcador sumiu com a falha de remoção');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R5 lógico: marcador que não pode ser removido no fim aborta com erro, sem trocar_ok, com marcador preservado', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { PATH: `${shimRm(v)}:${process.env.PATH}`, DUBLE_RM_FALHA: 'troca-banco-em-curso' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /trocar_ok/);
+    assert.match(r.stderr, /não consegui remover o marcador .*troca-banco-em-curso/);
+    assert.ok(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), 'marcador sumiu com a falha de remoção');
+  } finally {
+    v.limpar();
+  }
+});
+
+// Regressão (review): `ler_env` tira o ` #comentário` do `.env` como o Compose; sem isso o destino não bate com `banco`.
+test('ler_env: PHATI_BANCO_DESTINO com ` # nota` ou aspas+nota é lido sem o comentário (banco_novo recusa com o valor exato)', () => {
+  for (const linha of ['PHATI_BANCO_DESTINO=banco_novo # nota', 'PHATI_BANCO_DESTINO="banco_novo" # nota']) {
+    const v = criarVm();
+    try {
+      fs.appendFileSync(path.join(v.vm, '.env'), `${linha}\n`);
+      const r = trocar(v);
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /PHATI_BANCO_DESTINO é 'banco_novo', esperado banco: nada foi feito/, linha);
+      assert.equal(v.contar('-c PAUSE'), 0, linha);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('ler_env: PHATI_BANCO_DESTINO=banco com ` # nota` ou aspas+nota passa na precondição e a troca segue', () => {
+  for (const linha of ['PHATI_BANCO_DESTINO=banco # nota', 'PHATI_BANCO_DESTINO="banco" # nota']) {
+    const v = criarVm();
+    try {
+      fs.appendFileSync(path.join(v.vm, '.env'), `${linha}\n`);
+      const r = trocar(v);
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m, linha);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
 // ---- Lote E (review): físico sem papel, sinais, slot, destino antes do promote, banco-logico, .env, lag, RESUME, remoção ----
 const RELOAD_PGB1 = 'exec -T pgb1 psql -X -q -h /tmp/pgb/pgb1 -p 6432 -U pgbouncer pgbouncer -c RELOAD';
 const RESUME_PGB1 = 'exec -T pgb1 psql -X -q -h /tmp/pgb/pgb1 -p 6432 -U pgbouncer pgbouncer -c RESUME';

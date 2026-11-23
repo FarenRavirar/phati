@@ -96,7 +96,10 @@ registrar() {
 ler_env() {
   local valor
   valor="$(grep -m1 "^$1=" "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
-  if [[ "$valor" =~ ^\"(.*)\"$ ]] || [[ "$valor" =~ ^\'(.*)\'$ ]]; then valor="${BASH_REMATCH[1]}"; fi
+  # Como o Compose lê (igual ao valor_env do implantar.sh): espaços iniciais saem; aspas que cercam o valor saem e ` #comentário`
+  # depois dele é cortado; sem aspas, espaços finais saem também.
+  valor="${valor#"${valor%%[![:space:]]*}"}"
+  if [[ "$valor" =~ ^\"([^\"]*)\" || "$valor" =~ ^\'([^\']*)\' ]]; then valor="${BASH_REMATCH[1]}"; else valor="${valor%%[[:space:]]#*}"; valor="${valor%"${valor##*[![:space:]]}"}"; fi
   printf '%s' "$valor"
 }
 erro() {
@@ -682,7 +685,7 @@ trocar_fisica() {
   passo=persistir
   gravar_banco_ativo
   gravar_env_destino
-  rm -f "$marcador"
+  rm -f "$marcador" || erro "não consegui remover o marcador $marcador: troca não completada"
   registrar "OK modo=fisica pausa_ms=$pausa_ms destino=$NOVO"
   echo "trocar_ok pausa_ms=$pausa_ms"
 }
@@ -809,7 +812,7 @@ SQL
   gravar_banco_logico
   gravar_banco_ativo
   gravar_env_destino
-  rm -f "$marcador"
+  rm -f "$marcador" || erro "não consegui remover o marcador $marcador: troca não completada"
   registrar "OK pausa_ms=$pausa_ms destino=$NOVO"
   echo "trocar_ok pausa_ms=$pausa_ms"
 }
