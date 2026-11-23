@@ -30,6 +30,12 @@ if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
 [[ "$banco_srv" == banco || "$banco_srv" == banco_novo ]] || erro "$dir/banco-ativo tem valor inválido"
 # O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
 if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
+# Modo lógico concluído (banco-logico, spec 009 E5): o override wal_level entra em todo compose, como no implantar.sh.
+extra_logica=()
+if [[ -f "$dir/banco-logico" ]]; then
+  [[ -f "$dir/repo/servidor/compose.troca-logica.yaml" ]] || erro "banco-logico existe, mas $dir/repo/servidor/compose.troca-logica.yaml não está no clone"
+  extra_logica=(-f "$dir/repo/servidor/compose.troca-logica.yaml")
+fi
 mkdir -p "$dir/backups"
 # Grava num arquivo parcial e só o promove ao nome final se o dump deu certo: uma falha nunca apaga um dump válido que
 # tenha o mesmo nome (mesmo segundo e rótulo), e o parcial não casa com `*.dump` da retenção nem do restaurar.sh.
@@ -38,7 +44,7 @@ trap 'rm -f -- "$parcial"' EXIT
 arquivo="$dir/backups/phati-$(date -u +%Y%m%dT%H%M%SZ)-$rotulo.dump"
 # As credenciais ficam no ambiente do contêiner do banco; nada delas passa por este script nem pela saída.
 # O prazo evita que um Docker ou banco travado segure a trava da implantação para sempre; `-k` mata de vez quem ignorar o TERM.
-if ! timeout -k "${PHATI_BACKUP_ABATE:-10}" "${PHATI_BACKUP_LIMITE:-1800}" "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" exec -T "$banco_srv" sh -c 'PGPASSWORD="$PHATI_BANCO_DONO_SENHA" pg_dump -h 127.0.0.1 -U "$PHATI_BANCO_DONO_USUARIO" -Fc "$PHATI_BANCO_NOME"' > "$parcial"; then
+if ! timeout -k "${PHATI_BACKUP_ABATE:-10}" "${PHATI_BACKUP_LIMITE:-1800}" "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" ${extra_logica[@]+"${extra_logica[@]}"} exec -T "$banco_srv" sh -c 'PGPASSWORD="$PHATI_BANCO_DONO_SENHA" pg_dump -h 127.0.0.1 -U "$PHATI_BANCO_DONO_USUARIO" -Fc "$PHATI_BANCO_NOME"' > "$parcial"; then
   erro "pg_dump falhou ou passou do prazo (banco parado?)"
 fi
 [[ -s "$parcial" ]] || erro "backup vazio: $arquivo"

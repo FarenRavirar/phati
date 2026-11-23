@@ -177,7 +177,13 @@ fi
 
 # O compose monta este diretório em /etc/nginx/alvo; o mesmo caminho é o que o script escreve (variável obrigatória lá).
 export PHATI_ALVO_DIR="$alvo_dir"
-compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" "$@"; }
+# Modo lógico concluído (banco-logico, spec 009 E5): sem o override, o `up` do banco recriaria o banco_novo sem wal_level=logical.
+extra_logica=()
+if [[ -f "$dir/banco-logico" ]]; then
+  [[ -f "$dir/repo/servidor/compose.troca-logica.yaml" ]] || { echo "ERRO: banco-logico existe, mas $dir/repo/servidor/compose.troca-logica.yaml não está no clone" >&2; exit 1; }
+  extra_logica=(-f "$dir/repo/servidor/compose.troca-logica.yaml")
+fi
+compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" ${extra_logica[@]+"${extra_logica[@]}"} "$@"; }
 mkdir -p "$alvo_dir"
 
 passo=inicio
