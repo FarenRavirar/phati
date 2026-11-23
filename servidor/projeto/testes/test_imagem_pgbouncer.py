@@ -5,6 +5,7 @@ recebe o texto: os testes positivos passam o Dockerfile real; os negativos passa
 """
 
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -29,22 +30,67 @@ def _instrucoes(texto):
     return logicas
 
 
+def _palavra(instrucao):
+    """Palavra-chave da instrução; o Dockerfile não diferencia maiúsculas de minúsculas."""
+    return instrucao.split(None, 1)[0].upper()
+
+
+_DIGEST_BASE = re.compile(r'postgres:18@sha256:[0-9a-f]{64}')
+
+
 def _verifica_base(texto):
-    assert re.search(r'^FROM postgres:18@sha256:[0-9a-f]{64}$', texto, re.M), 'base sem postgres:18 fixado por digest'
+    """Todo FROM é `postgres:18` fixado por digest ou referência a estágio anterior já declarado com `AS`."""
+    estagios, froms = set(), 0
+    for instrucao in _instrucoes(texto):
+        if _palavra(instrucao) != 'FROM':
+            continue
+        froms += 1
+        argumentos = [a for a in instrucao.split()[1:] if not a.startswith('--')]
+        assert argumentos, 'FROM sem imagem'
+        if argumentos[0].lower() not in estagios:
+            assert _DIGEST_BASE.fullmatch(argumentos[0]), 'base sem postgres:18 fixado por digest'
+        if len(argumentos) == 3 and argumentos[1].upper() == 'AS':
+            estagios.add(argumentos[2].lower())
+    assert froms, 'sem FROM'
+
+
+_INSTALADORES = {('apt-get', 'install'), ('apt', 'install')}
+
+
+def _instalacoes_apt(texto):
+    """Pacotes (sem opções) de cada `apt-get install` que uma instrução RUN executa; texto citado em `echo` não conta."""
+    instalacoes = []
+    for instrucao in _instrucoes(texto):
+        if _palavra(instrucao) != 'RUN':
+            continue
+        for comando in re.split(r'&&|\|\||;', instrucao[len('RUN'):]):
+            try:
+                tokens = shlex.split(comando)
+            except ValueError:
+                continue
+            if tuple(tokens[:2]) in _INSTALADORES:
+                instalacoes.append([t for t in tokens[2:] if not t.startswith('-')])
+    return instalacoes
 
 
 def _verifica_pacote(texto):
-    instalacao = [i for i in _instrucoes(texto) if 'apt-get install' in i]
-    assert len(instalacao) == 1, 'esperava exatamente um apt-get install'
-    assert 'pgbouncer=1.26.1-1.pgdg13+1' in instalacao[0], 'pgbouncer sem versão exata fixada'
-    assert not re.search(r'\bpgbouncer\b(?!=)', instalacao[0]), 'pgbouncer instalado sem versão'
+    instalacoes = _instalacoes_apt(texto)
+    assert len(instalacoes) == 1, 'esperava exatamente um apt-get install executado'
+    assert 'pgbouncer=1.26.1-1.pgdg13+1' in instalacoes[0], 'pgbouncer sem versão exata fixada'
+    assert 'pgbouncer' not in instalacoes[0], 'pgbouncer instalado sem versão'
+
+
+def _e_root(usuario):
+    """Nome `root` ou UID zero (`0`, `00`): o processo roda com privilégio de root."""
+    return re.fullmatch(r'root|0+', usuario) is not None
 
 
 def _verifica_usuario_nao_root(texto):
     logicas = _instrucoes(texto)
-    usuarios = [i.split(None, 1)[1] for i in logicas if i.startswith('USER ')]
+    usuarios = [i.split(None, 1)[1] for i in logicas if _palavra(i) == 'USER']
     assert usuarios, 'sem instrução USER'
-    assert usuarios[-1] not in ('root', '0'), 'imagem termina como root'
+    # `usuario:grupo`: só o usuário define o UID do processo.
+    assert not _e_root(usuarios[-1].split(':', 1)[0]), 'imagem termina como root'
     assert logicas[-1].startswith('ENTRYPOINT'), 'USER precisa estar antes do ENTRYPOINT no fim'
 
 
@@ -129,3 +175,79 @@ def test_tag_latest_falha():
     mutado = re.sub(r'^FROM postgres:18', 'FROM postgres:latest', DOCKERFILE, flags=re.M)
     with pytest.raises(AssertionError, match='latest'):
         _verifica_sem_latest(mutado)
+
+
+def test_segundo_estagio_sem_digest_falha():
+    # Caso negativo (S2): um FROM posterior sem digest é base não fixada, mesmo com o primeiro fixado.
+    mutado = _mutar(DOCKERFILE, 'RUN apt-get update', 'FROM postgres:18 AS extra\nRUN apt-get update')
+    with pytest.raises(AssertionError, match='digest'):
+        _verifica_base(mutado)
+
+
+def test_segundo_estagio_com_flag_platform_sem_digest_falha():
+    # Caso negativo: a flag `--platform` não pode esconder a referência sem digest.
+    mutado = _mutar(DOCKERFILE, 'RUN apt-get update', 'FROM --platform=linux/amd64 postgres:18 AS extra\nRUN apt-get update')
+    with pytest.raises(AssertionError, match='digest'):
+        _verifica_base(mutado)
+
+
+def test_segundo_estagio_com_flag_platform_e_digest_passa():
+    # Caminho feliz: a flag `--platform` é ignorada e a referência fixada por digest é aceita.
+    achado = re.search(r'postgres:18@sha256:[0-9a-f]{64}', DOCKERFILE)
+    assert achado, 'digest do postgres:18 ausente no Dockerfile'
+    digest = achado.group(0)
+    mutado = _mutar(DOCKERFILE, 'RUN apt-get update', f'FROM --platform=linux/amd64 {digest} AS extra\nRUN apt-get update')
+    _verifica_base(mutado)
+
+
+def test_estagio_que_parte_de_estagio_anterior_passa():
+    # Caminho feliz (S2): `FROM base` reaproveita o estágio já fixado por digest e não precisa de digest próprio.
+    mutado = _mutar(DOCKERFILE, 'RUN apt-get update', 'FROM base AS extra\nRUN apt-get update')
+    mutado = re.sub(r'^(FROM postgres:18@sha256:[0-9a-f]{64})$', r'\1 AS base', mutado, flags=re.M)
+    _verifica_base(mutado)
+
+
+@pytest.mark.parametrize(
+    'echo',
+    [
+        "echo 'apt-get install -y --no-install-recommends pgbouncer=1.26.1-1.pgdg13+1'",
+        'echo apt-get install -y --no-install-recommends pgbouncer=1.26.1-1.pgdg13+1',
+    ],
+)
+def test_apt_install_dentro_de_echo_falha(echo):
+    # Caso negativo (S6): `apt-get install` citado num `echo` não instala nada, com aspas ou sem.
+    mutado = _mutar(DOCKERFILE, '&& apt-get install -y --no-install-recommends pgbouncer=1.26.1-1.pgdg13+1', f'&& {echo}')
+    with pytest.raises(AssertionError, match='apt-get install'):
+        _verifica_pacote(mutado)
+
+
+def test_usuario_root_com_grupo_falha():
+    # Caso negativo (S1): `root:root` roda como root; a parte do grupo não muda o UID.
+    mutado = _mutar(DOCKERFILE, 'USER postgres', 'USER root:root')
+    with pytest.raises(AssertionError, match='root'):
+        _verifica_usuario_nao_root(mutado)
+
+
+def test_usuario_zero_com_grupo_falha():
+    mutado = _mutar(DOCKERFILE, 'USER postgres', 'USER 0:0')
+    with pytest.raises(AssertionError, match='root'):
+        _verifica_usuario_nao_root(mutado)
+
+
+def test_usuario_zero_com_zeros_falha():
+    mutado = _mutar(DOCKERFILE, 'USER postgres', 'USER 00')
+    with pytest.raises(AssertionError, match='root'):
+        _verifica_usuario_nao_root(mutado)
+
+
+def test_usuario_root_em_minusculas_falha():
+    # Caso negativo (E1, achado fora do Sourcery): instrução Dockerfile não diferencia maiúsculas.
+    mutado = _mutar(DOCKERFILE, 'USER postgres', 'USER postgres\nuser root')
+    with pytest.raises(AssertionError, match='root'):
+        _verifica_usuario_nao_root(mutado)
+
+
+def test_usuario_nao_root_com_grupo_root_passa():
+    # Caminho feliz: o usuário é `postgres`; grupo `root` não torna o processo root.
+    mutado = _mutar(DOCKERFILE, 'USER postgres', 'USER postgres:root')
+    _verifica_usuario_nao_root(mutado)

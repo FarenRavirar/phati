@@ -119,7 +119,10 @@ jobs:
           PHATI_TUNEL_TOKEN: token-de-teste
           PHATI_ALVO_DIR: ./nginx/alvo
         run: |
-          publicadas="$(docker compose -f compose.yaml -f compose.implantacao.yaml config --format json | jq -r '.services | to_entries[] | select(.value.ports) | .key')"
+          set -euo pipefail
+          config="$(docker compose -f compose.yaml -f compose.implantacao.yaml config --format json)"
+          test -n "$config" || { echo "docker compose config não devolveu JSON"; exit 1; }
+          publicadas="$(jq -r '.services | to_entries[] | select((.value.ports // []) | length > 0) | .key' <<<"$config")"
           test -z "$publicadas" || { echo "publicam porta: $publicadas"; exit 1; }
       - name: Banco e app saudáveis, migração saiu 0, app responde 404
         run: |
