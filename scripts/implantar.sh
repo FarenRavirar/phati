@@ -64,6 +64,15 @@ comando_subir_ativa() {
   if [[ -z "$ativa" ]]; then echo "$docker start ${legado_ids//$'\n'/ }"; return; fi
   echo "PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
 }
+# Primeiro arquivo de infraestrutura que falta em $1 (commit); vazio = completa. Só arquivo regular (100644/100755) serve à
+# montagem: link simbólico (120000) ou diretório (040000) com o mesmo nome não serve (medido com git ls-tree).
+infra_faltando() {
+  local rev="$1" arq modo
+  for arq in servidor/compose.implantacao.yaml servidor/nginx/default.conf; do
+    modo="$(git ls-tree "$rev" -- "$arq" | cut -d' ' -f1)"
+    [[ "$modo" == 100644 || "$modo" == 100755 ]] || { echo "$arq"; return 0; }
+  done
+}
 erro() {
   echo "ERRO: $*" >&2
   # Dois casos. Falha depois da migração fora do fluxo: o banco já mudou, então nada de subir a versão anterior às cegas.
@@ -80,7 +89,10 @@ erro() {
   # X3c: o clone não pode ficar no SHA que falhou (uma reinicialização da VM leria o default.conf dele). Só volta ao SHA que
   # estava no ar; falha do checkout é avisada e não troca a mensagem do erro original.
   if [[ "$repo_mudou" == 1 && "$anterior" != "$sha" ]] && git cat-file -e "$anterior^{commit}" 2>/dev/null; then
-    if git -C "$dir/repo" checkout -q --detach "$anterior" 2>/dev/null; then
+    if [[ -n "$(infra_faltando "$anterior")" ]]; then
+      # Voltar a um SHA sem a infraestrutura põe o servidor/nginx de volta no bug da VM: o clone fica no SHA que passou na pré-checagem.
+      registrar "repo-mantido=${sha:0:12}: anterior sem infraestrutura blue-green"
+    elif git -C "$dir/repo" checkout -q --detach "$anterior" 2>/dev/null; then
       registrar "repo-restaurado=${anterior:0:12}"
     else
       echo "AVISO: não consegui devolver o repositório a ${anterior:0:12}; corrija antes de reiniciar a VM" >&2
@@ -139,6 +151,9 @@ cd "$dir/repo"
 git fetch -q origin
 git cat-file -e "$sha^{commit}" 2>/dev/null || erro "o SHA $sha não existe no repositório"
 git merge-base --is-ancestor "$sha" "$ref" || erro "o SHA $sha não é ancestral de $ref: só entra o que foi promovido"
+# Antes do checkout: sem a infraestrutura, o checkout apaga o `servidor/nginx` que o nginx monta (bug da VM, spec 009 T3.4).
+faltando="$(infra_faltando "$sha")"
+[[ -z "$faltando" ]] || erro "o SHA não traz a infraestrutura de implantação blue-green: $faltando"
 anterior="$(git rev-parse HEAD 2>/dev/null || echo nenhum)"
 git checkout -q --detach "$sha"
 repo_mudou=1
@@ -192,6 +207,38 @@ nginx_recarrega() {
   fi
   compor exec -T nginx nginx -t >/dev/null || return 1
   compor exec -T nginx nginx -s reload >/dev/null || return 1
+}
+# Autocura do nginx, antes de qualquer build ou troca. Se o clone foi recriado sob um nginx existente, o bind de
+# `servidor/nginx` aponta para diretório vazio: o contêiner é recriado (lê o alvo.conf atual ao subir). Sem contêiner nginx
+# (primeira implantação de verdade), não faz nada. A marca sim/nao vem do próprio contêiner: falha do exec é erro, não
+# "arquivo ausente". Com a recriação antes da troca, o alvo.conf ainda é o anterior: a reversão de `trocar` não precisa recarregar.
+# Legado da 006 sem `ativa` e sem alvo.conf: nada a curar; `trocar` grava o alvo.conf e sobe o nginx. Falha do inspect ou
+# saída fora de true/false não é "parado": para antes de validar ou recriar.
+nginx_autocura() {
+  local id marca estado motivo=parado
+  id="$("$docker" ps -aq --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME --filter label=com.docker.compose.service=nginx)"
+  [[ -n "$id" ]] || return 0
+  [[ -n "$ativa" || -f "$alvo_conf" ]] || return 0
+  if ! estado="$("$docker" inspect -f '{{.State.Running}}' "$id" 2>/dev/null)" || [[ "$estado" != true && "$estado" != false ]]; then
+    registrar "nginx-estado-falhou"
+    echo "ERRO: não consegui verificar o estado do nginx (inspect falhou ou saída inesperada)" >&2
+    return 1
+  fi
+  if [[ "$estado" == true ]]; then
+    motivo=bind-obsoleto
+    marca="$(compor exec -T nginx sh -c 'if [ -f /etc/nginx/conf.d/default.conf ]; then echo sim; else echo nao; fi')" || marca=""
+    if [[ "$marca" != sim && "$marca" != nao ]]; then
+      registrar "nginx-verificacao-falhou"
+      echo "ERRO: não consegui verificar /etc/nginx/conf.d/default.conf no nginx (exec falhou ou saída inesperada)" >&2
+      return 1
+    fi
+    [[ "$marca" == nao ]] || return 0
+  fi
+  # Valida a config do clone num contêiner novo antes de recriar o nginx existente: reprovada, ele segue como está.
+  compor run --rm --no-deps nginx nginx -t >/dev/null || return 1
+  compor up -d --no-deps --force-recreate nginx >/dev/null || return 1
+  registrar "nginx-recriado=$motivo"
+  compor exec -T nginx nginx -t >/dev/null || return 1
 }
 # Confere pelo próprio nginx (a rota que o usuário recebe). A recarga é assíncrona: tenta de novo algumas vezes.
 verificar_nginx() {
@@ -266,6 +313,10 @@ trocar() {
     reverter "$alvo_tinha" "$alvo_antigo" 1 "/saude pelo nginx falhou depois do reload"
   fi
 }
+
+# Autocura antes de qualquer build ou troca (o rollback também usa o nginx): sem ela, o bind obsoleto segue até uma reinicialização.
+passo=autocura-nginx
+nginx_autocura || erro "nginx de pé não pôde ser recriado com a config do clone"
 
 # Rollback: o SHA é o da pilha inativa e ela está saudável. Não há build nem migração; só o destino muda.
 passo=rollback-rapido

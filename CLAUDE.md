@@ -32,9 +32,8 @@ texto de resposta. Sem exceção:
 - **Skills:** `.agents/skills/` é a pasta única. Não criar skill em `.claude/skills/`.
 - **Hooks ativos** (`.claude/hooks/`): `rtk-enforce` reescreve/bloqueia comando cru;
   `rtk-read-gate` bloqueia leitura integral de arquivo grande; `git-commit-msg-gate`
-  bloqueia `-m @'` e `--amend`; `branch-gate` nega `git commit` em `dev`/`main`, em branch fora do molde `<tipo>/<escopo>` e em branch já mergeada em `origin/dev` (`PHATI_GATE_BRANCH=0` desliga só essa regra); `autorizacao-gate` pergunta antes de `commit`, worktree (`PHATI_GATE_WORKTREE=0` desliga só essa regra) e
-  escrita na VM, mesmo com prefixo `rtk` ou dentro de `bash -lc`, e nega `--amend`, `push --force` e desligar a VM; `caveman-resposta-final` cobra resposta em `ultra`; `recursos-locais-gate` (`Stop`) bloqueia o fim do turno com contêiner Docker ou `vmmemWSL` de pé; já registrado em `hooks.Stop` de `.claude/settings.json` (a edição desse arquivo está em `allow`, por decisão do mantenedor). `wsl --shutdown` o agente roda ao terminar (`allow` em `.claude/settings.local.json`).
+  bloqueia `-m @'` e `--amend`; `branch-gate` nega `git commit` em `dev`/`main`, em branch fora do molde `<tipo>/<escopo>` e em branch já mergeada em `origin/dev` (`PHATI_GATE_BRANCH=0` desliga só essa regra); `autorizacao-gate` pergunta antes de `commit` e de `merge` (`git merge`, `gh pr merge`), mesmo com prefixo `rtk` ou dentro de `bash -lc`/`sh -c`, e nega `--amend`, `push --force` e desligar a VM; `caveman-resposta-final` cobra resposta em `ultra`; `recursos-locais-gate` (`Stop`) bloqueia o fim do turno com contêiner Docker ou `vmmemWSL` de pé; já registrado em `hooks.Stop` de `.claude/settings.json` (a edição desse arquivo está em `allow`, por decisão do mantenedor). `wsl --shutdown` o agente roda ao terminar (`allow` em `.claude/settings.local.json`).
 - **Permissões** (`.claude/settings.json`): `deny` no que não tem exceção (desligar
   máquina, `--amend`, `push --force`); `ask` no que exige autorização por ação
-  (commit, merge, worktree, escrita na VM).
+  (commit, merge, `gh pr merge`).
 - **Navegação:** LSP antes de busca textual (`AGENTS.md` §Ferramentas).

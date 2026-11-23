@@ -9,6 +9,7 @@
 'use strict';
 
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const HOOK = path.join(__dirname, 'autorizacao-gate.js');
@@ -40,12 +41,8 @@ const CASOS = [
   ['git commit --amend', 'amend-proibido'],
   ['git push --force origin dev', 'push-force'],
   ['git push -f origin dev', 'push-force'],
-  ['git worktree add ../phati-x', 'worktree-sem-aprovacao'],
-  ['git worktree remove ../phati-x', 'worktree-sem-aprovacao'],
   ['sudo apt-get install jq', 'pacote-novo'],
   ['apt install tree', 'pacote-novo'],
-  ['ssh maruko docker restart site-prod-app', 'vm-escrita'],
-  ['ssh maruko docker compose down', 'vm-escrita'],
   ['shutdown -h now', 'vm-desligamento'],
   ['sudo reboot', 'vm-desligamento'],
   ['ssh maruko sudo poweroff', 'vm-desligamento'],
@@ -96,22 +93,25 @@ const CASOS = [
   ["echo 'rode git worktree add depois'", null],
   ['rtk rg "git commit" docs', null],
 
+  // --- BLOQUEIA: merge (git merge, gh pr merge), com prefixo rtk e dentro de shell ---
+  ['git merge origin/dev', 'merge-sem-autorizacao'],
+  ['rtk git merge origin/dev', 'merge-sem-autorizacao'],
+  ['gh pr merge 78 --squash', 'merge-sem-autorizacao'],
+  ['rtk gh pr merge 78', 'merge-sem-autorizacao'],
+  ["bash -lc 'git merge x'", 'merge-sem-autorizacao'],
+  ['sh -c "git merge x"', 'merge-sem-autorizacao'],
+  ['/usr/bin/git merge origin/dev', 'merge-sem-autorizacao'],
+
+  // --- PASSA: parecido com merge, mas não é merge ---
+  ['git merge-base HEAD origin/dev', null],
+  ['git log --merges --oneline', null],
+  ['gh pr view 78', null],
+
   // --- BLOQUEIA: substituicao dentro de echo executa de verdade ---
   ['echo "$(git commit -m x)"', 'commit-sem-autorizacao'],
 
-  // --- PHATI_GATE_WORKTREE: só `0` desliga a regra worktree; o resto dela segue igual ---
-  // Ausente = ativa (padrão de fábrica).
-  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', {}],
-  // Valor inválido mantém ativa: desligar exige `0` exato.
-  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: '1' }],
-  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: '' }],
-  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: 'false' }],
-  ['git worktree add ../phati-x', 'worktree-sem-aprovacao', { PHATI_GATE_WORKTREE: '00' }],
-  // `0` desliga a regra worktree (add, move e remove).
-  ['git worktree add ../phati-x', null, { PHATI_GATE_WORKTREE: '0' }],
-  ['git worktree move ../phati-x ../phati-y', null, { PHATI_GATE_WORKTREE: '0' }],
-  ['git worktree remove ../phati-x', null, { PHATI_GATE_WORKTREE: '0' }],
-  // Desligar worktree não desliga as outras regras de ask.
+  // A variavel de desligamento antiga (PHATI_GATE_WORKTREE) nao muda mais nada:
+  // com ela setada, commit, pacote e push seguem pedindo ou negando.
   ['git commit -m x', 'commit-sem-autorizacao', { PHATI_GATE_WORKTREE: '0' }],
   ['sudo apt install foo', 'pacote-novo', { PHATI_GATE_WORKTREE: '0' }],
   ['git push --force origin dev', 'push-force', { PHATI_GATE_WORKTREE: '0' }],
@@ -147,10 +147,25 @@ const DECISOES = [
   ['git push --' + 'force origin dev', 'deny'],
   ['git commit -m x', 'ask'],
   ['rtk git commit -F m.txt', 'ask'],
-  ['git work' + 'tree add ../x', 'ask'],
-  ['ssh maruko docker restart app', 'ask'],
   ['sudo apt install foo', 'ask'],
+  ['git merge origin/dev', 'ask'],
+  ['rtk gh pr merge 78', 'ask'],
+  // Negativos de deny: desligar a VM e reescrever historico seguem negados por este hook.
+  ['ssh maruko sudo poweroff', 'deny'],
+  ['systemctl reboot', 'deny'],
+  ['git push -f origin feat/x', 'deny'],
+  // Regras removidas em 2026-11-22 (worktree e escrita na VM): passam sem decisao.
+  ['git work' + 'tree add ../x', null],
+  ['ssh maruko docker restart app', null],
 ];
+
+// Config: o que o hook nao cobre (merge nao tem regra aqui) vem do `permissions` de
+// .claude/settings.json. Checagem de presenca na lista, nao simulacao do casamento de
+// wildcard do Claude Code: prova que a entrada existe, nao que casa o comando.
+const PERMISSOES = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'settings.json'), 'utf8')).permissions;
+const DEVE_PERGUNTAR = ['Bash(git commit:*)', 'Bash(git merge:*)', 'Bash(gh pr merge:*)'];
+const DEVE_NEGAR = ['Bash(*commit --amend*)', 'Bash(*push --force*)', 'Bash(*ssh maruko*shutdown*)', 'Bash(*poweroff*)', 'Bash(*reboot*)'];
+const total = CASOS.length + DECISOES.length + DEVE_PERGUNTAR.length + DEVE_NEGAR.length;
 
 for (const [cmd, esperada] of DECISOES) {
   let obtida = null;
@@ -168,7 +183,16 @@ for (const [cmd, esperada] of DECISOES) {
   }
 }
 
-console.log(`autorizacao-gate: ${ok}/${CASOS.length + DECISOES.length} casos`);
+for (const p of DEVE_PERGUNTAR) {
+  if (PERMISSOES.ask.includes(p)) ok += 1;
+  else falhas.push(`FALHA config: ask ausente  ${p}`);
+}
+for (const p of DEVE_NEGAR) {
+  if (PERMISSOES.deny.includes(p)) ok += 1;
+  else falhas.push(`FALHA config: deny ausente ${p}`);
+}
+
+console.log(`autorizacao-gate: ${ok}/${total} casos`);
 if (falhas.length) {
   console.log(falhas.join('\n'));
   process.exit(1);

@@ -37,6 +37,13 @@ function criarVm({ comEnv = true } = {}) {
   fs.writeFileSync(path.join(trabalho, 'servidor', 'arquivo'), 'a\n');
   git(trabalho, 'add', '.');
   git(trabalho, 'commit', '-q', '-m', 'um');
+  // Ancestral de main sem a infraestrutura de implantação (o SHA que apagou o nginx do clone na VM): a pré-checagem recusa.
+  const semInfra = git(trabalho, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(trabalho, 'servidor', 'compose.implantacao.yaml'), 'services: {}\n');
+  fs.mkdirSync(path.join(trabalho, 'servidor', 'nginx'));
+  fs.writeFileSync(path.join(trabalho, 'servidor', 'nginx', 'default.conf'), 'server {}\n');
+  git(trabalho, 'add', '.');
+  git(trabalho, 'commit', '-q', '-m', 'dois: infraestrutura de implantação');
   git(trabalho, 'branch', '-M', 'main');
   git(trabalho, 'push', '-q', 'origin', 'main');
   const promovido = git(trabalho, 'rev-parse', 'HEAD');
@@ -82,12 +89,20 @@ function criarVm({ comEnv = true } = {}) {
       '  *"ps -q pgb2"*) [[ "${DUBLE_PGB:-0}" == 1 || -e "$PGB_MARCA" ]] && echo pgb21 ;;',
       '  *"ps -q pgb_ns"*) [[ "${DUBLE_PGB:-0}" == 1 || -e "$PGB_MARCA" ]] && echo pgbns1 ;;',
       '  *"up -d --no-deps pgb_ns"*) touch "$PGB_MARCA" ;;',
+      '  *"service=nginx"*) [[ "${DUBLE_NGINX_AUSENTE:-0}" == 1 ]] || echo nginx1 ;;',
       '  *"ps -aq --filter"*) [[ "${DUBLE_ORFAO:-0}" == 1 ]] && echo orfao1 ;;',
       '  *"ps -q nginx"*) [[ "${DUBLE_NGINX:-1}" == 1 ]] && echo nginx1 ;;',
-      '  *"nginx -t"*) cat "$ALVO_DIR/alvo.conf" >> "$VISTO" 2>/dev/null; echo "--" >> "$VISTO"; [[ "${DUBLE_NGINX_TESTE_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      // O default.conf inclui /etc/nginx/alvo/alvo.conf sem condição: sem o arquivo, o nginx -t reprova (medido com nginx 1.18).
+      '  *"nginx -t"*) cat "$ALVO_DIR/alvo.conf" >> "$VISTO" 2>/dev/null; echo "--" >> "$VISTO"; [[ -f "$ALVO_DIR/alvo.conf" ]] || exit 1; [[ "${DUBLE_NGINX_TESTE_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_NGINX_CANDIDATA_INVALIDA:-0}" == 1 && "$*" == *"exec -T nginx nginx -t"* ]] && grep -q app_verde "$ALVO_DIR/alvo.conf" && exit 1 ;;',
       '  *"nginx -s reload"*) [[ "${DUBLE_RELOAD_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_RELOAD_2_FALHA:-0}" == 1 && "$(grep -c "nginx -s reload" "$CHAMADAS")" -ge 2 ]] && exit 1 ;;',
       '  *"exec -T nginx wget"*) [[ "${DUBLE_SAUDA_NGINX_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      // Marca `sim`/`nao` do default.conf: `nao` só até a primeira recriação do nginx (o contêiner recriado já o monta).
+      // DUBLE_EXEC_FALHA simula erro do exec (sem marca, rc 1): não é arquivo ausente.
+      '  *"exec -T nginx sh -c"*"/etc/nginx/conf.d/default.conf"*) [[ "${DUBLE_EXEC_FALHA:-0}" == 1 ]] && exit 1; if [[ "${DUBLE_CONF_AUSENTE:-0}" == 1 ]] && ! grep -q "force-recreate nginx" "$CHAMADAS"; then echo nao; else echo sim; fi ;;',
+      '  *"force-recreate nginx"*) [[ "${DUBLE_RECRIAR_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
+      // DUBLE_INSPECT_FALHA: o inspect falha (rc 1, sem saída). DUBLE_RUNNING_SAIDA: saída que não é true nem false.
+      '  *"State.Running"*) [[ "${DUBLE_INSPECT_FALHA:-0}" == 1 ]] && exit 1; if [[ -n "${DUBLE_RUNNING_SAIDA:-}" ]]; then echo "$DUBLE_RUNNING_SAIDA"; elif [[ "${DUBLE_NGINX_PARADO:-0}" == 1 ]]; then echo false; else echo true; fi ;;',
       '  *inspect*app_azul*) echo "${DUBLE_SAUDE_AZUL:-${DUBLE_SAUDE:-healthy}}" ;;',
       '  *inspect*app_verde*) echo "${DUBLE_SAUDE_VERDE:-${DUBLE_SAUDE:-healthy}}" ;;',
       '  *inspect*pgb21*) echo "${DUBLE_SAUDE_PGB2:-${DUBLE_SAUDE_PGB:-healthy}}" ;;',
@@ -162,7 +177,7 @@ function criarVm({ comEnv = true } = {}) {
   const contarChamadas = (trecho) => lerChamadas().filter((linha) => linha.includes(trecho)).length;
   const lerProjetos = () => (fs.existsSync(projetos) ? fs.readFileSync(projetos, 'utf8').split('\n').filter(Boolean) : []);
   const lerAlvoVars = () => (fs.existsSync(alvoVars) ? fs.readFileSync(alvoVars, 'utf8').split('\n').filter(Boolean) : []);
-  return { vm, repo, promovido, foraDeMain, lerAlvoVars, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
+  return { vm, repo, promovido, semInfra, foraDeMain, lerAlvoVars, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
 }
 let contadorPromocao = 0;
 
@@ -915,7 +930,9 @@ test('candidata que não fica saudável na primeira implantação não chega ao 
     assert.match(r.stderr, /a candidata app_azul não ficou saudável/);
     assert.doesNotMatch(r.stderr, /segue servindo/, 'não havia pilha ativa');
     assert.equal(fs.existsSync(path.join(v.alvo, 'alvo.conf')), false);
-    assert.equal(v.contarChamadas('nginx'), 0);
+    // A autocura só lê o contêiner (exec sh -c, marca sim): nginx não é recarregado nem recriado.
+    assert.equal(v.contarChamadas('nginx -s reload'), 0);
+    assert.equal(v.contarChamadas('force-recreate'), 0);
     assert.match(v.registro(), /FALHOU/);
   } finally {
     v.limpar();
@@ -992,7 +1009,9 @@ test('falhas antes da troca não tocam o nginx: build, migração e estáticos d
       assert.match(r.stderr, new RegExp(esperado), esperado);
       assert.match(r.stderr, /a pilha ativa \(azul\) segue servindo/, esperado);
       assert.equal(v.contarChamadas('up -d --no-deps app_verde'), 0, `${esperado}: a candidata não sobe`);
-      assert.equal(v.contarChamadas('exec -T nginx'), 0, `${esperado}: o nginx não é tocado`);
+      // A autocura só lê o contêiner (exec sh -c, marca sim): o nginx não é recarregado nem recriado.
+      assert.equal(v.contarChamadas('nginx -s reload'), 0, `${esperado}: o nginx não é recarregado`);
+      assert.equal(v.contarChamadas('force-recreate'), 0, `${esperado}: o nginx não é recriado`);
       assert.equal(v.lerAlvo(), ALVO_AZUL, esperado);
       assert.equal(v.lerArquivo('ativa').trim(), 'azul', esperado);
       assert.match(v.registro(), new RegExp(`FALHOU: ${esperado}`), esperado);
@@ -1009,7 +1028,9 @@ test('PostGIS, pacotes e camadas que falham na primeira implantação: nada cheg
     assert.equal(r.status, 1);
     assert.match(r.stderr, /falhou no passo: camadas-dono/);
     assert.equal(fs.existsSync(path.join(v.alvo, 'alvo.conf')), false);
-    assert.equal(v.contarChamadas('nginx'), 0);
+    // A autocura só lê o contêiner (exec sh -c, marca sim): nginx não é recarregado nem recriado.
+    assert.equal(v.contarChamadas('nginx -s reload'), 0);
+    assert.equal(v.contarChamadas('force-recreate'), 0);
   } finally {
     v.limpar();
   }
@@ -1233,7 +1254,9 @@ test('migração reprovada (rc 1): não roda, nginx e alvo.conf intactos, ativa 
     assert.ok(r.stderr.includes('REPROVADA servidor/catalogo/migrations/0002_x.py:7 RemoveField'), r.stderr);
     assert.match(r.stderr, /a pilha ativa segue servindo/);
     assert.equal(v.indice('run --rm migracao'), -1, 'a migração NÃO roda');
-    assert.equal(v.contarChamadas('exec -T nginx'), 0, 'o nginx não é tocado');
+    // A autocura só lê o contêiner (exec sh -c, marca sim): o nginx não é recarregado nem recriado.
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'o nginx não é recarregado');
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'o nginx não é recriado');
     assert.equal(v.lerAlvo(), ALVO_AZUL);
     assert.equal(v.lerArquivo('ativa').trim(), 'azul');
     assert.match(v.registro(), /FALHOU: migração reprovada pelo verificador \(rc 1\)/);
@@ -1640,6 +1663,306 @@ test('X3c: primeira implantação que falha não faz checkout de volta (anterior
     const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDE: 'unhealthy' });
     assert.equal(r.status, 1);
     assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido);
+    assert.doesNotMatch(v.registro(), /repo-restaurado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Bug da VM (spec 009 T3.4): SHA ancestral de main sem `servidor/nginx` fez o checkout apagar o diretório que o nginx
+// monta. A pré-checagem recusa antes do checkout; a autocura recria o nginx quando o `default.conf` montado sumiu.
+test('SHA sem a infraestrutura de implantação é recusado antes do checkout: clone intacto, nada de Docker, registro FALHOU', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.semInfra]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /o SHA não traz a infraestrutura de implantação blue-green: servidor\/compose\.implantacao\.yaml/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não muda de SHA');
+    assert.ok(fs.existsSync(path.join(v.repo, 'servidor', 'nginx', 'default.conf')), 'o servidor/nginx segue no clone');
+    assert.deepEqual(v.lerChamadas(), [], 'nada de Docker antes da recusa');
+    assert.match(v.registro(), /FALHOU: o SHA não traz a infraestrutura/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: nginx de pé sem o default.conf montado é recriado (bind obsoleto) e não só recarregado', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('up -d --no-deps --force-recreate nginx'), 1, 'recriado uma vez');
+    assert.equal(v.contarChamadas('nginx -s reload'), 1, 'a troca recarrega o alvo novo, depois da recriação feita antes do build');
+    assert.equal(v.contarChamadas('/etc/nginx/conf.d/default.conf'), 1, 'o caminho exato do default.conf foi verificado');
+    assert.match(v.registro(), /nginx-recriado=bind-obsoleto/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: com o default.conf montado o nginx só recarrega, sem recriar e sem registrar', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('force-recreate'), 0);
+    assert.equal(v.contarChamadas('nginx -s reload'), 1);
+    assert.equal(v.contarChamadas('/etc/nginx/conf.d/default.conf'), 1, 'o caminho exato do default.conf foi verificado');
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: se a recriação do nginx falha, a implantação falha, registra FALHOU e não diz que recriou', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_RECRIAR_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(v.registro(), /FALHOU/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Recriação do nginx parado antes do build: o status, uma recriação e o registro, na ordem que o teste de autocura exige.
+function afirmarRecriadoAntesDoBuild(v, r) {
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(v.contarChamadas('force-recreate nginx'), 1, 'recriado uma vez');
+  assert.ok(v.indice('force-recreate nginx') < v.indice(' build'), 'antes do build');
+  assert.match(v.registro(), /nginx-recriado=parado/);
+}
+
+// Primeira implantação, promoção de um commit novo e chamadas zeradas: ponto de partida dos testes de autocura do nginx.
+function implantarEPromover(v) {
+  assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+  const b = v.promover();
+  v.zerar();
+  return b;
+}
+
+// Promove a main um commit que altera a infraestrutura (a função recebe o caminho do clone de trabalho) e devolve o SHA.
+function promoverComAlteracao(v, alterar) {
+  git(v.trabalho, 'switch', '-q', 'main');
+  alterar(v.trabalho);
+  git(v.trabalho, 'add', '-A');
+  git(v.trabalho, 'commit', '-q', '-m', 'infraestrutura alterada');
+  git(v.trabalho, 'push', '-q', 'origin', 'main');
+  return git(v.trabalho, 'rev-parse', 'HEAD');
+}
+
+test('autocura: a config candidata é validada antes de recriar o nginx de pé; reprovada, o nginx de pé não é tocado', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_NGINX_TESTE_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'não recriou o nginx de pé');
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'nada recarregado');
+    assert.match(r.stderr, /nginx de pé não pôde ser recriado com a config do clone/);
+    assert.match(v.registro(), /FALHOU/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: candidata reprovada depois da recriação reverte o alvo.conf e não recarrega (o nginx segue com o alvo anterior)', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const antes = v.lerAlvo();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_NGINX_CANDIDATA_INVALIDA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'nada recarregado: o nginx recriado na autocura já lê o alvo anterior');
+    assert.equal(v.lerAlvo(), antes, 'alvo.conf voltou ao da ativa');
+    assert.match(v.registro(), /nginx-recriado=bind-obsoleto/);
+    assert.match(v.registro(), /FALHOU/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: erro do exec ao checar o default.conf não é lido como arquivo ausente: nada é recriado e a causa vai ao registro', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_EXEC_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'erro de exec não recria o nginx');
+    assert.match(r.stderr, /não consegui verificar \/etc\/nginx\/conf\.d\/default\.conf/);
+    assert.match(v.registro(), /nginx-verificacao-falhou/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: inspect que falha não é lido como nginx parado: nada é validado nem recriado e a implantação falha com a causa', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_INSPECT_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /não consegui verificar o estado do nginx/);
+    assert.equal(v.contarChamadas('nginx -t'), 0, 'nenhuma validação com o estado desconhecido');
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'não recriou o nginx');
+    assert.match(v.registro(), /nginx-estado-falhou/);
+    assert.match(v.registro(), /FALHOU/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: saída do inspect fora de true e false é erro, não "parado": nada é recriado', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_RUNNING_SAIDA: 'talvez' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /não consegui verificar o estado do nginx/);
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'não recriou o nginx');
+    assert.match(v.registro(), /nginx-estado-falhou/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: legado da 006 (sem ativa e sem alvo.conf) com nginx parado não valida nem recria: a implantação segue até a troca', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.vm, 'ativa'));
+    fs.rmSync(path.join(v.alvo, 'alvo.conf'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_PARADO: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'nada recriado antes da troca');
+    assert.equal(v.contarChamadas('nginx -t'), 1, 'só a validação da troca, não a da autocura');
+    assert.match(v.lerAlvo(), /set \$alvo app_azul;/, 'a troca gravou o alvo.conf');
+    assert.match(v.registro(), /OK/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: sem ativa mas com alvo.conf, nginx parado é recriado antes do build (recuperação antecipada preservada)', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.vm, 'ativa'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_PARADO: '1' });
+    afirmarRecriadoAntesDoBuild(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('SHA com a infraestrutura como link simbólico ou diretório é recusado antes do checkout', () => {
+  const v = criarVm();
+  const compose = (t) => path.join(t, 'servidor', 'compose.implantacao.yaml');
+  try {
+    const link = promoverComAlteracao(v, (t) => {
+      fs.rmSync(compose(t));
+      fs.symlinkSync('arquivo', compose(t));
+    });
+    const r = v.rodar(IMPLANTAR, [link]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /infraestrutura de implantação blue-green: servidor\/compose\.implantacao\.yaml/);
+    const diretorio = promoverComAlteracao(v, (t) => {
+      fs.rmSync(compose(t));
+      fs.mkdirSync(compose(t));
+      fs.writeFileSync(path.join(compose(t), 'conteudo'), 'x\n');
+    });
+    const r2 = v.rodar(IMPLANTAR, [diretorio]);
+    assert.equal(r2.status, 1);
+    assert.match(r2.stderr, /infraestrutura de implantação blue-green: servidor\/compose\.implantacao\.yaml/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não muda de SHA');
+    assert.deepEqual(v.lerChamadas(), [], 'nada de Docker antes da recusa');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('pré-checagem: cada arquivo de infraestrutura faltando recusa sozinho, citando o que falta', () => {
+  const semDefault = criarVm();
+  try {
+    const sha = promoverComAlteracao(semDefault, (t) => fs.rmSync(path.join(t, 'servidor', 'nginx', 'default.conf')));
+    const r = semDefault.rodar(IMPLANTAR, [sha]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /servidor\/nginx\/default\.conf/);
+    assert.doesNotMatch(r.stderr, /compose\.implantacao/);
+    assert.deepEqual(semDefault.lerChamadas(), []);
+  } finally {
+    semDefault.limpar();
+  }
+  const semCompose = criarVm();
+  try {
+    const sha = promoverComAlteracao(semCompose, (t) => fs.rmSync(path.join(t, 'servidor', 'compose.implantacao.yaml')));
+    const r = semCompose.rodar(IMPLANTAR, [sha]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /servidor\/compose\.implantacao\.yaml/);
+    assert.doesNotMatch(r.stderr, /default\.conf/);
+    assert.deepEqual(semCompose.lerChamadas(), []);
+  } finally {
+    semCompose.limpar();
+  }
+});
+
+test('autocura: nginx existente parado é recriado antes do build, com o alvo atual', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_PARADO: '1' });
+    afirmarRecriadoAntesDoBuild(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: sem contêiner nginx (primeira implantação de verdade) não consulta nem recria o nginx antes do build', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_NGINX_AUSENTE: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('force-recreate'), 0);
+    assert.equal(v.contarChamadas('exec -T nginx sh -c'), 0, 'nenhuma verificação de default.conf sem contêiner');
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: candidata que falha no build não impede a recriação do nginx com bind obsoleto', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_BUILD_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.equal(v.contarChamadas('force-recreate nginx'), 1, 'recriado antes do build que falhou');
+    assert.ok(v.indice('force-recreate nginx') < v.indice(' build'));
+    assert.match(v.registro(), /nginx-recriado=bind-obsoleto/);
+    assert.match(v.registro(), /FALHOU/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('erro depois do checkout não devolve o clone a SHA sem infraestrutura: HEAD fica no SHA novo e o default.conf segue', () => {
+  const v = criarVm();
+  try {
+    git(v.repo, 'checkout', '-q', '--detach', v.semInfra);
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_NGINX_TESTE_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone fica no SHA que passou na pré-checagem');
+    assert.ok(fs.existsSync(path.join(v.repo, 'servidor', 'nginx', 'default.conf')), 'o default.conf segue no clone');
+    assert.match(v.registro(), /repo-mantido=[0-9a-f]{12}: anterior sem infraestrutura blue-green/);
     assert.doesNotMatch(v.registro(), /repo-restaurado/);
   } finally {
     v.limpar();

@@ -23,9 +23,9 @@
 // declarativa ja cobre bem nao se duplica aqui: duplicar espalha a manutencao e
 // faz as duas divergirem com o tempo.
 //
-// Decisao do mantenedor (2026-10-29): so o COMMIT pergunta; `git push` e `gh pr create`
-// nao aparecem abaixo, porque so acontecem depois de um commit autorizado. Sem regra de SQL: nao ha banco de
-// producao local.
+// Decisao do mantenedor: COMMIT e MERGE (`git merge`, `gh pr merge`) pedem autorizacao nominal, por acao. `git push` e
+// `gh pr create` nao aparecem abaixo, porque so acontecem depois de um commit autorizado; o merge tambem fica no
+// `permissions.ask` de .claude/settings.json (segunda camada). Sem regra de SQL: nao ha banco de producao local.
 //
 // Falha aberta, deliberadamente: payload ilegivel ou erro interno sai com 0. Um
 // gate que derruba o turno e desligado na primeira vez que atrapalha, e ai nao
@@ -91,10 +91,9 @@ const REGRAS = [
   // Estas PERGUNTAM ao mantenedor; nao bloqueiam. Emitiam `deny` ate 2026-09-10,
   // o que tornava a acao impossivel por este harness mesmo com a autorizacao ja
   // dada: o gate nao distinguia "nao autorizado" de "autorizado", porque nunca
-  // chegava a perguntar. O AGENTS.md ja dizia o correto — "commit, worktree,
-  // escrita na VM, SQL write e pacote novo sao `ask`" — e era o hook que
-  // divergia do texto que implementa. Achado ao tentar commitar a propria
-  // spec 101 (F5), com autorizacao nominal dada e recusada pelo gate.
+  // chegava a perguntar. Achado ao tentar commitar a propria spec 101 (F5), com
+  // autorizacao nominal dada e recusada pelo gate.
+  // Politica do mantenedor: so commit e merge pedem autorizacao aqui. Worktree e escrita na VM ficaram de fora.
   {
     nome: 'commit-sem-autorizacao',
     decisao: 'ask',
@@ -102,21 +101,11 @@ const REGRAS = [
     porque: 'AGENTS.md §Decisao, pausa e duvida: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
   },
   {
-    nome: 'worktree-sem-aprovacao',
+    nome: 'merge-sem-autorizacao',
     decisao: 'ask',
-    // Desligável só por `PHATI_GATE_WORKTREE=0` (máquina do mantenedor que decide worktree sozinho). Ausente ou
-    // qualquer outro valor mantém a regra ativa: desligar exige valor exato, nunca por engano.
-    desligavel: 'PHATI_GATE_WORKTREE',
-    test: /\bgit\s+worktree\s+(?:add|move|remove)\b/,
-    porque: 'AGENTS.md §Decisao, pausa e duvida: criar/mover/remover worktree exige aprovacao nominal PREVIA. Explique antes por que o cwd nao pode ser usado, o caminho exato, e como o trabalho volta. `git worktree list` e livre.',
-  },
-  {
-    nome: 'vm-escrita',
-    decisao: 'ask',
-    // `ssh maruko` com subcomando de mutacao. Read-only na VM e livre por regra
-    // petrea e nao pode cair aqui — dai a lista fechada de verbos de escrita.
-    test: /\bssh\s+maruko\b[^;&|]*\b(?:docker\s+(?:restart|stop|start|rm|kill|compose\s+(?:up|down))|systemctl\s+(?:start|stop|restart)|rm\s+-|mv\s|cp\s|tee\s|>\s*\/)/,
-    porque: 'AGENTS.md §Decisao, pausa e duvida: escrita na VM maruko exige aprovacao nominal a cada vez. Inspecao read-only (docker ps|logs|inspect, cat, ls) e SEMPRE permitida e nao passa por aqui.',
+    // `(?![\w-])` deixa passar `git merge-base`; `git log --merges` e `gh pr view` não casam.
+    test: /\bgit\s+merge(?![\w-])|\bgh\s+pr\s+merge(?![\w-])/,
+    porque: 'AGENTS.md §Decisao, pausa e duvida: merge (git merge, gh pr merge) exige autorizacao nominal do mantenedor, por acao. "pode seguir"/"corrija" NAO autorizam merge.',
   },
   {
     nome: 'pacote-novo',
