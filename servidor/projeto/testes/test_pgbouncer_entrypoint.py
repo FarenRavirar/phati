@@ -9,6 +9,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 from django.conf import settings
 
 PGBOUNCER = Path(settings.DIRETORIO_BASE) / 'pgbouncer'
@@ -151,3 +152,28 @@ def test_auth_recusa_usuario_do_app_fora_do_padrao(tmp_path):
     r = _rodar(tmp_path, args=('auth',), PHATI_BANCO_APP_USUARIO="app'; drop", PGB_PSQL='/nao-existe')
     assert r.returncode != 0
     assert not (cfg / 'userlist.txt').exists()
+
+
+def test_destino_ausente_gera_host_banco(tmp_path):
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco port=5432 dbname=phati' in r.stdout
+    assert '@' not in r.stdout
+
+
+def test_destino_informado_vira_o_host_do_banco(tmp_path):
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco_novo', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+    assert 'host=banco port' not in r.stdout
+
+
+@pytest.mark.parametrize('destino', ['banco;x', 'banco x', '', '$(id)', 'banco\nx', 'banco@x', 'banco/x', '-banco', 'ban`co`'])
+def test_destino_fora_do_padrao_recusa_subir_sem_arquivo_parcial(tmp_path, destino):
+    # Caso negativo: o valor entra no .ini. A checagem roda antes de criar o diretório, então nada fica pela metade.
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO=destino, **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode != 0
+    assert 'PHATI_BANCO_DESTINO inválido' in r.stderr
+    assert not (tmp_path / 'raiz').exists()

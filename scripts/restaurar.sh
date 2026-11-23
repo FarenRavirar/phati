@@ -19,6 +19,12 @@ docker="${DOCKER:-docker}"
 projeto="${PHATI_PROJETO:-phati}"
 [[ "$projeto" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "ERRO: PHATI_PROJETO inválido: use minúsculas, números, _ e -, começando por letra ou número" >&2; exit 1; }
 export COMPOSE_PROJECT_NAME="$projeto"
+# Banco ativo (spec 009 R15, T5.4c): `banco` até a troca, `banco_novo` depois. Valor fora da lista vira nome de serviço: recusa.
+banco_srv=banco
+if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
+[[ "$banco_srv" == banco || "$banco_srv" == banco_novo ]] || { echo "ERRO: $dir/banco-ativo tem valor inválido" >&2; exit 1; }
+# O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
+if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
 # X4: mesma ordem do backup.sh e do implantar.sh (ambiente, `.env`, padrão $dir/alvo); a instrução de recuperação a traz.
 alvo_dir="${PHATI_ALVO_DIR:-}"
 [[ -n "$alvo_dir" ]] || alvo_dir="$(grep -m1 '^PHATI_ALVO_DIR=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
@@ -63,11 +69,11 @@ trap 'if [[ "$passo" == subir-app ]]; then echo "ERRO: o banco foi restaurado, m
 passo=parar-app
 compor stop app_"$ativa"
 passo=banco
-compor up -d --wait banco
+compor up -d --wait "$banco_srv"
 passo=restaurar-dump
 # `pg_restore -f` falhando (dump inválido) para antes do `psql`, que só então apaga e recria o schema. O GRANT devolve o
 # USAGE que o schema `public` novo não tem e o papel `app` precisa. O SQL temporário (com dado) é apagado ao sair.
-compor exec -T banco sh -c 'set -e; trap "rm -f /tmp/restaurar-dump.sql /tmp/restaurar-total.sql" EXIT; export PGPASSWORD="$PHATI_BANCO_DONO_SENHA"; pg_restore --no-owner -f /tmp/restaurar-dump.sql; { echo "DROP SCHEMA public CASCADE;"; echo "CREATE SCHEMA public;"; echo "GRANT USAGE ON SCHEMA public TO PUBLIC;"; cat /tmp/restaurar-dump.sql; } > /tmp/restaurar-total.sql; psql -q -v ON_ERROR_STOP=1 --single-transaction -h 127.0.0.1 -U "$PHATI_BANCO_DONO_USUARIO" -d "$PHATI_BANCO_NOME" -f /tmp/restaurar-total.sql' < "$arquivo"
+compor exec -T "$banco_srv" sh -c 'set -e; trap "rm -f /tmp/restaurar-dump.sql /tmp/restaurar-total.sql" EXIT; export PGPASSWORD="$PHATI_BANCO_DONO_SENHA"; pg_restore --no-owner -f /tmp/restaurar-dump.sql; { echo "DROP SCHEMA public CASCADE;"; echo "CREATE SCHEMA public;"; echo "GRANT USAGE ON SCHEMA public TO PUBLIC;"; cat /tmp/restaurar-dump.sql; } > /tmp/restaurar-total.sql; psql -q -v ON_ERROR_STOP=1 --single-transaction -h 127.0.0.1 -U "$PHATI_BANCO_DONO_USUARIO" -d "$PHATI_BANCO_NOME" -f /tmp/restaurar-total.sql' < "$arquivo"
 # Restauração confirmada: o banco mudou para o dump, então o SHA guardado da pilha inativa deixa de valer.
 inativa=verde
 if [[ "$ativa" == verde ]]; then inativa=azul; fi

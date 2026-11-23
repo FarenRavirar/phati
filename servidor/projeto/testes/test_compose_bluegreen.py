@@ -26,6 +26,7 @@ VALORES_SINTETICOS = {
     'PHATI_BANCO_DONO_SENHA': 'sintetica-dono',
     'PHATI_BANCO_APP_USUARIO': 'app',
     'PHATI_BANCO_APP_SENHA': 'sintetica-app',
+    'PHATI_BANCO_REPLICADOR_SENHA': 'sintetica-replicador',
     'PHATI_TUNEL_TOKEN': 'sintetico-tunel',
     'PHATI_ALVO_DIR': ALVO_DE_DEV,
 }
@@ -95,6 +96,23 @@ def test_pgbouncers_dividem_a_rede_do_dono_pgb_ns():
     servicos = _implantacao()
     assert servicos['pgb1']['network_mode'] == 'service:pgb_ns'
     assert servicos['pgb2']['network_mode'] == 'service:pgb_ns'
+
+
+def test_pgbouncers_recebem_o_destino_do_banco_com_padrao_banco():
+    # Vazio cai no padrão `${PHATI_BANCO_DESTINO:-banco}`; o teste não depende do que está no ambiente de quem roda.
+    rc, saida, erro = _config(IMPLANTACAO, {'PHATI_BANCO_DESTINO': ''})
+    assert rc == 0, erro
+    servicos = json.loads(saida)['services']
+    assert _ambiente(servicos['pgb1'])['PHATI_BANCO_DESTINO'] == 'banco'
+    assert _ambiente(servicos['pgb2'])['PHATI_BANCO_DESTINO'] == 'banco'
+
+
+def test_pgbouncers_recebem_o_destino_informado_no_ambiente():
+    rc, saida, erro = _config(IMPLANTACAO, {'PHATI_BANCO_DESTINO': 'banco_novo'})
+    assert rc == 0, erro
+    servicos = json.loads(saida)['services']
+    assert _ambiente(servicos['pgb1'])['PHATI_BANCO_DESTINO'] == 'banco_novo'
+    assert _ambiente(servicos['pgb2'])['PHATI_BANCO_DESTINO'] == 'banco_novo'
 
 
 def test_estaticos_de_cada_pilha_tem_volume_proprio_e_pacotes_camadas_sao_compartilhados():

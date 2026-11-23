@@ -1,7 +1,8 @@
 #!/bin/sh
 # Entrada do PgBouncer (spec 009 R18). Sem argumento: sobe a instância `PGB_INSTANCIA` com o modelo copiado para o
-# próprio diretório (socket, pid e log por instância). `auth`: grava /cfg/userlist.txt com o verificador SCRAM do papel
-# do app, sem imprimir nada. PGB_RAIZ, PGB_CFG, PGB_MODELO, PGB_BIN e PGB_PSQL existem só para o teste.
+# próprio diretório (socket, pid e log por instância). `PHATI_BANCO_DESTINO` (padrão `banco`) é o host do banco no modelo.
+# `auth`: grava /cfg/userlist.txt com o verificador SCRAM do papel do app, sem imprimir nada.
+# PGB_RAIZ, PGB_CFG, PGB_MODELO, PGB_BIN e PGB_PSQL existem só para o teste.
 set -eu
 
 raiz="${PGB_RAIZ:-/tmp/pgb}"  # na camada do contêiner, não tmpfs: sobrevive a `docker start` (medido, ver compose)
@@ -13,6 +14,15 @@ nome_valido() {
     case "$1" in
         ''|*[!a-z0-9_]*) return 1 ;;
         *) return 0 ;;  # só o que sobra é válido: explícito para o `case` não depender de cair fora dele
+    esac
+}
+
+# Equivale a `^[A-Za-z0-9][A-Za-z0-9._-]*$` (regex de host/serviço). `case` em vez de `grep`: o `grep` lê linha a linha
+# e deixaria passar quebra de linha no meio do valor.
+host_valido() {
+    case "$1" in
+        ''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) return 1 ;;
+        *) return 0 ;;
     esac
 }
 
@@ -41,10 +51,13 @@ fi
 instancia="${PGB_INSTANCIA:-}"
 nome_valido "$instancia" || { echo "PGB_INSTANCIA inválida" >&2; exit 1; }
 nome_valido "${PHATI_BANCO_NOME:-}" || { echo "PHATI_BANCO_NOME inválido" >&2; exit 1; }
+# `-` e não `:-`: sem a variável vale `banco`; vazia já é recusada pela regra de host.
+destino="${PHATI_BANCO_DESTINO-banco}"
+host_valido "$destino" || { echo "PHATI_BANCO_DESTINO inválido" >&2; exit 1; }
 
 dir="$raiz/$instancia"
 mkdir -p "$dir"
 # Restos de execução anterior (pid e socket) impedem o novo processo de subir: some antes de iniciar.
 rm -f "$dir"/*.pid "$dir"/.s.PGSQL.*
-sed -e "s|@BANCO@|$PHATI_BANCO_NOME|g" -e "s|@DIR@|$dir|g" "$modelo" > "$dir/pgbouncer.ini"
+sed -e "s|@BANCO_HOST@|$destino|g" -e "s|@BANCO@|$PHATI_BANCO_NOME|g" -e "s|@DIR@|$dir|g" "$modelo" > "$dir/pgbouncer.ini"
 exec "${PGB_BIN:-pgbouncer}" "$dir/pgbouncer.ini"
