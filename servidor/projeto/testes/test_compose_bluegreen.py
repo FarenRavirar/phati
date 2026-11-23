@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
@@ -26,6 +27,7 @@ VALORES_SINTETICOS = {
     'PHATI_BANCO_DONO_SENHA': 'sintetica-dono',
     'PHATI_BANCO_APP_USUARIO': 'app',
     'PHATI_BANCO_APP_SENHA': 'sintetica-app',
+    'PHATI_BANCO_REPLICADOR_SENHA': 'sintetica-replicador',
     'PHATI_TUNEL_TOKEN': 'sintetico-tunel',
     'PHATI_ALVO_DIR': ALVO_DE_DEV,
 }
@@ -38,10 +40,14 @@ def _config(flags, ambiente=None):
     if shutil.which('docker') is None:
         raise AssertionError('docker ausente no PATH: o teste de compose precisa do binário (sem ele não há config)')
     env = {**os.environ, **VALORES_SINTETICOS, **(ambiente or {})}
-    rodado = subprocess.run(
-        ['docker', 'compose', *flags, 'config', '--format', 'json'],
-        cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
-    )
+    # `--env-file` vazio antes de `-f`: a interpolação não lê o `servidor/.env` local.
+    with tempfile.TemporaryDirectory() as temporario:
+        vazio = Path(temporario) / 'vazio.env'
+        vazio.write_text('', encoding='utf-8')
+        rodado = subprocess.run(
+            ['docker', 'compose', '--env-file', str(vazio), *flags, 'config', '--format', 'json'],
+            cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
+        )
     return rodado.returncode, rodado.stdout, rodado.stderr
 
 
@@ -95,6 +101,23 @@ def test_pgbouncers_dividem_a_rede_do_dono_pgb_ns():
     servicos = _implantacao()
     assert servicos['pgb1']['network_mode'] == 'service:pgb_ns'
     assert servicos['pgb2']['network_mode'] == 'service:pgb_ns'
+
+
+def test_pgbouncers_recebem_o_destino_do_banco_com_padrao_banco():
+    # Vazio cai no padrão `${PHATI_BANCO_DESTINO:-banco}`; o teste não depende do que está no ambiente de quem roda.
+    rc, saida, erro = _config(IMPLANTACAO, {'PHATI_BANCO_DESTINO': ''})
+    assert rc == 0, erro
+    servicos = json.loads(saida)['services']
+    assert _ambiente(servicos['pgb1'])['PHATI_BANCO_DESTINO'] == 'banco'
+    assert _ambiente(servicos['pgb2'])['PHATI_BANCO_DESTINO'] == 'banco'
+
+
+def test_pgbouncers_recebem_o_destino_informado_no_ambiente():
+    rc, saida, erro = _config(IMPLANTACAO, {'PHATI_BANCO_DESTINO': 'banco_novo'})
+    assert rc == 0, erro
+    servicos = json.loads(saida)['services']
+    assert _ambiente(servicos['pgb1'])['PHATI_BANCO_DESTINO'] == 'banco_novo'
+    assert _ambiente(servicos['pgb2'])['PHATI_BANCO_DESTINO'] == 'banco_novo'
 
 
 def test_estaticos_de_cada_pilha_tem_volume_proprio_e_pacotes_camadas_sao_compartilhados():

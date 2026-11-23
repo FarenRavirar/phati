@@ -64,6 +64,7 @@ services:
       PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
       PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
       PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
+      PHATI_BANCO_REPLICADOR_SENHA: ${PHATI_BANCO_REPLICADOR_SENHA:-}  # spec 009 R15: papeis.sql cria `replicador` só se vier preenchida
     volumes:
       - dados_banco:/var/lib/postgresql  # PG18+: o PGDATA fica em /var/lib/postgresql/18/docker
       - ./banco/papeis.sql:/papeis.sql:ro
@@ -74,14 +75,15 @@ services:
       interval: 5s
       retries: 10
 
-  # Migração e estáticos vão DIRETO ao `banco` (spec 009 R18): o PgBouncer só atende o papel do app.
+  # Migração, estáticos e one-shots vão DIRETO ao banco ativo (spec 009 R18, R15): `PHATI_BANCO_DESTINO`, padrão `banco`.
+  # O PgBouncer só atende o papel do app.
   migracao:
     build: .
     # O `check` acusa PHATI_SEGREDO_RLS diferente do gravado no banco; falhando, o `app` não sobe (depends_on).
     command: sh -c "python manage.py migrate && python manage.py check --database default"
     environment:
       <<: *ambiente_app
-      PHATI_BANCO_HOST: banco
+      PHATI_BANCO_HOST: ${PHATI_BANCO_DESTINO:-banco}
       PHATI_BANCO_PORTA: "5432"
       PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
       PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
@@ -98,7 +100,7 @@ services:
     command: python manage.py collectstatic --noinput
     environment:
       <<: *ambiente_app
-      PHATI_BANCO_HOST: banco
+      PHATI_BANCO_HOST: ${PHATI_BANCO_DESTINO:-banco}
       PHATI_BANCO_PORTA: "5432"
       PHATI_ESTATICOS: /estaticos
     volumes:
@@ -112,7 +114,7 @@ services:
     command: python manage.py collectstatic --noinput
     environment:
       <<: *ambiente_app
-      PHATI_BANCO_HOST: banco
+      PHATI_BANCO_HOST: ${PHATI_BANCO_DESTINO:-banco}
       PHATI_BANCO_PORTA: "5432"
       PHATI_ESTATICOS: /estaticos
     volumes:
@@ -139,7 +141,7 @@ services:
     build: ./banco
     entrypoint: ["sh", "/atualizar-postgis.sh"]
     environment:
-      PGHOST: banco
+      PGHOST: ${PHATI_BANCO_DESTINO:-banco}
       PGUSER: postgres
       PGPASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
@@ -176,7 +178,7 @@ services:
     build: ./pgbouncer
     command: ["auth"]
     environment:
-      PGHOST: banco
+      PGHOST: ${PHATI_BANCO_DESTINO:-banco}
       PGUSER: postgres
       PGPASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
       PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
@@ -191,6 +193,7 @@ services:
     environment:
       PGB_INSTANCIA: pgb1
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+      PHATI_BANCO_DESTINO: ${PHATI_BANCO_DESTINO:-banco}
     volumes:
       - pgb_cfg:/cfg:ro
     depends_on:
@@ -209,6 +212,7 @@ services:
     environment:
       PGB_INSTANCIA: pgb2
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+      PHATI_BANCO_DESTINO: ${PHATI_BANCO_DESTINO:-banco}
     volumes:
       - pgb_cfg:/cfg:ro
     depends_on:

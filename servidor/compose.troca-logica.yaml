@@ -1,0 +1,10 @@
+# Override da troca LÓGICA de banco (spec 009 R15, decisão 12): `wal_level=logical` no `banco` e no `banco_novo`.
+# Só o `preparar` e o `trocar --modo logica` do `trocar-banco.sh` somam este arquivo, depois de `compose.yaml` e
+# `compose.implantacao.yaml`. Como muda o `command` do `banco`, o compose recria o `banco` (restart): por isso só o
+# `preparar` e a troca lógica usam este arquivo. Deploy normal NÃO usa: subir sem ele recria o `banco` com o padrão
+# (`wal_level=replica`), o que derruba uma replicação lógica que esteja em curso.
+services:
+  banco:
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+  banco_novo:
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]

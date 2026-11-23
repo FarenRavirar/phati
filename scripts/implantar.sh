@@ -8,6 +8,9 @@
 # Duas pilhas (azul e verde) ficam de pé. A implantação sobe só a inativa (candidata), troca o destino do nginx depois de
 # conferi-la e deixa a anterior de pé: o rollback é trocar o destino de volta. Se o `<sha>` pedido é o da pilha inativa e ela
 # está saudável, não há build: só troca o destino.
+# Troca de banco interrompida (marcador `troca-banco-em-curso`) recusa antes do Docker; destino do compose e `banco-ativo` (e o
+# `.env`) têm de apontar o mesmo banco: com banco_novo o destino vai ao ambiente do compose; divergência recusa (spec 009 R15).
+# O valor de `PHATI_BANCO_DESTINO` lido do `.env` passa por `valor_env` (aspas e ` #comentário` saem como no Compose) antes da comparação.
 # -E: o trap ERR vale dentro de funções; sem ele, falha do Docker sairia calada, sem mensagem nem registro.
 set -Eeuo pipefail
 
@@ -106,6 +109,33 @@ erro() {
 projeto="${PHATI_PROJETO:-phati}"
 [[ "$projeto" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || erro "PHATI_PROJETO inválido: use minúsculas, números, _ e -, começando por letra ou número"
 export COMPOSE_PROJECT_NAME="$projeto"
+# Banco ativo (spec 009 R15, T5.4c): `banco` até a troca, `banco_novo` depois (o trocar-banco.sh grava `banco-ativo`). Valor
+# fora da lista vira nome de serviço do compose: recusa antes de qualquer chamada ao Docker.
+banco_srv=banco
+if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
+[[ "$banco_srv" == banco || "$banco_srv" == banco_novo ]] || erro "$dir/banco-ativo tem valor inválido"
+# O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
+if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
+volume_banco="dados_$banco_srv"
+# Troca de banco interrompida (spec 009 R15): o marcador do trocar-banco.sh recusa antes de qualquer chamada ao Docker.
+[[ ! -e "$dir/troca-banco-em-curso" ]] || erro "troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar"
+# O destino do compose (`PHATI_BANCO_DESTINO`) tem de dizer o mesmo banco que `banco-ativo`. Com banco_novo, o ambiente vence o
+# `.env` (`--env-file`): exporta. Com banco, um destino banco_novo no ambiente ou no `.env` é divergência: recusa. Só essa chave é lida.
+# Valor do `.env` como o Compose o lê: aspas que cercam o valor saem e ` #comentário` depois dele é cortado (sem isso, `"banco_novo"`
+# passaria pela comparação e o compose receberia banco_novo mesmo com banco-ativo=banco).
+valor_env() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
+  printf '%s' "$v"
+}
+if [[ "$banco_srv" == banco_novo ]]; then
+  export PHATI_BANCO_DESTINO=banco_novo
+else
+  destino_env="${PHATI_BANCO_DESTINO:-}"
+  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
+  [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+fi
 
 # Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O script roda
 # de novo dentro de `flock -w <limite> -E 75 <arquivo> comando`: o sistema solta a trava quando o processo morre, sem trava
@@ -154,6 +184,11 @@ git merge-base --is-ancestor "$sha" "$ref" || erro "o SHA $sha não é ancestral
 # Antes do checkout: sem a infraestrutura, o checkout apaga o `servidor/nginx` que o nginx monta (bug da VM, spec 009 T3.4).
 faltando="$(infra_faltando "$sha")"
 [[ -z "$faltando" ]] || erro "o SHA não traz a infraestrutura de implantação blue-green: $faltando"
+# O banco ativo tem de existir no compose do SHA: sem o serviço, o compose quebra depois do checkout. `banco` é sempre declarado.
+if [[ "$banco_srv" != banco ]]; then
+  compose_sha="$(git show "$sha:servidor/compose.implantacao.yaml" 2>/dev/null || true)"
+  grep -qE "^  $banco_srv:" <<<"$compose_sha" || erro "o SHA não declara o serviço $banco_srv no compose de implantação"
+fi
 anterior="$(git rev-parse HEAD 2>/dev/null || echo nenhum)"
 git checkout -q --detach "$sha"
 repo_mudou=1
@@ -164,7 +199,14 @@ fi
 
 # O compose monta este diretório em /etc/nginx/alvo; o mesmo caminho é o que o script escreve (variável obrigatória lá).
 export PHATI_ALVO_DIR="$alvo_dir"
-compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" "$@"; }
+# Modo lógico concluído (banco-logico, spec 009 E5): sem o override, o `up` do banco recriaria o banco_novo sem wal_level=logical.
+extra_logica=()
+if [[ -f "$dir/banco-logico" ]]; then
+  # Depois do checkout: `erro` devolve o clone ao SHA anterior (X3c); `exit 1` deixaria o clone no SHA recusado.
+  [[ -f "$dir/repo/servidor/compose.troca-logica.yaml" ]] || erro "banco-logico existe, mas $dir/repo/servidor/compose.troca-logica.yaml não está no clone"
+  extra_logica=(-f "$dir/repo/servidor/compose.troca-logica.yaml")
+fi
+compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" ${extra_logica[@]+"${extra_logica[@]}"} "$@"; }
 mkdir -p "$alvo_dir"
 
 passo=inicio
@@ -336,12 +378,12 @@ fi
 # Implantação normal: a candidata sobe ao lado da ativa, e o destino só muda depois de ela estar saudável.
 passo=backup
 tem_dados=0
-if [[ -n "$(compor ps -q banco 2>/dev/null)" ]] || "$docker" volume inspect "${COMPOSE_PROJECT_NAME}_dados_banco" >/dev/null 2>&1; then
+if [[ -n "$(compor ps -q "$banco_srv" 2>/dev/null)" ]] || "$docker" volume inspect "${COMPOSE_PROJECT_NAME}_$volume_banco" >/dev/null 2>&1; then
   tem_dados=1
 fi
 if [[ "$tem_dados" == 1 && "$opcao" != "--sem-migracao" ]]; then
   # Banco parado com volume é instalação existente: sobe o banco e tira o backup antes de migrar.
-  compor up -d --wait banco
+  compor up -d --wait "$banco_srv"
   # backup.sh fica ao lado deste script (na VM, em /opt/phati/bin, de dono root, como ele).
   backup_arquivo="$(PHATI_DIR="$dir" DOCKER="$docker" bash "$(dirname "$0")/backup.sh" "${anterior:0:12}")"
 elif [[ "$tem_dados" == 0 ]]; then
@@ -353,7 +395,7 @@ passo=build
 compor build app_"$cand" migracao estaticos_"$cand" pacotes_dono camadas_dono banco_extensoes pgb_auth
 
 passo=banco
-compor up -d --wait banco
+compor up -d --wait "$banco_srv"
 # PostGIS em volume que já existia (o init só roda em volume vazio). Commit antigo sem o serviço: pula e segue.
 # `servicos=$(...)` fora do `if` faz falha do Compose cair no ERR, não virar "pulado" (falha fechada).
 passo=extensoes

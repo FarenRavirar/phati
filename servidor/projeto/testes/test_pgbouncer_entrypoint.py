@@ -5,10 +5,12 @@ a lógica do script: validação de nomes, substituição no modelo e a recusa d
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 from django.conf import settings
 
 PGBOUNCER = Path(settings.DIRETORIO_BASE) / 'pgbouncer'
@@ -151,3 +153,121 @@ def test_auth_recusa_usuario_do_app_fora_do_padrao(tmp_path):
     r = _rodar(tmp_path, args=('auth',), PHATI_BANCO_APP_USUARIO="app'; drop", PGB_PSQL='/nao-existe')
     assert r.returncode != 0
     assert not (cfg / 'userlist.txt').exists()
+
+
+def test_destino_ausente_gera_host_banco(tmp_path):
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco port=5432 dbname=phati' in r.stdout
+    assert '@' not in r.stdout
+
+
+def test_destino_informado_vira_o_host_do_banco(tmp_path):
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco_novo', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+    assert 'host=banco port' not in r.stdout
+
+
+@pytest.mark.parametrize('destino', ['banco;x', 'banco x', '', '$(id)', 'banco\nx', 'banco@x', 'banco/x', '-banco', 'ban`co`'])
+def test_destino_fora_do_padrao_recusa_subir_sem_arquivo_parcial(tmp_path, destino):
+    # Caso negativo: o valor entra no .ini. A checagem roda antes de criar o diretório, então nada fica pela metade.
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO=destino, **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode != 0
+    assert 'PHATI_BANCO_DESTINO inválido' in r.stderr
+    assert not (tmp_path / 'raiz').exists()
+
+
+def _destino_gravado(tmp_path, texto):
+    # `banco-destino` gravado pelo passo do `trocar-banco.sh` no volume `pgb_cfg` (montado em /cfg).
+    (tmp_path / 'cfg').mkdir(exist_ok=True)
+    (tmp_path / 'cfg' / 'banco-destino').write_text(texto, encoding='utf-8', newline='')
+
+
+def test_arquivo_banco_destino_vence_a_variavel_de_ambiente(tmp_path):
+    # Reprodução do achado P1: o ambiente do contêiner ainda diz `banco` depois da troca; o arquivo do volume manda.
+    _destino_gravado(tmp_path, 'banco_novo\n')
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+    assert 'host=banco port' not in r.stdout
+
+
+def test_reiniciar_com_ambiente_antigo_mantem_o_banco_novo(tmp_path):
+    # Reinício = nova execução do entrypoint com o mesmo ambiente antigo (docker restart não troca env do contêiner).
+    _destino_gravado(tmp_path, 'banco_novo\n')
+    for _ in range(2):
+        r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco', **_cat_como_pgbouncer(tmp_path))
+        assert r.returncode == 0, r.stderr
+        assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+
+
+def test_arquivo_ausente_usa_a_variavel_de_ambiente(tmp_path):
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco_novo', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+
+
+def test_arquivo_vazio_e_ignorado_e_usa_a_variavel(tmp_path):
+    _destino_gravado(tmp_path, '')
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco_novo', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+
+
+@pytest.mark.parametrize(
+    'conteudo',
+    ['banco; rm -rf /\n', ' \n', 'banco\nbanco_novo\n', 'banco\n\n', '@\n', '/\n', 'banco\r\n', '\nbanco\n', 'banco x\n'],
+)
+def test_arquivo_banco_destino_hostil_recusa_subir_sem_ini_parcial(tmp_path, conteudo):
+    # Caso negativo: o conteúdo do arquivo entra no .ini; mesma regra de host da variável, e mais de uma linha recusa.
+    _destino_gravado(tmp_path, conteudo)
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode != 0
+    assert 'banco-destino inválido' in r.stderr
+    assert not (tmp_path / 'raiz').exists()
+
+
+def _exige_login_retry(ini, valor='2'):
+    # Linhas ativas (sem comentário `;`) do ini renderizado; o parâmetro tem de estar com o valor do ensaio (ver pgbouncer.ini).
+    ativas = [linha.strip() for linha in ini.splitlines() if linha.strip() and not linha.lstrip().startswith(';')]
+    assert f'server_login_retry = {valor}' in ativas, 'server_login_retry ausente ou com valor diferente de 2 no ini renderizado'
+
+
+def test_ini_renderizado_tem_server_login_retry_curto(tmp_path):
+    # Medido no ensaio (padrão 15 s = ~16 s de falha visível após o banco voltar); o valor 2 vem do pgbouncer.ini.
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    _exige_login_retry(r.stdout)
+
+
+def test_ini_sem_server_login_retry_falha(tmp_path):
+    # Caso negativo: sem a linha, o PgBouncer volta ao padrão de 15 s e a falha visível se repete.
+    original = MODELO.read_text(encoding='utf-8')
+    mutado = re.sub(r'^server_login_retry = .*\n', '', original, flags=re.M)
+    assert mutado != original, 'mutação não aplicou: server_login_retry não está no modelo'
+    (tmp_path / 'cfg').mkdir()
+    modelo = tmp_path / 'modelo.ini'
+    modelo.write_text(mutado, encoding='utf-8', newline='\n')
+    r = _rodar(tmp_path, PGB_MODELO=modelo.as_posix(), **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    with pytest.raises(AssertionError, match='server_login_retry'):
+        _exige_login_retry(r.stdout)
+
+
+def test_ini_com_server_login_retry_de_15_segundos_falha(tmp_path):
+    # Caso negativo: valor 15 (padrão) no lugar de 2 é o defeito que o ensaio mediu.
+    original = MODELO.read_text(encoding='utf-8')
+    mutado = re.sub(r'^server_login_retry = 2$', 'server_login_retry = 15', original, flags=re.M)
+    assert mutado != original, 'mutação não aplicou: linha server_login_retry = 2 ausente'
+    (tmp_path / 'cfg').mkdir()
+    modelo = tmp_path / 'modelo.ini'
+    modelo.write_text(mutado, encoding='utf-8', newline='\n')
+    r = _rodar(tmp_path, PGB_MODELO=modelo.as_posix(), **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    with pytest.raises(AssertionError, match='server_login_retry'):
+        _exige_login_retry(r.stdout)
