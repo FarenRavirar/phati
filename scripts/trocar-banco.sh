@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Troca de banco (spec 009 R15, R17, R18, R8). Roda na VM, como o implantar.sh: `trocar-banco.sh <preparar|trocar>`.
 # `preparar`: precondições, backup verificado (R8), papel `replicador`, PAUSE nos dois PgBouncer, banco recriado com
-# `wal_level=logical` (decisões 2 e 12 do plan.md §Registro R15), RESUME.
-# `trocar`: sobe o `banco_novo`, backup verificado, esquema (só se o destino não tem tabelas de usuário), publicação com
+# `wal_level=logical` (decisões 2 e 12 do plan.md §Registro R15), RESUME. Sempre lógico: soma `compose.troca-logica.yaml`.
+# `trocar --modo fisica|logica` (padrão fisica, spec 009 R15, S2b). Dois modos:
+#   fisica: standby físico por pg_basebackup do banco ativo, sem `preparar` e sem reiniciar a origem. Não soma o override.
+#     Pré-requisitos: volume dados_banco_novo vazio e mesmo major da origem. Promove o standby (pg_promote) e troca o host.
+#   logica: o fluxo abaixo (publicação e assinatura lógica). Soma `compose.troca-logica.yaml` (o `banco` é recriado com
+#     `wal_level=logical`) e exige `preparar` antes.
+# `trocar` (modo lógico): sobe o `banco_novo`, backup verificado, esquema (recusa se o destino já tem tabelas de usuário), publicação com
 # lista explícita (sem tabelas de extensão do PostGIS), assinatura lógica, espera sincronia, verificador SCRAM do papel do app
 # copiado da origem (o PgBouncer autentica pelo `userlist.txt` gerado com o verificador da origem; salt diferente no destino),
 # PAUSE, lag zero, DISABLE, sequências com margem, host novo nos dois PgBouncer, RESUME, DROP SUBSCRIPTION, DROP PUBLICATION
@@ -11,9 +16,14 @@
 # Sem rollback automático depois do RESUME da troca: o host novo já atende a app; falha depois disso vira AVISO com o
 # comando de recuperação. Antes desse RESUME, qualquer falha restaura o `host=` anterior, remove a assinatura e a
 # publicação e sai rc 1.
-# Variáveis: PHATI_DIR (padrão /opt/phati, com `.env`, `repo/` e `backups/`), DOCKER (para teste), PHATI_PROJETO, PHATI_FLOCK,
-# PHATI_TRAVA_LIMITE (padrão 3600), PHATI_ESPERA e PHATI_TENTATIVAS (esperas), PHATI_MARGEM_SEQ (padrão 1000).
-# Nenhum argumento além do subcomando.
+# Destino para o PgBouncer: depois do RELOAD e antes do RESUME, grava `banco_novo` em `/cfg/banco-destino` (volume pgb_cfg,
+# por one-off do pgb_auth), nos dois modos. O entrypoint lê esse arquivo ao subir e ele vence PHATI_BANCO_DESTINO, porque o
+# ambiente do contêiner não muda com `docker restart`. Falha da gravação aborta antes do RESUME (host restaurado e arquivo
+# removido). A restauração do host remove o arquivo quando a gravação foi tentada (`destino_pgb_gravado`).
+# Variáveis: PHATI_DIR (padrão /opt/phati, com `.env`, `repo/` e `backups/`), DOCKER (para teste), PHATI_PROJETO, PHATI_BANCO_NOME
+# (ambiente, depois `.env`, padrão phati; usado em todas as conexões), PHATI_FLOCK,
+# PHATI_TRAVA_LIMITE (padrão 3600), PHATI_ESPERA e PHATI_TENTATIVAS (esperas), PHATI_MARGEM_SEQ (padrão 1000),
+# PHATI_TROCA_MODO (padrão fisica; `--modo` na linha de comando tem prioridade). Argumentos: só `trocar --modo <valor>`.
 # Segredo: a senha do `replicador` vai só ao ambiente do `exec` (`-e NOME`, sem valor na linha de comando) e ao `\getenv`
 # do psql; nunca à saída nem ao registro. O stderr do psql é descartado porque ele pode ecoar a instrução com a senha.
 # -E: o trap ERR vale dentro de funções; sem ele, falha do Docker sairia calada.
@@ -27,6 +37,8 @@ ORIG=banco
 NOVO=banco_novo
 PUB=phati_troca_pub
 SUB=phati_troca_sub
+# Passfile do libpq no banco_novo: a conninfo da assinatura aponta para ele, sem senha no SQL. Sai só depois do DROP SUBSCRIPTION.
+PGPASS=/tmp/phati-replicador.pgpass
 # Tabelas de public que são do usuário: exclui as de extensão (PostGIS, spatial_ref_sys) pelo pg_depend (deptype 'e').
 FROM_TABELAS="FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p') AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')"
 # Estado do passo atual (usado na mensagem do trap ERR) e do PAUSE (RESUME garantido por `resumir_pgb`).
@@ -36,12 +48,30 @@ pausa_t0=0
 estado=""
 backup_arquivo=""
 ja_logical=0
+# Modo da troca: fisica (padrão) ou logica. Só `logica` soma o override de wal_level; `preparar` é sempre lógico.
+modo="${PHATI_TROCA_MODO:-fisica}"
+# Estado da troca física: slot do standby na origem, banco_novo (ou volume parcial) criado por nós, banco_novo promovido.
+SLOT=phati_troca_slot
+fisico_slot=0
+novo_criado=0
+promovido=0
 # Estado da troca: host reescrito nos PgBouncer, assinatura criada no destino, publicação criada na origem, ponto sem volta
 # (RESUME da troca).
 host_trocado=0
+# Tentativa da gravação do destino no volume pgb_cfg: posta ANTES do one-off, para o aborto remover mesmo com falha parcial.
+destino_pgb_gravado=0
 assinatura=0
+pgpass_criado=0
 publicacao=0
 comitado=0
+# Host confirmado de volta por instância (1 = sem host pendente). Quem não confirma fica em PAUSE (ver resumir_pgb).
+host_ok_pgb1=1
+host_ok_pgb2=1
+# Temporários da gravação atômica (.env e banco-ativo): o EXIT remove o que sobrar.
+tmp_env=""
+tmp_banco=""
+# Marcador da troca em curso: gravado antes do PAUSE, removido no sucesso e no aborto completo.
+marcador="$dir/troca-banco-em-curso"
 
 registrar() {
   printf '%s troca-banco %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$sub" "$*" >> "$registro" 2>/dev/null || true
@@ -51,28 +81,42 @@ erro() {
   restaurar_host
   resumir_pgb
   limpar_assinatura
+  remover_pgpass
   limpar_publicacao
+  limpar_fisico
+  limpar_marcador
   registrar "FALHOU: $*"
   exit 1
 }
 # Compose com os mesmos arquivos do implantar.sh. O `PHATI_ALVO_DIR` é exigido pelo compose (monta o nginx), então é exportado.
-compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" "$@"; }
+# O override de wal_level entra só no modo lógico ou no `preparar` (sempre lógico): ele recria o `banco` no `up`.
+# $1 = segundos de limite ("" = sem limite): `timeout N` na frente do `docker` (PHATI_TIMEOUT). Sem o comando, AVISO e segue sem limite.
+compor_limite() {
+  local limite="$1" t="${PHATI_TIMEOUT:-timeout}" pre=() extra=()
+  shift
+  if [[ -n "$limite" ]]; then
+    if command -v "$t" >/dev/null 2>&1; then pre=("$t" "$limite"); else echo "AVISO: '$t' ausente: sem limite de tempo no console do PgBouncer" >&2; fi
+  fi
+  if [[ "$sub" == preparar || "$modo" == logica ]]; then extra=(-f "$dir/repo/servidor/compose.troca-logica.yaml"); fi
+  ${pre[@]+"${pre[@]}"} "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" ${extra[@]+"${extra[@]}"} "$@"
+}
+compor() { compor_limite "" "$@"; }
 # Ordem: ambiente, `.env` da VM, padrão $dir/alvo (igual ao implantar.sh e ao backup.sh).
 alvo_dir="${PHATI_ALVO_DIR:-}"
 [[ -n "$alvo_dir" ]] || alvo_dir="$(grep -m1 '^PHATI_ALVO_DIR=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
 export PHATI_ALVO_DIR="${alvo_dir:-$dir/alvo}"
 
 saudavel_agora() {
-  local id
-  id="$(compor ps -q "$1" 2>/dev/null || true)"
+  local svc="$1" id
+  id="$(compor ps -q "$svc" 2>/dev/null || true)"
   [[ -n "$id" && "$("$docker" inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null || true)" == healthy ]]
 }
 # Espera a saúde por laço de `docker inspect`, como o implantar.sh (não usa `up --wait`: espera o projeto inteiro).
 esperar_saude() {
-  local _ id
+  local svc="$1" _ id
   estado=""
   for _ in $(seq "${PHATI_TENTATIVAS:-60}"); do
-    id="$(compor ps -q "$1" 2>/dev/null || true)"
+    id="$(compor ps -q "$svc" 2>/dev/null || true)"
     [[ -z "$id" ]] || estado="$("$docker" inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null || true)"
     [[ "$estado" == healthy ]] && return 0
     sleep "${PHATI_ESPERA:-2}"
@@ -84,34 +128,57 @@ consultar_wal() {
   compor exec -T banco sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -h 127.0.0.1 -U postgres -d postgres -c "SHOW wal_level"'
 }
 # psql no banco do serviço $1 com as opções seguintes. SQL vai por `-c` (leitura) ou por stdin (`-f -`). Stderr descartado:
-# o psql pode ecoar a instrução, e ela leva a senha do replicador na criação da assinatura.
+# o psql pode ecoar a instrução com erro.
 sql_em() {
   local svc="$1"
   shift
-  compor exec -T "$svc" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d phati "$@"' sh "$@" 2>/dev/null
+  compor exec -T "$svc" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d '"$bdnome"' "$@"' sh "$@" 2>/dev/null
 }
 # Console admin do PgBouncer de uma instância ($1), por `psql` no próprio contêiner. O socket é `/tmp/pgb/<instância>`, o padrão
 # do entrypoint.sh (PGB_RAIZ não vem no compose). `-U pgbouncer` é obrigatório: sem ele o psql falha (medido no ensaio).
 pgb_console() {
-  compor exec -T "$1" psql -X -q -h "/tmp/pgb/$1" -p 6432 -U pgbouncer pgbouncer -c "$2" >/dev/null
+  local limite=20 svc="$1" cmd="$2"
+  if [[ "$cmd" == PAUSE ]]; then limite="${PHATI_PAUSA_LIMITE:-30}"; fi
+  compor_limite "$limite" exec -T "$svc" psql -X -q -h "/tmp/pgb/$svc" -p 6432 -U pgbouncer pgbouncer -c "$cmd" >/dev/null
 }
 # Reescreve a linha `host=` do pgbouncer.ini da instância $1 (gerado pelo entrypoint.sh em /tmp/pgb/<instância>).
 pgb_sed() {
-  compor exec -T "$1" sed -i "$2" "/tmp/pgb/$1/pgbouncer.ini"
+  local svc="$1" expr="$2"
+  compor exec -T "$svc" sed -i "$expr" "/tmp/pgb/$svc/pgbouncer.ini"
+}
+# Destino para o entrypoint do PgBouncer: `/cfg/banco-destino` no volume pgb_cfg. Por one-off do pgb_auth, o único serviço com
+# o volume em escrita (pgb1 e pgb2 montam em leitura). `--no-deps` evita subir o banco. O conteúdo é o `$NOVO` constante.
+gravar_destino_pgb() {
+  compor run --rm --no-deps -T --entrypoint sh pgb_auth -c "printf '%s\n' $NOVO > /cfg/banco-destino"
+}
+remover_destino_pgb() {
+  compor run --rm --no-deps -T --entrypoint sh pgb_auth -c 'rm -f /cfg/banco-destino'
 }
 # RESUME nos dois processos sempre que o script pausou. Não chama `erro` (evita laço): quem chama decide. Falha aparece em AVISO.
+# Instância com host trocado e não confirmado de volta fica em PAUSE: retomar a levaria ao destino errado. Recuperação à mão no
+# AVISO. `pausado=2` marca essa pendência: o EXIT não tenta RESUME de novo e o marcador da troca fica.
 resumir_pgb() {
   [[ "$pausado" == 1 ]] || return 0
-  local svc falhou=""
+  local svc falhou="" presa=""
   for svc in pgb1 pgb2; do
+    if [[ "$host_trocado" == 1 && "$comitado" == 0 ]] && ! host_confirmado "$svc"; then
+      presa+=" $svc"
+      echo "AVISO: $svc segue em PAUSE com host=$NOVO (volta ao host=$ORIG não confirmada). Recuperação à mão: no contêiner $svc, sed -i 's/host=$NOVO /host=$ORIG /' /tmp/pgb/$svc/pgbouncer.ini; depois psql -h /tmp/pgb/$svc -p 6432 -U pgbouncer pgbouncer -c RELOAD e -c RESUME" >&2
+      continue
+    fi
     pgb_console "$svc" RESUME || falhou+=" $svc"
   done
-  if [[ -z "$falhou" ]]; then
-    pausado=0
-  else
+  if [[ -n "$falhou" ]]; then
     echo "AVISO: RESUME falhou em:$falhou; o PgBouncer pode seguir em PAUSE: rode RESUME nos dois processos à mão" >&2
+  elif [[ -n "$presa" ]]; then
+    pausado=2
+  else
+    pausado=0
   fi
 }
+# Registro por instância: 1 = host de volta ao original e confirmado (RESTAURA e RELOAD), 0 = não confirmado.
+definir_host_ok() { local svc="$1" valor="$2"; printf -v "host_ok_$svc" '%s' "$valor"; }
+host_confirmado() { local svc="$1"; local nome="host_ok_$svc"; [[ "${!nome}" == 1 ]]; }
 pausar_pgb() {
   pausado=1
   pgb_console pgb1 PAUSE || erro "não consegui pausar pgb1 pelo console"
@@ -121,10 +188,19 @@ pausar_pgb() {
 # Antes do RESUME da troca: devolve o `host=` anterior nos dois PgBouncer e recarrega. Depois do RESUME não há rollback.
 restaurar_host() {
   [[ "$host_trocado" == 1 && "$comitado" == 0 ]] || return 0
-  local svc ok=1
-  for svc in pgb1 pgb2; do pgb_sed "$svc" "s/host=$NOVO /host=$ORIG /" || ok=0; done
-  for svc in pgb1 pgb2; do pgb_console "$svc" RELOAD || ok=0; done
-  if [[ "$ok" == 1 ]]; then
+  local svc
+  for svc in pgb1 pgb2; do
+    definir_host_ok "$svc" 1
+    pgb_sed "$svc" "s/host=$NOVO /host=$ORIG /" || definir_host_ok "$svc" 0
+  done
+  for svc in pgb1 pgb2; do pgb_console "$svc" RELOAD || definir_host_ok "$svc" 0; done
+  # Sem o arquivo, um reinício do PgBouncer volta à variável (origem): o mesmo destino do host restaurado. Só se a gravação foi
+  # tentada: sem tentativa não há arquivo, e o one-off de remoção seria uma chamada Docker à toa.
+  if [[ "$destino_pgb_gravado" == 1 ]]; then
+    destino_pgb_gravado=0
+    remover_destino_pgb || echo "AVISO: não consegui remover /cfg/banco-destino: apague o arquivo no volume pgb_cfg antes de reiniciar o PgBouncer" >&2
+  fi
+  if host_confirmado pgb1 && host_confirmado pgb2; then
     host_trocado=0
   else
     echo "AVISO: não consegui restaurar host=$ORIG nos PgBouncer: confira pgbouncer.ini e rode RELOAD" >&2
@@ -156,6 +232,23 @@ SQL
   fi
 }
 
+# Passfile da assinatura, escrito dentro do banco_novo (dono postgres, modo 0600). Formato .pgpass: `\` e `:` levam `\`. A senha
+# entra só pelo ambiente do exec (-e sem valor) e nunca como argumento; origem e banco vêm como parâmetros do sh (validados antes).
+gravar_pgpass() {
+  pgpass_criado=1
+  compor exec -T -u postgres -e PHATI_BANCO_REPLICADOR_SENHA "$NOVO" sh -c \
+    'rm -f "$0" && umask 077 && esc="$(printf "%s" "$PHATI_BANCO_REPLICADOR_SENHA" | sed "s/[\\:]/\\\\&/g")" && printf "%s\n" "$1:5432:$2:replicador:$esc" > "$0"' \
+    "$PGPASS" "$ORIG" "$bdnome" >/dev/null 2>&1 || erro "não consegui gravar o arquivo de senha no $NOVO: nada trocado"
+}
+# Remove o passfile do banco_novo. Chamada depois do DROP SUBSCRIPTION (sucesso ou aborto): antes disso o apply worker ainda reconecta.
+remover_pgpass() {
+  [[ "$pgpass_criado" == 1 ]] || return 0
+  if compor exec -T -u postgres "$NOVO" rm -f "$PGPASS" >/dev/null 2>&1; then
+    pgpass_criado=0
+  else
+    echo "AVISO: não consegui remover $PGPASS no $NOVO: rode rm -f $PGPASS no $NOVO" >&2
+  fi
+}
 # Trava igual à do implantar.sh: uma operação por vez. O script roda de novo sob `flock`; 75 vira erro com mensagem.
 travar() {
   local flock_cmd="${PHATI_FLOCK:-flock}" rc=0
@@ -240,34 +333,77 @@ esperar_sincronia() {
   done
   return 1
 }
-# Espera o destino passar o LSN $1 da origem (com PAUSE ativo, o lag tem de chegar a zero).
+# Espera a origem ter o LSN $1 confirmado pelo assinante (com PAUSE ativo, sem escrita nova). A barreira é o slot da origem:
+# received_lsn e latest_end_lsn do destino só provam recebimento, não aplicação. Pré-condição no destino: o received já chegou.
+# NÃO CONFIRMADO PELA DOC, a validar no ensaio real: que o slot (nome = $SUB, criado pelo CREATE SUBSCRIPTION) avance o
+# confirmed_flush_lsn até o LSN de pg_current_wal_lsn() sem transação nova. Se não avançar, o laço estoura e aborta (falha segura).
 esperar_lag() {
-  local _ ok
+  local _ ok confirmado lsn="$1"
   for _ in $(seq "${PHATI_TENTATIVAS:-60}"); do
-    ok="$(sql_em "$NOVO" -At -c "SELECT pg_wal_lsn_diff(latest_end_lsn, '$1') >= 0 AND pg_wal_lsn_diff(received_lsn, '$1') >= 0 FROM pg_stat_subscription WHERE subname = '$SUB'" || true)"
-    [[ "$ok" == t ]] && return 0
+    ok="$(sql_em "$NOVO" -At -c "SELECT pg_wal_lsn_diff(received_lsn, '$lsn') >= 0 FROM pg_stat_subscription WHERE subname = '$SUB'" || true)"
+    if [[ "$ok" == t ]]; then
+      confirmado="$(sql_em "$ORIG" -At -c "SELECT pg_wal_lsn_diff('$lsn', confirmed_flush_lsn) <= 0 FROM pg_replication_slots WHERE slot_name = '$SUB'" || true)"
+      [[ "$confirmado" == t ]] && return 0
+    fi
     sleep "${PHATI_ESPERA:-2}"
   done
   return 1
 }
 # Grava o destino no `.env` de forma atômica: arquivo temporário no mesmo diretório, com o modo e o dono do `.env`.
+# Temporário registrado em `tmp_env`/`tmp_banco`: o EXIT (limpar_temporarios) remove o que sobrar de uma falha do mv ou de uma saída.
 gravar_env_destino() {
-  local tmp
-  tmp="$(mktemp "$dir/.env.XXXXXX")"
-  chmod --reference="$dir/.env" "$tmp"
-  chown --reference="$dir/.env" "$tmp" 2>/dev/null || true
-  { grep -v '^PHATI_BANCO_DESTINO=' "$dir/.env" || true; printf 'PHATI_BANCO_DESTINO=%s\n' "$NOVO"; } > "$tmp" || { rm -f "$tmp"; erro "não consegui gravar o .env"; }
-  mv -f "$tmp" "$dir/.env"
+  tmp_env="$(mktemp "$dir/.env.XXXXXX")"
+  chmod --reference="$dir/.env" "$tmp_env"
+  chown --reference="$dir/.env" "$tmp_env" 2>/dev/null || true
+  { grep -v '^PHATI_BANCO_DESTINO=' "$dir/.env" || true; printf 'PHATI_BANCO_DESTINO=%s\n' "$NOVO"; } > "$tmp_env" || erro "não consegui gravar o .env"
+  mv -f "$tmp_env" "$dir/.env" || erro "não consegui gravar o .env"
+  tmp_env=""
 }
 gravar_banco_ativo() {
-  local tmp
-  tmp="$(mktemp "$dir/.banco-ativo.XXXXXX")"
-  printf '%s\n' "$NOVO" > "$tmp" && mv -f "$tmp" "$dir/banco-ativo" || { rm -f "$tmp"; erro "não consegui gravar banco-ativo"; }
+  tmp_banco="$(mktemp "$dir/.banco-ativo.XXXXXX")"
+  printf '%s\n' "$NOVO" > "$tmp_banco" && mv -f "$tmp_banco" "$dir/banco-ativo" || erro "não consegui gravar banco-ativo"
+  tmp_banco=""
+}
+limpar_temporarios() {
+  [[ -z "$tmp_env" ]] || rm -f "$tmp_env"
+  [[ -z "$tmp_banco" ]] || rm -f "$tmp_banco"
+  return 0
+}
+# Estado parcial da persistência: banco-ativo e .env são duas gravações. Se uma já diz banco_novo, a troca passou do ponto sem
+# volta: completa a que falta (banco-ativo primeiro, é o que os scripts consultam) sem pausar nem tocar nos PgBouncer. Retorna 1
+# quando nenhuma das duas diz banco_novo (troca nova).
+completar_persistencia() {
+  local ativo_ok=0 env_ok=0 completou=""
+  [[ "$(cat "$dir/banco-ativo" 2>/dev/null || true)" == "$NOVO" ]] && ativo_ok=1
+  grep -qx "PHATI_BANCO_DESTINO=$NOVO" "$dir/.env" 2>/dev/null && env_ok=1
+  (( ativo_ok == 1 || env_ok == 1 )) || return 1
+  if (( ativo_ok == 0 )); then gravar_banco_ativo; completou="banco-ativo"; fi
+  if (( env_ok == 0 )); then gravar_env_destino; completou="${completou:+$completou,}env"; fi
+  rm -f "$marcador"
+  if [[ -z "$completou" ]]; then
+    registrar "OK ja_trocado=1"
+    echo "trocar_ok ja_trocado=1"
+  else
+    registrar "OK ja_trocado=1 completou=$completou"
+    echo "trocar_ok ja_trocado=1 completou=$completou"
+  fi
+  return 0
+}
+# Marcador gravado antes do PAUSE (conteúdo: modo e passo). Fica se a troca passou do RESUME e falhou depois: a próxima execução
+# recusa até alguém reconciliar.
+marcar_troca() {
+  printf 'modo=%s passo=%s\n' "$modo" "$passo" > "$marcador" || erro "não consegui gravar o marcador $marcador: nada pausado"
+}
+# Remove o marcador só no aborto completo de `trocar` (RESUME feito e sem o ponto sem volta).
+limpar_marcador() {
+  [[ "$sub" == trocar && "$comitado" == 0 && "$pausado" == 0 ]] && rm -f "$marcador"
+  return 0
 }
 
 # Hash sha256 do verificador SCRAM do papel $2 no serviço $1 (só leitura: o valor não sai do banco). Vazio = sem senha.
 hash_verificador() {
-  sql_em "$1" -At -v "papel=$2" -f - <<'SQL'
+  local svc="$1" papel="$2"
+  sql_em "$svc" -At -v "papel=$papel" -f - <<'SQL'
 SELECT encode(sha256(convert_to(rolpassword, 'UTF8')), 'hex') FROM pg_authid WHERE rolname = :'papel';
 SQL
 }
@@ -285,18 +421,169 @@ SQL
   [[ "$h_novo" == "$h_origem" ]] || erro "verificador de $papel no $NOVO difere da origem: nada pausado"
 }
 
+# ---- Modo físico (spec 009 R15, S2b): standby por pg_basebackup do banco ativo; sem `preparar`, sem reiniciar a origem ----
+# Ordem: build do banco_novo, volume vazio, major igual, backup verificado (R8), regra de replicação no pg_hba (reload, sem
+# reinício), pg_basebackup com slot, standby em streaming, PAUSE, atraso zero, pg_promote, RESET do primary_conninfo (senha
+# do replicador fora do postgresql.auto.conf), host nos PgBouncer, RESUME, drop do slot, persistência.
+# Antes do promote, o aborto remove slot e banco_novo. Depois do promote e sem commit, o host volta e o banco_novo promovido
+# vira AVISO de descarte. A senha do replicador vai só ao ambiente do `run` (`-e PGPASSWORD`, sem valor na linha de comando).
+# Espera a consulta $2 em $1 devolver exatamente $3 (laço com PHATI_TENTATIVAS e PHATI_ESPERA).
+esperar_consulta() {
+  local svc="$1" consulta="$2" esperado="$3" _ r
+  for _ in $(seq "${PHATI_TENTATIVAS:-60}"); do
+    r="$(sql_em "$svc" -At -c "$consulta" || true)"
+    [[ "$r" == "$esperado" ]] && return 0
+    sleep "${PHATI_ESPERA:-2}"
+  done
+  return 1
+}
+# Espera o destino chegar ao LSN atual da origem com PAUSE ativo (atraso zero). Polling com PHATI_ESPERA_MS (padrão 100 ms;
+# 0 não dorme, como nos testes).
+esperar_lag_zero() {
+  local _ L diff ms="${PHATI_ESPERA_MS:-100}"
+  for _ in $(seq "${PHATI_TENTATIVAS:-60}"); do
+    L="$(sql_em "$ORIG" -At -c 'SELECT pg_current_wal_lsn()')" || return 1
+    [[ "$L" =~ ^[0-9A-Fa-f]+/[0-9A-Fa-f]+$ ]] || return 1
+    diff="$(sql_em "$NOVO" -At -c "SELECT pg_wal_lsn_diff('$L', pg_last_wal_replay_lsn())" || true)"
+    [[ "$diff" == 0 ]] && return 0
+    (( ms > 0 )) && sleep "$(printf '%d.%03d' $((ms / 1000)) $((ms % 1000)))"
+  done
+  return 1
+}
+# Saída útil de um `run` capturado: tira as linhas de progresso do BuildKit (`#1 ...`) que o compose põe no stdout. O código de
+# saída é o do `compor` (pipefail): o grep só filtra.
+saida_run() { grep -v '^#[0-9]' || true; }
+# Volume do banco_novo tem de estar vazio: o pg_basebackup grava nele tudo, e um volume com dado não é cópia limpa.
+checar_volume_vazio() {
+  local conteudo
+  conteudo="$(compor run --rm -T --no-deps --entrypoint sh "$NOVO" -c 'ls -A /var/lib/postgresql' | saida_run)" || erro "não consegui ler o volume do $NOVO"
+  [[ -z "$conteudo" ]] || erro "dados_banco_novo não está vazio: remova o volume antes do modo físico (ou use --modo logica)"
+}
+# Major da origem igual ao da imagem do banco_novo (o standby físico só acompanha a mesma versão maior).
+checar_major() {
+  local origem novo major_novo
+  origem="$(sql_em "$ORIG" -At -c 'SHOW server_version_num')" && [[ "$origem" =~ ^[0-9]+$ ]] || erro "não consegui ler a versão da origem"
+  novo="$(compor run --rm -T --no-deps --entrypoint sh "$NOVO" -c 'postgres --version' | saida_run)" || erro "não consegui ler a versão da imagem do $NOVO"
+  major_novo="$(printf '%s\n' "$novo" | grep -oE '[0-9]+' | head -n 1 || true)"
+  [[ "$major_novo" =~ ^[0-9]+$ ]] || erro "versão da imagem do $NOVO em formato inesperado"
+  (( origem / 10000 == major_novo )) || erro "major diferente: use --modo logica (origem $(( origem / 10000 )), imagem $major_novo)"
+}
+# Regra de replicação do replicador pela sub-rede (samenet). Acrescenta só se falta; recarrega sem reiniciar a origem.
+garantir_pg_hba() {
+  local regra="host replication replicador samenet scram-sha-256" contagem
+  if ! compor exec -T -u postgres "$ORIG" sh -c "grep -qxF '$regra' \"\$PGDATA/pg_hba.conf\"" >/dev/null 2>&1; then
+    compor exec -T -u postgres "$ORIG" sh -c "printf '%s\n' '$regra' >> \"\$PGDATA/pg_hba.conf\"" \
+      || erro "não consegui acrescentar a regra de replicação no pg_hba da origem"
+  fi
+  sql_em "$ORIG" -At -c 'SELECT pg_reload_conf()' >/dev/null || erro "pg_reload_conf falhou na origem"
+  contagem="$(sql_em "$ORIG" -At -c "SELECT count(*) FROM pg_hba_file_rules WHERE 'replication' = ANY(database) AND 'replicador' = ANY(user_name) AND auth_method = 'scram-sha-256' AND error IS NULL" || true)"
+  [[ "$contagem" =~ ^[1-9][0-9]*$ ]] || erro "regra de replicação do replicador não carregou no pg_hba da origem"
+}
+# O `pg_basebackup -R` gravou `primary_conninfo` (com a senha do replicador) no postgresql.auto.conf do banco_novo. Depois do promote
+# o banco é primário e a linha não serve: o RESET a tira do arquivo. Falha vira AVISO (o banco novo já é primário; sem rollback).
+limpar_conninfo_standby() {
+  if ! sql_em "$NOVO" -f - >/dev/null <<'SQL'
+ALTER SYSTEM RESET primary_conninfo;
+ALTER SYSTEM RESET primary_slot_name;
+SELECT pg_reload_conf();
+SQL
+  then
+    echo "AVISO: não consegui limpar primary_conninfo no $NOVO: rode ALTER SYSTEM RESET primary_conninfo; ALTER SYSTEM RESET primary_slot_name; SELECT pg_reload_conf(); no $NOVO" >&2
+  fi
+}
+# Aborto da troca física. Antes do promote: remove o slot da origem e o banco_novo (e avisa o volume). Depois do promote sem
+# commit: o host já voltou, então o banco_novo promovido vira AVISO de descarte. Depois do commit: nada a fazer.
+limpar_fisico() {
+  [[ "$comitado" == 0 ]] || return 0
+  if [[ "$fisico_slot" == 1 ]]; then
+    sql_em "$ORIG" -At -c "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '$SLOT'" >/dev/null 2>&1 \
+      || echo "AVISO: não consegui remover o slot $SLOT na origem: rode SELECT pg_drop_replication_slot('$SLOT'); na origem" >&2
+    fisico_slot=0
+  fi
+  if [[ "$promovido" == 1 ]]; then
+    echo "AVISO: $NOVO foi promovido e o host voltou para $ORIG: descarte o $NOVO (compose rm -sfv $NOVO e remova o volume dados_banco_novo)" >&2
+    return 0
+  fi
+  if [[ "$novo_criado" == 1 ]]; then
+    compor rm -sfv "$NOVO" >/dev/null 2>&1 || echo "AVISO: não consegui remover o $NOVO: rode compose rm -sfv $NOVO" >&2
+    echo "AVISO: remova o volume dados_banco_novo antes de tentar de novo (o modo físico exige volume vazio)" >&2
+  fi
+}
+# Build da imagem do banco_novo antes de qualquer `run` capturado: sem ela, o `run` do volume ou da versão constrói a imagem e o
+# progresso do BuildKit cai no stdout capturado (medido no ensaio real: '#1' virou major). A saída do build vai ao /dev/null.
+trocar_fisica() {
+  local rep r
+  passo=build
+  compor build "$NOVO" >/dev/null 2>&1 || erro "build do $NOVO falhou: nada foi alterado"
+  passo=volume
+  checar_volume_vazio
+  passo=major
+  checar_major
+  passo=backup
+  backup_verificado
+  passo=replicador
+  rep="$(sql_em "$ORIG" -At -c "SELECT count(*) FROM pg_roles WHERE rolname = 'replicador' AND rolreplication" || true)"
+  [[ "$rep" == 1 ]] || erro "papel replicador ausente ou sem REPLICATION na origem: nada foi alterado"
+  passo=pg_hba
+  garantir_pg_hba
+  passo=basebackup
+  fisico_slot=1
+  novo_criado=1  # o basebackup pode deixar dado parcial no volume: o aborto avisa para remover
+  (
+    export PGPASSWORD="$PHATI_BANCO_REPLICADOR_SENHA"
+    compor run --rm -T --no-deps --user postgres -e PGPASSWORD --entrypoint sh "$NOVO" \
+      -c "pg_basebackup -h $ORIG -U replicador -D \"\$PGDATA\" -R -X stream -C -S $SLOT --checkpoint=fast && chmod 0700 \"\$PGDATA\"" >/dev/null 2>&1
+  ) || erro "pg_basebackup falhou (saída suprimida: contém a senha): nada pausado"
+  passo=standby
+  compor up -d --no-deps "$NOVO" >/dev/null || erro "não consegui subir o $NOVO"
+  esperar_saude "$NOVO" || erro "$NOVO não voltou saudável (estado: ${estado:-desconhecido})"
+  esperar_consulta "$NOVO" 'SELECT pg_is_in_recovery()' t || erro "$NOVO não entrou em recovery: nada pausado"
+  esperar_consulta "$NOVO" "SELECT count(*) FROM pg_stat_wal_receiver WHERE status = 'streaming'" 1 || erro "$NOVO sem streaming da origem: nada pausado"
+  passo=pausa
+  marcar_troca
+  pausar_pgb
+  passo=atraso
+  esperar_lag_zero || erro "atraso do $NOVO não chegou a zero com PAUSE ativo: nada trocado"
+  passo=promocao
+  promovido=1  # antes do promote: se ele falhar no meio, o aborto trata o banco_novo como promovido
+  [[ "$(sql_em "$NOVO" -At -c 'SELECT pg_promote(true, 60)' || true)" == t ]] || erro "pg_promote falhou: nada trocado"
+  esperar_consulta "$NOVO" 'SELECT pg_is_in_recovery()' f || erro "$NOVO não saiu de recovery depois do promote"
+  passo=conninfo
+  limpar_conninfo_standby
+  passo=host
+  host_trocado=1
+  for r in pgb1 pgb2; do pgb_sed "$r" "s/host=$ORIG /host=$NOVO /" || erro "não consegui trocar o host em $r"; done
+  passo=reload
+  for r in pgb1 pgb2; do pgb_console "$r" RELOAD || erro "RELOAD falhou em $r"; done
+  passo=destino-pgb
+  destino_pgb_gravado=1
+  gravar_destino_pgb || erro "não consegui gravar o destino no volume pgb_cfg: nada trocado"
+  passo=resume
+  comitado=1
+  resumir_pgb
+  [[ "$pausado" == 0 ]] || erro "RESUME falhou depois da troca de host: sem rollback automático (ver AVISO)"
+  pausa_ms=$(( $(date +%s%3N) - pausa_t0 ))
+  passo=limpeza
+  sql_em "$ORIG" -At -c "SELECT pg_drop_replication_slot('$SLOT')" >/dev/null 2>&1 \
+    || echo "AVISO: não consegui remover o slot $SLOT na origem: rode SELECT pg_drop_replication_slot('$SLOT'); na origem" >&2
+  fisico_slot=0
+  passo=persistir
+  gravar_banco_ativo
+  gravar_env_destino
+  rm -f "$marcador"
+  registrar "OK modo=fisica pausa_ms=$pausa_ms destino=$NOVO"
+  echo "trocar_ok pausa_ms=$pausa_ms"
+}
+
 trocar() {
   # Só o `trocar` usa o profile: o `banco_novo` fica fora dos outros subcomandos.
   export COMPOSE_PROFILES=troca-banco
   passo=precondicoes
-  local margem="${PHATI_MARGEM_SEQ:-1000}" ativo atual wal lista n lsn pausa_ms r papel_app
+  local margem="${PHATI_MARGEM_SEQ:-1000}" atual wal lista n lsn pausa_ms r papel_app
   [[ "$margem" =~ ^[0-9]{1,15}$ ]] || { echo "ERRO: PHATI_MARGEM_SEQ inválida: use inteiro maior ou igual a 0" >&2; exit 1; }
-  ativo="$(cat "$dir/banco-ativo" 2>/dev/null || true)"
-  if [[ "$ativo" == "$NOVO" ]]; then
-    registrar "OK ja_trocado=1"
-    echo "trocar_ok ja_trocado=1"
-    return 0
-  fi
+  # Antes do marcador: uma troca que já passou do ponto sem volta só completa a persistência (e o marcador sai com ela).
+  completar_persistencia && return 0
+  [[ ! -e "$marcador" ]] || { echo "ERRO: troca anterior interrompida (marcador $marcador): confira os PgBouncer (SHOW DATABASES, estado de pausa), a origem e o banco_novo, e remova o marcador depois de reconciliar" >&2; exit 1; }
   checar_vm
   # Único papel que o pgb_auth grava no userlist.txt: o do app (compose: PHATI_BANCO_APP_USUARIO). Nome validado antes de qualquer SQL.
   papel_app="${PHATI_BANCO_APP_USUARIO:-}"
@@ -304,6 +591,10 @@ trocar() {
   [[ "$papel_app" =~ ^[a-z_][a-z0-9_]*$ ]] || erro "PHATI_BANCO_APP_USUARIO ausente ou inválido: nada foi feito"
   atual="$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" | cut -d= -f2- || true)"
   [[ -z "$atual" || "$atual" == "$ORIG" ]] || erro "PHATI_BANCO_DESTINO é '$atual', esperado $ORIG: nada foi feito"
+  if [[ "$modo" == fisica ]]; then
+    trocar_fisica
+    return 0
+  fi
   wal="$(consultar_wal)" || erro "não consegui ler wal_level do banco"
   [[ "$wal" == logical ]] || erro "wal_level não é logical: rode preparar antes (valor: $wal)"
 
@@ -317,10 +608,11 @@ trocar() {
   passo=esquema
   n="$(sql_em "$NOVO" -At -c "SELECT count(*) $FROM_TABELAS")" || erro "não consegui contar tabelas do $NOVO"
   if [[ "$n" == 0 ]]; then
-    compor exec -T "$ORIG" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U postgres --schema-only -d phati' \
+    compor exec -T "$ORIG" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h 127.0.0.1 -U postgres --schema-only -d '"$bdnome"'' \
       | sql_em "$NOVO" -f - || erro "esquema não aplicado no $NOVO"
   else
-    echo "AVISO: $NOVO já tem tabelas de usuário em public: esquema não aplicado" >&2
+    # Recusa antes da publicação e do PAUSE: tabelas de uma tentativa abortada fariam a cópia do lógico colidir em chave duplicada.
+    erro "$NOVO já tem tabelas de usuário em public: remova o volume dados_banco_novo antes de repetir o modo lógico (nada foi alterado)"
   fi
 
   passo=publicacao
@@ -332,10 +624,10 @@ SELECT format('CREATE PUBLICATION %I FOR TABLE %s', '$PUB', string_agg(format('%
 SQL
 
   passo=assinatura
-  # A senha vai ao psql por `\getenv` (sem valor na linha de comando); a saída é suprimida: a instrução pode ecoar a senha.
-  compor exec -T -e PHATI_BANCO_REPLICADOR_SENHA "$NOVO" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d phati -f -' >/dev/null 2>&1 <<SQL || erro "assinatura não criada no $NOVO (saída suprimida: contém a senha)"
-\getenv senha PHATI_BANCO_REPLICADOR_SENHA
-SELECT format('CREATE SUBSCRIPTION %I CONNECTION %L PUBLICATION %I', '$SUB', 'host=$ORIG port=5432 dbname=phati user=replicador password=' || :'senha', '$PUB') \gexec
+  # A conninfo aponta para o passfile: a instrução (que o servidor loga em erro) não leva senha. Stderr suprimido pelo sql_em.
+  gravar_pgpass
+  sql_em "$NOVO" -f - >/dev/null <<SQL || erro "assinatura não criada no $NOVO: nada pausado"
+CREATE SUBSCRIPTION $SUB CONNECTION 'host=$ORIG port=5432 dbname=$bdnome user=replicador passfile=$PGPASS' PUBLICATION $PUB;
 SQL
   assinatura=1
 
@@ -346,6 +638,7 @@ SQL
   copiar_verificador "$papel_app"
 
   passo=pausa
+  marcar_troca
   pausar_pgb
   passo=lag
   lsn="$(sql_em "$ORIG" -At -c 'SELECT pg_current_wal_lsn()')" || erro "não consegui ler o LSN da origem"
@@ -368,6 +661,9 @@ SQL
   for r in pgb1 pgb2; do pgb_sed "$r" "s/host=$ORIG /host=$NOVO /" || erro "não consegui trocar o host em $r"; done
   passo=reload
   for r in pgb1 pgb2; do pgb_console "$r" RELOAD || erro "RELOAD falhou em $r"; done
+  passo=destino-pgb
+  destino_pgb_gravado=1
+  gravar_destino_pgb || erro "não consegui gravar o destino no volume pgb_cfg: nada trocado"
 
   passo=resume
   comitado=1
@@ -381,14 +677,16 @@ DROP SUBSCRIPTION $SUB;
 SQL
   then
     assinatura=0
+    remover_pgpass
   else
     echo "AVISO: DROP SUBSCRIPTION falhou no $NOVO: rode DROP SUBSCRIPTION $SUB; (o slot fica na origem até lá)" >&2
   fi
   limpar_publicacao
 
   passo=persistir
-  gravar_env_destino
   gravar_banco_ativo
+  gravar_env_destino
+  rm -f "$marcador"
   registrar "OK pausa_ms=$pausa_ms destino=$NOVO"
   echo "trocar_ok pausa_ms=$pausa_ms"
 }
@@ -398,15 +696,43 @@ case "$sub" in
   preparar|trocar) ;;
   *) echo "ERRO: subcomando inválido: use preparar ou trocar" >&2; exit 1 ;;
 esac
-[[ $# -eq 1 ]] || { echo "ERRO: opção desconhecida: $sub não aceita argumentos" >&2; exit 1; }
+args=("${@:2}")
+if [[ "$sub" == preparar ]]; then
+  [[ ${#args[@]} -eq 0 ]] || { echo "ERRO: opção desconhecida: preparar não aceita argumentos" >&2; exit 1; }
+else
+  while [[ ${#args[@]} -gt 0 ]]; do
+    case "${args[0]}" in
+      --modo)
+        [[ ${#args[@]} -ge 2 ]] || { echo "ERRO: --modo exige valor: fisica ou logica" >&2; exit 1; }
+        modo="${args[1]}"
+        args=("${args[@]:2}")
+        ;;
+      --modo=*) modo="${args[0]#--modo=}"; args=("${args[@]:1}") ;;
+      *) echo "ERRO: opção desconhecida: ${args[0]}" >&2; exit 1 ;;
+    esac
+  done
+  # Recusa antes da trava e do Docker.
+  case "$modo" in
+    fisica|logica) ;;
+    *) echo "ERRO: modo inválido: use fisica ou logica" >&2; exit 1 ;;
+  esac
+fi
+[[ "${PHATI_PAUSA_LIMITE:-30}" =~ ^[1-9][0-9]{0,5}$ ]] || { echo "ERRO: PHATI_PAUSA_LIMITE inválida: use inteiro positivo (segundos)" >&2; exit 1; }
 projeto="${PHATI_PROJETO:-phati}"
 [[ "$projeto" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "ERRO: PHATI_PROJETO inválido" >&2; exit 1; }
+# Nome do banco, como o compose (PHATI_BANCO_NOME): ambiente, depois `.env`, padrão phati. Resolvido uma vez, validado antes do
+# Docker e usado em todas as conexões (psql, pg_dump e conninfo da assinatura).
+bdnome="${PHATI_BANCO_NOME:-}"
+[[ -n "$bdnome" ]] || bdnome="$(grep -m1 '^PHATI_BANCO_NOME=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+[[ -n "$bdnome" ]] || bdnome=phati
+[[ "$bdnome" =~ ^[a-z_][a-z0-9_]*$ ]] || { echo "ERRO: PHATI_BANCO_NOME inválido: use minúsculas, dígitos e _ (começa por letra ou _)" >&2; exit 1; }
 export COMPOSE_PROJECT_NAME="$projeto"
 travar "$@"
 
 trap 'erro "falhou no passo: $passo"' ERR
-trap 'resumir_pgb' EXIT
+trap 'resumir_pgb; limpar_temporarios' EXIT
 case "$sub" in
   preparar) preparar ;;
   trocar) trocar ;;
+  *) erro "subcomando inválido: $sub" ;;
 esac

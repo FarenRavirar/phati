@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
@@ -39,10 +40,14 @@ def _config(flags, ambiente=None):
     if shutil.which('docker') is None:
         raise AssertionError('docker ausente no PATH: o teste de compose precisa do binário (sem ele não há config)')
     env = {**os.environ, **VALORES_SINTETICOS, **(ambiente or {})}
-    rodado = subprocess.run(
-        ['docker', 'compose', *flags, 'config', '--format', 'json'],
-        cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
-    )
+    # `--env-file` vazio antes de `-f`: a interpolação não lê o `servidor/.env` local.
+    with tempfile.TemporaryDirectory() as temporario:
+        vazio = Path(temporario) / 'vazio.env'
+        vazio.write_text('', encoding='utf-8')
+        rodado = subprocess.run(
+            ['docker', 'compose', '--env-file', str(vazio), *flags, 'config', '--format', 'json'],
+            cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
+        )
     return rodado.returncode, rodado.stdout, rodado.stderr
 
 

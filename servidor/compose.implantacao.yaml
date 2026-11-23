@@ -12,17 +12,15 @@ networks:
       config:
         - subnet: 172.29.250.0/24
 services:
-  # wal_level=logical para a replicação da troca de banco (spec 009 R15, decisão 12). Mudar `command` exige reinício do
-  # banco: o passo `preparar` do trocar-banco.sh faz isso atrás de PAUSE, antes do primeiro deploy com este arquivo.
+  # Sem `command`: o `wal_level` padrão (`replica`) basta para a troca física (spec 009 R15, S2a). O `wal_level=logical` da
+  # troca lógica fica em `compose.troca-logica.yaml`, que só o `trocar-banco.sh` soma; deploy normal não o usa.
   banco:
     restart: unless-stopped
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
   # Banco de destino da troca (R15, T5.2). Só sobe com `--profile troca-banco`. Sem porta publicada, volume próprio.
-  # Mesmas variáveis, healthcheck e `command` do `banco` (as referências ao ambiente são as mesmas; sem valor literal).
+  # Mesmas variáveis e healthcheck do `banco` (as referências ao ambiente são as mesmas; sem valor literal).
   banco_novo:
     profiles: ["troca-banco"]
     build: ./banco
-    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
     environment:
       POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}

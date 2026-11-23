@@ -1,6 +1,7 @@
 #!/bin/sh
 # Entrada do PgBouncer (spec 009 R18). Sem argumento: sobe a instância `PGB_INSTANCIA` com o modelo copiado para o
-# próprio diretório (socket, pid e log por instância). `PHATI_BANCO_DESTINO` (padrão `banco`) é o host do banco no modelo.
+# próprio diretório (socket, pid e log por instância). `PHATI_BANCO_DESTINO` (padrão `banco`) é o host do banco no modelo,
+# salvo `/cfg/banco-destino` (uma linha, escrito pelo `trocar-banco.sh` depois da troca): esse arquivo vence a variável.
 # `auth`: grava /cfg/userlist.txt com o verificador SCRAM do papel do app, sem imprimir nada.
 # PGB_RAIZ, PGB_CFG, PGB_MODELO, PGB_BIN e PGB_PSQL existem só para o teste.
 set -eu
@@ -51,9 +52,18 @@ fi
 instancia="${PGB_INSTANCIA:-}"
 nome_valido "$instancia" || { echo "PGB_INSTANCIA inválida" >&2; exit 1; }
 nome_valido "${PHATI_BANCO_NOME:-}" || { echo "PHATI_BANCO_NOME inválido" >&2; exit 1; }
-# `-` e não `:-`: sem a variável vale `banco`; vazia já é recusada pela regra de host.
-destino="${PHATI_BANCO_DESTINO-banco}"
-host_valido "$destino" || { echo "PHATI_BANCO_DESTINO inválido" >&2; exit 1; }
+# Destino gravado pelo `trocar-banco.sh` em `$cfg/banco-destino` (volume `pgb_cfg`, só leitura aqui) depois da troca. Vence a
+# variável: o ambiente do contêiner fica com o valor antigo e `docker restart` não o troca. Arquivo vazio conta como ausente.
+arq_destino="$cfg/banco-destino"
+if [ -s "$arq_destino" ]; then
+    [ "$(wc -l < "$arq_destino" | tr -d ' ')" -le 1 ] || { echo "banco-destino inválido: mais de uma linha" >&2; exit 1; }
+    destino="$(cat "$arq_destino")"  # a substituição tira a quebra final; quebra no meio fica e a regra recusa
+    host_valido "$destino" || { echo "banco-destino inválido" >&2; exit 1; }
+else
+    # `-` e não `:-`: sem a variável vale `banco`; vazia já é recusada pela regra de host.
+    destino="${PHATI_BANCO_DESTINO-banco}"
+    host_valido "$destino" || { echo "PHATI_BANCO_DESTINO inválido" >&2; exit 1; }
+fi
 
 dir="$raiz/$instancia"
 mkdir -p "$dir"

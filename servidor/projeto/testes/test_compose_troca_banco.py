@@ -1,4 +1,5 @@
-"""Compose da troca de banco (spec 009, R15, T5.2): `wal_level` no `banco` e o serviço `banco_novo` sob profile.
+"""Compose da troca de banco (spec 009, R15, T5.2, S2a): a implantação não declara `wal_level`; o override lógico o declara,
+e o serviço `banco_novo` fica sob profile.
 
 Não sobe contêiner: `docker compose config` só lê os arquivos. Os valores são sintéticos e vêm do ambiente deste processo.
 """
@@ -8,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
@@ -37,10 +39,14 @@ def _config(flags, ambiente=None):
         raise AssertionError('docker ausente no PATH: o teste de compose precisa do binário (sem ele não há config)')
     # Valor None tira a variável do ambiente (ausente, não só vazia).
     env = {k: v for k, v in {**os.environ, **VALORES_SINTETICOS, **(ambiente or {})}.items() if v is not None}
-    rodado = subprocess.run(
-        ['docker', 'compose', *flags, 'config', '--format', 'json'],
-        cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
-    )
+    # `--env-file` vazio antes de `-f`: a interpolação não lê o `servidor/.env` local.
+    with tempfile.TemporaryDirectory() as temporario:
+        vazio = Path(temporario) / 'vazio.env'
+        vazio.write_text('', encoding='utf-8')
+        rodado = subprocess.run(
+            ['docker', 'compose', '--env-file', str(vazio), *flags, 'config', '--format', 'json'],
+            cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
+        )
     return rodado.returncode, rodado.stdout, rodado.stderr
 
 
@@ -60,8 +66,10 @@ def _com_profile():
 
 # Caminho feliz.
 
-def test_banco_sobe_com_wal_level_logical_e_limites_de_replicacao():
-    assert _sem_profile()['services']['banco']['command'] == COMANDO_WAL
+def test_banco_da_implantacao_usa_o_wal_padrao_sem_command():
+    # S2a: sem `command`, o banco não é recriado por wal_level no deploy e o standby físico nasce com a origem.
+    # `compose config` emite `command: null` quando a implantação não define o comando: conta como ausente.
+    assert _sem_profile()['services']['banco'].get('command') is None
 
 
 def test_banco_novo_nao_aparece_sem_o_profile():
@@ -73,9 +81,8 @@ def test_banco_novo_aparece_com_o_profile_troca_banco():
     assert servico['profiles'] == ['troca-banco']
 
 
-def test_banco_novo_tem_comando_wal_restart_e_healthcheck_do_banco():
+def test_banco_novo_tem_restart_e_healthcheck_do_banco():
     servicos = _com_profile()['services']
-    assert servicos['banco_novo']['command'] == COMANDO_WAL
     assert servicos['banco_novo']['restart'] == 'unless-stopped'
     assert servicos['banco_novo']['healthcheck'] == servicos['banco']['healthcheck']
 
@@ -137,3 +144,39 @@ def test_banco_novo_nao_compartilha_volume_com_o_banco_atual():
     origens_banco = {v['source'] for v in dados['services']['banco']['volumes'] if v['type'] == 'volume'}
     origens_novo = {v['source'] for v in dados['services']['banco_novo']['volumes'] if v['type'] == 'volume'}
     assert origens_banco.isdisjoint(origens_novo)
+
+
+# Override da troca lógica (S2a): `compose.troca-logica.yaml` é somado só pelo trocar-banco.sh no modo lógico.
+
+def _com_override(profile=True, ambiente=None):
+    flags = (*(COM_PROFILE if profile else BASE), '-f', 'compose.troca-logica.yaml')
+    rc, saida, erro = _config(flags, ambiente)
+    assert rc == 0, f'config com override falhou (rc={rc}): {erro}'
+    return json.loads(saida)
+
+
+def test_override_da_wal_logical_ao_banco_e_ao_banco_novo():
+    servicos = _com_override()['services']
+    assert servicos['banco']['command'] == COMANDO_WAL
+    assert servicos['banco_novo']['command'] == COMANDO_WAL
+
+
+def test_override_nao_tira_healthcheck_nem_restart_do_banco():
+    servicos = _com_override()['services']
+    base = _sem_profile()['services']['banco']
+    assert servicos['banco']['healthcheck'] == base['healthcheck']
+    assert servicos['banco']['restart'] == base['restart']
+
+
+def test_override_sem_profile_nao_faz_aparecer_o_banco_novo():
+    # O profile vem do compose.implantacao.yaml; o override não pode tirá-lo.
+    servicos = _com_override(profile=False)['services']
+    assert 'banco_novo' not in servicos
+    assert servicos['banco']['command'] == COMANDO_WAL
+
+
+# Caso infeliz: a implantação física não pode voltar a ter wal_level (mutação: pôr `command` de volta no compose).
+
+def test_implantacao_nao_declara_wal_level_no_banco_nem_no_banco_novo():
+    assert 'wal_level' not in json.dumps(_sem_profile()['services']['banco'])
+    assert 'wal_level' not in json.dumps(_com_profile()['services']['banco_novo'])

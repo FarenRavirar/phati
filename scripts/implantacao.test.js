@@ -44,6 +44,11 @@ function criarVm({ comEnv = true } = {}) {
   fs.writeFileSync(path.join(trabalho, 'servidor', 'nginx', 'default.conf'), 'server {}\n');
   git(trabalho, 'add', '.');
   git(trabalho, 'commit', '-q', '-m', 'dois: infraestrutura de implantação');
+  // Ancestral de main com infraestrutura mas sem o serviço banco_novo: a pré-checagem do banco ativo (C5) recusa.
+  const semBancoNovo = git(trabalho, 'rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(trabalho, 'servidor', 'compose.implantacao.yaml'), 'services:\n  banco:\n    image: sintetica\n  banco_novo:\n    image: sintetica\n');
+  git(trabalho, 'add', '.');
+  git(trabalho, 'commit', '-q', '-m', 'tres: serviço banco_novo');
   git(trabalho, 'branch', '-M', 'main');
   git(trabalho, 'push', '-q', 'origin', 'main');
   const promovido = git(trabalho, 'rev-parse', 'HEAD');
@@ -137,6 +142,8 @@ function criarVm({ comEnv = true } = {}) {
   );
   const ambiente = {
     ...process.env,
+    // Sem perfil herdado do processo: só o `extra` do teste pode ligar um profile (o que o script exporta é o que se mede).
+    COMPOSE_PROFILES: '',
     PHATI_DIR: unix(vm),
     DOCKER: unix(dublê),
     PHATI_FLOCK: unix(flockDuble),
@@ -182,7 +189,7 @@ function criarVm({ comEnv = true } = {}) {
   const lerProjetos = () => (fs.existsSync(projetos) ? fs.readFileSync(projetos, 'utf8').split('\n').filter(Boolean) : []);
   const lerAlvoVars = () => (fs.existsSync(alvoVars) ? fs.readFileSync(alvoVars, 'utf8').split('\n').filter(Boolean) : []);
   const lerPerfis = () => (fs.existsSync(perfis) ? fs.readFileSync(perfis, 'utf8').split('\n').filter(Boolean) : []);
-  return { vm, repo, promovido, semInfra, foraDeMain, lerAlvoVars, lerPerfis, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
+  return { vm, repo, promovido, semInfra, semBancoNovo, foraDeMain,lerAlvoVars, lerPerfis, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
 }
 let contadorPromocao = 0;
 
@@ -1136,6 +1143,33 @@ test('implantar sem banco-ativo usa banco e não liga profile nenhum', () => {
     assert.ok(v.lerChamadas().includes('volume inspect phati_dados_banco'));
     assert.equal(v.lerChamadas().filter((l) => l.includes('banco_novo')).length, 0);
     assert.ok(v.lerPerfis().every((p) => p === 'sem-perfil'), v.lerPerfis().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar com banco-ativo=banco_novo recusa SHA cujo compose não declara banco_novo, antes do checkout e sem Docker', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const antes = git(v.repo, 'rev-parse', 'HEAD');
+    const r = v.rodar(IMPLANTAR, [v.semBancoNovo], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /o SHA não declara o serviço banco_novo no compose de implantação/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), antes, 'o clone mudou antes da recusa');
+    assert.equal(v.lerChamadas().length, 0, 'chamada Docker antes da recusa');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar sem banco-ativo não aplica a checagem do banco_novo: SHA sem o serviço segue', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.semBancoNovo], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.semBancoNovo);
+    assert.doesNotMatch(r.stderr, /não declara o serviço/);
   } finally {
     v.limpar();
   }

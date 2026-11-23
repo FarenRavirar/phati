@@ -162,6 +162,11 @@ git merge-base --is-ancestor "$sha" "$ref" || erro "o SHA $sha não é ancestral
 # Antes do checkout: sem a infraestrutura, o checkout apaga o `servidor/nginx` que o nginx monta (bug da VM, spec 009 T3.4).
 faltando="$(infra_faltando "$sha")"
 [[ -z "$faltando" ]] || erro "o SHA não traz a infraestrutura de implantação blue-green: $faltando"
+# O banco ativo tem de existir no compose do SHA: sem o serviço, o compose quebra depois do checkout. `banco` é sempre declarado.
+if [[ "$banco_srv" != banco ]]; then
+  compose_sha="$(git show "$sha:servidor/compose.implantacao.yaml" 2>/dev/null || true)"
+  grep -qE "^  $banco_srv:" <<<"$compose_sha" || erro "o SHA não declara o serviço $banco_srv no compose de implantação"
+fi
 anterior="$(git rev-parse HEAD 2>/dev/null || echo nenhum)"
 git checkout -q --detach "$sha"
 repo_mudou=1
