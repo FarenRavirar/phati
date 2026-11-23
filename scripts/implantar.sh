@@ -212,11 +212,19 @@ nginx_recarrega() {
 # `servidor/nginx` aponta para diretório vazio: o contêiner é recriado (lê o alvo.conf atual ao subir). Sem contêiner nginx
 # (primeira implantação de verdade), não faz nada. A marca sim/nao vem do próprio contêiner: falha do exec é erro, não
 # "arquivo ausente". Com a recriação antes da troca, o alvo.conf ainda é o anterior: a reversão de `trocar` não precisa recarregar.
+# Legado da 006 sem `ativa` e sem alvo.conf: nada a curar; `trocar` grava o alvo.conf e sobe o nginx. Falha do inspect ou
+# saída fora de true/false não é "parado": para antes de validar ou recriar.
 nginx_autocura() {
-  local id marca motivo=parado
+  local id marca estado motivo=parado
   id="$("$docker" ps -aq --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME --filter label=com.docker.compose.service=nginx)"
   [[ -n "$id" ]] || return 0
-  if [[ "$("$docker" inspect -f '{{.State.Running}}' "$id" 2>/dev/null)" == true ]]; then
+  [[ -n "$ativa" || -f "$alvo_conf" ]] || return 0
+  if ! estado="$("$docker" inspect -f '{{.State.Running}}' "$id" 2>/dev/null)" || [[ "$estado" != true && "$estado" != false ]]; then
+    registrar "nginx-estado-falhou"
+    echo "ERRO: não consegui verificar o estado do nginx (inspect falhou ou saída inesperada)" >&2
+    return 1
+  fi
+  if [[ "$estado" == true ]]; then
     motivo=bind-obsoleto
     marca="$(compor exec -T nginx sh -c 'if [ -f /etc/nginx/conf.d/default.conf ]; then echo sim; else echo nao; fi')" || marca=""
     if [[ "$marca" != sim && "$marca" != nao ]]; then
