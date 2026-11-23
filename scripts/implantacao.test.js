@@ -92,7 +92,8 @@ function criarVm({ comEnv = true } = {}) {
       '  *"service=nginx"*) [[ "${DUBLE_NGINX_AUSENTE:-0}" == 1 ]] || echo nginx1 ;;',
       '  *"ps -aq --filter"*) [[ "${DUBLE_ORFAO:-0}" == 1 ]] && echo orfao1 ;;',
       '  *"ps -q nginx"*) [[ "${DUBLE_NGINX:-1}" == 1 ]] && echo nginx1 ;;',
-      '  *"nginx -t"*) cat "$ALVO_DIR/alvo.conf" >> "$VISTO" 2>/dev/null; echo "--" >> "$VISTO"; [[ "${DUBLE_NGINX_TESTE_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_NGINX_CANDIDATA_INVALIDA:-0}" == 1 && "$*" == *"exec -T nginx nginx -t"* ]] && grep -q app_verde "$ALVO_DIR/alvo.conf" && exit 1 ;;',
+      // O default.conf inclui /etc/nginx/alvo/alvo.conf sem condição: sem o arquivo, o nginx -t reprova (medido com nginx 1.18).
+      '  *"nginx -t"*) cat "$ALVO_DIR/alvo.conf" >> "$VISTO" 2>/dev/null; echo "--" >> "$VISTO"; [[ -f "$ALVO_DIR/alvo.conf" ]] || exit 1; [[ "${DUBLE_NGINX_TESTE_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_NGINX_CANDIDATA_INVALIDA:-0}" == 1 && "$*" == *"exec -T nginx nginx -t"* ]] && grep -q app_verde "$ALVO_DIR/alvo.conf" && exit 1 ;;',
       '  *"nginx -s reload"*) [[ "${DUBLE_RELOAD_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_RELOAD_2_FALHA:-0}" == 1 && "$(grep -c "nginx -s reload" "$CHAMADAS")" -ge 2 ]] && exit 1 ;;',
       '  *"exec -T nginx wget"*) [[ "${DUBLE_SAUDA_NGINX_FALHA:-0}" == 1 ]] && exit 1 ;;',
       // Marca `sim`/`nao` do default.conf: `nao` só até a primeira recriação do nginx (o contêiner recriado já o monta).
@@ -100,7 +101,8 @@ function criarVm({ comEnv = true } = {}) {
       '  *"exec -T nginx sh -c"*"/etc/nginx/conf.d/default.conf"*) [[ "${DUBLE_EXEC_FALHA:-0}" == 1 ]] && exit 1; if [[ "${DUBLE_CONF_AUSENTE:-0}" == 1 ]] && ! grep -q "force-recreate nginx" "$CHAMADAS"; then echo nao; else echo sim; fi ;;',
       '  *"force-recreate nginx"*) [[ "${DUBLE_RECRIAR_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
-      '  *"State.Running"*) [[ "${DUBLE_NGINX_PARADO:-0}" == 1 ]] && echo false || echo true ;;',
+      // DUBLE_INSPECT_FALHA: o inspect falha (rc 1, sem saída). DUBLE_RUNNING_SAIDA: saída que não é true nem false.
+      '  *"State.Running"*) [[ "${DUBLE_INSPECT_FALHA:-0}" == 1 ]] && exit 1; if [[ -n "${DUBLE_RUNNING_SAIDA:-}" ]]; then echo "$DUBLE_RUNNING_SAIDA"; elif [[ "${DUBLE_NGINX_PARADO:-0}" == 1 ]]; then echo false; else echo true; fi ;;',
       '  *inspect*app_azul*) echo "${DUBLE_SAUDE_AZUL:-${DUBLE_SAUDE:-healthy}}" ;;',
       '  *inspect*app_verde*) echo "${DUBLE_SAUDE_VERDE:-${DUBLE_SAUDE:-healthy}}" ;;',
       '  *inspect*pgb21*) echo "${DUBLE_SAUDE_PGB2:-${DUBLE_SAUDE_PGB:-healthy}}" ;;',
@@ -1687,9 +1689,7 @@ test('SHA sem a infraestrutura de implantação é recusado antes do checkout: c
 test('autocura: nginx de pé sem o default.conf montado é recriado (bind obsoleto) e não só recarregado', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1' });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(v.contarChamadas('up -d --no-deps --force-recreate nginx'), 1, 'recriado uma vez');
@@ -1704,9 +1704,7 @@ test('autocura: nginx de pé sem o default.conf montado é recriado (bind obsole
 test('autocura: com o default.conf montado o nginx só recarrega, sem recriar e sem registrar', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b]);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(v.contarChamadas('force-recreate'), 0);
@@ -1721,9 +1719,7 @@ test('autocura: com o default.conf montado o nginx só recarrega, sem recriar e 
 test('autocura: se a recriação do nginx falha, a implantação falha, registra FALHOU e não diz que recriou', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_RECRIAR_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.match(v.registro(), /FALHOU/);
@@ -1732,6 +1728,22 @@ test('autocura: se a recriação do nginx falha, a implantação falha, registra
     v.limpar();
   }
 });
+
+// Recriação do nginx parado antes do build: o status, uma recriação e o registro, na ordem que o teste de autocura exige.
+function afirmarRecriadoAntesDoBuild(v, r) {
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(v.contarChamadas('force-recreate nginx'), 1, 'recriado uma vez');
+  assert.ok(v.indice('force-recreate nginx') < v.indice(' build'), 'antes do build');
+  assert.match(v.registro(), /nginx-recriado=parado/);
+}
+
+// Primeira implantação, promoção de um commit novo e chamadas zeradas: ponto de partida dos testes de autocura do nginx.
+function implantarEPromover(v) {
+  assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+  const b = v.promover();
+  v.zerar();
+  return b;
+}
 
 // Promove a main um commit que altera a infraestrutura (a função recebe o caminho do clone de trabalho) e devolve o SHA.
 function promoverComAlteracao(v, alterar) {
@@ -1746,9 +1758,7 @@ function promoverComAlteracao(v, alterar) {
 test('autocura: a config candidata é validada antes de recriar o nginx de pé; reprovada, o nginx de pé não é tocado', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_NGINX_TESTE_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.equal(v.contarChamadas('force-recreate'), 0, 'não recriou o nginx de pé');
@@ -1764,10 +1774,8 @@ test('autocura: a config candidata é validada antes de recriar o nginx de pé; 
 test('autocura: candidata reprovada depois da recriação reverte o alvo.conf e não recarrega (o nginx segue com o alvo anterior)', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
+    const b = implantarEPromover(v);
     const antes = v.lerAlvo();
-    v.zerar();
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_NGINX_CANDIDATA_INVALIDA: '1' });
     assert.equal(r.status, 1, r.stderr);
     assert.equal(v.contarChamadas('nginx -s reload'), 0, 'nada recarregado: o nginx recriado na autocura já lê o alvo anterior');
@@ -1782,15 +1790,75 @@ test('autocura: candidata reprovada depois da recriação reverte o alvo.conf e 
 test('autocura: erro do exec ao checar o default.conf não é lido como arquivo ausente: nada é recriado e a causa vai ao registro', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_EXEC_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.equal(v.contarChamadas('force-recreate'), 0, 'erro de exec não recria o nginx');
     assert.match(r.stderr, /não consegui verificar \/etc\/nginx\/conf\.d\/default\.conf/);
     assert.match(v.registro(), /nginx-verificacao-falhou/);
     assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: inspect que falha não é lido como nginx parado: nada é validado nem recriado e a implantação falha com a causa', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_INSPECT_FALHA: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /não consegui verificar o estado do nginx/);
+    assert.equal(v.contarChamadas('nginx -t'), 0, 'nenhuma validação com o estado desconhecido');
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'não recriou o nginx');
+    assert.match(v.registro(), /nginx-estado-falhou/);
+    assert.match(v.registro(), /FALHOU/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: saída do inspect fora de true e false é erro, não "parado": nada é recriado', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_RUNNING_SAIDA: 'talvez' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /não consegui verificar o estado do nginx/);
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'não recriou o nginx');
+    assert.match(v.registro(), /nginx-estado-falhou/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: legado da 006 (sem ativa e sem alvo.conf) com nginx parado não valida nem recria: a implantação segue até a troca', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.vm, 'ativa'));
+    fs.rmSync(path.join(v.alvo, 'alvo.conf'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_PARADO: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'nada recriado antes da troca');
+    assert.equal(v.contarChamadas('nginx -t'), 1, 'só a validação da troca, não a da autocura');
+    assert.match(v.lerAlvo(), /set \$alvo app_azul;/, 'a troca gravou o alvo.conf');
+    assert.match(v.registro(), /OK/);
+    assert.doesNotMatch(v.registro(), /nginx-recriado/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('autocura: sem ativa mas com alvo.conf, nginx parado é recriado antes do build (recuperação antecipada preservada)', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.vm, 'ativa'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_PARADO: '1' });
+    afirmarRecriadoAntesDoBuild(v, r);
   } finally {
     v.limpar();
   }
@@ -1850,14 +1918,9 @@ test('pré-checagem: cada arquivo de infraestrutura faltando recusa sozinho, cit
 test('autocura: nginx existente parado é recriado antes do build, com o alvo atual', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_PARADO: '1' });
-    assert.equal(r.status, 0, r.stderr);
-    assert.equal(v.contarChamadas('force-recreate nginx'), 1, 'recriado uma vez');
-    assert.ok(v.indice('force-recreate nginx') < v.indice(' build'), 'antes do build');
-    assert.match(v.registro(), /nginx-recriado=parado/);
+    afirmarRecriadoAntesDoBuild(v, r);
   } finally {
     v.limpar();
   }
@@ -1879,9 +1942,7 @@ test('autocura: sem contêiner nginx (primeira implantação de verdade) não co
 test('autocura: candidata que falha no build não impede a recriação do nginx com bind obsoleto', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_CONF_AUSENTE: '1', DUBLE_BUILD_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.equal(v.contarChamadas('force-recreate nginx'), 1, 'recriado antes do build que falhou');
