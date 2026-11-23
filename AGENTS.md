@@ -131,6 +131,7 @@ Repositório **público**: tudo que entra num commit é público e permanece no 
 - **Regra pétrea: toda modificação da árvore entra no mesmo commit, exceto se o mantenedor disser o contrário.** Conteúdo do commit é o diff inteiro (`git add -A`): código, teste, migração, config, CI e doc versionada. Nada fica de fora por iniciativa do agente, nem para "commitar depois", nem por parecer fora de escopo, nem por ser achado de revisor ou item de estilo. Separar por conta própria é inferência de escopo proibida; só a exclusão explícita do mantenedor, nomeando o que sai, vale. Antes de todo commit, conferir `rtk git diff --cached` (§acima) e deixar o hook de vazamento rodar.
 - **Nunca** `--amend`, `push --force`, `git checkout` entre `dev` e `main` durante promoção (usar `git fetch`, `rev-parse`, `log`), nem `--no-verify`.
 - Mensagem multi-linha: `git commit -F - <<'FIM'` no Bash tool; conferir com `git log -1 --format=%B` antes de declarar pronto.
+- **Repo privado `phati-specs`** (`specs/`, `.specify/`, `sessoes/`, `docs/`, `DEFINICAO.md`; em `phati-dev` são symlinks para `../phati-specs/`). Vários chats compartilham essa mesma árvore, então: trabalhar só em `main`, sem branch (trocar de branch muda os arquivos do outro chat); `git pull --rebase origin main` antes de commitar; `git add <caminho>` só do que o chat alterou, nunca `-A` por padrão (exceção à regra "toda modificação no mesmo commit", válida só neste repo por a árvore ser compartilhada; o mantenedor pode mandar o contrário em cada caso); dois chats não editam o mesmo arquivo ao mesmo tempo; commit e push seguem pedindo autorização nominal. Specs não entram em commit nem PR de `phati-dev`.
 
 ### Código
 
@@ -258,7 +259,7 @@ Só `AGENTS.md`, `CLAUDE.md` e a config de revisão vivem no repositório públi
 | Decisões (só o que o mantenedor respondeu) | `.specify/memory/decisions.md` |
 | Recomendações do agente (não são decisão) | `.specify/memory/recomendacoes.md` |
 | Erros conhecidos | `.specify/memory/errors.md` |
-| Specs SDD | `specs/README.md`, `specs/backlog.md`, `specs/*/` |
+| Specs SDD | `specs/README.md`, `specs/backlog.md`, `specs/*/`. Repo privado irmão `phati-specs` (symlinks em `specs/`, `.specify/`, `sessoes/`, `docs/`, `DEFINICAO.md`) |
 | Sessões | `sessoes/` |
 | Skills | `.agents/skills/`; obrigatórias via plugin: `ponytail`, `humanizer`. Front (D058): `web-design-guidelines` (regras fixadas, sem busca remota) e `phati-geoportal` em `.agents/skills/`; `impeccable` instalada só localmente em `.claude/skills/` (ignorada no Git), com hooks desligados |
 | Subagentes | `.claude/agents/` |

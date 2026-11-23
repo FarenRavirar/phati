@@ -13,10 +13,10 @@ definicao*.md
 *.pptx
 
 # --- Documentação interna: fica só local (sensível, não é código) ---
-docs/
-sessoes/
-specs/
-.specify/
+/docs
+/sessoes
+/specs
+/.specify
 
 # --- Segredos e credenciais ---
 .env
