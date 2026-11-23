@@ -9,48 +9,12 @@ Não sobe contêiner: `docker compose config` só lê os arquivos. Os valores s�
 
 import functools
 import json
-import os
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
 
-from django.conf import settings
+from projeto.testes.test_compose_troca_banco import _config
 
-RAIZ = Path(settings.DIRETORIO_BASE)
 IMPLANTACAO = ('-f', 'compose.yaml', '-f', 'compose.implantacao.yaml')
 DEV = ('-f', 'compose.yaml')
 BANCOS = {'banco', 'banco_novo'}
-# Mesmos valores sintéticos de test_compose_bluegreen.py (cada teste de compose precisa de todos os `:?`).
-VALORES_SINTETICOS = {
-    'PHATI_CHAVE_SECRETA': 'sintetica-chave-secreta',
-    'PHATI_CHAVE_CPF': 'sintetica-chave-cpf',
-    'PHATI_SEGREDO_RLS': 'sintetica-segredo-rls',
-    'PHATI_BANCO_SUPER_SENHA': 'sintetica-super',
-    'PHATI_BANCO_DONO_USUARIO': 'dono',
-    'PHATI_BANCO_DONO_SENHA': 'sintetica-dono',
-    'PHATI_BANCO_APP_USUARIO': 'app',
-    'PHATI_BANCO_APP_SENHA': 'sintetica-app',
-    'PHATI_BANCO_REPLICADOR_SENHA': 'sintetica-replicador',
-    'PHATI_TUNEL_TOKEN': 'sintetico-tunel',
-    'PHATI_ALVO_DIR': './nginx/alvo',
-}
-
-
-def _config(flags, ambiente=None):
-    if shutil.which('docker') is None:
-        raise AssertionError('docker ausente no PATH: o teste de compose precisa do binário (sem ele não há config)')
-    # Valor None tira a variável do ambiente (ausente, não só vazia).
-    env = {k: v for k, v in {**os.environ, **VALORES_SINTETICOS, **(ambiente or {})}.items() if v is not None}
-    # `--env-file` vazio antes de `-f`: a interpolação não lê o `servidor/.env` local.
-    with tempfile.TemporaryDirectory() as temporario:
-        vazio = Path(temporario) / 'vazio.env'
-        vazio.write_text('', encoding='utf-8')
-        rodado = subprocess.run(
-            ['docker', 'compose', '--env-file', str(vazio), *flags, 'config', '--format', 'json'],
-            cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
-        )
-    return rodado.returncode, rodado.stdout, rodado.stderr
 
 
 def _servicos(flags, ambiente=None):

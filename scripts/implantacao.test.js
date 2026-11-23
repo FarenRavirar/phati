@@ -10,6 +10,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile, execFileSync, spawn, spawnSync } = require('node:child_process');
 const { promisify } = require('node:util');
+const { unix, lerLinhas, escreverFlock } = require('./ajuda-teste');
 
 const ASSINCRONO = promisify(execFile);
 const PASTA = __dirname;
@@ -18,7 +19,6 @@ const RESTAURAR = path.join(PASTA, 'restaurar.sh');
 const BACKUP = path.join(PASTA, 'backup.sh');
 const GUARDAR = path.join(PASTA, 'guardar-implantacao.sh');
 const SMOKE = path.join(PASTA, 'smoke-implantacao.sh');
-const unix = (caminho) => caminho.replace(/\\/g, '/');
 const SHA_RUIM = 'não-é-sha';
 
 const git = (diretorio, ...argumentos) =>
@@ -70,6 +70,8 @@ function criarVm({ comEnv = true } = {}) {
   const alvoVars = path.join(raiz, 'alvo-vars.log');
   // COMPOSE_PROFILES que cada chamada ao Docker viu (spec 009 R15, T5.4c: `banco_novo` só existe com o profile da troca).
   const perfis = path.join(raiz, 'perfis.log');
+  // PHATI_BANCO_DESTINO que cada chamada ao Docker recebeu pelo ambiente (o `.env` não entra aqui: o compose o lê sozinho).
+  const destinos = path.join(raiz, 'destinos.log');
   const dublê = path.join(raiz, 'docker-dubles.sh');
   fs.writeFileSync(
     dublê,
@@ -79,6 +81,7 @@ function criarVm({ comEnv = true } = {}) {
       'echo "${PHATI_ALVO_DIR:-sem-alvo}" >> "$ALVO_VARS"',
       'echo "${COMPOSE_PROJECT_NAME:-sem-projeto}" >> "$PROJETOS"',
       'echo "${COMPOSE_PROFILES:-sem-perfil}" >> "$PERFIS"',
+      'echo "${PHATI_BANCO_DESTINO:-sem-destino}" >> "$DESTINOS"',
       'case "$*" in',
       '  *"comum.compat_migracao"*) printf "[%s]\\n" "$@" > "$ARGV"; [[ -n "${DUBLE_COMPAT_SAIDA:-}" ]] && printf "%s\\n" "$DUBLE_COMPAT_SAIDA"; exit "${DUBLE_COMPAT_RC:-0}" ;;',
       '  *" build"*) [[ "${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1 ;;',
@@ -122,24 +125,10 @@ function criarVm({ comEnv = true } = {}) {
     ].join('\n'),
     { mode: 0o755 },
   );
-  // `flock` de mentira, com a mesma linha de comando (`-w T -E N arquivo comando...`): "ocupado" é o arquivo `<trava>.ocupado`.
-  // O `flock` de verdade tem o passo próprio do CI (`trava-flock.test.sh`); aqui se prova o que o script faz com ele.
+  // `flock` de mentira (scripts/ajuda-teste.js), com registro das chamadas. O `flock` de verdade tem o passo próprio
+  // do CI (`trava-flock.test.sh`); aqui se prova o que o script faz com ele.
   const flockChamadas = path.join(raiz, 'flock.log');
-  const flockDuble = path.join(raiz, 'flock-dubles.sh');
-  fs.writeFileSync(
-    flockDuble,
-    [
-      '#!/usr/bin/env bash',
-      'echo "$*" >> "$FLOCK_CHAMADAS"',
-      't=0; e=1',
-      'while [[ "${1:-}" == -* ]]; do case "$1" in -w) t="$2"; shift 2 ;; -E) e="$2"; shift 2 ;; *) shift ;; esac; done',
-      'arquivo="$1"; shift',
-      'if [[ -e "$arquivo.ocupado" ]]; then sleep "$t"; exit "$e"; fi',
-      'exec "$@"',
-      '',
-    ].join('\n'),
-    { mode: 0o755 },
-  );
+  const flockDuble = escreverFlock(path.join(raiz, 'flock-dubles.sh'), { registro: true });
   const ambiente = {
     ...process.env,
     // Sem perfil herdado do processo: só o `extra` do teste pode ligar um profile (o que o script exporta é o que se mede).
@@ -159,14 +148,17 @@ function criarVm({ comEnv = true } = {}) {
     ARGV: unix(path.join(vm, 'compat-argv.log')),
     PROJETOS: unix(projetos),
     PERFIS: unix(perfis),
+    DESTINOS: unix(destinos),
     // Vazio = padrão `phati`, mesmo que o ambiente de quem roda tenha PHATI_PROJETO.
     PHATI_PROJETO: '',
+    // Vazio = sem destino herdado do ambiente de quem roda (cada teste liga o que quer pelo `extra`).
+    PHATI_BANCO_DESTINO: '',
   };
   const rodar = (script, argumentos, extra = {}) =>
     spawnSync('bash', [unix(script), ...argumentos], { env: { ...ambiente, ...extra }, encoding: 'utf8' });
-  const lerChamadas = () => (fs.existsSync(chamadas) ? fs.readFileSync(chamadas, 'utf8').split('\n').filter(Boolean) : []);
+  const lerChamadas = () => lerLinhas(chamadas);
   const indice = (trecho) => lerChamadas().findIndex((linha) => linha.includes(trecho));
-  const lerFlock = () => (fs.existsSync(flockChamadas) ? fs.readFileSync(flockChamadas, 'utf8').split('\n').filter(Boolean) : []);
+  const lerFlock = () => lerLinhas(flockChamadas);
   const registro = () => {
     const arquivo = path.join(vm, 'implantacoes.log');
     return fs.existsSync(arquivo) ? fs.readFileSync(arquivo, 'utf8') : '';
@@ -186,10 +178,11 @@ function criarVm({ comEnv = true } = {}) {
   const lerAlvo = () => fs.readFileSync(path.join(vm, 'alvo', 'alvo.conf'), 'utf8');
   const lerArquivo = (nome) => fs.readFileSync(path.join(vm, nome), 'utf8');
   const contarChamadas = (trecho) => lerChamadas().filter((linha) => linha.includes(trecho)).length;
-  const lerProjetos = () => (fs.existsSync(projetos) ? fs.readFileSync(projetos, 'utf8').split('\n').filter(Boolean) : []);
-  const lerAlvoVars = () => (fs.existsSync(alvoVars) ? fs.readFileSync(alvoVars, 'utf8').split('\n').filter(Boolean) : []);
-  const lerPerfis = () => (fs.existsSync(perfis) ? fs.readFileSync(perfis, 'utf8').split('\n').filter(Boolean) : []);
-  return { vm, repo, promovido, semInfra, semBancoNovo, foraDeMain,lerAlvoVars, lerPerfis, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
+  const lerProjetos = () => lerLinhas(projetos);
+  const lerAlvoVars = () => lerLinhas(alvoVars);
+  const lerPerfis = () => lerLinhas(perfis);
+  const lerDestinos = () => lerLinhas(destinos);
+  return { vm, repo, promovido, semInfra, semBancoNovo, foraDeMain,lerAlvoVars, lerPerfis, lerDestinos, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
 }
 let contadorPromocao = 0;
 
@@ -755,10 +748,7 @@ test('implantar guarda só os 14 backups mais recentes', () => {
 test('restaurar diz a verdade sobre o estado do banco conforme o passo que falhou', () => {
   const v = criarVm();
   try {
-    const pasta = path.join(v.vm, 'backups');
-    fs.mkdirSync(pasta);
-    const dump = unix(path.join(pasta, 'phati-1.dump'));
-    fs.writeFileSync(dump, 'dados');
+    const dump = criarDump(v);
     const noPsql = v.rodar(RESTAURAR, [dump, 'RESTAURAR'], { DUBLE_RESTAURA_FALHA: '1' });
     assert.equal(noPsql.status, 1);
     assert.match(noPsql.stderr, /passo restaurar-dump/);
@@ -834,9 +824,7 @@ test('primeira implantação (sem ativa) sobe azul, troca o nginx pelo contêine
 test('segunda implantação sobe verde ao lado da azul, troca o destino e deixa a azul de pé', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b]);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /ativa=verde anterior=azul/);
@@ -917,9 +905,7 @@ test('rollback com a pilha inativa não saudável não pula o build: vira implan
 test('candidata não fica healthy: a ativa segue, alvo.conf intacto e o erro diz que a ativa segue', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDE_VERDE: 'unhealthy' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /a candidata app_verde não ficou saudável/);
@@ -954,9 +940,7 @@ test('candidata que não fica saudável na primeira implantação não chega ao 
 test('nginx -t falha: nenhum reload, alvo.conf anterior restaurado e a ativa segue', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_TESTE_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /nginx -t ou reload falhou/);
@@ -972,9 +956,7 @@ test('nginx -t falha: nenhum reload, alvo.conf anterior restaurado e a ativa seg
 test('verificação pelo nginx falha depois do reload: reverte alvo.conf, recarrega de novo e registra a falha', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload/);
@@ -991,9 +973,7 @@ test('verificação pelo nginx falha depois do reload: reverte alvo.conf, recarr
 test('falha ao reverter: a mensagem traz o comando de recuperação completo', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /alvo.conf revertido, mas o nginx não recarregou; recupere com:/);
@@ -1117,6 +1097,8 @@ test('PHATI_HOSTS_PERMITIDOS: hostil recusa cedo sem tocar o Docker; ausente usa
 // troca. Sem o arquivo, o padrão é `banco` e nenhum profile é ligado. Valor hostil recusa antes de qualquer chamada ao Docker.
 // Chamada que mexe no serviço `banco` (palavra exata, não `banco_novo` nem `banco_extensoes`).
 const tocaBancoAntigo = (chamadas) => chamadas.filter((l) => /(^| )banco( |$)/.test(l));
+// Mesma chamada `exec -T <svc> sh -c` que leva o comando (pg_dump ou pg_restore): não basta um `sh -c` qualquer no serviço.
+const chamadaShCom = (v, svc, comando) => v.lerChamadas().find((l) => l.includes(`exec -T ${svc} sh -c`) && l.includes(comando));
 
 test('implantar com banco-ativo=banco_novo sobe, espera e faz backup de banco_novo, com o profile da troca', () => {
   const v = criarVm();
@@ -1125,7 +1107,7 @@ test('implantar com banco-ativo=banco_novo sobe, espera e faz backup de banco_no
     const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
     assert.equal(r.status, 0, r.stderr);
     assert.ok(v.indice('up -d --wait banco_novo') >= 0, 'faltou subir banco_novo');
-    assert.ok(v.indice('exec -T banco_novo sh -c') >= 0, 'o backup tem de ler banco_novo');
+    assert.ok(chamadaShCom(v, 'banco_novo', 'pg_dump'), 'o backup tem de rodar pg_dump em banco_novo');
     assert.ok(v.lerChamadas().includes('volume inspect phati_dados_banco_novo'), 'tem_dados tem de olhar o volume dados_banco_novo');
     assert.deepEqual(tocaBancoAntigo(v.lerChamadas()), [], 'o serviço banco antigo não pode ser tocado');
     assert.ok(v.lerPerfis().length > 0 && v.lerPerfis().every((p) => p === 'troca-banco'), v.lerPerfis().join(','));
@@ -1196,7 +1178,7 @@ test('backup.sh com banco-ativo=banco_novo faz o pg_dump nesse serviço, com o p
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
     const r = v.rodar(BACKUP, ['ab']);
     assert.equal(r.status, 0, r.stderr);
-    assert.ok(v.indice('exec -T banco_novo sh -c') >= 0, v.lerChamadas().join('\n'));
+    assert.ok(chamadaShCom(v, 'banco_novo', 'pg_dump'), v.lerChamadas().join('\n'));
     assert.deepEqual(tocaBancoAntigo(v.lerChamadas()), []);
     assert.ok(v.lerPerfis().length > 0 && v.lerPerfis().every((p) => p === 'troca-banco'), v.lerPerfis().join(','));
   } finally {
@@ -1209,7 +1191,7 @@ test('backup.sh sem banco-ativo faz o pg_dump em banco, sem profile', () => {
   try {
     const r = v.rodar(BACKUP, ['ab']);
     assert.equal(r.status, 0, r.stderr);
-    assert.ok(v.indice('exec -T banco sh -c') >= 0);
+    assert.ok(chamadaShCom(v, 'banco', 'pg_dump'), 'o backup tem de rodar pg_dump em banco');
     assert.ok(v.lerPerfis().every((p) => p === 'sem-perfil'), v.lerPerfis().join(','));
   } finally {
     v.limpar();
@@ -1221,9 +1203,7 @@ test('backup.sh recusa banco-ativo hostil sem tocar o Docker', () => {
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_velho\n');
     const r = v.rodar(BACKUP, ['ab']);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /banco-ativo tem valor inválido/);
-    assert.deepEqual(v.lerChamadas(), []);
+    afirmarRecusa(v, r, /banco-ativo tem valor inválido/);
   } finally {
     v.limpar();
   }
@@ -1233,14 +1213,11 @@ test('restaurar com banco-ativo=banco_novo sobe e restaura banco_novo, com o pro
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
-    const pasta = path.join(v.vm, 'backups');
-    fs.mkdirSync(pasta);
-    const dump = unix(path.join(pasta, 'phati-1.dump'));
-    fs.writeFileSync(dump, 'dados');
+    const dump = criarDump(v);
     const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
     assert.equal(r.status, 0, r.stderr);
     assert.ok(v.indice('up -d --wait banco_novo') >= 0, 'faltou subir banco_novo');
-    assert.ok(v.indice('exec -T banco_novo sh -c') >= 0, 'a restauração tem de ir a banco_novo');
+    assert.ok(chamadaShCom(v, 'banco_novo', 'pg_restore'), 'a restauração tem de rodar pg_restore em banco_novo');
     assert.deepEqual(tocaBancoAntigo(v.lerChamadas()), []);
     assert.ok(v.lerPerfis().length > 0 && v.lerPerfis().every((p) => p === 'troca-banco'), v.lerPerfis().join(','));
   } finally {
@@ -1252,16 +1229,114 @@ test('restaurar recusa banco-ativo hostil sem tocar o Docker', () => {
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco; rm -rf /');
-    const pasta = path.join(v.vm, 'backups');
-    fs.mkdirSync(pasta);
-    const dump = unix(path.join(pasta, 'phati-1.dump'));
-    fs.writeFileSync(dump, 'dados');
+    const dump = criarDump(v);
     const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /banco-ativo tem valor inválido/);
-    assert.deepEqual(v.lerChamadas(), []);
+    afirmarRecusa(v, r, /banco-ativo tem valor inválido/);
   } finally {
     v.limpar();
+  }
+});
+
+// Troca de banco interrompida e divergência de destino (spec 009 R15). O marcador `troca-banco-em-curso` recusa implantar,
+// backup e restaurar antes de qualquer chamada ao Docker. Com banco-ativo=banco_novo, o compose recebe o destino pelo ambiente
+// (vence o `.env`); com banco (ou sem o arquivo), um destino banco_novo no `.env` ou no ambiente é divergência e recusa.
+const MENSAGEM_MARCADOR = /troca de banco interrompida \(marcador .*troca-banco-em-curso\): reconcilie antes de implantar/;
+const MENSAGEM_DIVERGENTE = /estado de banco divergente: \.env aponta banco_novo, banco-ativo não/;
+const apontarDestino = (v, valor) => fs.appendFileSync(path.join(v.vm, '.env'), `PHATI_BANCO_DESTINO=${valor}\n`);
+const todosDestinos = (v, esperado) => {
+  const destinos = v.lerDestinos();
+  assert.ok(destinos.length > 0, 'nenhuma chamada ao Docker');
+  assert.ok(destinos.every((d) => d === esperado), destinos.join(','));
+};
+
+test('implantar, backup e restaurar recusam com marcador de troca interrompida, sem tocar o Docker', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=fisica passo=pausa\n');
+    afirmarRecusa(v, v.rodar(IMPLANTAR, [v.promovido]), MENSAGEM_MARCADOR);
+    afirmarRecusa(v, v.rodar(BACKUP, ['ab']), MENSAGEM_MARCADOR);
+    afirmarRecusa(v, v.rodar(RESTAURAR, [criarDump(v), 'RESTAURAR']), MENSAGEM_MARCADOR);
+    assert.ok(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), 'a recusa não pode remover o marcador');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar com banco-ativo=banco_novo passa PHATI_BANCO_DESTINO=banco_novo ao compose, mesmo com .env sem destino', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    todosDestinos(v, 'banco_novo');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh com banco-ativo=banco_novo passa o destino ao compose', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const r = v.rodar(BACKUP, ['ab']);
+    assert.equal(r.status, 0, r.stderr);
+    todosDestinos(v, 'banco_novo');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('restaurar com banco-ativo=banco_novo passa o destino ao compose', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const r = v.rodar(RESTAURAR, [criarDump(v), 'RESTAURAR']);
+    assert.equal(r.status, 0, r.stderr);
+    todosDestinos(v, 'banco_novo');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('.env com banco_novo e banco-ativo ausente é divergência: implantar, backup e restaurar recusam sem tocar o Docker', () => {
+  const v = criarVm();
+  try {
+    apontarDestino(v, 'banco_novo');
+    afirmarRecusa(v, v.rodar(IMPLANTAR, [v.promovido]), MENSAGEM_DIVERGENTE);
+    afirmarRecusa(v, v.rodar(BACKUP, ['ab']), MENSAGEM_DIVERGENTE);
+    afirmarRecusa(v, v.rodar(RESTAURAR, [criarDump(v), 'RESTAURAR']), MENSAGEM_DIVERGENTE);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('destino banco_novo herdado do ambiente com banco-ativo=banco também é divergência e recusa', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco\n');
+    afirmarRecusa(v, v.rodar(IMPLANTAR, [v.promovido], { PHATI_BANCO_DESTINO: 'banco_novo' }), MENSAGEM_DIVERGENTE);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('sem marcador e sem divergência, implantar segue sem destino exportado e com .env=banco também segue', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    todosDestinos(v, 'sem-destino');
+  } finally {
+    v.limpar();
+  }
+  const w = criarVm();
+  try {
+    apontarDestino(w, 'banco');
+    const r = w.rodar(IMPLANTAR, [w.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    todosDestinos(w, 'sem-destino');
+  } finally {
+    w.limpar();
   }
 });
 
@@ -1269,10 +1344,7 @@ test('restaurar sobe e para só a pilha ativa, lida de `ativa`', () => {
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'ativa'), 'verde\n');
-    const pasta = path.join(v.vm, 'backups');
-    fs.mkdirSync(pasta);
-    const dump = unix(path.join(pasta, 'phati-1.dump'));
-    fs.writeFileSync(dump, 'dados');
+    const dump = criarDump(v);
     const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
     assert.equal(r.status, 0, r.stderr);
     assert.ok(v.indice('stop app_verde') >= 0, 'para a verde');
@@ -1287,14 +1359,9 @@ test('restaurar recusa `ativa` com valor fora de azul e verde, sem tocar o Docke
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'ativa'), 'roxo\n');
-    const pasta = path.join(v.vm, 'backups');
-    fs.mkdirSync(pasta);
-    const dump = unix(path.join(pasta, 'phati-1.dump'));
-    fs.writeFileSync(dump, 'dados');
+    const dump = criarDump(v);
     const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /tem valor inválido/);
-    assert.deepEqual(v.lerChamadas(), []);
+    afirmarRecusa(v, r, /tem valor inválido/);
   } finally {
     v.limpar();
   }
@@ -1373,9 +1440,7 @@ function promoverCom(v, arquivos) {
 test('migração: sem arquivo novo de migração, migracao=nenhuma e o verificador não é chamado', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b]);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(v.contarChamadas('comum.compat_migracao'), 0);
@@ -1795,9 +1860,7 @@ test('X3c: candidata não saudável tira pilha-<cand>.sha, e pedir o SHA antigo 
 test('X3c: erro depois da troca devolve o repositório ao SHA anterior e registra repo-restaurado', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = v.promover();
-    v.zerar();
+    const b = implantarEPromover(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_TESTE_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone volta ao SHA que estava no ar');
@@ -1894,6 +1957,22 @@ test('autocura: se a recriação do nginx falha, a implantação falha, registra
 });
 
 // Recriação do nginx parado antes do build: o status, uma recriação e o registro, na ordem que o teste de autocura exige.
+// Pasta `backups/` com um dump falso (o restaurar só precisa do nome e do arquivo); devolve o caminho do dump.
+function criarDump(v) {
+  const pasta = path.join(v.vm, 'backups');
+  fs.mkdirSync(pasta);
+  const dump = unix(path.join(pasta, 'phati-1.dump'));
+  fs.writeFileSync(dump, 'dados');
+  return dump;
+}
+
+// Recusa sem tocar o Docker: sai com 1, cita o trecho no stderr e não tem chamada ao Docker.
+function afirmarRecusa(v, r, trecho) {
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, trecho);
+  assert.deepEqual(v.lerChamadas(), []);
+}
+
 function afirmarRecriadoAntesDoBuild(v, r) {
   assert.equal(r.status, 0, r.stderr);
   assert.equal(v.contarChamadas('force-recreate nginx'), 1, 'recriado uma vez');
