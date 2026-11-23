@@ -10,19 +10,23 @@
 
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const { test, after } = require('node:test');
+const assert = require('node:assert/strict');
 
 const HOOK = path.join(__dirname, 'autorizacao-gate.js');
 
 // `ambiente` sobrepõe o do processo; sem `PHATI_GATE_WORKTREE` explícita, a variável sai do ambiente do filho
-// (o teste não herda a configuração da máquina de quem roda).
-function rodar(command, ambiente = {}) {
+// (o teste não herda a configuração da máquina de quem roda). `cwd` vai no payload, como o Claude Code faz.
+function rodar(command, ambiente = {}, cwd) {
   const env = { ...process.env, ...ambiente };
   if (!('PHATI_GATE_WORKTREE' in ambiente)) delete env.PHATI_GATE_WORKTREE;
   const saida = execFileSync('node', [HOOK], {
     input: JSON.stringify({
       hook_event_name: 'PreToolUse',
       tool_name: 'Bash',
+      cwd,
       tool_input: { command },
     }),
     encoding: 'utf8',
@@ -197,3 +201,90 @@ if (falhas.length) {
   console.log(falhas.join('\n'));
   process.exit(1);
 }
+
+// --- Contexto do prompt de commit: branch atual e último commit ---
+// Repositórios git temporários de verdade, como no branch-gate.test.js: mock reproduziria a leitura testada.
+const TMP = [];
+
+after(() => {
+  for (const d of TMP) fs.rmSync(d, { recursive: true, force: true });
+});
+
+const ENV_GIT = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'teste',
+  GIT_AUTHOR_EMAIL: 'teste@exemplo.invalid',
+  GIT_COMMITTER_NAME: 'teste',
+  GIT_COMMITTER_EMAIL: 'teste@exemplo.invalid',
+};
+
+function git(cwd, ...args) {
+  return execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd,
+    env: ENV_GIT,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+  }).trim();
+}
+
+// Repositório com um commit de assunto conhecido, já na branch pedida.
+function repoComCommit(branch) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autorizacao-gate-'));
+  TMP.push(dir);
+  git(dir, 'init', '-q');
+  git(dir, 'symbolic-ref', 'HEAD', `refs/heads/${branch}`);
+  git(dir, 'commit', '-q', '--allow-empty', '-m', 'assunto de teste');
+  return dir;
+}
+
+const FRASE_CONFERENCIA = 'Confira se esta é a branch certa para este assunto antes de aprovar.';
+
+test('commit em feat/x: ask mostra a branch, o último commit e a frase de conferência', () => {
+  const dir = repoComCommit('feat/x');
+  const hash = git(dir, 'log', '-1', '--format=%h');
+  const r = rodar('git commit -m x', {}, dir);
+  assert.equal(r.permissionDecision, 'ask');
+  assert.match(r.permissionDecisionReason, /Branch atual: feat\/x\./);
+  assert.ok(r.permissionDecisionReason.includes(`Último commit: ${hash} assunto de teste.`), r.permissionDecisionReason);
+  assert.ok(r.permissionDecisionReason.includes(FRASE_CONFERENCIA), r.permissionDecisionReason);
+});
+
+test('HEAD destacado: ask continua com o aviso "branch não identificada"', () => {
+  const dir = repoComCommit('dev');
+  git(dir, 'checkout', '-q', '--detach');
+  const r = rodar('git commit -m x', {}, dir);
+  assert.equal(r.permissionDecision, 'ask');
+  assert.ok(r.permissionDecisionReason.includes('branch não identificada'), r.permissionDecisionReason);
+  assert.ok(r.permissionDecisionReason.includes(FRASE_CONFERENCIA));
+});
+
+test('cwd fora de repositório: ask sem exceção, com "branch não identificada"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'autorizacao-gate-semrepo-'));
+  TMP.push(dir);
+  const r = rodar('git commit -m x', {}, dir);
+  assert.equal(r.permissionDecision, 'ask');
+  assert.ok(r.permissionDecisionReason.includes('branch não identificada'), r.permissionDecisionReason);
+});
+
+test('cwd inexistente: ask sem exceção (leitura de branch falha aberta)', () => {
+  const inexistente = path.join(os.tmpdir(), 'autorizacao-gate-nao-existe-' + process.pid);
+  const r = rodar('git commit -m x', {}, inexistente);
+  assert.equal(r.permissionDecision, 'ask');
+  assert.ok(r.permissionDecisionReason.includes('branch não identificada'), r.permissionDecisionReason);
+});
+
+test('comando que não é commit não recebe o aviso de branch', () => {
+  const dir = repoComCommit('feat/x');
+  assert.equal(rodar('rtk git status', {}, dir), null);
+  const merge = rodar('git merge origin/dev', {}, dir);
+  assert.equal(merge.permissionDecision, 'ask');
+  assert.ok(!merge.permissionDecisionReason.includes(FRASE_CONFERENCIA), merge.permissionDecisionReason);
+});
+
+test('commit --amend continua deny, sem o aviso de branch', () => {
+  const dir = repoComCommit('feat/x');
+  const r = rodar('git commit --amend', {}, dir);
+  assert.equal(r.permissionDecision, 'deny');
+  assert.match(r.permissionDecisionReason, /\[autorizacao-gate\/amend-proibido\]/);
+  assert.ok(!r.permissionDecisionReason.includes(FRASE_CONFERENCIA));
+});
