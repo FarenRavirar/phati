@@ -177,3 +177,54 @@ def test_destino_fora_do_padrao_recusa_subir_sem_arquivo_parcial(tmp_path, desti
     assert r.returncode != 0
     assert 'PHATI_BANCO_DESTINO inválido' in r.stderr
     assert not (tmp_path / 'raiz').exists()
+
+
+def _destino_gravado(tmp_path, texto):
+    # `banco-destino` gravado pelo passo do `trocar-banco.sh` no volume `pgb_cfg` (montado em /cfg).
+    (tmp_path / 'cfg').mkdir(exist_ok=True)
+    (tmp_path / 'cfg' / 'banco-destino').write_text(texto, encoding='utf-8', newline='')
+
+
+def test_arquivo_banco_destino_vence_a_variavel_de_ambiente(tmp_path):
+    # Reprodução do achado P1: o ambiente do contêiner ainda diz `banco` depois da troca; o arquivo do volume manda.
+    _destino_gravado(tmp_path, 'banco_novo\n')
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+    assert 'host=banco port' not in r.stdout
+
+
+def test_reiniciar_com_ambiente_antigo_mantem_o_banco_novo(tmp_path):
+    # Reinício = nova execução do entrypoint com o mesmo ambiente antigo (docker restart não troca env do contêiner).
+    _destino_gravado(tmp_path, 'banco_novo\n')
+    for _ in range(2):
+        r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco', **_cat_como_pgbouncer(tmp_path))
+        assert r.returncode == 0, r.stderr
+        assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+
+
+def test_arquivo_ausente_usa_a_variavel_de_ambiente(tmp_path):
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco_novo', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+
+
+def test_arquivo_vazio_e_ignorado_e_usa_a_variavel(tmp_path):
+    _destino_gravado(tmp_path, '')
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco_novo', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    assert 'phati = host=banco_novo port=5432 dbname=phati' in r.stdout
+
+
+@pytest.mark.parametrize(
+    'conteudo',
+    ['banco; rm -rf /\n', ' \n', 'banco\nbanco_novo\n', 'banco\n\n', '@\n', '/\n', 'banco\r\n', '\nbanco\n', 'banco x\n'],
+)
+def test_arquivo_banco_destino_hostil_recusa_subir_sem_ini_parcial(tmp_path, conteudo):
+    # Caso negativo: o conteúdo do arquivo entra no .ini; mesma regra de host da variável, e mais de uma linha recusa.
+    _destino_gravado(tmp_path, conteudo)
+    r = _rodar(tmp_path, PHATI_BANCO_DESTINO='banco', **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode != 0
+    assert 'banco-destino inválido' in r.stderr
+    assert not (tmp_path / 'raiz').exists()

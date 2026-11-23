@@ -23,11 +23,16 @@ SELECT format('CREATE ROLE %I LOGIN CREATEDB NOSUPERUSER NOBYPASSRLS PASSWORD %L
 SELECT format('CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD %L', :'usuario_app', :'senha_app')
   WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'usuario_app') \gexec
 -- Replicação lógica (spec 009 R15, decisão 10): papel só para a assinatura da troca de banco. REPLICATION permite o
--- fluxo de replicação; sem ele o assinante não conecta. Senha só do ambiente, nunca literal neste arquivo.
--- O nome é fixo (`replicador`): o nome não é segredo, a senha é.
+-- fluxo de replicação; sem ele o assinante não conecta. BYPASSRLS: a cópia inicial e o fluxo lógico leem todas as linhas;
+-- sem ele, as políticas de RLS (escopo, leitura_por_fazenda, propria) filtram o que vai ao destino, sem erro. Só o modo
+-- lógico precisa disso. O papel é restrito por `pg_hba` à sub-rede interna e por senha forte. Senha só do ambiente, nunca
+-- literal neste arquivo. O nome é fixo (`replicador`, no \set abaixo): o nome não é segredo, a senha é.
+\set usuario_replicador replicador
 \if :tem_senha_replicador
-SELECT format('CREATE ROLE replicador LOGIN REPLICATION NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD %L', :'senha_replicador')
-  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'replicador') \gexec
+SELECT format('CREATE ROLE %I LOGIN REPLICATION BYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', :'usuario_replicador', :'senha_replicador')
+  WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'usuario_replicador') \gexec
+-- Banco que já tem o papel (criado antes deste atributo): o ALTER põe o BYPASSRLS sem trocar a senha.
+SELECT format('ALTER ROLE %I LOGIN REPLICATION BYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE', :'usuario_replicador') \gexec
 \endif
 SELECT format('CREATE DATABASE %I OWNER %I', :'nome_banco', :'usuario_dono')
   WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'nome_banco') \gexec
@@ -36,10 +41,10 @@ SELECT format('CREATE DATABASE %I OWNER %I', :'nome_banco', :'usuario_dono')
 -- tabelas que as migrações do dono criarem depois; o GRANT cobre as tabelas que já existem (banco homologação).
 \connect :"nome_banco"
 \if :tem_senha_replicador
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO replicador;
-ALTER DEFAULT PRIVILEGES FOR ROLE :"usuario_dono" IN SCHEMA public GRANT SELECT ON TABLES TO replicador;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"usuario_replicador";
+ALTER DEFAULT PRIVILEGES FOR ROLE :"usuario_dono" IN SCHEMA public GRANT SELECT ON TABLES TO :"usuario_replicador";
 \else
-\echo 'replicador não criado: PHATI_BANCO_REPLICADOR_SENHA vazia'
+\echo 'papel de replicação não criado: PHATI_BANCO_REPLICADOR_SENHA vazia'
 \endif
 
 -- pg_hba: o repositório não gerencia `pg_hba.conf`. A imagem gera o padrão no initdb (sem linha de replicação).

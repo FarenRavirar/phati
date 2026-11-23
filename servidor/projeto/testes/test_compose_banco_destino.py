@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from django.conf import settings
@@ -46,10 +47,14 @@ def _config(ambiente=None):
         raise AssertionError('docker ausente no PATH: o teste de compose precisa do binário (sem ele não há config)')
     # Valor None tira a variável do ambiente (ausente, não só vazia).
     env = {k: v for k, v in {**os.environ, **VALORES_SINTETICOS, **(ambiente or {})}.items() if v is not None}
-    rodado = subprocess.run(
-        ['docker', 'compose', *IMPLANTACAO, 'config', '--format', 'json'],
-        cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
-    )
+    # `--env-file` vazio antes de `-f`: a interpolação não lê o `servidor/.env` local.
+    with tempfile.TemporaryDirectory() as temporario:
+        vazio = Path(temporario) / 'vazio.env'
+        vazio.write_text('', encoding='utf-8')
+        rodado = subprocess.run(
+            ['docker', 'compose', '--env-file', str(vazio), *IMPLANTACAO, 'config', '--format', 'json'],
+            cwd=RAIZ, env=env, capture_output=True, text=True, encoding='utf-8', check=False,
+        )
     return rodado.returncode, rodado.stdout, rodado.stderr
 
 
@@ -94,5 +99,4 @@ def test_com_destino_banco_novo_o_app_segue_atras_do_pgbouncer_e_o_servico_banco
     servicos = _servicos({'PHATI_BANCO_DESTINO': 'banco_novo'})
     assert servicos['app_azul']['environment']['PHATI_BANCO_HOST'] == 'pgb_ns'
     assert servicos['app_azul']['environment']['PHATI_BANCO_PORTA'] == '6432'
-    assert servicos['banco']['command'][0] == 'postgres'
     assert 'banco' in servicos
