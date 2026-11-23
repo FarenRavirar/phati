@@ -37,6 +37,8 @@ ent=""
 if [[ "$args" == *"-f -"* ]]; then
   ent="$(cat)"
   case "$ent" in
+    *"default_transaction_read_only = on"*) tag=origem_ro ;;
+    *"RESET default_transaction_read_only"*) tag=origem_reset ;;
     *"CREATE PUBLICATION"*) tag=publicacao ;;
     *"CREATE SUBSCRIPTION"*) tag=assinatura ;;
     *"DROP SUBSCRIPTION"*) tag=limpa ;;
@@ -52,6 +54,9 @@ if [[ "$args" == *"-f -"* ]]; then
   esac
   echo "$args #sql:$tag" >> "$CHAMADAS"
   if [[ "$tag" == assinatura ]]; then echo "$ent" >> "$VM/assinatura.sql"; fi
+  if [[ "$tag" == sequencias ]]; then echo "$ent" > "$VM/sequencias.sql"; fi
+  if [[ "$tag" == origem_ro ]]; then echo "$ent" > "$VM/origem-ro.sql"; fi
+  if [[ "$tag" == origem_ro && "\${DUBLE_FALHA_SQL:-}" != origem_ro ]]; then touch "$VM/.origem-ro"; fi
 else
   echo "$args" >> "$CHAMADAS"
 fi
@@ -66,6 +71,28 @@ if [[ -n "\${DUBLE_SINAL:-}" && "$args" == *"$DUBLE_SINAL"* && ! -e "$VM/.sinal"
   pid=$PPID
   while [[ "$pid" -gt 1 ]] && ! grep -q 'trocar-banco.sh' "/proc/$pid/cmdline" 2>/dev/null; do pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)"; done
   kill -TERM "$pid" 2>/dev/null || true
+fi
+# Lote 2 (R3): o arquivo .assinatura-criada é o estado da assinatura no destino. CREATE que dá certo cria; DROP/ALTER raw sem ela falha
+# como no PostgreSQL ("subscription does not exist"), a menos que o SQL seja guardado por pg_subscription (limpeza nova).
+# DUBLE_ASSINATURA_PERDIDA=1: o CREATE roda no servidor (cria o estado) mas o cliente recebe falha (resposta perdida).
+if [[ "$tag" == assinatura && "\${DUBLE_ASSINATURA_PERDIDA:-0}" == 1 ]]; then touch "$VM/.assinatura-criada"; exit 1; fi
+if [[ "$tag" == limpa ]]; then
+  echo "$ent" > "$VM/limpeza.sql"
+  [[ "\${DUBLE_LIMPA_FALHA:-0}" == 1 ]] && exit 1
+  if [[ -e "$VM/.assinatura-criada" ]]; then rm -f "$VM/.assinatura-criada"
+  elif [[ "$ent" != *pg_subscription* ]]; then echo "ERROR: subscription does not exist" >&2; exit 1; fi
+fi
+# Item 2 (lote 3): RESET da origem com falha (DUBLE_RESET_FALHA=1). A falha do ALTER de somente leitura vem pelo DUBLE_FALHA_SQL.
+if [[ "$tag" == origem_reset && "\${DUBLE_RESET_FALHA:-0}" == 1 ]]; then exit 1; fi
+# Item 2 (lote 4): a origem que já está somente leitura rejeita o RESET sem SET default_transaction_read_only = off antes
+# na mesma sessão (medido no PostgreSQL real: "cannot execute ALTER DATABASE in a read-only transaction"). O arquivo .origem-ro marca origem RO.
+if [[ "$tag" == origem_reset ]]; then
+  echo "$ent" > "$VM/origem-reset.sql"
+  if [[ -e "$VM/.origem-ro" && ! "$ent" == *"SET default_transaction_read_only = off"*"RESET default_transaction_read_only"* ]]; then
+    echo "ERROR:  cannot execute ALTER DATABASE in a read-only transaction" >&2
+    exit 1
+  fi
+  rm -f "$VM/.origem-ro"
 fi
 if [[ -n "$tag" && "\${DUBLE_FALHA_SQL:-}" == "$tag" ]]; then
   echo "ERROR: falha simulada em $tag com senha $PHATI_BANCO_REPLICADOR_SENHA" >&2
@@ -154,6 +181,7 @@ case "$args" in
   *"-c PAUSE"*) [[ -n "\${DUBLE_PAUSE_PENDURA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_PENDURA "* ]] && exec sleep 3; [[ -n "\${DUBLE_PAUSE_FALHA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_FALHA "* ]] && exit 1 ;;
   *"-c RESUME"*) [[ -n "\${DUBLE_RESUME_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESUME_FALHA "* ]] && exit 1 ;;
 esac
+if [[ "$tag" == assinatura ]]; then touch "$VM/.assinatura-criada"; fi
 exit 0
 `;
 
@@ -489,6 +517,7 @@ test('trocar feliz: ordem exata das chamadas, destino gravado e banco-ativo só 
       ['PAUSE', '-c PAUSE'],
       ['lag zero', 'pg_stat_subscription'],
       ['slot da origem confirmou', 'pg_replication_slots'],
+      ['origem somente leitura', '#sql:origem_ro'],
       ['DISABLE', '#sql:desabilita'],
       ['setval', '#sql:setval'],
       ['sed host', 'sed -i'],
@@ -509,6 +538,9 @@ test('trocar feliz: ordem exata das chamadas, destino gravado e banco-ativo só 
     assert.equal(v.contar('#sql:hash'), 2, 'hash lido nas duas pontas');
     assert.equal(v.contar('#sql:verificador'), 1, 'verificador aplicado uma vez no destino');
     assert.equal(v.contar('#sql:despublica'), 1, 'publicação removida no sucesso');
+    // Item 2: no sucesso a origem antiga fica somente leitura (não há RESET) e o SQL derruba só clientes.
+    assert.equal(v.contar('#sql:origem_reset'), 0, 'sucesso devolveu a escrita à origem');
+    assert.match(fs.readFileSync(path.join(v.vm, 'origem-ro.sql'), 'utf8'), /pg_terminate_backend\(pid\)/);
     semVerificador(v, r);
     assert.equal(v.env().split('\n').filter((l) => l === 'PHATI_BANCO_DESTINO=banco_novo').length, 1);
     assert.equal(v.bancoAtivo(), 'banco_novo\n');
@@ -1004,11 +1036,137 @@ test('trocar: falha da criação da assinatura não vaza a senha e não pausa', 
     assert.equal(r.status, 1);
     assert.match(r.stderr, /assinatura não criada no banco_novo: nada pausado/);
     assert.equal(v.contar('-c PAUSE'), 0);
-    assert.equal(v.contar('#sql:limpa'), 0, 'assinatura que não foi criada não tem o que remover');
+    // Falha antes do CREATE: a limpeza roda com a guarda de pg_subscription e não há assinatura para remover, então sem AVISO falso.
+    assert.equal(v.contar('#sql:limpa'), 1, 'limpeza não tentada');
+    assert.match(fs.readFileSync(path.join(v.vm, 'limpeza.sql'), 'utf8'), /pg_subscription/, 'limpeza sem a guarda da assinatura');
+    assert.doesNotMatch(r.stderr, /AVISO/, 'AVISO falso quando a assinatura nunca existiu');
     assert.equal(v.contar('rm -f /tmp/phati-replicador.pgpass'), 1, 'passfile gravado e não removido no aborto');
     assert.equal(fs.existsSync(path.join(v.vm, 'pgpass-gravado')), false, 'passfile sobrou no banco_novo');
     nadaTrocado(v);
     semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+// ---- Lote 2 (R3): assinatura marcada antes do CREATE; limpeza guardada por pg_subscription; AVISO com o slot na origem ----
+test('R3: CREATE com resposta perdida (a assinatura existe no destino) tenta a limpeza e a remove, sem AVISO', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_ASSINATURA_PERDIDA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /assinatura não criada no banco_novo: nada pausado/);
+    assert.equal(v.contar('#sql:limpa'), 1, 'limpeza não tentada com a assinatura criada no servidor');
+    assert.equal(fs.existsSync(path.join(v.vm, '.assinatura-criada')), false, 'assinatura sobrou no destino');
+    assert.doesNotMatch(r.stderr, /AVISO/);
+    assert.equal(v.contar('-c PAUSE'), 0);
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R3: se a limpeza da assinatura falha, o AVISO traz o DROP no banco_novo e o slot na origem', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_ASSINATURA_PERDIDA: '1', DUBLE_LIMPA_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /AVISO: não consegui remover a assinatura phati_troca_sub no banco_novo/);
+    assert.match(r.stderr, /DROP SUBSCRIPTION phati_troca_sub/);
+    assert.match(r.stderr, /SELECT pg_drop_replication_slot\('phati_troca_sub'\)/);
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+// ---- Lote 3: origem somente leitura no modo lógico (item 2) e setval com limites (R6) ----
+test('item 2: falha do ALTER de somente leitura aborta antes do host e do DISABLE, com RESET tentado', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_FALHA_SQL: 'origem_ro' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /origem não ficou somente leitura: nada trocado/);
+    assert.equal(v.contar(DIREITO), 0, 'host trocado sem a origem somente leitura');
+    assert.equal(v.contar('#sql:desabilita'), 0, 'assinatura desabilitada sem a origem somente leitura');
+    assert.equal(v.contar('#sql:origem_reset'), 1, 'RESET não tentado no aborto');
+    nadaTrocado(v);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('item 2: aborto depois da origem somente leitura devolve a escrita antes do RESUME', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_FALHA_SQL: 'setval' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(v.contar('#sql:origem_ro'), 1);
+    assert.equal(v.contar('#sql:origem_reset'), 1, 'aborto não devolveu a escrita');
+    assert.ok(v.indice('#sql:origem_ro') < v.indice('#sql:origem_reset'), 'RESET antes do ALTER de somente leitura');
+    assert.ok(v.indice('#sql:origem_reset') < v.indice('-c RESUME'), 'RESET depois do RESUME');
+    assert.doesNotMatch(r.stderr, /AVISO: não consegui devolver/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('item 2 (lote 4): o RESET roda na mesma sessão depois de SET default_transaction_read_only = off, e a origem volta a aceitar escrita', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_FALHA_SQL: 'setval' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    const sql = fs.readFileSync(path.join(v.vm, 'origem-reset.sql'), 'utf8');
+    const set = sql.indexOf('SET default_transaction_read_only = off;');
+    const reset = sql.indexOf('ALTER DATABASE "phati" RESET default_transaction_read_only;');
+    assert.ok(set >= 0, 'falta o SET antes do RESET');
+    assert.ok(set < reset, 'SET depois do RESET');
+    assert.equal(fs.existsSync(path.join(v.vm, '.origem-ro')), false, 'origem ficou somente leitura depois do aborto');
+    assert.doesNotMatch(r.stderr, /AVISO: não consegui devolver/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('item 2: RESET que falha três vezes vira AVISO com o comando, e o erro original segue (rc 1)', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_FALHA_SQL: 'setval', DUBLE_RESET_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(v.contar('#sql:origem_reset'), 3, 'tentativas do RESET');
+    // Comando de recuperação completo, em uma linha, com duas sessões de `-c` (a mesma sessão: SET antes do RESET).
+    assert.match(r.stderr, /não consegui devolver a escrita à origem \(banco\)\. Rode no contêiner dela: PGPASSWORD="\$POSTGRES_PASSWORD" psql -X -h 127\.0\.0\.1 -U postgres -d phati -c 'SET default_transaction_read_only = off;' -c 'ALTER DATABASE "phati" RESET default_transaction_read_only;'/);
+    assert.match(r.stderr, /sequências não ajustadas/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('item 2: o SQL de somente leitura põe a origem em default_transaction_read_only e derruba só clientes (sem walsender)', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stderr);
+    const sql = fs.readFileSync(path.join(v.vm, 'origem-ro.sql'), 'utf8');
+    assert.match(sql, /ALTER DATABASE "phati" SET default_transaction_read_only = on;/);
+    assert.match(sql, /pg_terminate_backend\(pid\)/);
+    assert.match(sql, /backend_type = 'client backend'/);
+    assert.match(sql, /pid <> pg_backend_pid\(\)/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R6: setval com limites: GREATEST/LEAST com min_value e max_value, sentido do increment_by e margem+1 sem last_value (texto do SQL)', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stderr);
+    const sql = fs.readFileSync(path.join(v.vm, 'sequencias.sql'), 'utf8');
+    for (const trecho of ['GREATEST(', 'LEAST(', 'start_value', 'increment_by < 0', 'min_value::numeric', 'max_value::numeric', 'CASE WHEN last_value IS NULL THEN 1 ELSE 0 END', '::bigint']) {
+      assert.ok(sql.includes(trecho), `falta ${trecho}`);
+    }
+    assert.ok(!sql.includes("last_value + :'margem'"), 'soma sem limite (versão anterior)');
   } finally {
     v.limpar();
   }
@@ -1530,6 +1688,32 @@ function shimMv(v) {
   return unix(dir);
 }
 
+// `rm` de mentira no PATH (lote 2, R5): falha quando o último argumento termina em DUBLE_RM_FALHA (o marcador da troca).
+function shimRm(v) {
+  const real = fs.existsSync('/usr/bin/rm') ? '/usr/bin/rm' : '/bin/rm';
+  const dir = path.join(v.vm, 'shim-rm');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(
+    path.join(dir, 'rm'),
+    `#!/usr/bin/env bash\nif [[ -n "\${DUBLE_RM_FALHA:-}" && "\${@: -1}" == *"/$DUBLE_RM_FALHA" ]]; then exit 1; fi\nexec ${real} "$@"\n`,
+    { mode: 0o755 },
+  );
+  return unix(dir);
+}
+// `grep` de mentira no PATH (lote 2, R7): sai 2 (leitura falhou) só na leitura `grep -v` da chave PHATI_BANCO_DESTINO, com
+// DUBLE_GREP_ENV_FALHA=1. As outras leituras do .env (`grep -m1`, `grep -qx`) passam.
+function shimGrep(v) {
+  const real = fs.existsSync('/usr/bin/grep') ? '/usr/bin/grep' : '/bin/grep';
+  const dir = path.join(v.vm, 'shim-grep');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(
+    path.join(dir, 'grep'),
+    `#!/usr/bin/env bash\nif [[ -n "\${DUBLE_GREP_ENV_FALHA:-}" && "$*" == *"-v "*"PHATI_BANCO_DESTINO="* ]]; then exit 2; fi\nexec ${real} "$@"\n`,
+    { mode: 0o755 },
+  );
+  return unix(dir);
+}
+
 test('C1: restauração do host falha só em pgb1 → RESUME só no pgb2 e AVISO com o comando de recuperação', () => {
   const v = criarVm();
   try {
@@ -1647,6 +1831,8 @@ test('C4: .env com banco_novo e banco-ativo ausente → completa o banco-ativo, 
   const v = criarVm();
   try {
     fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    // Só com o marcador da troca interrompida a persistência parcial é recuperada (lote 2, R4).
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=logica passo=pausa\n');
     const r = trocar(v);
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /^trocar_ok ja_trocado=1 completou=banco-ativo$/m);
@@ -1662,11 +1848,13 @@ test('C4: banco-ativo com banco_novo e .env sem destino → completa o .env, sem
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=logica passo=pausa\n');
     const r = trocar(v);
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(r.stdout, /^trocar_ok ja_trocado=1 completou=env$/m);
     assert.deepEqual(v.lerChamadas(), []);
     assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), false, 'marcador sobrou depois de completar');
     semSegredo(v, r);
   } finally {
     v.limpar();
@@ -1738,6 +1926,57 @@ test('C4: marcador sobra quando o RESUME falha depois do ponto sem volta (espera
     const r = trocar(v, { DUBLE_RESUME_FALHA: 'pgb1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador removido com troca comitada');
+  } finally {
+    v.limpar();
+  }
+});
+
+// ---- Lote 2 (R4, R5): persistência parcial só se recupera com o marcador; remoção do marcador que falha aborta ----
+test('R4: persistência parcial sem marcador (só .env diz banco_novo) recusa e não grava nada', () => {
+  const v = criarVm();
+  try {
+    fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    const envAntes = v.env();
+    const r = trocar(v);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /persistência parcial da troca.*sem o marcador/);
+    assert.doesNotMatch(r.stdout, /trocar_ok/);
+    assert.equal(v.bancoAtivo(), null, 'banco-ativo gravado sem marcador');
+    assert.equal(v.env(), envAntes, '.env alterado');
+    assert.equal(v.contar('-c PAUSE'), 0);
+    assert.equal(v.contar('up -d'), 0, 'subiu contêiner com estado parcial');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R4: persistência parcial sem marcador (só banco-ativo diz banco_novo) recusa e não grava nada', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const envAntes = v.env();
+    const r = trocar(v);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /persistência parcial da troca.*sem o marcador/);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n', 'banco-ativo alterado');
+    assert.equal(v.env(), envAntes, '.env alterado');
+    assert.equal(v.contar('-c PAUSE'), 0);
+    assert.equal(v.contar('up -d'), 0, 'subiu contêiner com estado parcial');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R5: marcador que não pode ser removido na completagem aborta com erro, sem trocar_ok', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=logica passo=pausa\n');
+    const r = trocar(v, { PATH: `${shimRm(v)}:${process.env.PATH}`, DUBLE_RM_FALHA: 'troca-banco-em-curso' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /não consegui remover o marcador .*troca-banco-em-curso/);
+    assert.doesNotMatch(r.stdout, /trocar_ok/);
+    assert.ok(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), 'marcador sumiu com a falha de remoção');
   } finally {
     v.limpar();
   }
@@ -1958,18 +2197,15 @@ test('E6: ler_env com destino entre aspas: o valor sem aspas é o que a recusa m
   }
 });
 
-test('E7: .env ilegível na gravação do destino aborta sem publicar o temporário; .env original intacto', () => {
+test('E7: leitura do .env que falha na gravação do destino aborta sem publicar o temporário; .env original intacto', () => {
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    // Com o marcador, a persistência parcial é recuperada e chega à gravação do .env (lote 2, R4).
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=logica passo=pausa\n');
     const original = v.env();
-    fs.chmodSync(path.join(v.vm, '.env'), 0o000);
-    let r;
-    try {
-      r = trocar(v);
-    } finally {
-      fs.chmodSync(path.join(v.vm, '.env'), 0o640);
-    }
+    // Dublê de `grep` (R7): sai 2 só na leitura `grep -v` da regravação; o chmod não se aplica como root.
+    const r = trocar(v, { PATH: `${shimGrep(v)}:${process.env.PATH}`, DUBLE_GREP_ENV_FALHA: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stderr, /não consegui ler o \.env: nada gravado/);
     assert.equal(v.env(), original, '.env alterado');

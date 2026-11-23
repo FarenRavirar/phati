@@ -10,7 +10,7 @@
 # `trocar` (modo lógico): sobe o `banco_novo`, backup verificado, esquema (recusa se o destino já tem tabelas de usuário), publicação com
 # lista explícita (sem tabelas de extensão do PostGIS), assinatura lógica, espera sincronia, verificador SCRAM do papel do app
 # copiado da origem (o PgBouncer autentica pelo `userlist.txt` gerado com o verificador da origem; salt diferente no destino),
-# PAUSE, lag zero, DISABLE, sequências com margem, host novo nos dois PgBouncer, RESUME, DROP SUBSCRIPTION, DROP PUBLICATION
+# PAUSE, lag zero, origem somente leitura, DISABLE, sequências com margem, host novo nos dois PgBouncer, RESUME, DROP SUBSCRIPTION, DROP PUBLICATION
 # na origem e gravação do destino.
 # O RESUME roda sempre que o script pausou (trap ERR e EXIT): a app não pode ficar presa em PAUSE.
 # Sem rollback automático depois do RESUME da troca: o host novo já atende a app; falha depois disso vira AVISO com o
@@ -19,7 +19,8 @@
 # Destino para o PgBouncer: grava `banco_novo` em `/cfg/banco-destino` (volume pgb_cfg, por one-off do pgb_auth). O entrypoint
 # lê esse arquivo ao subir e ele vence PHATI_BANCO_DESTINO, porque o ambiente do contêiner não muda com `docker restart`.
 # Modo lógico: depois do RELOAD e antes do RESUME. Janela residual: entre o RELOAD e a gravação, um reinício do PgBouncer
-# volta ao `banco` pela variável (o lógico não tem promote para antecipar a gravação). Modo físico: logo antes do pg_promote,
+# volta ao `banco` pela variável; com a origem somente leitura (item 2, lote 3) isso vira erro de escrita, não divergência
+# silenciosa (a origem fica RO depois do lag zero). Modo físico: logo antes do pg_promote,
 # com o banco_novo ainda standby (uma instância reiniciada nesta janela só erra escrita, não diverge). Falha da gravação
 # aborta antes do RESUME. No aborto, o arquivo sai se a gravação foi tentada (`destino_pgb_gravado`); se a remoção falhar
 # três vezes, o marcador da troca fica (`destino_pendente`).
@@ -67,6 +68,8 @@ host_trocado=0
 # Tentativa da gravação do destino no volume pgb_cfg: posta ANTES do one-off, para o aborto remover mesmo com falha parcial.
 destino_pgb_gravado=0
 assinatura=0
+# Origem somente leitura desde antes do DISABLE (modo lógico, item 2): o aborto devolve a escrita; o sucesso a deixa.
+origem_ro=0
 pgpass_criado=0
 publicacao=0
 comitado=0
@@ -99,6 +102,7 @@ ler_env() {
 erro() {
   echo "ERRO: $*" >&2
   restaurar_host
+  restaurar_origem
   restaurar_destino
   resumir_pgb
   limpar_assinatura
@@ -245,23 +249,59 @@ restaurar_host() {
     echo "AVISO: não consegui restaurar host=$ORIG nos PgBouncer: confira pgbouncer.ini e rode RELOAD" >&2
   fi
 }
+# Origem somente leitura (item 2, achado CodeRabbit, modo lógico): depois do lag zero e antes do DISABLE, a origem para de receber
+# escrita, para que nenhuma escrita fique de fora da última LSN lida. `ALTER DATABASE` vale só para sessões novas; o
+# pg_terminate_backend derruba as sessões de cliente abertas (o walsender do replicador tem backend_type diferente e fica).
+# A flag vai antes do ALTER: se ele falhar no meio, o aborto tenta o RESET. No sucesso a origem antiga fica somente leitura de
+# propósito: um reinício do PgBouncer que volte a ela recebe erro de escrita, não diverge em silêncio.
+origem_somente_leitura() {
+  origem_ro=1
+  sql_em "$ORIG" -f - >/dev/null <<SQL
+ALTER DATABASE "$bdnome" SET default_transaction_read_only = on;
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$bdnome' AND pid <> pg_backend_pid() AND backend_type = 'client backend';
+SQL
+}
+# Aborto antes do ponto sem volta (erro(), depois do restaurar_host e antes do resumir_pgb): 3 tentativas do RESET. Sem êxito, AVISO
+# com o comando. Depois do ponto sem volta (`comitado`) não mexe: a origem fica somente leitura de propósito.
+# O SET vai na mesma sessão (mesmo stdin): sem ele, o ALTER DATABASE falha na sessão que já é somente leitura (medido no PostgreSQL).
+restaurar_origem() {
+  local t manual
+  [[ "$origem_ro" == 1 && "$comitado" == 0 ]] || return 0
+  for t in 1 2 3; do
+    if sql_em "$ORIG" -f - >/dev/null <<SQL
+SET default_transaction_read_only = off;
+ALTER DATABASE "$bdnome" RESET default_transaction_read_only;
+SQL
+    then
+      origem_ro=0
+      return 0
+    fi
+  done
+  # Duas opções `-c` no mesmo psql: mesma sessão, cada uma em autocommit. Um `-c` só com as duas falha (transação única).
+  manual="PGPASSWORD=\"\$POSTGRES_PASSWORD\" psql -X -h 127.0.0.1 -U postgres -d $bdnome -c 'SET default_transaction_read_only = off;' -c 'ALTER DATABASE \"$bdnome\" RESET default_transaction_read_only;'"
+  echo "AVISO: não consegui devolver a escrita à origem ($ORIG). Rode no contêiner dela: $manual" >&2
+}
 # Remove a assinatura do destino (e o slot na origem) quando a troca não chegou ao RESUME.
 limpar_assinatura() {
   [[ "$assinatura" == 1 && "$comitado" == 0 ]] || return 0
+  # Guardado por pg_subscription (lote 2, R3): sem assinatura (falha antes do CREATE) não há erro nem AVISO falso; com a resposta
+  # do CREATE perdida, a assinatura existe e sai aqui. `\gexec` roda cada comando montado; DROP só depois do DISABLE.
   if sql_em "$NOVO" -f - >/dev/null 2>&1 <<SQL
-ALTER SUBSCRIPTION $SUB DISABLE;
-DROP SUBSCRIPTION $SUB;
+SELECT format('ALTER SUBSCRIPTION %I DISABLE', subname) FROM pg_subscription WHERE subname = '$SUB' \gexec
+SELECT format('DROP SUBSCRIPTION %I', subname) FROM pg_subscription WHERE subname = '$SUB' \gexec
 SQL
   then
     assinatura=0
   else
-    echo "AVISO: não consegui remover a assinatura no $NOVO: rode ALTER SUBSCRIPTION $SUB DISABLE; e DROP SUBSCRIPTION $SUB;" >&2
+    # O DROP pode falhar com a origem fora do ar (ele também remove o slot remoto): o slot, se ficou, sai na origem.
+    echo "AVISO: não consegui remover a assinatura $SUB no $NOVO. Rode no $NOVO: ALTER SUBSCRIPTION $SUB DISABLE; DROP SUBSCRIPTION $SUB; e, se o slot ficou, na origem ($ORIG): SELECT pg_drop_replication_slot('$SUB');" >&2
   fi
 }
 # Remove a publicação da origem (aborto e fim com sucesso). Idempotente (IF EXISTS). Falha vira AVISO: não derruba a troca.
 limpar_publicacao() {
   [[ "$publicacao" == 1 ]] || return 0
   if sql_em "$ORIG" -f - >/dev/null 2>&1 <<SQL
+SET default_transaction_read_only = off;
 DROP PUBLICATION IF EXISTS $PUB;
 SQL
   then
@@ -421,16 +461,22 @@ limpar_temporarios() {
   return 0
 }
 # Estado parcial da persistência: banco-ativo e .env são duas gravações. Se uma já diz banco_novo, a troca passou do ponto sem
-# volta: completa a que falta (banco-ativo primeiro, é o que os scripts consultam) sem pausar nem tocar nos PgBouncer. Retorna 1
-# quando nenhuma das duas diz banco_novo (troca nova).
+# volta: completa a que falta (banco-ativo primeiro, é o que os scripts consultam) sem pausar nem tocar nos PgBouncer, e só com o
+# marcador `troca-banco-em-curso` (parcial sem marcador recusa, lote 2 R4). Retorna 1 quando nenhuma das duas diz banco_novo (troca nova).
 completar_persistencia() {
   local ativo_ok=0 env_ok=0 completou=""
   [[ "$(cat "$dir/banco-ativo" 2>/dev/null || true)" == "$NOVO" ]] && ativo_ok=1
   grep -qx "PHATI_BANCO_DESTINO=$NOVO" "$dir/.env" 2>/dev/null && env_ok=1
   (( ativo_ok == 1 || env_ok == 1 )) || return 1
+  # Parcial (uma gravação feita, a outra não) só se recupera com o marcador da troca (lote 2, R4): sem ele não se prova que o
+  # banco_novo é desta troca. Recusa direto, sem gravar: o fluxo normal não olha o banco-ativo e deixaria passar banco-ativo=banco_novo.
+  if (( ativo_ok + env_ok == 1 )) && [[ ! -e "$marcador" ]]; then
+    erro "persistência parcial da troca (banco-ativo ou .env já diz banco_novo, o outro não) sem o marcador $marcador: reconcilie à mão antes de repetir; nada foi alterado"
+  fi
   if (( ativo_ok == 0 )); then gravar_banco_ativo; completou="banco-ativo"; fi
   if (( env_ok == 0 )); then gravar_env_destino; completou="${completou:+$completou,}env"; fi
-  rm -f "$marcador"
+  # Falha ao remover o marcador aborta antes do trocar_ok (lote 2, R5): o marcador que sobra recusa a próxima execução.
+  rm -f "$marcador" || erro "não consegui remover o marcador $marcador: troca não completada"
   if [[ -z "$completou" ]]; then
     registrar "OK ja_trocado=1"
     echo "trocar_ok ja_trocado=1"
@@ -692,10 +738,11 @@ SQL
   passo=assinatura
   # A conninfo aponta para o passfile: a instrução (que o servidor loga em erro) não leva senha. Stderr suprimido pelo sql_em.
   gravar_pgpass
+  # Antes do CREATE (lote 2, R3): se a resposta se perder depois de o servidor criar a assinatura, o aborto tenta remover.
+  assinatura=1
   sql_em "$NOVO" -f - >/dev/null <<SQL || erro "assinatura não criada no $NOVO: nada pausado"
 CREATE SUBSCRIPTION $SUB CONNECTION 'host=$ORIG port=5432 dbname=$bdnome user=replicador passfile=$PGPASS' PUBLICATION $PUB;
 SQL
-  assinatura=1
 
   passo=sincronia
   esperar_sincronia || erro "sincronização não chegou a 'r' em todas as tabelas: nada foi pausado"
@@ -711,15 +758,24 @@ SQL
   [[ "$lsn" =~ ^[0-9A-Fa-f]+/[0-9A-Fa-f]+$ ]] || erro "LSN da origem em formato inesperado: nada trocado"
   esperar_lag "$lsn" || erro "destino não alcançou o LSN da origem com PAUSE ativo: nada trocado"
 
+  passo=origem-ro
+  origem_somente_leitura || erro "origem não ficou somente leitura: nada trocado"
+
   passo=desabilita
   sql_em "$NOVO" -f - <<SQL || erro "não consegui desabilitar a assinatura"
 ALTER SUBSCRIPTION $SUB DISABLE;
 SQL
 
   passo=sequencias
-  # Sequências não replicam: cada uma vai para last_value + margem (margem + 1 se nunca foi usada). Falha aborta antes do host.
+  # Sequências não replicam. Valor = último (ou start_value - increment_by, se nunca usada) + margem no sentido do increment_by
+  # (margem + 1 se nunca usada). Limitado por LEAST/GREATEST a [min_value, max_value]: se a margem não cabe, para no limite
+  # (a sequência fica esgotada no destino, como na origem). Falha aborta antes do host.
   sql_em "$ORIG" -At -v "margem=$margem" -f - <<'SQL' | sql_em "$NOVO" -f - || erro "sequências não ajustadas no $NOVO: nada trocado"
-SELECT format('SELECT setval(%L, %s, true);', schemaname || '.' || sequencename, CASE WHEN last_value IS NULL THEN :'margem'::bigint + 1 ELSE last_value + :'margem'::bigint END) FROM pg_sequences WHERE schemaname = 'public';
+SELECT format('SELECT setval(%L, %s, true);', schemaname || '.' || sequencename,
+  GREATEST(LEAST(COALESCE(last_value::numeric, start_value::numeric - increment_by::numeric)
+    + CASE WHEN increment_by < 0 THEN -1 ELSE 1 END * (:'margem'::numeric + CASE WHEN last_value IS NULL THEN 1 ELSE 0 END),
+    max_value::numeric), min_value::numeric)::bigint)
+FROM pg_sequences WHERE schemaname = 'public';
 SQL
 
   passo=host

@@ -10,6 +10,7 @@
 # está saudável, não há build: só troca o destino.
 # Troca de banco interrompida (marcador `troca-banco-em-curso`) recusa antes do Docker; destino do compose e `banco-ativo` (e o
 # `.env`) têm de apontar o mesmo banco: com banco_novo o destino vai ao ambiente do compose; divergência recusa (spec 009 R15).
+# O valor de `PHATI_BANCO_DESTINO` lido do `.env` passa por `valor_env` (aspas e ` #comentário` saem como no Compose) antes da comparação.
 # -E: o trap ERR vale dentro de funções; sem ele, falha do Docker sairia calada, sem mensagem nem registro.
 set -Eeuo pipefail
 
@@ -120,11 +121,19 @@ volume_banco="dados_$banco_srv"
 [[ ! -e "$dir/troca-banco-em-curso" ]] || erro "troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar"
 # O destino do compose (`PHATI_BANCO_DESTINO`) tem de dizer o mesmo banco que `banco-ativo`. Com banco_novo, o ambiente vence o
 # `.env` (`--env-file`): exporta. Com banco, um destino banco_novo no ambiente ou no `.env` é divergência: recusa. Só essa chave é lida.
+# Valor do `.env` como o Compose o lê: aspas que cercam o valor saem e ` #comentário` depois dele é cortado (sem isso, `"banco_novo"`
+# passaria pela comparação e o compose receberia banco_novo mesmo com banco-ativo=banco).
+valor_env() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
+  printf '%s' "$v"
+}
 if [[ "$banco_srv" == banco_novo ]]; then
   export PHATI_BANCO_DESTINO=banco_novo
 else
   destino_env="${PHATI_BANCO_DESTINO:-}"
-  [[ -n "$destino_env" ]] || destino_env="$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
   [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
 fi
 
@@ -193,7 +202,8 @@ export PHATI_ALVO_DIR="$alvo_dir"
 # Modo lógico concluído (banco-logico, spec 009 E5): sem o override, o `up` do banco recriaria o banco_novo sem wal_level=logical.
 extra_logica=()
 if [[ -f "$dir/banco-logico" ]]; then
-  [[ -f "$dir/repo/servidor/compose.troca-logica.yaml" ]] || { echo "ERRO: banco-logico existe, mas $dir/repo/servidor/compose.troca-logica.yaml não está no clone" >&2; exit 1; }
+  # Depois do checkout: `erro` devolve o clone ao SHA anterior (X3c); `exit 1` deixaria o clone no SHA recusado.
+  [[ -f "$dir/repo/servidor/compose.troca-logica.yaml" ]] || erro "banco-logico existe, mas $dir/repo/servidor/compose.troca-logica.yaml não está no clone"
   extra_logica=(-f "$dir/repo/servidor/compose.troca-logica.yaml")
 fi
 compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" ${extra_logica[@]+"${extra_logica[@]}"} "$@"; }

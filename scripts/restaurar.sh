@@ -5,7 +5,8 @@
 # única: objetos criados depois do dump somem junto, e qualquer erro desfaz tudo e deixa o banco como estava. O app só
 # sobe de novo se a restauração terminar; a saúde, quem chamou confere.
 # Troca de banco interrompida (marcador `troca-banco-em-curso`) recusa antes do Docker; o destino do compose segue o
-# `banco-ativo`, e divergência com o `.env` recusa (spec 009 R15).
+# `banco-ativo`, e divergência com o `.env` recusa (spec 009 R15). O valor lido do `.env` passa por `valor_env` (aspas e
+# ` #comentário` saem como no Compose) antes da comparação com banco_novo.
 set -Eeuo pipefail
 
 arquivo="${1:-}"
@@ -30,11 +31,18 @@ if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; f
 # Troca de banco interrompida: recusa antes do Docker (restaurar em cima de uma troca no meio é o pior caso).
 [[ ! -e "$dir/troca-banco-em-curso" ]] || { echo "ERRO: troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar" >&2; exit 1; }
 # Destino do compose igual ao `banco-ativo` (ver implantar.sh): banco_novo vai ao ambiente; divergência recusa. Só essa chave é lida.
+# Valor do `.env` como o Compose o lê: aspas que cercam o valor saem e " #comentário" depois dele é cortado.
+valor_env() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
+  printf '%s' "$v"
+}
 if [[ "$banco_srv" == banco_novo ]]; then
   export PHATI_BANCO_DESTINO=banco_novo
 else
   destino_env="${PHATI_BANCO_DESTINO:-}"
-  [[ -n "$destino_env" ]] || destino_env="$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
   [[ "$destino_env" != banco_novo ]] || { echo "ERRO: estado de banco divergente: .env aponta banco_novo, banco-ativo não" >&2; exit 1; }
 fi
 # X4: mesma ordem do backup.sh e do implantar.sh (ambiente, `.env`, padrão $dir/alvo); a instrução de recuperação a traz.

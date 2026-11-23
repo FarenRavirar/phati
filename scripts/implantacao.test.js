@@ -2412,3 +2412,54 @@ test('E5: implantar sem banco-logico não soma o override', () => {
     v.limpar();
   }
 });
+
+// ---- Lote 1 (review da PR #81): banco-logico sem o override devolve o clone ao SHA anterior (R1); destino com aspas ou
+// comentário no `.env` é normalizado antes da comparação com banco_novo (R2) ----
+test('E5: implantar com banco-logico sem o override devolve o clone ao SHA anterior, em vez de deixá-lo no SHA recusado', () => {
+  const v = criarVm();
+  try {
+    marcarLogico(v);
+    // `semBancoNovo` (commit "dois") não traz o override: o checkout vai a ele e a checagem recusa depois.
+    const r = v.rodar(IMPLANTAR, [v.semBancoNovo]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /banco-logico existe, mas .*compose\.troca-logica\.yaml não está no clone/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'clone ficou no SHA recusado');
+    assert.match(v.registro(), /repo-restaurado=/);
+    assert.equal(chamadasDeCompose(v).length, 0, 'compose chamado sem o override');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R2: destino com aspas ou comentário no .env vale banco_novo: implantar, backup e restaurar recusam com banco-ativo=banco', () => {
+  for (const valor of ['"banco_novo"', "'banco_novo'", 'banco_novo # x']) {
+    const v = criarVm();
+    try {
+      apontarDestino(v, valor);
+      afirmarRecusa(v, v.rodar(IMPLANTAR, [v.promovido]), MENSAGEM_DIVERGENTE);
+      afirmarRecusa(v, v.rodar(BACKUP, ['ab']), MENSAGEM_DIVERGENTE);
+      afirmarRecusa(v, v.rodar(RESTAURAR, [criarDump(v), 'RESTAURAR']), MENSAGEM_DIVERGENTE);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('R2: destino banco com aspas ou comentário no .env segue nos três scripts (sem recusa)', () => {
+  for (const valor of ['"banco"', "'banco' # x"]) {
+    const v = criarVm();
+    try {
+      apontarDestino(v, valor);
+      // Restaurar primeiro: ele cria a pasta de backups que o backup.sh usa depois.
+      const re = v.rodar(RESTAURAR, [criarDump(v), 'RESTAURAR']);
+      assert.equal(re.status, 0, re.stderr);
+      const b = v.rodar(BACKUP, ['ab']);
+      assert.equal(b.status, 0, b.stderr);
+      const i = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+      assert.equal(i.status, 0, i.stderr);
+      assert.doesNotMatch(i.stderr + b.stderr + re.stderr, MENSAGEM_DIVERGENTE);
+    } finally {
+      v.limpar();
+    }
+  }
+});

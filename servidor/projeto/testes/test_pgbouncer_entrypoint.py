@@ -5,6 +5,7 @@ a lógica do script: validação de nomes, substituição no modelo e a recusa d
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -228,3 +229,45 @@ def test_arquivo_banco_destino_hostil_recusa_subir_sem_ini_parcial(tmp_path, con
     assert r.returncode != 0
     assert 'banco-destino inválido' in r.stderr
     assert not (tmp_path / 'raiz').exists()
+
+
+def _exige_login_retry(ini, valor='2'):
+    # Linhas ativas (sem comentário `;`) do ini renderizado; o parâmetro tem de estar com o valor do ensaio (ver pgbouncer.ini).
+    ativas = [linha.strip() for linha in ini.splitlines() if linha.strip() and not linha.lstrip().startswith(';')]
+    assert f'server_login_retry = {valor}' in ativas, 'server_login_retry ausente ou com valor diferente de 2 no ini renderizado'
+
+
+def test_ini_renderizado_tem_server_login_retry_curto(tmp_path):
+    # Medido no ensaio (padrão 15 s = ~16 s de falha visível após o banco voltar); o valor 2 vem do pgbouncer.ini.
+    (tmp_path / 'cfg').mkdir()
+    r = _rodar(tmp_path, **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    _exige_login_retry(r.stdout)
+
+
+def test_ini_sem_server_login_retry_falha(tmp_path):
+    # Caso negativo: sem a linha, o PgBouncer volta ao padrão de 15 s e a falha visível se repete.
+    original = MODELO.read_text(encoding='utf-8')
+    mutado = re.sub(r'^server_login_retry = .*\n', '', original, flags=re.M)
+    assert mutado != original, 'mutação não aplicou: server_login_retry não está no modelo'
+    (tmp_path / 'cfg').mkdir()
+    modelo = tmp_path / 'modelo.ini'
+    modelo.write_text(mutado, encoding='utf-8', newline='\n')
+    r = _rodar(tmp_path, PGB_MODELO=modelo.as_posix(), **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    with pytest.raises(AssertionError, match='server_login_retry'):
+        _exige_login_retry(r.stdout)
+
+
+def test_ini_com_server_login_retry_de_15_segundos_falha(tmp_path):
+    # Caso negativo: valor 15 (padrão) no lugar de 2 é o defeito que o ensaio mediu.
+    original = MODELO.read_text(encoding='utf-8')
+    mutado = re.sub(r'^server_login_retry = 2$', 'server_login_retry = 15', original, flags=re.M)
+    assert mutado != original, 'mutação não aplicou: linha server_login_retry = 2 ausente'
+    (tmp_path / 'cfg').mkdir()
+    modelo = tmp_path / 'modelo.ini'
+    modelo.write_text(mutado, encoding='utf-8', newline='\n')
+    r = _rodar(tmp_path, PGB_MODELO=modelo.as_posix(), **_cat_como_pgbouncer(tmp_path))
+    assert r.returncode == 0, r.stderr
+    with pytest.raises(AssertionError, match='server_login_retry'):
+        _exige_login_retry(r.stdout)
