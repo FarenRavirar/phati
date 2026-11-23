@@ -59,6 +59,14 @@ if [[ -n "\${DUBLE_FALHA_UMA:-}" && "$args" == *"$DUBLE_FALHA_UMA"* && ! -e "$VM
   touch "$VM/.falhou-uma"
   exit 1
 fi
+# Sinal ao script (DUBLE_SINAL=<trecho>), uma vez: SIGTERM ao trocar-banco.sh (ancestral deste dublê). A trap roda quando esta
+# chamada volta, então a sequência do script para logo depois dela.
+if [[ -n "\${DUBLE_SINAL:-}" && "$args" == *"$DUBLE_SINAL"* && ! -e "$VM/.sinal" ]]; then
+  touch "$VM/.sinal"
+  pid=$PPID
+  while [[ "$pid" -gt 1 ]] && ! grep -q 'trocar-banco.sh' "/proc/$pid/cmdline" 2>/dev/null; do pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)"; done
+  kill -TERM "$pid" 2>/dev/null || true
+fi
 if [[ -n "$tag" && "\${DUBLE_FALHA_SQL:-}" == "$tag" ]]; then
   echo "ERROR: falha simulada em $tag com senha $PHATI_BANCO_REPLICADOR_SENHA" >&2
   exit 1
@@ -102,14 +110,18 @@ case "$args" in
   *"grep -qxF"*) [[ -e "$VM/.hba" || "\${DUBLE_HBA_TEM:-0}" == 1 ]] || exit 1 ;;
   *"printf"*"pg_hba.conf"*) touch "$VM/.hba"; [[ "\${DUBLE_HBA_FALHA:-0}" == 1 ]] && exit 1 ;;
   *"pg_hba_file_rules"*) echo "\${DUBLE_HBA_REGRA:-1}" ;;
-  *"rolreplication"*) echo "\${DUBLE_REPLICADOR:-1}" ;;
+  # Papel: sem o papeis.sql rodado na origem (arquivo .replicador ausente), vale DUBLE_REPLICADOR (padrão 1); depois, 1.
+  *"rolreplication"*) if [[ -e "$VM/.replicador" ]]; then echo 1; else echo "\${DUBLE_REPLICADOR:-1}"; fi ;;
   *"pg_basebackup"*) [[ "\${DUBLE_BASE_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.base" ;;
   *"pg_is_in_recovery"*) if [[ -e "$VM/.promovido" || "\${DUBLE_SEM_RECOVERY:-0}" == 1 ]]; then echo f; else echo t; fi ;;
   *"pg_stat_wal_receiver"*) echo "\${DUBLE_STREAM:-1}" ;;
-  *"pg_promote"*) [[ "\${DUBLE_PROMOTE_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.promovido"; echo t ;;
-  *"pg_last_wal_replay_lsn"*) echo "\${DUBLE_LAG_FISICO:-0}" ;;
-  *"pg_drop_replication_slot"*) [[ "\${DUBLE_SLOT_FALHA:-0}" == 1 ]] && exit 1; echo "" ;;
-  *"-e PHATI_BANCO_REPLICADOR_SENHA"*)if [[ "\${DUBLE_SQL_FALHA:-0}" == 1 ]]; then echo "ERROR: CREATE ROLE replicador PASSWORD $PHATI_BANCO_REPLICADOR_SENHA" >&2; exit 1; fi ;;
+  # Depois do promote o standby deixa de receber do primário: o slot fica inativo (arquivo .standby-ativo sai).
+  *"pg_promote"*) [[ "\${DUBLE_PROMOTE_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.promovido"; rm -f "$VM/.standby-ativo"; echo t ;;
+  *"pg_last_wal_replay_lsn"*) echo "\${DUBLE_LAG_FISICO-0}" ;;
+  # Slot: o PostgreSQL recusa drop com o standby ativo (arquivo .standby-ativo); .slot-removido prova que o drop foi feito.
+  *"pg_drop_replication_slot"*) if [[ -e "$VM/.standby-ativo" ]]; then echo "ERROR: replication slot is active" >&2; exit 1; fi; [[ "\${DUBLE_SLOT_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.slot-removido"; echo "" ;;
+  *"SELECT active FROM pg_replication_slots"*) if [[ -e "$VM/.standby-ativo" || "\${DUBLE_SLOT_ATIVO:-0}" == 1 ]]; then echo t; else echo f; fi ;;
+  *"-e PHATI_BANCO_REPLICADOR_SENHA"*)if [[ "\${DUBLE_SQL_FALHA:-0}" == 1 ]]; then echo "ERROR: CREATE ROLE replicador PASSWORD $PHATI_BANCO_REPLICADOR_SENHA" >&2; exit 1; fi; touch "$VM/.replicador" ;;
   *"ps -q banco_novo"*) [[ "\${DUBLE_NOVO_AUSENTE:-0}" == 1 ]] || echo novo1 ;;
   *"ps -q banco"*) [[ "\${DUBLE_BANCO_AUSENTE:-0}" == 1 ]] || echo banco1 ;;
   *"ps -q pgb1"*) echo pgb11 ;;
@@ -118,7 +130,8 @@ case "$args" in
   *"inspect"*banco1*) if [[ "\${DUBLE_BANCO_NAO_VOLTA:-0}" == 1 && -e "$VM/.subiu" ]]; then echo starting; else echo "\${DUBLE_SAUDE_BANCO:-healthy}"; fi ;;
   *"inspect"*pgb11*) echo "\${DUBLE_SAUDE_PGB1:-healthy}" ;;
   *"inspect"*pgb21*) echo "\${DUBLE_SAUDE_PGB2:-healthy}" ;;
-  *"up -d --no-deps banco_novo"*) [[ "\${DUBLE_UP_NOVO_FALHA:-0}" == 1 ]] && exit 1 ;;
+  *"stop banco_novo"*|*"rm -sfv"*) rm -f "$VM/.standby-ativo" ;;
+  *"up -d --no-deps banco_novo"*) [[ "\${DUBLE_UP_NOVO_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.standby-ativo" ;;
   *"up -d --no-deps banco"*) [[ "\${DUBLE_UP_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.subiu" ;;
   *"pg_dump"*) [[ "\${DUBLE_BACKUP_FALHA:-0}" == 1 ]] && exit 1; echo "dados-do-banco" ;;
   *"SHOW wal_level"*) if [[ -e "$VM/.subiu" ]]; then echo "\${DUBLE_WAL_DEPOIS:-logical}"; else echo "\${DUBLE_WAL:-off}"; fi ;;
@@ -134,6 +147,8 @@ case "$args" in
   # Remoção do passfile no banco_novo: o arquivo sai de $VM/pgpass-gravado para $VM/pgpass-removido (guarda o conteúdo para o teste).
   *"rm -f /tmp/phati-replicador.pgpass"*) [[ "\${DUBLE_PGPASS_REMOVE_FALHA:-0}" == 1 ]] && exit 1; mv -f "$VM/pgpass-gravado" "$VM/pgpass-removido" 2>/dev/null || true ;;
   # Restauração do host (C1): falha o sed de volta só na instância de DUBLE_RESTAURA_FALHA (a ida usa host=banco_novo /, outra forma).
+  # Linha do ini (E11): o grep de host=banco (com espaço) passa só se a instância está no host original (DUBLE_INI_PGB1/2, padrão banco_novo).
+  *"grep -q host="*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; est="\${DUBLE_INI_PGB1:-banco_novo}"; [[ "$svc" == pgb2 ]] && est="\${DUBLE_INI_PGB2:-banco_novo}"; [[ "$args" == *"host=banco "* && "$est" == banco ]] || exit 1 ;;
   *"host=banco_novo /host=banco /"*) [[ -n "\${DUBLE_RESTAURA_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESTAURA_FALHA "* ]] && exit 1 ;;
   # PAUSE pendurado (C2): dorme além do limite em DUBLE_PAUSE_PENDURA; o exec troca o processo, então o timeout mata o sleep.
   *"-c PAUSE"*) [[ -n "\${DUBLE_PAUSE_PENDURA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_PENDURA "* ]] && exec sleep 3; [[ -n "\${DUBLE_PAUSE_FALHA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_FALHA "* ]] && exit 1 ;;
@@ -1018,6 +1033,8 @@ test('trocar: falha da criação da assinatura não vaza a senha e não pausa', 
 // ---- modo físico (S2b): standby por pg_basebackup, sem preparar e sem reiniciar a origem ----
 const fisica = (v, extra = {}) => v.rodar(['trocar'], extra);
 const sobeOrigem = (v) => v.lerChamadas().filter((linha) => /up -d --no-deps banco( |$)/.test(linha)).length;
+// Prova de que o slot saiu: o dublê de `pg_drop_replication_slot` só cria `.slot-removido` quando o drop passa.
+const slotRemovido = (v) => fs.existsSync(path.join(v.vm, '.slot-removido'));
 
 test('trocar --modo fisica feliz: ordem exata, sem preparar, sem setval, sem verificador, origem sem restart, sem segredo', () => {
   const v = criarVm();
@@ -1030,7 +1047,9 @@ test('trocar --modo fisica feliz: ordem exata, sem preparar, sem setval, sem ver
     const ordem = trechos.map((t) => v.indice(t));
     for (let i = 0; i < ordem.length; i++) assert.ok(ordem[i] >= 0, `falta ${trechos[i]}: ${ordem}`);
     for (let i = 1; i < ordem.length; i++) assert.ok(ordem[i] > ordem[i - 1], `ordem quebrada em ${trechos[i]}: ${ordem}`);
-    assert.equal(v.contar('-e PHATI_BANCO_REPLICADOR_SENHA'), 0, 'preparar não roda no modo físico');
+    assert.equal(v.contar('-e PHATI_BANCO_REPLICADOR_SENHA'), 1, 'papeis.sql roda uma vez na origem no modo físico');
+    assert.ok(v.indice('-e PHATI_BANCO_REPLICADOR_SENHA') < v.indice('pg_basebackup'), 'papel antes do basebackup');
+    assert.ok(slotRemovido(v), 'slot precisa sair de fato');
     assert.equal(v.contar('#sql:setval'), 0);
     assert.equal(v.contar('#sql:leitura-verificador'), 0);
     assert.equal(v.contar('#sql:verificador'), 0);
@@ -1123,7 +1142,8 @@ test('trocar físico: pg_basebackup falha sem vazar a senha, remove o slot e avi
     assert.match(r.stderr, /pg_basebackup falhou/);
     assert.match(r.stderr, /remova o volume dados_banco_novo/);
     assert.equal(v.contar('up -d --no-deps banco_novo'), 0);
-    assert.ok(v.contar('pg_drop_replication_slot') >= 1, 'slot parcial precisa ser removido');
+    assert.ok(slotRemovido(v), 'slot parcial precisa ser removido');
+    assert.equal(v.contar('stop banco_novo'), 0, 'standby não iniciado: sem parada');
     assert.equal(v.contar('-c PAUSE'), 0);
     nadaTrocado(v);
     semSegredo(v, r);
@@ -1139,7 +1159,8 @@ test('trocar físico: banco_novo que não entra em recovery aborta sem PAUSE e r
     assert.equal(r.status, 1);
     assert.match(r.stderr, /não entrou em recovery/);
     assert.equal(v.contar('-c PAUSE'), 0);
-    assert.ok(v.contar('pg_drop_replication_slot') >= 1);
+    assert.ok(v.indice('stop banco_novo') >= 0 && v.indice('stop banco_novo') < v.indice('pg_drop_replication_slot'), 'standby parado antes do drop');
+    assert.ok(slotRemovido(v), 'slot não foi removido de fato');
     nadaTrocado(v);
   } finally {
     v.limpar();
@@ -1155,7 +1176,8 @@ test('trocar físico: atraso que não chega a zero faz RESUME, não promove nem 
     assert.equal(v.contar('-c RESUME'), 2, 'RESUME nos dois PgBouncer');
     assert.equal(v.indice('pg_promote'), -1, 'não promove com atraso');
     assert.equal(v.indice('sed -i'), -1, 'não troca o host');
-    assert.ok(v.contar('pg_drop_replication_slot') >= 1);
+    assert.ok(v.indice('stop banco_novo') >= 0 && v.indice('stop banco_novo') < v.indice('pg_drop_replication_slot'), 'standby parado antes do drop');
+    assert.ok(slotRemovido(v), 'slot não foi removido de fato');
     assert.equal(v.contar('rm -sfv'), 1, 'banco_novo removido no aborto');
     nadaTrocado(v);
   } finally {
@@ -1173,6 +1195,7 @@ test('trocar físico: pg_promote falha: RESUME, host original, AVISO de descarte
     assert.equal(v.contar('-c RESUME'), 2);
     assert.match(r.stderr, /AVISO: banco_novo foi promovido/);
     assert.equal(v.contar('rm -sfv'), 0, 'promovido não é removido sem o descarte');
+    assert.equal(v.contar(REMOVE_DESTINO), 1, 'destino gravado antes do promote é removido no aborto');
     nadaTrocado(v);
   } finally {
     v.limpar();
@@ -1287,11 +1310,15 @@ test('trocar fisica: grava banco-destino depois do RELOAD e antes do RESUME', ()
   try {
     const r = v.rodar(['trocar', '--modo', 'fisica']);
     assert.equal(r.status, 0, r.stderr);
-    const reload = v.indice('-c RELOAD');
+    // E4: a gravação sai logo antes do promote (com o banco_novo ainda standby), não depois do RELOAD.
+    const lag = v.indice('pg_last_wal_replay_lsn');
     const grava = v.indice(GRAVA_DESTINO);
-    const resume = v.indice('-c RESUME');
-    assert.ok(reload >= 0 && grava > reload, `gravação ${grava} antes do RELOAD ${reload}`);
-    assert.ok(resume > grava, `RESUME ${resume} antes da gravação ${grava}`);
+    const promove = v.indice('pg_promote');
+    const reload = v.indice('-c RELOAD');
+    assert.ok(lag >= 0 && grava > lag, `gravação ${grava} antes do atraso zero ${lag}`);
+    assert.ok(promove > grava, `pg_promote ${promove} antes da gravação ${grava}`);
+    assert.ok(reload > promove, `RELOAD ${reload} antes do promote ${promove}`);
+    assert.ok(v.indice('-c RESUME') > grava, 'RESUME depois da gravação');
     assert.equal(v.contar(GRAVA_DESTINO), 1);
     assert.equal(v.contar(REMOVE_DESTINO), 0);
   } finally {
@@ -1318,13 +1345,14 @@ test('trocar logica: falha da gravação aborta com host restaurado, arquivo rem
   }
 });
 
-test('trocar fisica: falha da gravação aborta com host restaurado, arquivo removido e RESUME', () => {
+test('trocar fisica: falha da gravação antes do promote aborta sem trocar o host, remove o arquivo e faz RESUME', () => {
   const v = criarVm();
   try {
     const r = v.rodar(['trocar', '--modo', 'fisica'], { DUBLE_GRAVA_FALHA: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.equal(v.contar(RESTAURA), 2, 'host volta ao original');
-    assert.ok(v.indice(REMOVE_DESTINO) > v.indice(RESTAURA), 'arquivo removido depois do sed de volta');
+    assert.equal(v.contar(RESTAURA), 0, 'host nunca foi trocado: nada a restaurar');
+    assert.equal(v.indice('pg_promote'), -1, 'não promove sem destino gravado');
+    assert.equal(v.contar(REMOVE_DESTINO), 1, 'arquivo removido no aborto');
     assert.equal(v.contar('-c RESUME'), 2);
     nadaTrocado(v);
   } finally {
@@ -1701,6 +1729,333 @@ test('C4: marcador sobra quando o RESUME falha depois do ponto sem volta (espera
     const r = trocar(v, { DUBLE_RESUME_FALHA: 'pgb1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador removido com troca comitada');
+  } finally {
+    v.limpar();
+  }
+});
+
+// ---- Lote E (review): físico sem papel, sinais, slot, destino antes do promote, banco-logico, .env, lag, RESUME, remoção ----
+const RELOAD_PGB1 = 'exec -T pgb1 psql -X -q -h /tmp/pgb/pgb1 -p 6432 -U pgbouncer pgbouncer -c RELOAD';
+const RESUME_PGB1 = 'exec -T pgb1 psql -X -q -h /tmp/pgb/pgb1 -p 6432 -U pgbouncer pgbouncer -c RESUME';
+const RESUME_PGB2 = 'exec -T pgb2 psql -X -q -h /tmp/pgb/pgb2 -p 6432 -U pgbouncer pgbouncer -c RESUME';
+const escreverEnv = (v, linhas) => fs.writeFileSync(path.join(v.vm, '.env'), `${linhas.join('\n')}\n`, { mode: 0o640 });
+const pgpassRemovido = (v) => fs.readFileSync(path.join(v.vm, 'pgpass-removido'), 'utf8');
+
+test('E1: físico aplica o papeis.sql na origem antes do basebackup (origem sem o papel até o SQL)', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_REPLICADOR: '0' });
+    assert.equal(r.status, 0, r.stderr);
+    const sql = v.indice('-e PHATI_BANCO_REPLICADOR_SENHA');
+    const checa = v.indice('rolreplication');
+    const base = v.indice('pg_basebackup');
+    assert.ok(sql >= 0 && checa > sql && base > checa, `ordem: ${sql} ${checa} ${base}`);
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E1: SQL do papel replicador falha → aborta antes do PAUSE e do basebackup, saída suprimida sem a senha', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_SQL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /SQL do papel replicador falhou \(saída suprimida: contém a senha\): nada pausado/);
+    assert.equal(v.contar('pg_basebackup'), 0);
+    assert.equal(v.contar('-c PAUSE'), 0);
+    nadaTrocado(v);
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E2: SIGTERM depois do primeiro RELOAD → host restaurado nos dois PgBouncer antes do RESUME, rc 1', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_SINAL: RELOAD_PGB1 });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /ERRO: interrompido por sinal/);
+    assert.equal(v.contar(RESTAURA), 2, 'host volta ao original nos dois PgBouncer');
+    assert.ok(v.indice(RESTAURA) > v.indice(RELOAD_PGB1), 'restauração depois do RELOAD interrompido');
+    assert.ok(v.indice('-c RESUME') > v.indice(RESTAURA), 'RESUME depois da restauração');
+    assert.equal(v.contar('-c RESUME'), 2);
+    nadaTrocado(v);
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E2: sinal com restauração que falha em pgb2 → RESUME só em pgb1 e AVISO de pgb2 em PAUSE', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_SINAL: RELOAD_PGB1, DUBLE_RESTAURA_FALHA: 'pgb2' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(chamadaPgb(v, 'pgb1', 'RESUME'), 1, 'pgb1 com host confirmado foi retomado');
+    assert.equal(chamadaPgb(v, 'pgb2', 'RESUME'), 0, 'pgb2 sem host confirmado não foi retomado');
+    assert.match(r.stderr, /AVISO: pgb2 segue em PAUSE/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E2: sinal depois do ponto sem volta (RESUME iniciado) não restaura o host e deixa o marcador', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_SINAL: RESUME_PGB1 });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /ERRO: interrompido por sinal/);
+    assert.equal(v.contar(RESTAURA), 0, 'depois do ponto sem volta o host não volta');
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador fica com a troca comitada');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E3: aborto com standby iniciado para o standby, espera o slot ficar inativo e só então remove o slot', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_LAG_FISICO: '5' });
+    assert.equal(r.status, 1, r.stderr);
+    const para = v.indice('stop banco_novo');
+    const espera = v.indice('SELECT active FROM pg_replication_slots');
+    const drop = v.indice('pg_drop_replication_slot');
+    assert.ok(para >= 0 && espera > para && drop > espera, `ordem: ${para} ${espera} ${drop}`);
+    assert.ok(slotRemovido(v), 'slot precisa sair de fato');
+    nadaTrocado(v);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E3: slot que não fica inativo depois de parar o standby não é zerado: AVISO com o comando, drop não tentado', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_LAG_FISICO: '5', DUBLE_SLOT_ATIVO: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /AVISO: não consegui remover o slot phati_troca_slot na origem/);
+    assert.match(r.stderr, /SELECT pg_drop_replication_slot\('phati_troca_slot'\);/);
+    assert.equal(slotRemovido(v), false, 'slot não foi removido');
+    assert.equal(v.contar('pg_drop_replication_slot'), 0, 'drop não tentado com slot ativo');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E4: pg_promote falha depois de a gravação do destino → arquivo removido e host intacto', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_PROMOTE_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.ok(v.indice(GRAVA_DESTINO) < v.indice('pg_promote'), 'destino antes do promote');
+    assert.equal(v.contar(REMOVE_DESTINO), 1, 'arquivo removido no aborto depois do promote');
+    assert.equal(v.indice('sed -i'), -1, 'host não trocado');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E5: trocar lógica com sucesso grava banco-logico; física não grava; lógica abortada não grava', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(fs.existsSync(path.join(v.vm, 'banco-logico')), true, 'banco-logico ausente no sucesso lógico');
+  } finally {
+    v.limpar();
+  }
+  const f = criarVm();
+  try {
+    const r = fisica(f);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(fs.existsSync(path.join(f.vm, 'banco-logico')), false, 'físico não grava banco-logico');
+  } finally {
+    f.limpar();
+  }
+  const a = criarVm();
+  try {
+    const r = trocar(a, { DUBLE_LAG: 'f' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(fs.existsSync(path.join(a.vm, 'banco-logico')), false, 'aborto não grava banco-logico');
+  } finally {
+    a.limpar();
+  }
+});
+
+test('E6: ler_env tira aspas duplas que cercam o valor, preserva espaço interno e não imprime a senha', () => {
+  const v = criarVm();
+  try {
+    escreverEnv(v, ['PHATI_BANCO_NOME=phati', 'PHATI_BANCO_APP_USUARIO=app', 'PHATI_BANCO_REPLICADOR_SENHA="valor com espaço"']);
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(pgpassRemovido(v), /:replicador:valor com espaço\n/);
+    assert.ok(!r.stdout.includes('valor com espaço') && !r.stderr.includes('valor com espaço'), 'senha impressa');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E6: ler_env tira aspas simples que cercam o valor; a senha chega ao passfile sem as aspas', () => {
+  const v = criarVm();
+  try {
+    escreverEnv(v, ['PHATI_BANCO_NOME=phati', 'PHATI_BANCO_APP_USUARIO=app', `PHATI_BANCO_REPLICADOR_SENHA='${SEGREDO}'`]);
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(pgpassRemovido(v), new RegExp(`:replicador:${SEGREDO}\\n`));
+    assert.ok(!pgpassRemovido(v).includes("'"), 'aspas sobraram no passfile');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E6: ler_env sem aspas e com o nome do banco entre aspas duplas (phati_hml) vai a todas as conexões', () => {
+  const v = criarVm();
+  try {
+    escreverEnv(v, ['PHATI_BANCO_NOME="phati_hml"', 'PHATI_BANCO_APP_USUARIO=app', `PHATI_BANCO_REPLICADOR_SENHA=${SEGREDO}`]);
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.ok(v.lerChamadas().some((l) => l.includes('-d phati_hml')), 'nome sem aspas nas conexões');
+    assert.ok(!v.lerChamadas().some((l) => l.includes('"phati_hml"')), 'aspas sobraram no nome');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E6: ler_env com destino entre aspas: o valor sem aspas é o que a recusa mostra; senha vazia entre aspas é ausente', () => {
+  const v = criarVm();
+  try {
+    escreverEnv(v, ['PHATI_BANCO_NOME=phati', 'PHATI_BANCO_APP_USUARIO=app', `PHATI_BANCO_REPLICADOR_SENHA=${SEGREDO}`, 'PHATI_BANCO_DESTINO="banco_novo"']);
+    const r = trocar(v);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /PHATI_BANCO_DESTINO é 'banco_novo', esperado banco/);
+    assert.equal(v.contar('-c PAUSE'), 0, 'nada pausado');
+    assert.equal(v.contar('up -d'), 0, 'nenhum contêiner subido');
+  } finally {
+    v.limpar();
+  }
+  const w = criarVm();
+  try {
+    escreverEnv(w, ['PHATI_BANCO_NOME=phati', 'PHATI_BANCO_APP_USUARIO=app', 'PHATI_BANCO_REPLICADOR_SENHA=""']);
+    const r = trocar(w);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /PHATI_BANCO_REPLICADOR_SENHA ausente ou vazia/);
+    assert.equal(w.lerChamadas().length, 0);
+  } finally {
+    w.limpar();
+  }
+});
+
+test('E7: .env ilegível na gravação do destino aborta sem publicar o temporário; .env original intacto', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const original = v.env();
+    fs.chmodSync(path.join(v.vm, '.env'), 0o000);
+    let r;
+    try {
+      r = trocar(v);
+    } finally {
+      fs.chmodSync(path.join(v.vm, '.env'), 0o640);
+    }
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /não consegui ler o \.env: nada gravado/);
+    assert.equal(v.env(), original, '.env alterado');
+    assert.deepEqual(temporarios(v, '.env.'), [], 'temporário sobrou');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E8: atraso negativo (replay à frente do LSN da origem) conta como zero no físico', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_LAG_FISICO: '-3' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('pg_promote') >= 0);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E8: diff vazio ou texto não passa como zero: atraso não confirmado faz RESUME e aborta sem promover', () => {
+  for (const valor of ['', 'x']) {
+    const v = criarVm();
+    try {
+      const r = fisica(v, { DUBLE_LAG_FISICO: valor });
+      assert.equal(r.status, 1, JSON.stringify(valor));
+      assert.match(r.stderr, /atraso do banco_novo não chegou a zero/);
+      assert.equal(v.indice('pg_promote'), -1, 'não promove sem atraso zero');
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('E9: RESUME que falha só em pgb2 → o EXIT tenta de novo só pgb2, sem repetir pgb1', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_FALHA_UMA: RESUME_PGB2 });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /AVISO: RESUME falhou em: pgb2/);
+    assert.equal(chamadaPgb(v, 'pgb1', 'RESUME'), 1, 'pgb1 retomado uma vez');
+    assert.equal(chamadaPgb(v, 'pgb2', 'RESUME'), 2, 'pgb2 tentado de novo, só ele');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E10: remoção do destino falha 3 vezes → marcador da troca permanece e AVISO', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_REMOVE_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(v.contar(REMOVE_DESTINO), 3, 'três tentativas de remoção');
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador saiu com o destino no volume');
+    assert.match(r.stderr, /AVISO: não consegui remover \/cfg\/banco-destino/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E10: remoção do destino falha 1 vez e passa na 2ª → sem AVISO e o marcador sai', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_FALHA_UMA: REMOVE_DESTINO });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(v.contar(REMOVE_DESTINO), 2, 'segunda tentativa de remoção');
+    assert.doesNotMatch(r.stderr, /AVISO: não consegui remover/);
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), false, 'marcador sobrou');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E11: sed de restauração falha, mas o ini já está em host=banco → pgb2 confirmado e retomado', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_RESTAURA_FALHA: 'pgb2', DUBLE_INI_PGB2: 'banco' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(chamadaPgb(v, 'pgb2', 'RESUME'), 1, 'pgb2 com host já original não foi retomado');
+    assert.doesNotMatch(r.stderr, /segue em PAUSE/);
+    assert.ok(v.lerChamadas().some((l) => l.includes('grep -q host=banco ')), 'leitura do ini não foi feita');
+    nadaTrocado(v);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E11: sed de restauração falha e o ini está em host=banco_novo → pgb2 segue presa, com AVISO', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_RESTAURA_FALHA: 'pgb2', DUBLE_INI_PGB2: 'banco_novo' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.equal(chamadaPgb(v, 'pgb2', 'RESUME'), 0, 'pgb2 com host trocado não confirmado foi retomado');
+    assert.match(r.stderr, /AVISO: pgb2 segue em PAUSE/);
+    nadaTrocado(v);
   } finally {
     v.limpar();
   }

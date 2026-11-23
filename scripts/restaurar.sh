@@ -57,7 +57,13 @@ ativa=azul
 if [[ -f "$dir/ativa" ]]; then ativa="$(cat "$dir/ativa")"; fi
 [[ "$ativa" == azul || "$ativa" == verde ]] || { echo "ERRO: $dir/ativa tem valor inválido" >&2; exit 1; }
 
-compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" "$@"; }
+# Modo lógico concluído (banco-logico, spec 009 E5): o override wal_level entra em todo compose, como no implantar.sh.
+extra_logica=()
+if [[ -f "$dir/banco-logico" ]]; then
+  [[ -f "$dir/repo/servidor/compose.troca-logica.yaml" ]] || { echo "ERRO: banco-logico existe, mas $dir/repo/servidor/compose.troca-logica.yaml não está no clone" >&2; exit 1; }
+  extra_logica=(-f "$dir/repo/servidor/compose.troca-logica.yaml")
+fi
+compor() { "$docker" compose --env-file "$dir/.env" -f "$dir/repo/servidor/compose.yaml" -f "$dir/repo/servidor/compose.implantacao.yaml" ${extra_logica[@]+"${extra_logica[@]}"} "$@"; }
 
 passo=inicio
 # A transação única só protege até o `psql`: falha depois dele deixa o banco já restaurado e o app parado.

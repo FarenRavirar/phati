@@ -2232,3 +2232,104 @@ test('smoke recusa URL com caminho, sem esquema e HTTP puro fora do computador l
     assert.match(r.stderr, /URL base/);
   }
 });
+
+// ---- E5: com banco-logico (modo lógico concluído) o override wal_level entra em todo compose; sem ele, não entra; arquivo ausente no clone recusa ----
+const OVERRIDE_LOGICA = 'compose.troca-logica.yaml';
+const comOverride = (v) => fs.writeFileSync(path.join(v.repo, 'servidor', OVERRIDE_LOGICA), 'services: {}\n');
+const marcarLogico = (v) => fs.writeFileSync(path.join(v.vm, 'banco-logico'), 'logica\n');
+const chamadasDeCompose = (v) => v.lerChamadas().filter((linha) => linha.includes('compose.implantacao.yaml'));
+
+test('E5: backup.sh com banco-logico soma o override no compose; sem banco-logico não soma', () => {
+  const v = criarVm();
+  try {
+    comOverride(v);
+    marcarLogico(v);
+    const r = v.rodar(BACKUP, []);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(chamadasDeCompose(v).length >= 1, 'backup não chamou o compose');
+    assert.ok(chamadasDeCompose(v).every((linha) => linha.includes(OVERRIDE_LOGICA)), 'override ausente numa chamada com banco-logico');
+  } finally {
+    v.limpar();
+  }
+  const sem = criarVm();
+  try {
+    comOverride(sem);
+    const r = sem.rodar(BACKUP, []);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(chamadasDeCompose(sem).length >= 1);
+    assert.ok(chamadasDeCompose(sem).every((linha) => !linha.includes(OVERRIDE_LOGICA)), 'override somou sem banco-logico');
+  } finally {
+    sem.limpar();
+  }
+});
+
+test('E5: backup.sh com banco-logico e sem o override no clone recusa antes do pg_dump', () => {
+  const v = criarVm();
+  try {
+    marcarLogico(v);
+    const r = v.rodar(BACKUP, []);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /banco-logico existe, mas .*compose\.troca-logica\.yaml não está no clone/);
+    assert.equal(v.contarChamadas('pg_dump'), 0, 'pg_dump rodou sem o override');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E5: restaurar.sh com banco-logico soma o override em todo compose', () => {
+  const v = criarVm();
+  try {
+    comOverride(v);
+    marcarLogico(v);
+    const dump = path.join(v.vm, 'backups', 'phati-teste.dump');
+    fs.mkdirSync(path.dirname(dump), { recursive: true });
+    fs.writeFileSync(dump, 'dados\n');
+    const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(chamadasDeCompose(v).length >= 1, 'restaurar não chamou o compose');
+    assert.ok(chamadasDeCompose(v).every((linha) => linha.includes(OVERRIDE_LOGICA)), 'override ausente numa chamada com banco-logico');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E5: implantar com banco-logico soma o override em todo compose, inclusive o up do banco', () => {
+  const v = criarVm();
+  try {
+    comOverride(v);
+    marcarLogico(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(chamadasDeCompose(v).length >= 1);
+    assert.ok(chamadasDeCompose(v).every((linha) => linha.includes(OVERRIDE_LOGICA)), 'override ausente numa chamada com banco-logico');
+    assert.ok(v.lerChamadas().some((linha) => linha.includes('up -d --wait banco') && linha.includes(OVERRIDE_LOGICA)), 'up do banco sem o override');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E5: implantar com banco-logico sem o override no clone recusa antes de qualquer compose', () => {
+  const v = criarVm();
+  try {
+    marcarLogico(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /banco-logico existe, mas .*compose\.troca-logica\.yaml não está no clone/);
+    assert.equal(chamadasDeCompose(v).length, 0, 'compose chamado sem o override');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('E5: implantar sem banco-logico não soma o override', () => {
+  const v = criarVm();
+  try {
+    comOverride(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(chamadasDeCompose(v).length >= 1);
+    assert.ok(chamadasDeCompose(v).every((linha) => !linha.includes(OVERRIDE_LOGICA)), 'override somou sem banco-logico');
+  } finally {
+    v.limpar();
+  }
+});
