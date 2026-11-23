@@ -33,7 +33,36 @@
 
 'use strict';
 
+const { spawnSync } = require('node:child_process');
 const { lerPayload } = require(require('node:path').join(__dirname, 'ler-payload.js'));
+
+// Lê branch atual, último commit e o aviso que vai no prompt de commit. Falha aberta:
+// qualquer erro (cwd inválido, fora de repositório, HEAD destacado) vira `null` e o
+// `ask` segue, só sem o dado. Não reaproveita o branch-gate: ele roda lerPayload no
+// require e não exporta nada, então importá-lo dispararia a leitura de stdin.
+function contextoRepo(cwd) {
+  try {
+    const dir = typeof cwd === 'string' && cwd ? cwd : process.cwd();
+    const git = (args) => {
+      const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      return r.status === 0 ? (r.stdout || '').trim() || null : null;
+    };
+    return {
+      branch: git(['symbolic-ref', '--short', '-q', 'HEAD']),
+      ultimo: git(['log', '-1', '--format=%h %s']),
+    };
+  } catch {
+    return { branch: null, ultimo: null };
+  }
+}
+
+function avisoCommit({ branch, ultimo }) {
+  const onde = branch
+    ? `Branch atual: ${branch}.`
+    : 'Atenção: branch não identificada (HEAD destacado, fora de repositório ou erro de leitura).';
+  const commit = ultimo ? `Último commit: ${ultimo}.` : 'Último commit não identificado.';
+  return `\n\n${onde} ${commit} Confira se esta é a branch certa para este assunto antes de aprovar.`;
+}
 
 // Normaliza o texto antes de testar, para que o padrao nao precise antecipar
 // cada forma de escrever o mesmo comando. Sem isto, cada regra viraria uma
@@ -121,18 +150,23 @@ function regrasAtivas(ambiente) {
 }
 
 lerPayload((raw) => {
-  let command = '';
+  let payload;
   try {
-    command = JSON.parse(raw)?.tool_input?.command ?? '';
+    payload = JSON.parse(raw);
   } catch {
     process.exit(0); // payload ilegivel nunca bloqueia trabalho
   }
+  const command = payload?.tool_input?.command ?? '';
   if (!command) process.exit(0);
 
   const alvo = normalizar(command);
 
   for (const regra of regrasAtivas(process.env)) {
     if (!regra.test.test(alvo)) continue;
+
+    // Só o commit mostra branch e último commit: é a ação em que o mantenedor precisa
+    // conferir a branch antes de aprovar. O `ask` do commit segue mesmo sem leitura.
+    const aviso = regra.nome === 'commit-sem-autorizacao' ? avisoCommit(contextoRepo(payload?.cwd)) : '';
 
     console.log(JSON.stringify({
       hookSpecificOutput: {
@@ -146,7 +180,8 @@ lerPayload((raw) => {
           + (regra.decisao === 'ask'
             ? ''
             : `\n\nPeca a autorizacao ao mantenedor no formato "APROVACAO NECESSARIA" `
-              + `(Acao / Motivo / Risco / Rollback / Escopo / Comandos) antes de reemitir.`),
+              + `(Acao / Motivo / Risco / Rollback / Escopo / Comandos) antes de reemitir.`)
+          + aviso,
       },
     }));
     process.exit(0);
