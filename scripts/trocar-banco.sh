@@ -169,7 +169,8 @@ pgb_sed() {
 }
 # Só leitura: 0 se a linha `host=$ORIG ` (com espaço depois do nome, como o sed) está no pgbouncer.ini da instância $1.
 ini_no_host_origem() {
-  compor exec -T "$1" grep -q "host=$ORIG " "/tmp/pgb/$1/pgbouncer.ini" >/dev/null 2>&1
+  local svc="$1"
+  compor exec -T "$svc" grep -q "host=$ORIG " "/tmp/pgb/$svc/pgbouncer.ini" >/dev/null 2>&1
 }
 # Destino para o entrypoint do PgBouncer: `/cfg/banco-destino` no volume pgb_cfg. Por one-off do pgb_auth, o único serviço com
 # o volume em escrita (pgb1 e pgb2 montam em leitura). `--no-deps` evita subir o banco. O conteúdo é o `$NOVO` constante.
@@ -490,11 +491,11 @@ esperar_consulta() {
 # Espera o destino chegar ao LSN atual da origem com PAUSE ativo (atraso zero). Polling com PHATI_ESPERA_MS (padrão 100 ms;
 # 0 não dorme, como nos testes).
 esperar_lag_zero() {
-  local _ L diff ms="${PHATI_ESPERA_MS:-100}"
+  local _ lsn diff ms="${PHATI_ESPERA_MS:-100}"
   for _ in $(seq "${PHATI_TENTATIVAS:-60}"); do
-    L="$(sql_em "$ORIG" -At -c 'SELECT pg_current_wal_lsn()')" || return 1
-    [[ "$L" =~ ^[0-9A-Fa-f]+/[0-9A-Fa-f]+$ ]] || return 1
-    diff="$(sql_em "$NOVO" -At -c "SELECT pg_wal_lsn_diff('$L', pg_last_wal_replay_lsn())" || true)"
+    lsn="$(sql_em "$ORIG" -At -c 'SELECT pg_current_wal_lsn()')" || return 1
+    [[ "$lsn" =~ ^[0-9A-Fa-f]+/[0-9A-Fa-f]+$ ]] || return 1
+    diff="$(sql_em "$NOVO" -At -c "SELECT pg_wal_lsn_diff('$lsn', pg_last_wal_replay_lsn())" || true)"
     # Replay no LSN da origem ou à frente dele (diff <= 0; pg_wal_lsn_diff devolve numeric). Vazio ou texto não passa.
     if [[ "$diff" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] && { [[ "$diff" == -* ]] || [[ "$diff" =~ ^0+(\.0+)?$ ]]; }; then return 0; fi
     (( ms > 0 )) && sleep "$(printf '%d.%03d' $((ms / 1000)) $((ms % 1000)))"

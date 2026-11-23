@@ -5,7 +5,8 @@
 # (segundos do pg_dump; padrão 1800) e PHATI_BACKUP_ABATE (segundos até o KILL depois do prazo; padrão 10).
 # Quem chama: implantar.sh, antes de migrar (já sob a trava), e o cron diário do usuário de implantação, que roda sob
 # `flock -w 3600 /opt/phati/.trava` (o mesmo limite do implantar.sh) para não correr com uma implantação. Banco parado é
-# erro: o backup não sobe nada.
+# erro: o backup não sobe nada. Troca de banco interrompida (marcador `troca-banco-em-curso`) recusa antes do Docker, e o
+# destino do compose (`PHATI_BANCO_DESTINO`) segue o `banco-ativo` (spec 009 R15).
 set -Eeuo pipefail
 
 dir="${PHATI_DIR:-/opt/phati}"
@@ -30,6 +31,16 @@ if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
 [[ "$banco_srv" == banco || "$banco_srv" == banco_novo ]] || erro "$dir/banco-ativo tem valor inválido"
 # O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
 if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
+# Troca de banco interrompida: recusa antes do Docker (o trocar-banco.sh faz o backup dele antes de gravar o marcador).
+[[ ! -e "$dir/troca-banco-em-curso" ]] || erro "troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar"
+# Destino do compose igual ao `banco-ativo` (ver implantar.sh): banco_novo vai ao ambiente; divergência recusa. Só essa chave é lida.
+if [[ "$banco_srv" == banco_novo ]]; then
+  export PHATI_BANCO_DESTINO=banco_novo
+else
+  destino_env="${PHATI_BANCO_DESTINO:-}"
+  [[ -n "$destino_env" ]] || destino_env="$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+  [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+fi
 # Modo lógico concluído (banco-logico, spec 009 E5): o override wal_level entra em todo compose, como no implantar.sh.
 extra_logica=()
 if [[ -f "$dir/banco-logico" ]]; then

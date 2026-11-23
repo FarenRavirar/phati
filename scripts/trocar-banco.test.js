@@ -11,10 +11,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { unix, lerLinhas, escreverFlock } = require('./ajuda-teste');
 
 const PASTA = __dirname;
 const TROCAR = path.join(PASTA, 'trocar-banco.sh');
-const unix = (caminho) => caminho.replace(/\\/g, '/');
 // Valor marcador da senha do `replicador`: nunca pode aparecer em saída, registro ou argumento de chamada (spec 009, A7).
 const SEGREDO = 'valor-secreto-9f3a';
 // Senha sintética com espaço, aspas simples, barra invertida e dois-pontos: o escape do passfile (.pgpass) precisa cobri-la.
@@ -172,22 +172,9 @@ function criarVm({ comSenha = true, senha = SEGREDO } = {}) {
   const chamadas = path.join(vm, 'chamadas.log');
   const dublê = path.join(vm, 'docker-dublê.sh');
   fs.writeFileSync(dublê, CORPO_DUBLE, { mode: 0o755 });
-  // `flock` de mentira com a mesma linha de comando: "ocupado" é o arquivo `<trava>.ocupado`, como no implantacao.test.js.
-  const flockDublê = path.join(vm, 'flock-dublê.sh');
-  fs.writeFileSync(
-    flockDublê,
-    [
-      '#!/usr/bin/env bash',
-      't=0; e=1',
-      'while [[ "${1:-}" == -* ]]; do case "$1" in -w) t="$2"; shift 2 ;; -E) e="$2"; shift 2 ;; *) shift ;; esac; done',
-      'arquivo="$1"; shift',
-      'if [[ -e "$arquivo.ocupado" ]]; then sleep "$t"; exit "$e"; fi',
-      'exec "$@"',
-      '',
-    ].join('\n'),
-    { mode: 0o755 },
-  );
-  const lerChamadas = () => (fs.existsSync(chamadas) ? fs.readFileSync(chamadas, 'utf8').split('\n').filter(Boolean) : []);
+  // `flock` de mentira (scripts/ajuda-teste.js): "ocupado" é o arquivo `<trava>.ocupado`.
+  const flockDublê = escreverFlock(path.join(vm, 'flock-dublê.sh'));
+  const lerChamadas = () => lerLinhas(chamadas);
   const indice = (trecho) => lerChamadas().findIndex((linha) => linha.includes(trecho));
   const contar = (trecho) => lerChamadas().filter((linha) => linha.includes(trecho)).length;
   const lerArq = (nome) => (fs.existsSync(path.join(vm, nome)) ? fs.readFileSync(path.join(vm, nome), 'utf8') : null);
@@ -202,23 +189,22 @@ function criarVm({ comSenha = true, senha = SEGREDO } = {}) {
     bancoAtivo: () => lerArq('banco-ativo'),
     limpar: () => fs.rmSync(vm, { recursive: true, force: true }),
     rodar(args, extra = {}) {
-      return spawnSync('bash', [unix(TROCAR), ...args], {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          PHATI_DIR: unix(vm),
-          DOCKER: unix(dublê),
-          PHATI_FLOCK: unix(flockDublê),
-          PHATI_ESPERA: '0',
-          PHATI_ESPERA_MS: '0',
-          PHATI_TENTATIVAS: '2',
-          CHAMADAS: unix(chamadas),
-          VM: unix(vm),
-          PHATI_BANCO_NOME: '',
-          COMPOSE_PROFILES: '',
-          ...extra,
-        },
-      });
+      const base = {
+        ...process.env,
+        PHATI_DIR: unix(vm),
+        DOCKER: unix(dublê),
+        PHATI_FLOCK: unix(flockDublê),
+        PHATI_ESPERA: '0',
+        PHATI_ESPERA_MS: '0',
+        PHATI_TENTATIVAS: '2',
+        CHAMADAS: unix(chamadas),
+        VM: unix(vm),
+        PHATI_BANCO_NOME: '',
+        COMPOSE_PROFILES: '',
+      };
+      // O modo do ambiente do processo não pode vazar: só o `extra` do teste escolhe `PHATI_TROCA_MODO`.
+      delete base.PHATI_TROCA_MODO;
+      return spawnSync('bash', [unix(TROCAR), ...args], { encoding: 'utf8', env: { ...base, ...extra } });
     },
   };
 }
@@ -1235,17 +1221,32 @@ test('modo recusado sem Docker: valor fora de fisica e logica, --modo sem valor 
 });
 
 test('PHATI_TROCA_MODO: logica basta sem a opção; a opção --modo tem prioridade; valor inválido recusa', () => {
-  const v = criarVm();
+  // Cada chamada que troca roda em VM nova: uma troca bem-sucedida deixa o estado de "já trocado" (ja_trocado).
+  const pelaVariavel = criarVm();
   try {
-    const pelaVariavel = v.rodar(['trocar'], { PHATI_TROCA_MODO: 'logica', DUBLE_WAL: 'logical' });
-    assert.equal(pelaVariavel.status, 0, pelaVariavel.stderr);
-    const prioridade = v.rodar(['trocar', '--modo', 'logica'], { PHATI_TROCA_MODO: 'fisica', DUBLE_WAL: 'logical' });
-    assert.equal(prioridade.status, 0, `a variável fisica não pode vencer --modo logica: ${prioridade.stderr}`);
-    const invalido = v.rodar(['trocar'], { PHATI_TROCA_MODO: 'xyz' });
-    assert.equal(invalido.status, 1);
-    assert.match(invalido.stderr, /modo inválido/);
+    const r = pelaVariavel.rodar(['trocar'], { PHATI_TROCA_MODO: 'logica', DUBLE_WAL: 'logical' });
+    assert.equal(r.status, 0, r.stderr);
+    const sobe = pelaVariavel.lerChamadas().find((linha) => linha.includes('up -d --no-deps banco_novo'));
+    assert.match(sobe ?? '', /compose\.troca-logica\.yaml/, 'PHATI_TROCA_MODO=logica não despachou o override lógico');
   } finally {
-    v.limpar();
+    pelaVariavel.limpar();
+  }
+  const prioridade = criarVm();
+  try {
+    const r = prioridade.rodar(['trocar', '--modo', 'logica'], { PHATI_TROCA_MODO: 'fisica', DUBLE_WAL: 'logical' });
+    assert.equal(r.status, 0, `a variável fisica não pode vencer --modo logica: ${r.stderr}`);
+    const sobe = prioridade.lerChamadas().find((linha) => linha.includes('up -d --no-deps banco_novo'));
+    assert.match(sobe ?? '', /compose\.troca-logica\.yaml/, 'PHATI_TROCA_MODO=fisica venceu --modo logica: o override lógico não foi despachado');
+  } finally {
+    prioridade.limpar();
+  }
+  const invalido = criarVm();
+  try {
+    const r = invalido.rodar(['trocar'], { PHATI_TROCA_MODO: 'xyz' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /modo inválido/);
+  } finally {
+    invalido.limpar();
   }
 });
 
@@ -1284,16 +1285,19 @@ test('preparar é sempre lógico: o up do banco e o wal_level levam o override, 
 // O arquivo `/cfg/banco-destino` é lido pelo entrypoint do PgBouncer ao subir: sem ele o contêiner volta à origem.
 const GRAVA_DESTINO = 'banco_novo > /cfg/banco-destino';
 const REMOVE_DESTINO = 'rm -f /cfg/banco-destino';
+// Índices de todas as chamadas que contêm o trecho (v.indice devolve só a primeira).
+const indicesDe = (v, trecho) => v.lerChamadas().flatMap((linha, i) => (linha.includes(trecho) ? [i] : []));
 
-test('trocar logica: grava banco-destino pelo pgb_auth depois do RELOAD e antes do RESUME', () => {
+test('trocar logica: grava banco-destino pelo pgb_auth depois do RELOAD das duas instâncias e antes do RESUME', () => {
   const v = criarVm();
   try {
     const r = trocar(v);
     assert.equal(r.status, 0, r.stderr);
-    const reload = v.indice('-c RELOAD');
+    const reloads = indicesDe(v, '-c RELOAD');
     const grava = v.indice(GRAVA_DESTINO);
     const resume = v.indice('-c RESUME');
-    assert.ok(reload >= 0 && grava > reload, `gravação ${grava} antes do RELOAD ${reload}`);
+    assert.equal(reloads.length, 2, 'RELOAD nos dois PgBouncer');
+    assert.ok(reloads.every((i) => i < grava), `gravação ${grava} antes de um RELOAD ${reloads}`);
     assert.ok(resume > grava, `RESUME ${resume} antes da gravação ${grava}`);
     assert.equal(v.contar(GRAVA_DESTINO), 1, 'gravado uma vez');
     const linha = v.lerChamadas().find((l) => l.includes(GRAVA_DESTINO));
@@ -1314,11 +1318,14 @@ test('trocar fisica: grava banco-destino depois do RELOAD e antes do RESUME', ()
     const lag = v.indice('pg_last_wal_replay_lsn');
     const grava = v.indice(GRAVA_DESTINO);
     const promove = v.indice('pg_promote');
-    const reload = v.indice('-c RELOAD');
+    const reloads = indicesDe(v, '-c RELOAD');
+    const resume = v.indice('-c RESUME');
     assert.ok(lag >= 0 && grava > lag, `gravação ${grava} antes do atraso zero ${lag}`);
     assert.ok(promove > grava, `pg_promote ${promove} antes da gravação ${grava}`);
-    assert.ok(reload > promove, `RELOAD ${reload} antes do promote ${promove}`);
-    assert.ok(v.indice('-c RESUME') > grava, 'RESUME depois da gravação');
+    assert.equal(reloads.length, 2, 'RELOAD nos dois PgBouncer');
+    assert.ok(reloads.every((i) => i > promove), `RELOAD ${reloads} antes do promote ${promove}`);
+    assert.ok(resume > reloads[1], `primeiro RESUME ${resume} antes do segundo RELOAD ${reloads[1]}`);
+    assert.ok(resume > grava, 'RESUME depois da gravação');
     assert.equal(v.contar(GRAVA_DESTINO), 1);
     assert.equal(v.contar(REMOVE_DESTINO), 0);
   } finally {
@@ -1484,6 +1491,8 @@ test('trocar lógico: sem PHATI_BANCO_NOME no ambiente, o nome vem do .env; sem 
   }
   const padrao = criarVm();
   try {
+    // Sem PHATI_BANCO_NOME no `.env` da VM (a fixture padrão o define): só o fallback do script pode dar `phati`.
+    fs.writeFileSync(path.join(padrao.vm, '.env'), `PHATI_BANCO_APP_USUARIO=app\nPHATI_BANCO_REPLICADOR_SENHA=${SEGREDO}\n`, { mode: 0o640 });
     const r = trocar(padrao);
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.ok(padrao.contar('-d phati ') >= 1, 'padrão phati quando não há nome');

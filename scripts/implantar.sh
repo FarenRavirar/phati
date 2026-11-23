@@ -8,6 +8,8 @@
 # Duas pilhas (azul e verde) ficam de pé. A implantação sobe só a inativa (candidata), troca o destino do nginx depois de
 # conferi-la e deixa a anterior de pé: o rollback é trocar o destino de volta. Se o `<sha>` pedido é o da pilha inativa e ela
 # está saudável, não há build: só troca o destino.
+# Troca de banco interrompida (marcador `troca-banco-em-curso`) recusa antes do Docker; destino do compose e `banco-ativo` (e o
+# `.env`) têm de apontar o mesmo banco: com banco_novo o destino vai ao ambiente do compose; divergência recusa (spec 009 R15).
 # -E: o trap ERR vale dentro de funções; sem ele, falha do Docker sairia calada, sem mensagem nem registro.
 set -Eeuo pipefail
 
@@ -114,6 +116,17 @@ if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
 # O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
 if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
 volume_banco="dados_$banco_srv"
+# Troca de banco interrompida (spec 009 R15): o marcador do trocar-banco.sh recusa antes de qualquer chamada ao Docker.
+[[ ! -e "$dir/troca-banco-em-curso" ]] || erro "troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar"
+# O destino do compose (`PHATI_BANCO_DESTINO`) tem de dizer o mesmo banco que `banco-ativo`. Com banco_novo, o ambiente vence o
+# `.env` (`--env-file`): exporta. Com banco, um destino banco_novo no ambiente ou no `.env` é divergência: recusa. Só essa chave é lida.
+if [[ "$banco_srv" == banco_novo ]]; then
+  export PHATI_BANCO_DESTINO=banco_novo
+else
+  destino_env="${PHATI_BANCO_DESTINO:-}"
+  [[ -n "$destino_env" ]] || destino_env="$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+  [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+fi
 
 # Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O script roda
 # de novo dentro de `flock -w <limite> -E 75 <arquivo> comando`: o sistema solta a trava quando o processo morre, sem trava

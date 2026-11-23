@@ -4,6 +4,8 @@
 # Para o app, valida o dump (gera o SQL antes de apagar qualquer coisa) e troca o schema `public` inteiro numa transação
 # única: objetos criados depois do dump somem junto, e qualquer erro desfaz tudo e deixa o banco como estava. O app só
 # sobe de novo se a restauração terminar; a saúde, quem chamou confere.
+# Troca de banco interrompida (marcador `troca-banco-em-curso`) recusa antes do Docker; o destino do compose segue o
+# `banco-ativo`, e divergência com o `.env` recusa (spec 009 R15).
 set -Eeuo pipefail
 
 arquivo="${1:-}"
@@ -25,6 +27,16 @@ if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
 [[ "$banco_srv" == banco || "$banco_srv" == banco_novo ]] || { echo "ERRO: $dir/banco-ativo tem valor inválido" >&2; exit 1; }
 # O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
 if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
+# Troca de banco interrompida: recusa antes do Docker (restaurar em cima de uma troca no meio é o pior caso).
+[[ ! -e "$dir/troca-banco-em-curso" ]] || { echo "ERRO: troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar" >&2; exit 1; }
+# Destino do compose igual ao `banco-ativo` (ver implantar.sh): banco_novo vai ao ambiente; divergência recusa. Só essa chave é lida.
+if [[ "$banco_srv" == banco_novo ]]; then
+  export PHATI_BANCO_DESTINO=banco_novo
+else
+  destino_env="${PHATI_BANCO_DESTINO:-}"
+  [[ -n "$destino_env" ]] || destino_env="$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"
+  [[ "$destino_env" != banco_novo ]] || { echo "ERRO: estado de banco divergente: .env aponta banco_novo, banco-ativo não" >&2; exit 1; }
+fi
 # X4: mesma ordem do backup.sh e do implantar.sh (ambiente, `.env`, padrão $dir/alvo); a instrução de recuperação a traz.
 alvo_dir="${PHATI_ALVO_DIR:-}"
 [[ -n "$alvo_dir" ]] || alvo_dir="$(grep -m1 '^PHATI_ALVO_DIR=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)"

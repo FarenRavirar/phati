@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from django.conf import settings
 
@@ -38,7 +39,9 @@ def _config(flags, ambiente=None):
     if shutil.which('docker') is None:
         raise AssertionError('docker ausente no PATH: o teste de compose precisa do binário (sem ele não há config)')
     # Valor None tira a variável do ambiente (ausente, não só vazia).
-    env = {k: v for k, v in {**os.environ, **VALORES_SINTETICOS, **(ambiente or {})}.items() if v is not None}
+    # COMPOSE_PROFILES do ambiente do processo sairia: só `COM_PROFILE` liga o banco_novo nestes testes.
+    base = {k: v for k, v in os.environ.items() if k != 'COMPOSE_PROFILES'}
+    env = {k: v for k, v in {**base, **VALORES_SINTETICOS, **(ambiente or {})}.items() if v is not None}
     # `--env-file` vazio antes de `-f`: a interpolação não lê o `servidor/.env` local.
     with tempfile.TemporaryDirectory() as temporario:
         vazio = Path(temporario) / 'vazio.env'
@@ -74,6 +77,14 @@ def test_banco_da_implantacao_usa_o_wal_padrao_sem_command():
 
 def test_banco_novo_nao_aparece_sem_o_profile():
     assert 'banco_novo' not in _sem_profile()['services']
+
+
+def test_compose_profiles_do_ambiente_nao_liga_o_banco_novo():
+    # Mutação "não tirar COMPOSE_PROFILES do ambiente-base": o compose lê a variável e o banco_novo aparece sem COM_PROFILE.
+    with mock.patch.dict(os.environ, {'COMPOSE_PROFILES': 'troca-banco'}):
+        rc, saida, erro = _config(BASE)
+    assert rc == 0, erro
+    assert 'banco_novo' not in json.loads(saida)['services']
 
 
 def test_banco_novo_aparece_com_o_profile_troca_banco():
