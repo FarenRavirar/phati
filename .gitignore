@@ -12,11 +12,11 @@ definicao*.md
 *.ppt
 *.pptx
 
-# --- Documentação interna: fica só local (sensível, não é código) ---
-docs/
-sessoes/
-specs/
-.specify/
+# --- Documentação interna: versionada no repo privado phati-specs; aqui só symlink ignorado (sensível, não é código) ---
+/docs
+/sessoes
+/specs
+/.specify
 
 # --- Segredos e credenciais ---
 .env
