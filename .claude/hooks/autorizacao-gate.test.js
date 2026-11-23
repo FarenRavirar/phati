@@ -93,6 +93,20 @@ const CASOS = [
   ["echo 'rode git worktree add depois'", null],
   ['rtk rg "git commit" docs', null],
 
+  // --- BLOQUEIA: merge (git merge, gh pr merge), com prefixo rtk e dentro de shell ---
+  ['git merge origin/dev', 'merge-sem-autorizacao'],
+  ['rtk git merge origin/dev', 'merge-sem-autorizacao'],
+  ['gh pr merge 78 --squash', 'merge-sem-autorizacao'],
+  ['rtk gh pr merge 78', 'merge-sem-autorizacao'],
+  ["bash -lc 'git merge x'", 'merge-sem-autorizacao'],
+  ['sh -c "git merge x"', 'merge-sem-autorizacao'],
+  ['/usr/bin/git merge origin/dev', 'merge-sem-autorizacao'],
+
+  // --- PASSA: parecido com merge, mas não é merge ---
+  ['git merge-base HEAD origin/dev', null],
+  ['git log --merges --oneline', null],
+  ['gh pr view 78', null],
+
   // --- BLOQUEIA: substituicao dentro de echo executa de verdade ---
   ['echo "$(git commit -m x)"', 'commit-sem-autorizacao'],
 
@@ -134,6 +148,8 @@ const DECISOES = [
   ['git commit -m x', 'ask'],
   ['rtk git commit -F m.txt', 'ask'],
   ['sudo apt install foo', 'ask'],
+  ['git merge origin/dev', 'ask'],
+  ['rtk gh pr merge 78', 'ask'],
   // Negativos de deny: desligar a VM e reescrever historico seguem negados por este hook.
   ['ssh maruko sudo poweroff', 'deny'],
   ['systemctl reboot', 'deny'],

@@ -23,9 +23,9 @@
 // declarativa ja cobre bem nao se duplica aqui: duplicar espalha a manutencao e
 // faz as duas divergirem com o tempo.
 //
-// Decisao do mantenedor (2026-10-29): so o COMMIT pergunta; `git push` e `gh pr create`
-// nao aparecem abaixo, porque so acontecem depois de um commit autorizado. Sem regra de SQL: nao ha banco de
-// producao local.
+// Decisao do mantenedor: COMMIT e MERGE (`git merge`, `gh pr merge`) pedem autorizacao nominal, por acao. `git push` e
+// `gh pr create` nao aparecem abaixo, porque so acontecem depois de um commit autorizado; o merge tambem fica no
+// `permissions.ask` de .claude/settings.json (segunda camada). Sem regra de SQL: nao ha banco de producao local.
 //
 // Falha aberta, deliberadamente: payload ilegivel ou erro interno sai com 0. Um
 // gate que derruba o turno e desligado na primeira vez que atrapalha, e ai nao
@@ -93,14 +93,19 @@ const REGRAS = [
   // dada: o gate nao distinguia "nao autorizado" de "autorizado", porque nunca
   // chegava a perguntar. Achado ao tentar commitar a propria spec 101 (F5), com
   // autorizacao nominal dada e recusada pelo gate.
-  // Em 2026-11-22 o mantenedor reduziu o ask deste hook a commit (ordem: "Autorizacao
-  // e so pra commit"). Worktree e escrita na VM sairam daqui; merge fica no
-  // `permissions.ask` de .claude/settings.json.
+  // Politica do mantenedor: so commit e merge pedem autorizacao aqui. Worktree e escrita na VM ficaram de fora.
   {
     nome: 'commit-sem-autorizacao',
     decisao: 'ask',
     test: /\bgit\s+commit\b/,
     porque: 'AGENTS.md §Decisao, pausa e duvida: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
+  },
+  {
+    nome: 'merge-sem-autorizacao',
+    decisao: 'ask',
+    // `(?![\w-])` deixa passar `git merge-base`; `git log --merges` e `gh pr view` não casam.
+    test: /\bgit\s+merge(?![\w-])|\bgh\s+pr\s+merge(?![\w-])/,
+    porque: 'AGENTS.md §Decisao, pausa e duvida: merge (git merge, gh pr merge) exige autorizacao nominal do mantenedor, por acao. "pode seguir"/"corrija" NAO autorizam merge.',
   },
   {
     nome: 'pacote-novo',
