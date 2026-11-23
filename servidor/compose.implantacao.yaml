@@ -12,7 +12,33 @@ networks:
       config:
         - subnet: 172.29.250.0/24
 services:
+  # wal_level=logical para a replicação da troca de banco (spec 009 R15, decisão 12). Mudar `command` exige reinício do
+  # banco: o passo `preparar` do trocar-banco.sh faz isso atrás de PAUSE, antes do primeiro deploy com este arquivo.
   banco:
+    restart: unless-stopped
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+  # Banco de destino da troca (R15, T5.2). Só sobe com `--profile troca-banco`. Sem porta publicada, volume próprio.
+  # Mesmas variáveis, healthcheck e `command` do `banco` (as referências ao ambiente são as mesmas; sem valor literal).
+  banco_novo:
+    profiles: ["troca-banco"]
+    build: ./banco
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+    environment:
+      POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
+      PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+      PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
+      PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
+      PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
+      PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
+      PHATI_BANCO_REPLICADOR_SENHA: ${PHATI_BANCO_REPLICADOR_SENHA:-}  # `:?` aqui quebra o `config` sem profile (medido, compose valida serviço inativo)
+    volumes:
+      - dados_banco_novo:/var/lib/postgresql
+      - ./banco/papeis.sql:/papeis.sql:ro
+      - ./banco/inicializar-papeis.sh:/docker-entrypoint-initdb.d/inicializar-papeis.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $$PHATI_BANCO_NOME"]
+      interval: 5s
+      retries: 10
     restart: unless-stopped
   pgb_ns:
     restart: unless-stopped
@@ -31,6 +57,16 @@ services:
     profiles: !reset []
     environment:
       PHATI_IMPLANTACAO: "1"
+  # Banco ativo (spec 009 R15, T5.4d): `compose.yaml` põe `banco` em `depends_on` de migracao, banco_extensoes e pgb_auth.
+  # Com `PHATI_BANCO_DESTINO=banco_novo`, o `run` desses serviços subia o `banco` antigo. Aqui a dependência sai: o
+  # `implantar.sh` sobe o banco ativo antes de qualquer `run` (`up -d --wait "$banco_srv"`). O dev segue no compose.yaml.
+  migracao:
+    depends_on:
+      banco: !reset null
+  banco_extensoes:
+    depends_on: !reset []
+  pgb_auth:
+    depends_on: !reset []
   estaticos_verde:
     profiles: !reset []
   nginx:
@@ -47,3 +83,6 @@ services:
       TUNNEL_TOKEN: ${PHATI_TUNEL_TOKEN:?}
     depends_on:
       nginx: {condition: service_started}
+
+volumes:
+  dados_banco_novo:

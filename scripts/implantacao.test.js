@@ -63,6 +63,8 @@ function criarVm({ comEnv = true } = {}) {
   const visto = path.join(raiz, 'alvo-visto.log');
   // PHATI_ALVO_DIR que cada chamada ao Docker recebeu (X4: o backup e a restauração resolvem o caminho sem a variável).
   const alvoVars = path.join(raiz, 'alvo-vars.log');
+  // COMPOSE_PROFILES que cada chamada ao Docker viu (spec 009 R15, T5.4c: `banco_novo` só existe com o profile da troca).
+  const perfis = path.join(raiz, 'perfis.log');
   const dublê = path.join(raiz, 'docker-dubles.sh');
   fs.writeFileSync(
     dublê,
@@ -71,6 +73,7 @@ function criarVm({ comEnv = true } = {}) {
       'echo "$*" >> "$CHAMADAS"',
       'echo "${PHATI_ALVO_DIR:-sem-alvo}" >> "$ALVO_VARS"',
       'echo "${COMPOSE_PROJECT_NAME:-sem-projeto}" >> "$PROJETOS"',
+      'echo "${COMPOSE_PROFILES:-sem-perfil}" >> "$PERFIS"',
       'case "$*" in',
       '  *"comum.compat_migracao"*) printf "[%s]\\n" "$@" > "$ARGV"; [[ -n "${DUBLE_COMPAT_SAIDA:-}" ]] && printf "%s\\n" "$DUBLE_COMPAT_SAIDA"; exit "${DUBLE_COMPAT_RC:-0}" ;;',
       '  *" build"*) [[ "${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1 ;;',
@@ -148,6 +151,7 @@ function criarVm({ comEnv = true } = {}) {
     PGB_MARCA: unix(path.join(raiz, 'pgb-no-ar')),
     ARGV: unix(path.join(vm, 'compat-argv.log')),
     PROJETOS: unix(projetos),
+    PERFIS: unix(perfis),
     // Vazio = padrão `phati`, mesmo que o ambiente de quem roda tenha PHATI_PROJETO.
     PHATI_PROJETO: '',
   };
@@ -177,7 +181,8 @@ function criarVm({ comEnv = true } = {}) {
   const contarChamadas = (trecho) => lerChamadas().filter((linha) => linha.includes(trecho)).length;
   const lerProjetos = () => (fs.existsSync(projetos) ? fs.readFileSync(projetos, 'utf8').split('\n').filter(Boolean) : []);
   const lerAlvoVars = () => (fs.existsSync(alvoVars) ? fs.readFileSync(alvoVars, 'utf8').split('\n').filter(Boolean) : []);
-  return { vm, repo, promovido, semInfra, foraDeMain, lerAlvoVars, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
+  const lerPerfis = () => (fs.existsSync(perfis) ? fs.readFileSync(perfis, 'utf8').split('\n').filter(Boolean) : []);
+  return { vm, repo, promovido, semInfra, foraDeMain, lerAlvoVars, lerPerfis, rodar, lerChamadas, lerProjetos, lerFlock, indice, registro, limpar, promover, zerar, lerAlvo, lerArquivo, contarChamadas, visto, alvo: path.join(vm, 'alvo'), trabalho, lerArgv: () => fs.readFileSync(path.join(vm, 'compat-argv.log'), 'utf8') };
 }
 let contadorPromocao = 0;
 
@@ -1096,6 +1101,131 @@ test('PHATI_HOSTS_PERMITIDOS: hostil recusa cedo sem tocar o Docker; ausente usa
     const ausente = v.rodar(IMPLANTAR, [v.promovido]);
     assert.equal(ausente.status, 0, ausente.stderr);
     assert.ok(v.lerChamadas().some((linha) => linha.includes('Host: localhost')), 'sem a variável, usa localhost');
+  } finally {
+    v.limpar();
+  }
+});
+
+// Banco ativo (spec 009 R15, T5.4c): `banco-ativo` = banco_novo faz os scripts falarem com esse serviço e ligarem o profile da
+// troca. Sem o arquivo, o padrão é `banco` e nenhum profile é ligado. Valor hostil recusa antes de qualquer chamada ao Docker.
+// Chamada que mexe no serviço `banco` (palavra exata, não `banco_novo` nem `banco_extensoes`).
+const tocaBancoAntigo = (chamadas) => chamadas.filter((l) => /(^| )banco( |$)/.test(l));
+
+test('implantar com banco-ativo=banco_novo sobe, espera e faz backup de banco_novo, com o profile da troca', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('up -d --wait banco_novo') >= 0, 'faltou subir banco_novo');
+    assert.ok(v.indice('exec -T banco_novo sh -c') >= 0, 'o backup tem de ler banco_novo');
+    assert.ok(v.lerChamadas().includes('volume inspect phati_dados_banco_novo'), 'tem_dados tem de olhar o volume dados_banco_novo');
+    assert.deepEqual(tocaBancoAntigo(v.lerChamadas()), [], 'o serviço banco antigo não pode ser tocado');
+    assert.ok(v.lerPerfis().length > 0 && v.lerPerfis().every((p) => p === 'troca-banco'), v.lerPerfis().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar sem banco-ativo usa banco e não liga profile nenhum', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('up -d --wait banco') >= 0);
+    assert.ok(v.lerChamadas().includes('volume inspect phati_dados_banco'));
+    assert.equal(v.lerChamadas().filter((l) => l.includes('banco_novo')).length, 0);
+    assert.ok(v.lerPerfis().every((p) => p === 'sem-perfil'), v.lerPerfis().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('implantar recusa banco-ativo hostil ou fora de banco e banco_novo, sem tocar o Docker', () => {
+  const v = criarVm();
+  try {
+    for (const ruim of ['banco; rm -rf /', ' ', 'banco_velho', '']) {
+      fs.writeFileSync(path.join(v.vm, 'banco-ativo'), ruim);
+      const r = v.rodar(IMPLANTAR, [v.promovido]);
+      assert.equal(r.status, 1, JSON.stringify(ruim));
+      assert.match(r.stderr, /banco-ativo tem valor inválido/);
+    }
+    assert.deepEqual(v.lerChamadas(), []);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh com banco-ativo=banco_novo faz o pg_dump nesse serviço, com o profile da troca', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const r = v.rodar(BACKUP, ['ab']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('exec -T banco_novo sh -c') >= 0, v.lerChamadas().join('\n'));
+    assert.deepEqual(tocaBancoAntigo(v.lerChamadas()), []);
+    assert.ok(v.lerPerfis().length > 0 && v.lerPerfis().every((p) => p === 'troca-banco'), v.lerPerfis().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh sem banco-ativo faz o pg_dump em banco, sem profile', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(BACKUP, ['ab']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('exec -T banco sh -c') >= 0);
+    assert.ok(v.lerPerfis().every((p) => p === 'sem-perfil'), v.lerPerfis().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('backup.sh recusa banco-ativo hostil sem tocar o Docker', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_velho\n');
+    const r = v.rodar(BACKUP, ['ab']);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /banco-ativo tem valor inválido/);
+    assert.deepEqual(v.lerChamadas(), []);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('restaurar com banco-ativo=banco_novo sobe e restaura banco_novo, com o profile da troca', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    const dump = unix(path.join(pasta, 'phati-1.dump'));
+    fs.writeFileSync(dump, 'dados');
+    const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(v.indice('up -d --wait banco_novo') >= 0, 'faltou subir banco_novo');
+    assert.ok(v.indice('exec -T banco_novo sh -c') >= 0, 'a restauração tem de ir a banco_novo');
+    assert.deepEqual(tocaBancoAntigo(v.lerChamadas()), []);
+    assert.ok(v.lerPerfis().length > 0 && v.lerPerfis().every((p) => p === 'troca-banco'), v.lerPerfis().join(','));
+  } finally {
+    v.limpar();
+  }
+});
+
+test('restaurar recusa banco-ativo hostil sem tocar o Docker', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco; rm -rf /');
+    const pasta = path.join(v.vm, 'backups');
+    fs.mkdirSync(pasta);
+    const dump = unix(path.join(pasta, 'phati-1.dump'));
+    fs.writeFileSync(dump, 'dados');
+    const r = v.rodar(RESTAURAR, [dump, 'RESTAURAR']);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /banco-ativo tem valor inválido/);
+    assert.deepEqual(v.lerChamadas(), []);
   } finally {
     v.limpar();
   }

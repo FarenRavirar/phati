@@ -55,9 +55,11 @@ jobs:
         run: |
           PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)
           PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)
-          export PHATI_BANCO_DONO_SENHA PHATI_BANCO_APP_SENHA
+          PHATI_BANCO_REPLICADOR_SENHA=$(openssl rand -hex 16)
+          export PHATI_BANCO_DONO_SENHA PHATI_BANCO_APP_SENHA PHATI_BANCO_REPLICADOR_SENHA
           echo "PHATI_BANCO_DONO_SENHA=$PHATI_BANCO_DONO_SENHA" >> "$GITHUB_ENV"
           echo "PHATI_BANCO_APP_SENHA=$PHATI_BANCO_APP_SENHA" >> "$GITHUB_ENV"
+          echo "PHATI_BANCO_REPLICADOR_SENHA=$PHATI_BANCO_REPLICADOR_SENHA" >> "$GITHUB_ENV"
           PGPASSWORD="${{ github.run_id }}-superusuario" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -f banco/papeis.sql
       - run: python manage.py check
       # Imagem do nginx dos testes (`nginx -t` com `--pull never`): puxa a referência fixada em compose.yaml, sem copiar o digest.
@@ -112,6 +114,7 @@ jobs:
             echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
             echo "PHATI_BANCO_APP_USUARIO=app"
             echo "PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_REPLICADOR_SENHA=$(openssl rand -hex 16)"
           } >> "$GITHUB_ENV"
       - run: docker compose up -d --build
       - name: Implantação não publica porta em nenhum serviço (spec 006 A1)
@@ -192,6 +195,7 @@ jobs:
             echo "PHATI_BANCO_DONO_SENHA=$(openssl rand -hex 16)"
             echo "PHATI_BANCO_APP_USUARIO=app"
             echo "PHATI_BANCO_APP_SENHA=$(openssl rand -hex 16)"
+            echo "PHATI_BANCO_REPLICADOR_SENHA=$(openssl rand -hex 16)"
             echo "PHATI_AMBIENTE=teste"
             echo "PHATI_MAPA_TESTE_ATIVO=1"
           } >> "$GITHUB_ENV"

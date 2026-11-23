@@ -106,6 +106,14 @@ erro() {
 projeto="${PHATI_PROJETO:-phati}"
 [[ "$projeto" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || erro "PHATI_PROJETO inválido: use minúsculas, números, _ e -, começando por letra ou número"
 export COMPOSE_PROJECT_NAME="$projeto"
+# Banco ativo (spec 009 R15, T5.4c): `banco` até a troca, `banco_novo` depois (o trocar-banco.sh grava `banco-ativo`). Valor
+# fora da lista vira nome de serviço do compose: recusa antes de qualquer chamada ao Docker.
+banco_srv=banco
+if [[ -f "$dir/banco-ativo" ]]; then banco_srv="$(cat "$dir/banco-ativo")"; fi
+[[ "$banco_srv" == banco || "$banco_srv" == banco_novo ]] || erro "$dir/banco-ativo tem valor inválido"
+# O serviço `banco_novo` só existe com o profile da troca: sem ele o compose não o enxerga.
+if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; fi
+volume_banco="dados_$banco_srv"
 
 # Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O script roda
 # de novo dentro de `flock -w <limite> -E 75 <arquivo> comando`: o sistema solta a trava quando o processo morre, sem trava
@@ -336,12 +344,12 @@ fi
 # Implantação normal: a candidata sobe ao lado da ativa, e o destino só muda depois de ela estar saudável.
 passo=backup
 tem_dados=0
-if [[ -n "$(compor ps -q banco 2>/dev/null)" ]] || "$docker" volume inspect "${COMPOSE_PROJECT_NAME}_dados_banco" >/dev/null 2>&1; then
+if [[ -n "$(compor ps -q "$banco_srv" 2>/dev/null)" ]] || "$docker" volume inspect "${COMPOSE_PROJECT_NAME}_$volume_banco" >/dev/null 2>&1; then
   tem_dados=1
 fi
 if [[ "$tem_dados" == 1 && "$opcao" != "--sem-migracao" ]]; then
   # Banco parado com volume é instalação existente: sobe o banco e tira o backup antes de migrar.
-  compor up -d --wait banco
+  compor up -d --wait "$banco_srv"
   # backup.sh fica ao lado deste script (na VM, em /opt/phati/bin, de dono root, como ele).
   backup_arquivo="$(PHATI_DIR="$dir" DOCKER="$docker" bash "$(dirname "$0")/backup.sh" "${anterior:0:12}")"
 elif [[ "$tem_dados" == 0 ]]; then
@@ -353,7 +361,7 @@ passo=build
 compor build app_"$cand" migracao estaticos_"$cand" pacotes_dono camadas_dono banco_extensoes pgb_auth
 
 passo=banco
-compor up -d --wait banco
+compor up -d --wait "$banco_srv"
 # PostGIS em volume que já existia (o init só roda em volume vazio). Commit antigo sem o serviço: pula e segue.
 # `servicos=$(...)` fora do `if` faz falha do Compose cair no ERR, não virar "pulado" (falha fechada).
 passo=extensoes
