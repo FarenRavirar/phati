@@ -121,8 +121,8 @@ def test_papeis_e_banco_sao_idempotentes():
 def test_pg_hba_necessario_documentado_sem_ser_aplicado():
     # O pg_hba não é gerenciado pelo repositório: a linha fica só no comentário, não vira configuração.
     texto = PAPEIS
-    assert 'host replication replicador 172.29.250.0/24 scram-sha-256' in texto
-    assert 'host <banco> replicador 172.29.250.0/24 scram-sha-256' in texto
+    assert 'host replication replicador <sub-rede-interna> scram-sha-256' in texto
+    assert 'host <banco> replicador <sub-rede-interna> scram-sha-256' in texto
 
 
 # Caso infeliz: o detector precisa reprovar o que deve reprovar, senão o teste acima não vale nada.

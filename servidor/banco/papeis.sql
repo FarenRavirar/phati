@@ -50,5 +50,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"usuario_dono" IN SCHEMA public GRANT SELECT 
 -- pg_hba: o repositório não gerencia `pg_hba.conf`. A imagem gera o padrão no initdb (sem linha de replicação).
 -- A troca de banco (R15) precisa, no `banco` que publica, destas duas linhas (sub-rede interna da implantação:
 -- 172.29.250.0/24, compose.implantacao.yaml; a aplicar fora do repositório, a conferir na VM):
---   host replication replicador 172.29.250.0/24 scram-sha-256
---   host <banco> replicador 172.29.250.0/24 scram-sha-256
+--   host replication replicador <sub-rede-interna> scram-sha-256
+--   host <banco> replicador <sub-rede-interna> scram-sha-256
