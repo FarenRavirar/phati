@@ -328,8 +328,10 @@ saudavel_agora() {
 }
 # Comando completo de recuperação (usado quando a reversão também falha). Vazio = nenhuma pilha servia antes.
 comando_recuperacao() {
-  local ativa_antes="$1" grava="rm -f $(printf '%q' "$alvo_conf")"
-  [[ -z "$ativa_antes" ]] || grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $(printf '%q' "$alvo_conf")"
+  local ativa_antes="$1" grava
+  # Sem pilha anterior o alvo.conf nunca é removido (o nginx monta o diretório, e sem o arquivo ele não sobe): o comando sobe o nginx, que lê o arquivo atual.
+  if [[ -z "$ativa_antes" ]]; then echo "$(comando_compose "up -d --no-deps nginx")"; return; fi
+  grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $(printf '%q' "$alvo_conf")"
   echo "$grava && $(comando_compose "exec -T nginx nginx -s reload")"
 }
 # Comando para subir só o túnel à mão, quando o cloudflared falhou depois da troca.
@@ -343,10 +345,16 @@ reverter() {
   recuperar="$(comando_recuperacao "$ativa")"
   if [[ "$tinha" == 1 ]]; then
     gravar_atomico "$alvo_conf" "$antigo" || erro "$motivo; falha ao gravar o alvo.conf anterior; recupere com: $recuperar"
-  else
-    rm -f "$alvo_conf"
+  elif [[ -n "$ativa" ]]; then
+    # Sem alvo.conf antes (ativa sem o arquivo): grava o destino da ativa. Remover o arquivo deixaria o nginx sem config.
+    gravar_atomico "$alvo_conf" "$(conteudo_alvo "$ativa")" || erro "$motivo; falha ao gravar o alvo.conf de app_$ativa; recupere com: $recuperar"
   fi
+  # Sem alvo.conf antes e sem ativa (primeira implantação): o arquivo fica com a candidata, que é o que o nginx serve.
   if [[ "$recarregou" == 1 ]] && ! nginx_recarrega; then
+    # Sem pilha anterior nada foi revertido: o arquivo segue com a candidata, e o comando de recuperação só sobe o nginx.
+    if [[ "$tinha" != 1 && -z "$ativa" ]]; then
+      erro "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand, mas o nginx não recarregou; recupere com: $recuperar"
+    fi
     erro "$motivo; alvo.conf revertido, mas o nginx não recarregou; recupere com: $recuperar"
   fi
   if [[ -n "$ativa" ]]; then
@@ -358,7 +366,8 @@ reverter() {
     fi
     erro "$motivo; alvo.conf revertido para app_$ativa, que segue servindo"
   fi
-  erro "$motivo; alvo.conf removido (nenhuma pilha servia antes)"
+  [[ "$tinha" != 1 ]] || erro "$motivo; alvo.conf anterior restaurado (nenhuma pilha servia antes)"
+  erro "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand"
 }
 
 # Troca o destino do nginx para a cor $1: grava o alvo.conf, confere `nginx -t`, recarrega e verifica /saude pelo nginx.
@@ -540,11 +549,15 @@ if [[ -n "$falhou" ]]; then
   if [[ "$esquema_migrado" == 1 ]]; then
     erro "$falhou falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_$cand segue no alvo.conf. Suba $falhou à mão com: $(comando_compose "up -d --no-deps $falhou")"
   fi
-  if [[ -n "$ativa" ]]; then
-    gravar_atomico "$dir/ativa" "$ativa" || erro "$motivo; falha ao regravar ativa=$ativa; recupere com: $(comando_recuperacao "$ativa")"
-  else
-    rm -f "$dir/ativa"
+  # Primeira implantação (sem ativa): a candidata já está em `ativa` e no alvo.conf, e não há pilha anterior para reverter.
+  # Não remove nem reverte o alvo.conf (o nginx monta o diretório): diz o que subir à mão.
+  if [[ -z "$ativa" ]]; then
+    if [[ "$falhou" == nginx ]]; then
+      motivo+="; suba o nginx à mão com: $(comando_compose "up -d --no-deps nginx")"
+    fi
+    erro "$motivo; sem pilha anterior: a candidata app_$cand segue no alvo.conf e em ativa, nada revertido"
   fi
+  gravar_atomico "$dir/ativa" "$ativa" || erro "$motivo; falha ao regravar ativa=$ativa; recupere com: $(comando_recuperacao "$ativa")"
   reverter "$alvo_tinha" "$alvo_antigo" 1 "$motivo"
 fi
 # Primeira implantação sobre o layout da 006 (contêiner `app` órfão): só sai depois da troca bem-sucedida. Volumes não são

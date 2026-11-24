@@ -115,7 +115,8 @@ function criarVm({ comEnv = true, nomeVm = 'vm' } = {}) {
       '  *"pg_publication"*) [[ "${DUBLE_PUBLICACAO_FALHA:-0}" == 1 ]] && exit 1; echo "${DUBLE_PUBLICACAO:-0}" ;;',
       // R9/A5 (passos da troca e da faxina): falhas injetadas no `up` do nginx (DUBLE_NGINX_UP_FALHA) e do cloudflared
       // (DUBLE_TUNEL_FALHA), no `rm` do órfão. Os `up` são separados: a mensagem diz qual falhou.
-      '  *"up -d --no-deps nginx"*) [[ "${DUBLE_NGINX_UP_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      // DUBLE_NGINX_UP_2_FALHA: só o segundo `up` do nginx (o da etapa depois da troca; na primeira implantação o primeiro está na troca).
+      '  *"up -d --no-deps nginx"*) [[ "${DUBLE_NGINX_UP_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_NGINX_UP_2_FALHA:-0}" == 1 && "$(grep -c "up -d --no-deps nginx" "$CHAMADAS")" -ge 2 ]] && exit 1 ;;',
       '  *"up -d --no-deps cloudflared"*) [[ "${DUBLE_TUNEL_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"rm -f"*) [[ "${DUBLE_ORFAO_RM_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
@@ -1541,6 +1542,118 @@ test('R9/A5 cloudflared falha depois da troca e a reversão também falha: a men
     const recuperacao = `printf 'set $alvo app_azul;\\nset $pilha azul;\\n' > ${unix(v.alvo)}/alvo.conf && PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload`;
     assert.ok(r.stderr.includes(recuperacao), r.stderr);
     assert.equal(v.lerArquivo('ativa').trim(), 'azul', 'a ativa volta ao anterior antes da reversão do alvo');
+  } finally {
+    v.limpar();
+  }
+});
+
+// Primeira implantação (sem `ativa`): o alvo.conf nunca é removido (o nginx monta o diretório e não sobe sem ele). Antes da
+// correção, a reversão apagava o arquivo e deixava a config inválida.
+test('R9/A5 primeira implantação com cloudflared falhando: alvo.conf segue na candidata, ativa coerente, sem rm na saída e com o comando de subida', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: .+ up -d --no-deps cloudflared; sem pilha anterior: a candidata app_azul segue no alvo.conf e em ativa, nada revertido/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'alvo.conf segue apontando a candidata');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'primeira implantação sobe o nginx por contêiner, sem reload');
+    assert.match(v.registro(), /FALHOU: cloudflared falhou depois da troca/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com nginx falhando depois da troca: alvo.conf fica, a mensagem diz como subir o nginx e o túnel não é tentado', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_NGINX_UP_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /nginx falhou depois da troca; cloudflared não foi tentado; suba o nginx à mão com: .+ up -d --no-deps nginx; sem pilha anterior: a candidata app_azul segue no alvo.conf e em ativa, nada revertido/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.indice('up -d --no-deps cloudflared'), -1, 'o túnel não é tocado quando o nginx falha');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com /saude falhando na troca: mantém o alvo.conf da candidata, não grava ativa e diz que não há pilha anterior', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDA_NGINX_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; sem pilha anterior: alvo.conf segue apontando app_azul/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'o arquivo não some: o nginx o monta');
+    assert.equal(fs.existsSync(path.join(v.vm, 'ativa')), false, 'a ativa não é gravada antes da troca');
+    assert.match(v.registro(), /FALHOU: \/saude pelo nginx falhou/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 ativa sem alvo.conf e /saude falhando: a reversão grava o destino da ativa (app_azul) em vez de remover o arquivo', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.alvo, 'alvo.conf'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; alvo.conf revertido para app_azul, que segue servindo/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'alvo.conf com o destino da ativa');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com /saude e reload falhando na reversão: diz que não há pilha anterior, mantém o alvo.conf da candidata e o comando não tem rm', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_NGINX_UP_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; sem pilha anterior: alvo.conf segue apontando app_azul, mas o nginx não recarregou; recupere com: .+ up -d --no-deps nginx/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.doesNotMatch(r.stderr, /alvo.conf revertido/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'o arquivo existe e aponta a candidata');
+    assert.equal(fs.existsSync(path.join(v.vm, 'ativa')), false, 'a ativa não é gravada');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 ativa sem alvo.conf e reload falhando na reversão: o arquivo fica com o destino da ativa e a saída não tem rm -f', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.alvo, 'alvo.conf'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; alvo.conf revertido, mas o nginx não recarregou; recupere com:/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com cloudflared falhando: a segunda execução não recusa por divergência e sobe verde com azul anterior', () => {
+  const v = criarVm();
+  try {
+    const r1 = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r1.status, 1, r1.stderr);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    const b = v.promover();
+    const r2 = v.rodar(IMPLANTAR, [b]);
+    assert.equal(r2.status, 0, r2.stderr);
+    assert.doesNotMatch(r2.stderr, /reconcilie/);
+    assert.match(r2.stdout, /implantado=[0-9a-f]{12} ativa=verde anterior=azul/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
   } finally {
     v.limpar();
   }

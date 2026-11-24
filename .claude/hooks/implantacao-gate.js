@@ -12,7 +12,8 @@
 //
 // Desenho (inverte o parse antigo, que só seguia embrulhos e deixava escapar `source`,
 // `eval`, `timeout`, `xargs`, `ln`, `<(...)` e `echo x | bash`):
-//   a) Um segmento (corte em `;`, `&&`, `||`, `|`, `&`, parênteses, `$(` e crase) que
+//   a) Um segmento (corte em `;`, `&&`, `||`, `|`, `&`, parênteses, `$(` e crase, mesmo dentro de
+//      aspas; escape `\` e aspa fechada não cortam; aspa aberta falha fechada) que
 //      MENCIONA um script protegido, por basename, é negado, salvo quando a palavra de
 //      comando efetiva dele é verbo de leitura/teste (LEITURA, git log|diff|..., sed -n,
 //      bash -n, node --test). Os embrulhos (rtk, sudo, env, exec, ssh, bash -c) saem antes.
@@ -90,6 +91,8 @@ const SUBSTITUICAO = /\$\(((?:[^()]|\([^()]*\))*)\)|`([^`]*)`/g;
 // `bash -n` só checa sintaxe. Shell sem arquivo nem -c lê o comando do stdin (`alimentaShell`).
 function efetivo(tokens) {
   let i = 0;
+  // Texto citado que o comando executa (`bash -c`, `ssh`): quem chama analisa a string dele.
+  let executaTexto = false;
   while (i < tokens.length) {
     const w = tokens[i];
     const base = path.basename(w);
@@ -103,6 +106,7 @@ function efetivo(tokens) {
         i += 1;
       }
     } else if (base === 'ssh') {
+      executaTexto = true;
       i += 1;
       while (i < tokens.length && tokens[i].startsWith('-')) {
         if (SSH_COM_ARG.has(tokens[i])) i += 1;
@@ -122,13 +126,14 @@ function efetivo(tokens) {
         j += 1;
       }
       if (inline) {
+        executaTexto = true;
         i = j; // `bash -c "..."`: o restante já está em tokens, o laço segue desembrulhando
         continue;
       }
       const alimentaShell = !semExecucao && (j >= tokens.length || tokens[j].startsWith('<'));
-      return { cmd: base, resto: tokens.slice(i), semExecucao, alimentaShell };
+      return { cmd: base, resto: tokens.slice(i), semExecucao, alimentaShell, executaTexto };
     } else {
-      return { cmd: base, resto: tokens.slice(i), semExecucao: false, alimentaShell: false };
+      return { cmd: base, resto: tokens.slice(i), semExecucao: false, alimentaShell: false, executaTexto };
     }
   }
   return null;
@@ -146,16 +151,89 @@ function ehLeitura(e) {
   return false;
 }
 
-// Separa o comando em segmentos simples. Quebra em `$(` e crase antes de tirar as aspas, para
-// que `echo "$(...)"` ainda seja visto. Argumento literal de echo/printf é dado, não execução.
-function segmentos(comando) {
-  const sem = comando
-    .replace(/\b(?:echo|printf)\s+(['"])(?:(?!\1)[^$\\]|\\.)*\1/g, ' ')
-    .replace(/\$\(|`/g, '\n');
-  return sem
-    .split(/\n|&&|\|\||[;&|()]/)
-    .map((s) => s.replace(/['"]/g, ' ').trim().split(/\s+/).filter(Boolean))
-    .filter((t) => t.length > 0);
+// Argumento literal de echo/printf é dado, não execução.
+const ECO_LITERAL = /\b(?:echo|printf)\s+(['"])(?:(?!\1)[^$\\]|\\.)*\1/g;
+
+// Corta o texto em segmentos simples. Respeita aspas simples e duplas e o escape `\`: `;`, `|`, `&`,
+// parênteses e nova linha dentro de aspas não cortam. `$(` e crase abrem texto de comando (cortam e
+// voltam a ser comando até o `)` ou a crase de fechamento), mesmo dentro de aspas simples ou duplas. Devolve os
+// segmentos crus (com aspas), ou null se alguma aspa ou substituição ficou aberta.
+function cortarSegmentos(texto) {
+  const segs = [];
+  const pilha = []; // substituições abertas: { aspa de fora, tipo: '(' | '`', prof: parênteses internos }
+  let atual = '';
+  let aspa = null; // null | '"' | "'"
+  const corta = () => {
+    segs.push(atual);
+    atual = '';
+  };
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    // `$(` e crase são examinados também dentro de aspa simples: o texto substituído roda, então
+    // a aspa não esconde o comando (falha fechada, como no HEAD).
+    if (c === '$' && texto[i + 1] === '(') {
+      pilha.push({ aspa, tipo: '(', prof: 0 });
+      aspa = null;
+      corta();
+      i += 1;
+    } else if (c === '`') {
+      const topo = pilha.at(-1);
+      if (topo?.tipo === '`') {
+        pilha.pop();
+        aspa = topo.aspa;
+      } else {
+        pilha.push({ aspa, tipo: '`', prof: 0 });
+        aspa = null;
+      }
+      corta();
+    } else if (aspa === "'") {
+      if (c === "'") aspa = null;
+      atual += c;
+    } else if (c === '\\') {
+      atual += c + (texto[i + 1] ?? '');
+      i += 1;
+    } else if (aspa === '"') {
+      if (c === '"') aspa = null;
+      atual += c;
+    } else if (c === '"' || c === "'") {
+      aspa = c;
+      atual += c;
+    } else if (c === '(') {
+      const topo = pilha.at(-1);
+      if (topo?.tipo === '(') topo.prof += 1;
+      corta();
+    } else if (c === ')') {
+      const topo = pilha.at(-1);
+      if (topo?.tipo === '(') {
+        if (topo.prof === 0) {
+          pilha.pop();
+          aspa = topo.aspa;
+        } else {
+          topo.prof -= 1;
+        }
+      }
+      corta();
+    } else if (c === ';' || c === '&' || c === '|' || c === '\n') {
+      corta();
+    } else {
+      atual += c;
+    }
+  }
+  if (aspa !== null || pilha.length > 0) return null;
+  corta();
+  return segs;
+}
+
+// Tokens de um segmento cru: aspas viram espaço, então `rg "a b"` dá dois tokens (mais tokens = mais
+// alvos vistos, nunca menos).
+function tokenizar(bruto) {
+  return bruto.replace(/['"]/g, ' ').trim().split(/\s+/).filter(Boolean);
+}
+
+// Conteúdo das strings citadas de um segmento: é o comando que `bash -c` e `ssh` executam.
+const CITACAO = /"((?:[^"\\]|\\.)*)"|'([^']*)'/g;
+function citacoes(bruto) {
+  return [...bruto.matchAll(CITACAO)].map((m) => m[1] ?? m[2]);
 }
 
 // Tira o texto de mensagem (heredoc e -m/-F/--body/--title/--body-file) e devolve o comando que executa.
@@ -186,19 +264,28 @@ function alvosProtegidos(tokens) {
   return tokens.map((t) => path.basename(t)).filter((n) => PROTEGIDOS.has(n));
 }
 
-// Devolve { regra, alvo } da primeira regra (na ordem de REGRAS) que casa algum alvo, ou null.
-function decidir(comando) {
-  const executavel = separarTexto(comando);
-  const alvosNoTexto = alvosProtegidos(tokensDoTexto(executavel));
-  if (alvosNoTexto.length === 0) return null;
+// Alvos protegidos que o texto executa. Recursivo: a string citada de `bash -c` e de `ssh` é outro
+// comando e é analisada do mesmo jeito. Aspa aberta: falha fechada, vale qualquer alvo citado no texto.
+function alvosDoTexto(texto) {
+  const noTexto = alvosProtegidos(tokensDoTexto(texto));
+  const segs = cortarSegmentos(texto.replace(ECO_LITERAL, ' '));
+  if (!segs) return noTexto;
 
   const alvos = [];
-  for (const tokens of segmentos(executavel)) {
+  for (const bruto of segs) {
+    const tokens = tokenizar(bruto);
+    if (tokens.length === 0) continue;
     const e = efetivo(tokens);
     if (!e || !ehLeitura(e)) alvos.push(...alvosProtegidos(tokens));
-    if (e && (CONSUMIDORES.has(e.cmd) || e.alimentaShell)) alvos.push(...alvosNoTexto);
+    if (e && (CONSUMIDORES.has(e.cmd) || e.alimentaShell)) alvos.push(...noTexto);
+    if (e?.executaTexto) for (const citado of citacoes(bruto)) alvos.push(...alvosDoTexto(citado));
   }
+  return alvos;
+}
 
+// Devolve { regra, alvo } da primeira regra (na ordem de REGRAS) que casa algum alvo, ou null.
+function decidir(comando) {
+  const alvos = alvosDoTexto(separarTexto(comando));
   const regra = REGRAS.find((r) => r.scripts.some((n) => alvos.includes(n)));
   if (!regra) return null;
   return { regra, alvo: regra.scripts.find((n) => alvos.includes(n)) };
@@ -231,4 +318,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { decidir, efetivo, segmentos };
+module.exports = { decidir, efetivo, cortarSegmentos };

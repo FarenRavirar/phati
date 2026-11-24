@@ -91,6 +91,43 @@ const NEGADOS = [
   'git commit -F - <<\'FIM\'\n$(scripts/implantar.sh x)\nFIM',
   // segundo segmento executa mesmo com o primeiro sendo git add
   'git add x; scripts/implantar.sh y',
+  // checagem de sintaxe com rtk libera só o -n; qualquer outra opção ou o script em execução nega
+  'rtk bash scripts/implantar.sh x',
+  'rtk bash -c "scripts/implantar.sh x"',
+  'rtk bash -x scripts/implantar.sh',
+  'rtk bash -n scripts/implantar.sh; rtk bash scripts/implantar.sh x',
+  // aspas: o corte respeita aspas, mas o conteúdo citado continua examinado quando é executado
+  'echo "a|b"; scripts/implantar.sh x',
+  'rtk rg "scripts/implantar.sh|y" f | bash',
+  'echo "scripts/implantar.sh x" | bash',
+  'bash -c "true; scripts/implantar.sh x"',
+  "sh -c 'a | scripts/restaurar.sh'",
+  'eval "true; scripts/implantar.sh x"',
+  'rg "$(scripts/implantar.sh x)" f',
+  'rtk rg "`scripts/implantar.sh x`" f',
+  'ssh h "cd x && scripts/implantar.sh y"',
+  'ssh h "cat x && scripts/implantar.sh y"',
+  'bash -c "cat f | scripts/implantar.sh x"',
+  "bash -c 'cat x; scripts/implantar.sh x'",
+  'rtk rg "$(cat x; scripts/implantar.sh)" f',
+  // aspas não fechadas: falha fechada, nega se citar o script
+  'rtk rg "scripts/implantar.sh f',
+  "rtk rg 'scripts/implantar.sh f",
+  // aspa simples é literal para o shell que lê o texto, mas o texto citado é executado depois: continua negado
+  "bash -c '$(scripts/implantar.sh x)'",
+  "sh -c 'echo `scripts/restaurar.sh x`'",
+  "eval '$(scripts/implantar.sh x)'",
+  "ssh h '$(scripts/implantar.sh x)'",
+  "echo '$(scripts/implantar.sh x)' | bash",
+  "bash <<< '$(scripts/implantar.sh x)'",
+  "xargs -I{} sh -c '$(scripts/implantar.sh {})'",
+  "timeout 5 bash -c '$(scripts/implantar.sh x)'",
+  "rtk sudo bash -lc 'true; scripts/implantar.sh x'",
+  "bash <<'FIM'\n$(scripts/implantar.sh x)\nFIM",
+  "trap '$(scripts/implantar.sh x)' EXIT",
+  // aspa simples não esconde `$(` nem crase: o texto substituído é executado, então falha fechada
+  "rtk rg '$(scripts/implantar.sh x)' f",
+  "rtk rg '`scripts/implantar.sh x`' f",
 ];
 
 for (const comando of NEGADOS) {
@@ -121,6 +158,17 @@ const LIBERADOS = [
   'rtk rg implantar.sh scripts',
   'bash -n scripts/implantar.sh',
   'bash -n /opt/phati/bin/implantar.sh',
+  'rtk bash -n scripts/implantar.sh',
+  'rtk sh -n scripts/restaurar.sh',
+  'rtk bash -n -- scripts/implantar.sh',
+  'rtk bash -ne scripts/implantar.sh',
+  'rtk bash --norc -n scripts/implantar.sh',
+  'rtk /bin/bash -n scripts/implantar.sh',
+  'rtk bash -n "scripts/implantar.sh"',
+  'rtk bash -n scripts/implantar.sh 2>&1',
+  'rtk bash -n scripts/implantar.sh && echo ok',
+  'rtk bypass bash -n scripts/implantar.sh',
+  'rtk sudo bash -n scripts/implantar.sh',
   'gh workflow run implantar -f sha=abc',
   'node --test scripts/implantar.test.js',
   'cat scripts/implantar.sh',
@@ -160,6 +208,12 @@ const LIBERADOS = [
   // verbo que não é leitura: só o texto de --body/--title tira o nome do script do caminho de execução
   'gh pr comment 12 --body "corpo cita scripts/implantar.sh"',
   'gh issue create --title "x" --body "scripts/implantar.sh"',
+  // aspas e escape: `;`, `|`, `&&` dentro de aspas ou escapados são texto do argumento, não corte
+  'rtk rg -c "if false|elif false" scripts/implantar.sh',
+  'rtk rg -n "a;b" scripts/implantar.sh',
+  "grep -E 'x||y&&z' scripts/restaurar.sh",
+  'rtk bash -n scripts/implantar.sh; echo "bash -n rc=$?"; rtk rg -c "if false|elif false" scripts/implantar.sh',
+  'rtk rg a\\; scripts/implantar.sh',
 ];
 
 for (const comando of LIBERADOS) {
