@@ -488,7 +488,8 @@ gravar_env_destino() {
 gravar_banco_ativo() {
   tmp_banco="$(mktemp "$dir/.banco-ativo.XXXXXX")"
   # mktemp cria 600 e os scripts de implantação (outro usuário) leem este arquivo: sai 644 com o dono do diretório.
-  chmod 644 "$tmp_banco"
+  # O resultado é checado: na recuperação (`completar_persistencia && return 0`) o set -e fica suspenso.
+  chmod 644 "$tmp_banco" || erro "não consegui ajustar o modo de banco-ativo"
   chown --reference="$dir" "$tmp_banco" 2>/dev/null || true
   printf '%s\n' "$NOVO" > "$tmp_banco" && mv -f "$tmp_banco" "$dir/banco-ativo" || erro "não consegui gravar banco-ativo"
   tmp_banco=""
@@ -497,8 +498,8 @@ gravar_banco_ativo() {
 # no `banco` (estado do preparar), nunca a falta dele no banco_novo.
 gravar_banco_logico() {
   tmp_banco="$(mktemp "$dir/.banco-logico.XXXXXX")"
-  # Mesmo motivo de gravar_banco_ativo: o marcador é lido pelo usuário de implantação.
-  chmod 644 "$tmp_banco"
+  # Mesmo motivo de gravar_banco_ativo: o marcador é lido pelo usuário de implantação, e o resultado do chmod é checado.
+  chmod 644 "$tmp_banco" || erro "não consegui ajustar o modo de banco-logico"
   chown --reference="$dir" "$tmp_banco" 2>/dev/null || true
   printf 'logica\n' > "$tmp_banco" && mv -f "$tmp_banco" "$dir/banco-logico" || erro "não consegui gravar banco-logico"
   tmp_banco=""
@@ -521,8 +522,17 @@ completar_persistencia() {
   if (( ativo_ok + env_ok == 1 )) && [[ ! -e "$marcador" ]]; then
     erro "persistência parcial da troca (banco-ativo ou .env já diz banco_novo, o outro não) sem o marcador $marcador: reconcilie à mão antes de repetir; nada foi alterado"
   fi
+  # Ponto sem volta já passou: um erro daqui não pode apagar o marcador (limpar_marcador só apaga com comitado=0).
+  comitado=1
   if (( ativo_ok == 0 )); then gravar_banco_ativo; completou="banco-ativo"; fi
   if (( env_ok == 0 )); then gravar_env_destino; completou="${completou:+$completou,}env"; fi
+  # Arquivos que não passam pelos gravar_*: banco-ativo que já dizia banco_novo (ativo_ok=1) e banco-logico, se existir, saem 644
+  # com o dono do diretório, como os gravados. Antes do marcador: falha aborta com o marcador ainda presente.
+  for f in "$dir/banco-ativo" "$dir/banco-logico"; do
+    [[ -e "$f" ]] || continue
+    chmod 644 "$f" || erro "não consegui ajustar o modo de $(basename "$f")"
+    chown --reference="$dir" "$f" 2>/dev/null || true
+  done
   # Falha ao remover o marcador aborta antes do trocar_ok (lote 2, R5): o marcador que sobra recusa a próxima execução.
   rm -f "$marcador" || erro "não consegui remover o marcador $marcador: troca não completada"
   if [[ -z "$completou" ]]; then
