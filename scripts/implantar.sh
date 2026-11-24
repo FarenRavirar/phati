@@ -67,10 +67,15 @@ registrar() {
   [[ -z "$migracao" ]] || extra+=" migracao=$migracao"
   printf '%s %s %s%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${sha:-sem-sha}" "$*" "$extra" >> "$registro" 2>/dev/null || true
 }
+# Comando compose para o operador colar: caminhos e nome do projeto saem com `printf %q` (espaço ou caractere de shell não
+# divide o comando). Texto igual ao antigo para valor simples; o `$1` é texto fixo do script.
+comando_compose() {
+  printf 'PHATI_ALVO_DIR=%q COMPOSE_PROJECT_NAME=%q docker compose --env-file %q -f %q -f %q %s\n' "$alvo_dir" "$COMPOSE_PROJECT_NAME" "$dir/.env" "$dir/repo/servidor/compose.yaml" "$dir/repo/servidor/compose.implantacao.yaml" "$1"
+}
 # Comando exato para subir a ativa de volta (usado quando ela foi parada e a implantação falhou depois).
 comando_subir_ativa() {
   if [[ -z "$ativa" ]]; then echo "$docker start ${legado_ids//$'\n'/ }"; return; fi
-  echo "PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
+  comando_compose "up -d --no-deps app_$ativa"
 }
 # Primeiro arquivo de infraestrutura que falta em $1 (commit); vazio = completa. Só arquivo regular (100644/100755) serve à
 # montagem: link simbólico (120000) ou diretório (040000) com o mesmo nome não serve (medido com git ls-tree).
@@ -223,6 +228,15 @@ if [[ -f "$dir/ativa" ]]; then
   ativa="$(cat "$dir/ativa")"
   [[ "$ativa" == azul || "$ativa" == verde ]] || erro "$dir/ativa tem valor inválido"
 fi
+# Divergência ativa x alvo.conf (falha da reversão pós-troca grava `ativa` antiga com o destino novo no nginx): recusa antes de
+# calcular a candidata e antes de qualquer chamada ao Docker, senão a próxima implantação sobrescreveria a pilha que serve.
+if [[ -n "$ativa" && -e "$alvo_conf" ]]; then
+  servida="$(grep -E '^set \$pilha (azul|verde);$' "$alvo_conf" 2>/dev/null | grep -oE 'azul|verde' || true)"
+  if [[ "$servida" != "$ativa" ]]; then
+    antes_da_troca=0
+    erro "ativa=$ativa mas alvo.conf serve ${servida:-outra coisa}: reconcilie à mão antes de implantar"
+  fi
+fi
 outra() { local atual="$1"; if [[ "$atual" == azul ]]; then echo verde; else echo azul; fi; }
 if [[ -n "$ativa" ]]; then cand="$(outra "$ativa")"; else cand=azul; fi
 primeira=0
@@ -314,13 +328,13 @@ saudavel_agora() {
 }
 # Comando completo de recuperação (usado quando a reversão também falha). Vazio = nenhuma pilha servia antes.
 comando_recuperacao() {
-  local ativa_antes="$1" grava="rm -f $alvo_conf"
-  [[ -z "$ativa_antes" ]] || grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $alvo_conf"
-  echo "$grava && PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload"
+  local ativa_antes="$1" grava="rm -f $(printf '%q' "$alvo_conf")"
+  [[ -z "$ativa_antes" ]] || grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $(printf '%q' "$alvo_conf")"
+  echo "$grava && $(comando_compose "exec -T nginx nginx -s reload")"
 }
 # Comando para subir só o túnel à mão, quando o cloudflared falhou depois da troca.
 comando_tunel() {
-  echo "PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps cloudflared"
+  comando_compose "up -d --no-deps cloudflared"
 }
 
 # Devolve o alvo.conf anterior ($2, se $1 = 1) e recarrega se o nginx já tinha recarregado o destino novo ($3 = 1). Sai com erro.
@@ -521,6 +535,10 @@ if [[ -n "$falhou" ]]; then
     motivo="nginx falhou depois da troca; cloudflared não foi tentado"
   else
     motivo="cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: $(comando_tunel)"
+  fi
+  # Migração fora do fluxo (X2 + Codex P1): a ativa anterior foi parada e o esquema já mudou. Voltar a ela agora derruba a candidata.
+  if [[ "$esquema_migrado" == 1 ]]; then
+    erro "$falhou falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_$cand segue no alvo.conf. Suba $falhou à mão com: $(comando_compose "up -d --no-deps $falhou")"
   fi
   if [[ -n "$ativa" ]]; then
     gravar_atomico "$dir/ativa" "$ativa" || erro "$motivo; falha ao regravar ativa=$ativa; recupere com: $(comando_recuperacao "$ativa")"

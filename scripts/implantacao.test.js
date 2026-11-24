@@ -25,10 +25,10 @@ const git = (diretorio, ...argumentos) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...argumentos], { cwd: diretorio, stdio: 'pipe', encoding: 'utf8' }).trim();
 
 // VM de mentira: remoto com `main`, clone em `repo/` (com a pasta `servidor/`), `.env` e um `docker` que anota e responde.
-function criarVm({ comEnv = true } = {}) {
+function criarVm({ comEnv = true, nomeVm = 'vm' } = {}) {
   const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'implantacao-'));
   const remoto = path.join(raiz, 'remoto.git');
-  const vm = path.join(raiz, 'vm');
+  const vm = path.join(raiz, nomeVm);
   const repo = path.join(vm, 'repo');
   const trabalho = path.join(raiz, 'trabalho');
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remoto]);
@@ -1630,7 +1630,10 @@ test('R17: sem publicação na origem a migração roda normalmente (caminho fel
   try {
     const r = v.rodar(IMPLANTAR, [v.promovido]);
     assert.equal(r.status, 0, r.stderr);
-    assert.ok(v.indice('run --rm migracao') > v.indice('pg_publication'), 'a conferência vem antes da migração');
+    // Sem a consulta no registro (índice -1), a comparação de ordem não pode passar por acaso.
+    const publicacao = v.indice('pg_publication');
+    assert.ok(publicacao >= 0, 'a consulta de publicação foi feita');
+    assert.ok(v.indice('run --rm migracao') > publicacao, 'a conferência vem antes da migração');
     assert.ok(v.indice('run --rm migracao') >= 0);
   } finally {
     v.limpar();
@@ -1643,7 +1646,13 @@ test('R17: a consulta de publicação usa o mesmo PHATI_BANCO_NOME (e o mesmo pa
   const compose = fs.readFileSync(path.join(PASTA, '..', 'servidor', 'compose.yaml'), 'utf8');
   const inicio = compose.indexOf('\n  banco:');
   assert.ok(inicio >= 0, 'serviço banco no compose');
-  assert.equal(compose.slice(inicio).match(/PHATI_BANCO_NOME: (.*)/)[1], '${PHATI_BANCO_NOME:-phati}');
+  // Só o bloco do serviço `banco` (até a próxima chave de serviço, com dois espaços): um serviço posterior com a chave não conta.
+  const resto = compose.slice(inicio + 1);
+  const proximo = resto.search(/\n  [a-z_][a-z_0-9]*:/);
+  const bloco = proximo < 0 ? resto : resto.slice(0, proximo);
+  const chave = bloco.match(/PHATI_BANCO_NOME: (.*)/);
+  assert.ok(chave, 'PHATI_BANCO_NOME dentro do serviço banco');
+  assert.equal(chave[1], '${PHATI_BANCO_NOME:-phati}');
   assert.match(fs.readFileSync(IMPLANTAR, 'utf8'), /-d "\$\{PHATI_BANCO_NOME:-phati\}" -c "SELECT count\(\*\) FROM pg_publication"/);
 });
 
@@ -2688,5 +2697,170 @@ test('R2: destino banco com aspas ou comentário no .env segue nos três scripts
     } finally {
       v.limpar();
     }
+  }
+});
+
+// Revisão do PR 91 (CodeRabbit e Codex): ativa x alvo.conf, escape do comando impresso e migração fora do fluxo na falha pós-troca.
+
+// Dublê de `mv` com contador: falha a partir da (limite+1)ª vez que o destino casa `padrao`. Deixa a troca gravar o alvo.conf
+// e falha só a reversão (a gravação do alvo.conf é `mv` do bash, não o Docker).
+function mvQueFalhaDepois(padrao, limite) {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'mv-falha-'));
+  const mvReal = unix(execFileSync('bash', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim());
+  const contador = unix(path.join(shim, 'contador'));
+  fs.writeFileSync(path.join(shim, 'mv'), `#!/usr/bin/env bash\nfor arg; do :; done\ncase "$arg" in ${padrao}) n=$(( $(cat "${contador}" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${contador}"; [[ "$n" -le ${limite} ]] || { echo "mv: falha simulada" >&2; exit 1; } ;; esac\nexec "${mvReal}" "$@"\n`, { mode: 0o755 });
+  return shim;
+}
+
+test('ativa x alvo.conf: alvo.conf servindo outra pilha recusa antes de qualquer chamada ao Docker, sem aviso de "segue servindo"', () => {
+  const v = criarVm();
+  try {
+    implantarEPromover(v);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    fs.writeFileSync(path.join(v.alvo, 'alvo.conf'), ALVO_VERDE);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2]);
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /ativa=azul mas alvo\.conf serve verde: reconcilie à mão antes de implantar/);
+    assert.doesNotMatch(r.stderr, /segue servindo/, 'o aviso de pilha que segue servindo seria enganoso');
+    assert.deepEqual(v.lerChamadas(), [], 'nenhuma chamada ao Docker');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: alvo.conf consistente com a ativa segue normalmente (caminho feliz)', () => {
+  const v = criarVm();
+  try {
+    implantarEPromover(v);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: falha ao gravar o alvo.conf na reversão pós-troca deixa divergência, e a próxima execução recusa', () => {
+  const v = criarVm();
+  // O 1º mv para alvo.conf é a troca (passa); o 2º é a reversão, que falha.
+  const shim = mvQueFalhaDepois('*/alvo.conf', 1);
+  try {
+    implantarEPromover(v);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2], { ...comPath(shim), DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falha ao gravar o alvo.conf anterior/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_VERDE, 'a reversão não gravou: o alvo segue na candidata');
+    const b3 = v.promover();
+    v.zerar();
+    const segunda = v.rodar(IMPLANTAR, [b3]);
+    assert.equal(segunda.status, 1, segunda.stderr);
+    assert.match(segunda.stderr, /ativa=azul mas alvo\.conf serve verde: reconcilie à mão/);
+    assert.deepEqual(v.lerChamadas(), [], 'a segunda execução não toca no Docker nem sobrescreve a pilha que serve');
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+// Escape (CodeRabbit): o comando impresso para o operador, colado num `bash -c`, não divide um caminho com espaço.
+// O docker do teste é um dublê que grava cada argumento numa linha, então "dividido" aparece como argumento separado.
+function dublePegaArgumentos() {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'docker-argv-'));
+  fs.writeFileSync(path.join(shim, 'docker'), '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$ARGV_DOCKER"\n', { mode: 0o755 });
+  return shim;
+}
+
+test('escape: o comando do túnel impresso com PHATI_DIR com espaço, colado em bash -c, chega ao docker com o caminho inteiro', () => {
+  const v = criarVm({ nomeVm: 'vm com espaco' });
+  const shim = dublePegaArgumentos();
+  const argv = path.join(shim, 'argv.txt');
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const cmd = /suba à mão com: (.+?); alvo\.conf revertido/.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [shim, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.equal(colado.status, 0, colado.stderr);
+    const args = lerLinhas(argv);
+    assert.ok(args.includes(`${unix(v.vm)}/.env`), `--env-file inteiro: ${args}`);
+    assert.ok(args.includes(`${unix(v.vm)}/repo/servidor/compose.yaml`), `-f inteiro: ${args}`);
+    assert.ok(args.includes('cloudflared'), `serviço: ${args}`);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('escape: o comando de recuperação impresso com PHATI_DIR com espaço, colado em bash -c, grava o alvo e chega ao docker inteiro', () => {
+  const v = criarVm({ nomeVm: 'vm com espaco' });
+  const shim = dublePegaArgumentos();
+  const argv = path.join(shim, 'argv.txt');
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_TUNEL_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const cmd = /recupere com: (.+)$/m.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    // Alvo fora da ativa de propósito: o primeiro passo do comando precisa gravar o alvo da ativa (azul) para o teste provar algo.
+    fs.writeFileSync(path.join(v.alvo, 'alvo.conf'), ALVO_VERDE);
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [shim, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.equal(colado.status, 0, colado.stderr);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'o primeiro passo do comando grava o alvo da ativa');
+    const args = lerLinhas(argv);
+    assert.ok(args.includes(`${unix(v.vm)}/repo/servidor/compose.yaml`), `-f inteiro: ${args}`);
+    assert.ok(args.includes('nginx'), `serviço: ${args}`);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+// X2 + CR (Codex P1): migração fora do fluxo parou a ativa e o esquema já mudou. Falha de nginx ou de túnel depois da troca
+// não reverte à versão parada: a candidata segue no alvo.conf e a mensagem diz o comando para subir o serviço à mão.
+test('migração fora do fluxo + cloudflared falha depois da troca: não reverte à ativa parada, mantém a candidata e dá o comando à mão', () => {
+  const v = criarVm();
+  try {
+    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const subir = `PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml up -d --no-deps cloudflared`;
+    assert.ok(r.stderr.includes(`cloudflared falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_verde segue no alvo.conf. Suba cloudflared à mão com: ${subir}`), r.stderr);
+    assert.equal(v.lerAlvo(), ALVO_VERDE, 'a candidata segue no alvo.conf');
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.contarChamadas('nginx -s reload'), 1, 'só o reload da troca: nenhuma reversão recarrega o alvo anterior');
+    assert.match(v.registro(), /FALHOU: cloudflared falhou depois da troca/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('migração fora do fluxo + nginx falha depois da troca: não reverte, mantém a candidata e dá o comando do nginx à mão', () => {
+  const v = criarVm();
+  try {
+    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_NGINX_UP_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const subir = `PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml up -d --no-deps nginx`;
+    assert.ok(r.stderr.includes(`nginx falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_verde segue no alvo.conf. Suba nginx à mão com: ${subir}`), r.stderr);
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.contarChamadas('nginx -s reload'), 1, 'só o reload da troca');
+    assert.equal(v.indice('up -d --no-deps cloudflared'), -1, 'o túnel não é tocado quando o nginx falha');
+  } finally {
+    v.limpar();
   }
 });
