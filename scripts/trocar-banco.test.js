@@ -2474,3 +2474,102 @@ test('E11: sed de restauração falha e o ini está em host=banco_novo → pgb2 
     v.limpar();
   }
 });
+
+// Regressão: o mktemp cria 600 e os scripts de implantação (outro usuário) leem banco-ativo e banco-logico.
+test('trocar: banco-ativo e banco-logico saem 0644 (legíveis pelo usuário de implantação)', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-ativo')).mode & 0o777, 0o644, 'banco-ativo sem modo 0644');
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-logico')).mode & 0o777, 0o644, 'banco-logico sem modo 0644');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('trocar: banco-ativo 600 já existente é substituído por 0644', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco\n', { mode: 0o600 });
+    fs.chmodSync(path.join(v.vm, 'banco-ativo'), 0o600);
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-ativo')).mode & 0o777, 0o644, 'banco-ativo novo herdou o 600 antigo');
+  } finally {
+    v.limpar();
+  }
+});
+
+// `chmod` de mentira no PATH (review do trocar): falha só no `chmod 644` do temporário `.<DUBLE_CHMOD_FALHA>.XXXX`. O
+// `chmod --reference` do `.env` (outro modo, outro caminho) passa.
+function shimChmod(v) {
+  const real = fs.existsSync('/usr/bin/chmod') ? '/usr/bin/chmod' : '/bin/chmod';
+  const dir = path.join(v.vm, 'shim-chmod');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(
+    path.join(dir, 'chmod'),
+    `#!/usr/bin/env bash\nif [[ -n "\${DUBLE_CHMOD_FALHA:-}" && "$1" == 644 && "\${@: -1}" == *"/.$DUBLE_CHMOD_FALHA."* ]]; then exit 1; fi\nexec ${real} "$@"\n`,
+    { mode: 0o755 },
+  );
+  return unix(dir);
+}
+
+// Regressão (review): recuperação com banco-ativo já `banco_novo` (sem regravação) e modo 600 antigo tem de sair 0644.
+test('trocar: recuperação com banco-ativo já novo e modo 600 sai 0644 (banco-ativo e banco-logico)', () => {
+  const v = criarVm();
+  try {
+    fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    for (const nome of ['banco-ativo', 'banco-logico']) {
+      fs.writeFileSync(path.join(v.vm, nome), 'banco_novo\n', { mode: 0o600 });
+      fs.chmodSync(path.join(v.vm, nome), 0o600);
+    }
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=logica passo=pausa\n');
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^trocar_ok ja_trocado=1$/m);
+    assert.deepEqual(v.lerChamadas(), []);
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-ativo')).mode & 0o777, 0o644, 'banco-ativo recuperado ficou sem 0644');
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-logico')).mode & 0o777, 0o644, 'banco-logico recuperado ficou sem 0644');
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), false, 'marcador sobrou depois de recuperar');
+  } finally {
+    v.limpar();
+  }
+});
+
+// Regressão (review): o `chmod 644` do temporário no caminho de recuperação (`completar && return 0`, com set -e suspenso)
+// tem de abortar: sem o erro, o temporário 600 seria publicado e o marcador removido.
+test('trocar: chmod 644 do banco-ativo falha na recuperação → erro, marcador mantido, banco-ativo não publicado', () => {
+  const v = criarVm();
+  try {
+    fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    fs.writeFileSync(path.join(v.vm, 'troca-banco-em-curso'), 'modo=logica passo=pausa\n');
+    const r = trocar(v, { PATH: `${shimChmod(v)}:${process.env.PATH}`, DUBLE_CHMOD_FALHA: 'banco-ativo' });
+    assert.notEqual(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stderr, /ERRO: não consegui ajustar o modo de banco-ativo/);
+    assert.doesNotMatch(r.stdout, /trocar_ok/);
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador removido com o chmod falho');
+    assert.equal(v.bancoAtivo(), null, 'banco-ativo publicado sem o modo 644');
+    assert.deepEqual(temporarios(v, '.banco-ativo.'), [], 'temporário do banco-ativo sobrou');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Regressão (review): o `chmod 644` do banco-logico na troca lógica também tem de abortar, sem publicar nem remover o marcador.
+test('trocar: chmod 644 do banco-logico falha → erro, banco-ativo não publicado e marcador mantido', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { PATH: `${shimChmod(v)}:${process.env.PATH}`, DUBLE_CHMOD_FALHA: 'banco-logico' });
+    assert.notEqual(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stderr, /ERRO: não consegui ajustar o modo de banco-logico/);
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador removido com o chmod falho');
+    assert.equal(v.bancoAtivo(), null, 'banco-ativo publicado antes do banco-logico');
+    assert.deepEqual(temporarios(v, '.banco-logico.'), [], 'temporário do banco-logico sobrou');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
