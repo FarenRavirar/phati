@@ -178,8 +178,23 @@ case "$args" in
   *"grep -q host="*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; est="\${DUBLE_INI_PGB1:-banco_novo}"; [[ "$svc" == pgb2 ]] && est="\${DUBLE_INI_PGB2:-banco_novo}"; [[ "$args" == *"host=banco "* && "$est" == banco ]] || exit 1 ;;
   *"host=banco_novo /host=banco /"*) [[ -n "\${DUBLE_RESTAURA_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESTAURA_FALHA "* ]] && exit 1 ;;
   # PAUSE pendurado (C2): dorme além do limite em DUBLE_PAUSE_PENDURA; o exec troca o processo, então o timeout mata o sleep.
-  *"-c PAUSE"*) [[ -n "\${DUBLE_PAUSE_PENDURA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_PENDURA "* ]] && exec sleep 3; [[ -n "\${DUBLE_PAUSE_FALHA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_FALHA "* ]] && exit 1 ;;
-  *"-c RESUME"*) [[ -n "\${DUBLE_RESUME_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESUME_FALHA "* ]] && exit 1 ;;
+  # Estado do PgBouncer em $VM/.pausado-<instância>: PAUSE (com sucesso) liga, RESUME (com sucesso) desliga.
+  *"-c PAUSE"*) [[ -n "\${DUBLE_PAUSE_PENDURA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_PENDURA "* ]] && exec sleep 3; [[ -n "\${DUBLE_PAUSE_FALHA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_FALHA "* ]] && exit 1; svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; touch "$VM/.pausado-$svc" ;;
+  # RESUME: DUBLE_RESUME_FALHA=<instância> falha e ela segue pausada. DUBLE_REINICIADO=<instância> simula o reinício sem PAUSE: o RESUME
+  # sai com erro (not paused) e a instância fica não pausada, como um PgBouncer que subiu lendo /cfg/banco-destino.
+  *"-c RESUME"*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2
+    if [[ -n "\${DUBLE_REINICIADO:-}" && "$args" == *"exec -T $DUBLE_REINICIADO "* ]]; then rm -f "$VM/.pausado-$svc"; echo "ERROR: not paused" >&2; exit 1; fi
+    [[ -n "\${DUBLE_RESUME_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESUME_FALHA "* ]] && exit 1
+    rm -f "$VM/.pausado-$svc" ;;
+  # SHOW STATE: formato real do psql -A (key|value, active|yes, paused|no ou yes, (2 rows)). DUBLE_ESTADO_FALHA=1: imprime e sai com erro.
+  *"-c SHOW STATE"*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2
+    echo "key|value"; echo "active|yes"
+    if [[ -n "\${DUBLE_ESTADO_VALOR:-}" ]]; then echo "paused|\${DUBLE_ESTADO_VALOR}"
+    elif [[ -e "$VM/.pausado-$svc" ]]; then echo "paused|yes"; else echo "paused|no"; fi
+    echo "(2 rows)"; [[ "\${DUBLE_ESTADO_FALHA:-0}" == 1 ]] && exit 1 ;;
+  # SHOW DATABASES: linha da app com o host em execução (DUBLE_HOST, padrão banco_novo). DUBLE_DB_FALHA=1: sai com erro.
+  *"-c SHOW DATABASES"*) [[ "\${DUBLE_DB_FALHA:-0}" == 1 ]] && exit 1
+    echo "name|host|port|database"; echo "pgbouncer||6432|pgbouncer"; echo "phati|\${DUBLE_HOST:-banco_novo}|5432|phati"; echo "(2 rows)" ;;
 esac
 if [[ "$tag" == assinatura ]]; then touch "$VM/.assinatura-criada"; fi
 exit 0
@@ -890,6 +905,103 @@ test('trocar: RESUME falha depois da troca não restaura o host (sem rollback) e
     v.limpar();
   }
 });
+
+// RESUME que falha num PgBouncer reiniciado na janela promote→RESUME: ele volta sem PAUSE (`not paused`) e serve o host que leu.
+// Conta como retomado só com SHOW STATE `paused|no` E SHOW DATABASES com host `banco_novo` na linha da app. Pausado, consulta
+// falhando ou host antigo seguem falha. Modos lógico e físico.
+const RESUME_PG1 = 'exec -T pgb1 psql -X -q -h /tmp/pgb/pgb1 -p 6432 -U pgbouncer pgbouncer -c RESUME';
+const modos = [
+  { nome: 'lógico', rodar: (v, extra) => trocar(v, extra), registro: /troca-banco trocar OK pausa_ms=\d+ destino=banco_novo/ },
+  { nome: 'físico', rodar: (v, extra) => v.rodar(['trocar', '--modo', 'fisica'], extra), registro: /troca-banco trocar OK modo=fisica pausa_ms=\d+ destino=banco_novo/ },
+];
+for (const m of modos) {
+  test(`trocar ${m.nome}: RESUME de pgb1 falha (reiniciado, not paused), SHOW STATE paused|no e host banco_novo: conta como retomado e a troca conclui`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_REINICIADO: 'pgb1' });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m);
+      assert.ok(v.contar(RESUME_PG1) >= 1, 'o RESUME de pgb1 foi chamado');
+      assert.match(r.stderr, /AVISO: RESUME de pgb1 falhou, mas o pooler não está pausado/);
+      assert.doesNotMatch(r.stderr, /RESUME falhou em/);
+      assert.equal(v.contar(RESTAURA), 0, 'host não pode ser restaurado: o destino já serve');
+      assert.match(v.registro(), m.registro);
+      assert.ok(v.env().includes('PHATI_BANCO_DESTINO=banco_novo'));
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: RESUME de pgb1 falha e SHOW STATE paused|yes (ainda pausado) continua falha depois da troca`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_RESUME_FALHA: 'pgb1' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /AVISO: RESUME falhou em: pgb1/);
+      assert.match(r.stderr, /RESUME falhou depois da troca de host: sem rollback automático/);
+      assert.equal(v.contar(RESTAURA), 0, 'host restaurado depois do ponto sem volta');
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: RESUME de pgb1 falha e SHOW STATE também falha (estado desconhecido) continua falha depois da troca`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_REINICIADO: 'pgb1', DUBLE_ESTADO_FALHA: '1' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /RESUME falhou depois da troca de host: sem rollback automático/);
+      assert.equal(v.contar(RESTAURA), 0, 'host restaurado depois do ponto sem volta');
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: SHOW STATE com valor fora de yes/no (paused|0, formato errado) é desconhecido e segue falha`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_REINICIADO: 'pgb1', DUBLE_ESTADO_VALOR: '0' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /RESUME falhou em: pgb1/);
+      assert.match(r.stderr, /RESUME falhou depois da troca de host: sem rollback automático/);
+      assert.equal(v.contar(RESTAURA), 0, 'host restaurado depois do ponto sem volta');
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: pgb1 não pausado (paused|no) mas com host antigo na linha da app: AVISO com recuperação e falha`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_REINICIADO: 'pgb1', DUBLE_HOST: 'banco' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /RESUME falhou em: pgb1/);
+      assert.match(r.stderr, /pode ter reiniciado com o host antigo/);
+      assert.match(r.stderr, /sed -i 's\/host=banco \/host=banco_novo \/' \/tmp\/pgb\/pgb1\/pgbouncer\.ini/);
+      assert.match(r.stderr, /RESUME falhou depois da troca de host: sem rollback automático/);
+      assert.equal(v.contar(RESTAURA), 0, 'host restaurado depois do ponto sem volta');
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: pgb1 não pausado mas a consulta SHOW DATABASES falha: não confirma o host e segue falha com AVISO`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_REINICIADO: 'pgb1', DUBLE_DB_FALHA: '1' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /RESUME falhou em: pgb1/);
+      assert.match(r.stderr, /pode ter reiniciado com o host antigo/);
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+}
 
 test('trocar: DROP SUBSCRIPTION falho depois do RESUME vira AVISO e a troca conclui', () => {
   const v = criarVm();
