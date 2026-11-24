@@ -69,7 +69,9 @@
       "Bash(*push --force*)",
       "Bash(*push -f *)",
       "Bash(*push origin dev*)",
-      "Bash(*push origin main*)",
+      "Bash(git push origin main*)",
+      "Bash(rtk git push origin main*)",
+      "Bash(rtk bypass git push origin main*)",
       "Bash(*ssh maruko*rm -rf*)",
       "Bash(*ssh maruko*.key*)",
       "Bash(*ssh maruko*.pem*)",
@@ -99,7 +101,8 @@
           { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-enforce.js\"" },
           { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\"" },
           { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\"" },
-          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/branch-gate.js\"" }
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/branch-gate.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/implantacao-gate.js\"" }
         ]
       },
       {

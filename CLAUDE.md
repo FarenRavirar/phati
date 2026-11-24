@@ -33,6 +33,7 @@ texto de resposta. Sem exceção:
 - **Hooks ativos** (`.claude/hooks/`): `rtk-enforce` reescreve/bloqueia comando cru;
   `rtk-read-gate` bloqueia leitura integral de arquivo grande; `git-commit-msg-gate`
   bloqueia `-m @'` e `--amend`; `branch-gate` nega `git commit` em `dev`/`main`, em branch fora do molde `<tipo>/<escopo>` e em branch já mergeada em `origin/dev` (`PHATI_GATE_BRANCH=0` desliga só essa regra); `autorizacao-gate` pergunta antes de `commit` e de `merge` (`git merge`, `gh pr merge`), mesmo com prefixo `rtk` ou dentro de `bash -lc`/`sh -c`, e nega `--amend`, `push --force` e desligar a VM; `caveman-resposta-final` cobra resposta em `ultra`; `recursos-locais-gate` (`Stop`) bloqueia o fim do turno com contêiner Docker ou `vmmemWSL` de pé; já registrado em `hooks.Stop` de `.claude/settings.json` (a edição desse arquivo está em `allow`, por decisão do mantenedor). `wsl --shutdown` o agente roda ao terminar (`allow` em `.claude/settings.local.json`).
+- **Hook `implantacao-gate`** (`PreToolUse` Bash, `.claude/hooks/`): nega a execução direta de `implantar.sh` (com `reverter`/`trocar`), `restaurar.sh` e `backup.sh` na VM, mesmo com `rtk`, `sudo`, `bash -c` ou `ssh`, e manda `gh workflow run implantar -f sha=<SHA>`; pergunta antes de `trocar-banco.sh`, que não tem workflow.
 - **Permissões** (`.claude/settings.json`): `deny` no que não tem exceção (desligar
   máquina, `--amend`, `push --force`); `ask` no que exige autorização por ação
   (commit, merge, `gh pr merge`).
