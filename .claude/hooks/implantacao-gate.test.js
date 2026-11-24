@@ -38,7 +38,7 @@ function assertNegado(resultado, comando) {
   assert.ok(resultado, `esperava deny para: ${comando}, hook passou`);
   assert.equal(resultado.decisao, 'deny', comando);
   assert.equal(resultado.regra, 'implantar-direto', comando);
-  assert.match(resultado.motivo, /gh workflow run implantar -f sha=<SHA>/, comando);
+  assert.match(resultado.motivo, /gh workflow run implantar --ref main -f sha=<SHA>/, comando);
 }
 
 function assertPergunta(resultado, comando) {
@@ -66,6 +66,31 @@ const NEGADOS = [
   'ssh maruko "sudo /opt/phati/bin/restaurar.sh arq RESTAURAR"',
   'rtk bypass bash scripts/implantar.sh sha',
   'bash scripts/trocar-banco.sh x && bash scripts/implantar.sh y',
+  // furos medidos: verbos que executam o argumento, embrulhos, stdin e symlink
+  'source scripts/implantar.sh',
+  '. scripts/implantar.sh',
+  'eval "scripts/implantar.sh x"',
+  'timeout 5 scripts/implantar.sh x',
+  'echo scripts/implantar.sh | bash',
+  'bash <<< "scripts/implantar.sh x"',
+  'xargs scripts/implantar.sh',
+  'ssh -o RemoteCommand="scripts/implantar.sh x" h',
+  'ln -s scripts/implantar.sh /tmp/x; /tmp/x',
+  'env -u HOME scripts/implantar.sh x',
+  'exec -a nome scripts/implantar.sh x',
+  'sudo -u root env -u X bash scripts/implantar.sh x',
+  'cat scripts/implantar.sh | sh',
+  'bash <(cat scripts/implantar.sh)',
+  'source <(cat scripts/implantar.sh)',
+  "echo 'scripts/implantar.sh' | bash",
+  'sed -i s/a/b/ scripts/implantar.sh',
+  'rtk rg --pre bash scripts/implantar.sh x',
+  // texto de mensagem não executa, mas a substituição dentro dele executa
+  'git commit -m "$(scripts/implantar.sh x)"',
+  'gh pr create --body "$(bash scripts/implantar.sh x)"',
+  'git commit -F - <<\'FIM\'\n$(scripts/implantar.sh x)\nFIM',
+  // segundo segmento executa mesmo com o primeiro sendo git add
+  'git add x; scripts/implantar.sh y',
 ];
 
 for (const comando of NEGADOS) {
@@ -80,6 +105,8 @@ const PERGUNTAS = [
   'sudo -n /opt/phati/bin/trocar-banco.sh trocar',
   'bash scripts/trocar-banco.sh x',
   'ssh maruko "sudo /opt/phati/bin/trocar-banco.sh trocar"',
+  'source scripts/trocar-banco.sh x',
+  'echo scripts/trocar-banco.sh | sh',
 ];
 
 for (const comando of PERGUNTAS) {
@@ -105,6 +132,34 @@ const LIBERADOS = [
   'ssh maruko cat /opt/phati/bin/implantar.sh',
   'ssh maruko docker ps',
   'rtk git status',
+  // leitura com script citado, e os caminhos que não citam script
+  'rtk read scripts/implantar.sh',
+  'sed -n 1,5p scripts/implantar.sh',
+  'rtk sed -n 1,5p scripts/implantar.sh',
+  'git log -p -- scripts/implantar.sh',
+  'git diff --cached -- scripts/trocar-banco.sh',
+  'shellcheck scripts/implantar.sh && echo ok',
+  'echo "scripts/implantar.sh"',
+  "echo 'bash scripts/implantar.sh'",
+  'cat scripts/implantar.sh; make build',
+  'gh workflow run implantar --ref main -f sha=abc',
+  'gh workflow run implantar --ref main -f sha=<SHA>',
+  // fluxo de git e de PR que só cita o nome do script como caminho ou como texto de mensagem
+  'git add scripts/implantar.sh',
+  'git commit -m "fix: implantar.sh não executa nada"',
+  'git commit -F - <<\'FIM\'\nfix: corpo cita scripts/implantar.sh\nFIM',
+  'git push -u origin fix/spec-009-fechamento',
+  'git status',
+  'git restore scripts/implantar.sh',
+  'git checkout -- scripts/implantar.sh',
+  'git checkout origin/dev -- scripts/implantar.sh',
+  'gh pr create --title "fix: implantar.sh" --body "corpo cita scripts/implantar.sh"',
+  'gh pr edit 12 --body-file /tmp/corpo.md',
+  'gh pr view 12',
+  'gh pr checks 12',
+  // verbo que não é leitura: só o texto de --body/--title tira o nome do script do caminho de execução
+  'gh pr comment 12 --body "corpo cita scripts/implantar.sh"',
+  'gh issue create --title "x" --body "scripts/implantar.sh"',
 ];
 
 for (const comando of LIBERADOS) {

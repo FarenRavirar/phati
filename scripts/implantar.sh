@@ -18,6 +18,11 @@ if [[ $# -gt 0 ]]; then
   sha="${1:-}"
   opcao="${2:-}"
 else
+  # Quebra de linha ou CR no pedido recusa o pedido inteiro: `read -r` pararia na primeira linha e o resto seria descartado calado.
+  if [[ "${SSH_ORIGINAL_COMMAND:-}" == *$'\n'* || "${SSH_ORIGINAL_COMMAND:-}" == *$'\r'* ]]; then
+    echo "ERRO: pedido com quebra de linha ou CR recusado: nada foi executado" >&2
+    exit 1
+  fi
   read -r sha opcao <<<"${SSH_ORIGINAL_COMMAND:-}" || true
   sha="${sha:-}"
   opcao="${opcao:-}"
@@ -232,9 +237,8 @@ fi
 gravar_atomico() {
   local tmp destino="$1" conteudo="$2"
   tmp="$(mktemp "$(dirname "$destino")/.tmp.XXXXXX")"
-  printf '%s\n' "$conteudo" > "$tmp" || { rm -f "$tmp"; return 1; }
-  chmod 644 "$tmp"
-  mv -f "$tmp" "$destino"
+  # Falha em qualquer passo apaga o temporário (senão sobra `.tmp.*` no diretório que o nginx monta).
+  printf '%s\n' "$conteudo" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$destino" || { rm -f "$tmp"; return 1; }
 }
 # Mesmo contrato de `servidor/nginx/alvo/alvo.conf`: `$alvo` é o app e `$pilha` o volume de estáticos.
 conteudo_alvo() { local cor="$1"; printf 'set $alvo app_%s;\nset $pilha %s;' "$cor" "$cor"; }
@@ -314,6 +318,10 @@ comando_recuperacao() {
   [[ -z "$ativa_antes" ]] || grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $alvo_conf"
   echo "$grava && PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload"
 }
+# Comando para subir só o túnel à mão, quando o cloudflared falhou depois da troca.
+comando_tunel() {
+  echo "PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps cloudflared"
+}
 
 # Devolve o alvo.conf anterior ($2, se $1 = 1) e recarrega se o nginx já tinha recarregado o destino novo ($3 = 1). Sai com erro.
 reverter() {
@@ -343,11 +351,12 @@ reverter() {
 # O alvo.conf anterior fica em `alvo_tinha`/`alvo_antigo` para `ativa`, gravada logo depois, reverter junto se falhar.
 trocar() {
   local novo="$1"
-  antes_da_troca=0
   alvo_tinha=0
   alvo_antigo=""
   if [[ -f "$alvo_conf" ]]; then alvo_tinha=1; alvo_antigo="$(cat "$alvo_conf")"; fi
+  # Falha ao gravar o alvo.conf deixa a ativa servindo (antes_da_troca segue 1: o aviso diz isso).
   gravar_atomico "$alvo_conf" "$(conteudo_alvo "$novo")"
+  antes_da_troca=0
   if ! nginx_recarrega; then
     reverter "$alvo_tinha" "$alvo_antigo" 0 "nginx -t ou reload falhou"
   fi
@@ -429,6 +438,13 @@ passo=migracao
 migracao=pulada
 if [[ "$opcao" != "--sem-migracao" ]]; then
   migracao=nenhuma
+  # R17: nenhuma migração entre o início da replicação lógica e a troca (DDL não é replicado). A publicação criada pelo
+  # trocar-banco.sh existe na origem desde antes do marcador da troca; qualquer publicação na origem recusa a migração.
+  # Consulta que falha recusa também (fecha falhado).
+  publicacoes="$(compor exec -T "$banco_srv" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d "${PHATI_BANCO_NOME:-phati}" -c "SELECT count(*) FROM pg_publication"')" \
+    || erro "não consegui conferir a replicação lógica em $banco_srv (R17): migração não roda"
+  [[ "$publicacoes" =~ ^[0-9]+$ ]] || erro "saída inesperada ao conferir a replicação lógica (R17): migração não roda"
+  [[ "$publicacoes" == 0 ]] || erro "replicação lógica em curso (publicação na origem): migração não roda (R17); termine ou reverta a troca de banco antes"
   # Backup verificado antes de qualquer migração com arquivo a verificar (R8): o caminho vem do backup.sh.
   exigir_backup() {
     [[ -n "$backup_arquivo" && -s "$backup_arquivo" ]] || erro "backup verificado ausente ou vazio: a migração não roda"
@@ -494,15 +510,33 @@ trocar "$cand"
 gravar_atomico "$dir/ativa" "$cand" || reverter "$alvo_tinha" "$alvo_antigo" 1 "falha ao gravar ativa=$cand"
 ativa_parada=0
 passo=nginx-e-tunel
-# A pilha anterior fica de pé (rollback instantâneo). O nginx já recarregou; o `up` só garante o cloudflared.
-compor up -d --no-deps nginx cloudflared
+# A pilha anterior fica de pé (rollback instantâneo). O nginx já recarregou; os dois `up` só garantem nginx e cloudflared.
+# R9: falha aqui é depois da troca, então reverte a troca: `ativa` volta ao anterior antes, para o estado não divergir do alvo.
+# Dois `up` (e não um) para a mensagem dizer qual falhou; sem o nginx, o cloudflared não é tentado.
+falhou=""
+compor up -d --no-deps nginx || falhou=nginx
+if [[ -z "$falhou" ]]; then compor up -d --no-deps cloudflared || falhou=cloudflared; fi
+if [[ -n "$falhou" ]]; then
+  if [[ "$falhou" == nginx ]]; then
+    motivo="nginx falhou depois da troca; cloudflared não foi tentado"
+  else
+    motivo="cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: $(comando_tunel)"
+  fi
+  if [[ -n "$ativa" ]]; then
+    gravar_atomico "$dir/ativa" "$ativa" || erro "$motivo; falha ao regravar ativa=$ativa; recupere com: $(comando_recuperacao "$ativa")"
+  else
+    rm -f "$dir/ativa"
+  fi
+  reverter "$alvo_tinha" "$alvo_antigo" 1 "$motivo"
+fi
 # Primeira implantação sobre o layout da 006 (contêiner `app` órfão): só sai depois da troca bem-sucedida. Volumes não são
 # tocados; o `phati_estaticos` antigo fica como pendência manual. Antes da troca o site segue pelo nginx e pelo app antigos;
 # a troca recria o nginx (blip de ~1 s, não medido).
 passo=orfao
 if [[ "$primeira" == 1 ]]; then
   for id in $("$docker" ps -aq --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME --filter label=com.docker.compose.service=app); do
-    "$docker" rm -f "$id" >/dev/null
+    # Depois da troca a pilha nova já serve: falha aqui não reverte nada, só diz o que sobrou para remover à mão.
+    "$docker" rm -f "$id" >/dev/null || erro "a troca já foi feita (ativa=$cand), mas não consegui remover o app órfão $id: remova à mão com: $docker rm -f $id"
     registrar "removido-orfao=app"
   done
 fi

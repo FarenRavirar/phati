@@ -564,6 +564,16 @@ def test_cli_lote_com_erro_vence_reprovada(tmp_path):
     assert _cli(str(reprovada), str(erro), diretorio=tmp_path).returncode == 2
 
 
+# --- Migração 0001 do catálogo (R5: o implantar a verifica pelo CLI, a partir de `servidor/`) -----------------
+
+def test_migracao_0001_do_catalogo_e_compativel_pelo_cli():
+    # Se a 0001 reprovar, a implantação recusa o SHA: este teste falha antes disso.
+    assert (SERVIDOR / 'catalogo' / 'migrations' / '0001_initial.py').is_file()
+    resultado = _cli('catalogo/migrations/0001_initial.py')
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+    assert resultado.stdout.startswith('OK ') and resultado.stdout.rstrip().endswith('0001_initial.py')
+
+
 # --- Migrações reais do repositório (informação: o teste não exige que todas passem) -------------------------
 
 def test_migracoes_reais_sao_analisadas_sem_erro():
