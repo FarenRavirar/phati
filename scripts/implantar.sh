@@ -331,8 +331,10 @@ comando_recuperacao() {
   local ativa_antes="$1" grava
   # Sem pilha anterior o alvo.conf nunca é removido (o nginx monta o diretório, e sem o arquivo ele não sobe): o comando sobe o nginx, que lê o arquivo atual.
   if [[ -z "$ativa_antes" ]]; then echo "$(comando_compose "up -d --no-deps nginx")"; return; fi
+  # A ativa volta antes do alvo.conf: se só o alvo.conf voltasse, a ativa ficaria na candidata e a próxima implantação recusaria a divergência.
+  local ativa_grava="printf '%s\\n' $ativa_antes > $(printf '%q' "$dir/ativa")"
   grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $(printf '%q' "$alvo_conf")"
-  echo "$grava && $(comando_compose "exec -T nginx nginx -s reload")"
+  echo "$ativa_grava && $grava && $(comando_compose "exec -T nginx nginx -s reload")"
 }
 # Comando para subir só o túnel à mão, quando o cloudflared falhou depois da troca.
 comando_tunel() {

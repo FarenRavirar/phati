@@ -2884,6 +2884,69 @@ test('ativa x alvo.conf: falha ao gravar o alvo.conf na reversão pós-troca dei
   }
 });
 
+test('ativa x alvo.conf: falha ao regravar ativa depois da troca, o comando impresso regrava ativa antes do alvo.conf, e a próxima implantação segue', () => {
+  const v = criarVm();
+  // O 1º mv para ativa é a troca (passa); o 2º é a regravação de ativa na recuperação pós-troca, que falha.
+  const shim = mvQueFalhaDepois('*/ativa', 1);
+  const docker = dublePegaArgumentos();
+  const argv = path.join(docker, 'argv.txt');
+  try {
+    implantarEPromover(v);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2], { ...comPath(shim), DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falha ao regravar ativa=azul/);
+    assert.equal(fs.readFileSync(path.join(shim, 'contador'), 'utf8').trim(), '2', 'a falha caiu no 2º mv para ativa (regravação), não na troca');
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+    const cmd = /recupere com: (.+)$/m.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    // Roda sem o shim de mv (a falha era dele), com o docker dublê no PATH.
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [docker, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.equal(colado.status, 0, colado.stderr);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul', 'o comando regrava ativa com a cor anterior');
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'e depois o alvo.conf');
+    const b3 = v.promover();
+    v.zerar();
+    const seguinte = v.rodar(IMPLANTAR, [b3]);
+    assert.equal(seguinte.status, 0, seguinte.stderr);
+    assert.doesNotMatch(seguinte.stderr, /mas alvo\.conf serve/, 'sem divergência ativa x alvo.conf');
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    fs.rmSync(docker, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: se o comando impresso não consegue regravar ativa, o alvo.conf segue na candidata e nada é recarregado', () => {
+  const v = criarVm();
+  const shim = mvQueFalhaDepois('*/ativa', 1);
+  const docker = dublePegaArgumentos();
+  const argv = path.join(docker, 'argv.txt');
+  try {
+    implantarEPromover(v);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2], { ...comPath(shim), DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(fs.readFileSync(path.join(shim, 'contador'), 'utf8').trim(), '2', 'a falha caiu no 2º mv para ativa (regravação), não na troca');
+    const cmd = /recupere com: (.+)$/m.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    // ativa vira diretório: o `printf > ativa` do comando falha e o `&&` impede a gravação do alvo.conf e o reload.
+    fs.rmSync(path.join(v.vm, 'ativa'));
+    fs.mkdirSync(path.join(v.vm, 'ativa'));
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [docker, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.notEqual(colado.status, 0, 'a gravação de ativa falhou no comando');
+    assert.equal(v.lerAlvo(), ALVO_VERDE, 'o alvo.conf segue na candidata');
+    assert.equal(fs.existsSync(argv), false, 'nenhuma chamada ao docker (sem reload)');
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    fs.rmSync(docker, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
 // Escape (CodeRabbit): o comando impresso para o operador, colado num `bash -c`, não divide um caminho com espaço.
 // O docker do teste é um dublê que grava cada argumento numa linha, então "dividido" aparece como argumento separado.
 function dublePegaArgumentos() {
