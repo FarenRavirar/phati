@@ -169,6 +169,10 @@ pgb_console() {
   if [[ "$cmd" == PAUSE ]]; then limite="${PHATI_PAUSA_LIMITE:-30}"; fi
   compor_limite "$limite" exec -T "$svc" psql -X -q -h "/tmp/pgb/$svc" -p 6432 -U pgbouncer pgbouncer -c "$cmd" >/dev/null
 }
+# Estado de pausa da instância $1 (linha `paused` do SHOW STATE): imprime 0 ou 1; vazio se a consulta falhar.
+pgb_pausado() {
+  compor_limite 20 exec -T "$1" psql -X -A -h "/tmp/pgb/$1" -p 6432 -U pgbouncer pgbouncer -c 'SHOW STATE' | awk -F'|' '$1=="paused"{print $2}'
+}
 # Reescreve a linha `host=` do pgbouncer.ini da instância $1 (gerado pelo entrypoint.sh em /tmp/pgb/<instância>).
 pgb_sed() {
   local svc="$1" expr="$2"
@@ -214,7 +218,17 @@ resumir_pgb() {
       echo "AVISO: $svc segue em PAUSE com host=$NOVO (volta ao host=$ORIG não confirmada). Recuperação à mão: no contêiner $svc, sed -i 's/host=$NOVO /host=$ORIG /' /tmp/pgb/$svc/pgbouncer.ini; depois psql -h /tmp/pgb/$svc -p 6432 -U pgbouncer pgbouncer -c RELOAD e -c RESUME" >&2
       continue
     fi
-    if pgb_console "$svc" RESUME; then printf -v "$rn" '%s' 1; else falhou+=" $svc"; fi
+    # Falha do RESUME com o pooler já não pausado: medido no ensaio Docker (modo físico), um PgBouncer reiniciado na janela
+    # promote→RESUME volta sem PAUSE (lê /cfg/banco-destino) e já serve o destino; é o estado desejado. Pausado ou consulta
+    # falhando segue falha. A consulta só roda no ramo de falha.
+    if pgb_console "$svc" RESUME; then
+      printf -v "$rn" '%s' 1
+    elif [[ "$(pgb_pausado "$svc")" == 0 ]]; then
+      echo "AVISO: RESUME de $svc falhou, mas o pooler não está pausado (reiniciado na troca): segue no destino" >&2
+      printf -v "$rn" '%s' 1
+    else
+      falhou+=" $svc"
+    fi
   done
   if [[ -n "$falhou" ]]; then
     echo "AVISO: RESUME falhou em:$falhou; o PgBouncer pode seguir em PAUSE: rode RESUME nos dois processos à mão" >&2

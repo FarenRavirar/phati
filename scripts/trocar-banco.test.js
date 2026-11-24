@@ -180,6 +180,8 @@ case "$args" in
   # PAUSE pendurado (C2): dorme além do limite em DUBLE_PAUSE_PENDURA; o exec troca o processo, então o timeout mata o sleep.
   *"-c PAUSE"*) [[ -n "\${DUBLE_PAUSE_PENDURA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_PENDURA "* ]] && exec sleep 3; [[ -n "\${DUBLE_PAUSE_FALHA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_FALHA "* ]] && exit 1 ;;
   *"-c RESUME"*) [[ -n "\${DUBLE_RESUME_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESUME_FALHA "* ]] && exit 1 ;;
+  # SHOW STATE do PgBouncer: DUBLE_ESTADO=0 ou 1 responde a linha paused; sem o knob a consulta sai com erro.
+  *"-c SHOW STATE"*) [[ -n "\${DUBLE_ESTADO:-}" ]] || exit 1; echo "paused|\${DUBLE_ESTADO}" ;;
 esac
 if [[ "$tag" == assinatura ]]; then touch "$VM/.assinatura-criada"; fi
 exit 0
@@ -890,6 +892,55 @@ test('trocar: RESUME falha depois da troca não restaura o host (sem rollback) e
     v.limpar();
   }
 });
+
+// RESUME que falha num PgBouncer reiniciado na janela promote→RESUME: ele volta sem PAUSE e já serve o destino. A checagem é
+// `SHOW STATE` (paused=0 = não pausado = sucesso; paused=1 ou consulta falhando = falha mantida). Modos lógico e físico.
+const modos = [
+  { nome: 'lógico', rodar: (v, extra) => trocar(v, extra), registro: /troca-banco trocar OK pausa_ms=\d+ destino=banco_novo/ },
+  { nome: 'físico', rodar: (v, extra) => v.rodar(['trocar', '--modo', 'fisica'], extra), registro: /troca-banco trocar OK modo=fisica pausa_ms=\d+ destino=banco_novo/ },
+];
+for (const m of modos) {
+  test(`trocar ${m.nome}: RESUME falha, SHOW STATE paused=0 (reiniciado, não pausado) conta como retomado e a troca conclui`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_RESUME_FALHA: 'pgb1', DUBLE_ESTADO: '0' });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m);
+      assert.equal(v.contar(RESTAURA), 0, 'host não pode ser restaurado: o destino já serve');
+      assert.doesNotMatch(r.stderr, /RESUME falhou/);
+      assert.match(v.registro(), m.registro);
+      assert.ok(v.env().includes('PHATI_BANCO_DESTINO=banco_novo'));
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: RESUME falha e SHOW STATE paused=1 (ainda pausado) continua falha depois da troca`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_RESUME_FALHA: 'pgb1', DUBLE_ESTADO: '1' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /RESUME falhou depois da troca de host: sem rollback automático/);
+      assert.equal(v.contar(RESTAURA), 0, 'host restaurado depois do ponto sem volta');
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+
+  test(`trocar ${m.nome}: RESUME falha e SHOW STATE também falha (estado desconhecido) continua falha depois da troca`, () => {
+    const v = criarVm();
+    try {
+      const r = m.rodar(v, { DUBLE_RESUME_FALHA: 'pgb1' });
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, /RESUME falhou depois da troca de host: sem rollback automático/);
+      assert.equal(v.contar(RESTAURA), 0, 'host restaurado depois do ponto sem volta');
+      assert.ok(!v.env().includes('PHATI_BANCO_DESTINO='), '.env gravado sem o RESUME');
+    } finally {
+      v.limpar();
+    }
+  });
+}
 
 test('trocar: DROP SUBSCRIPTION falho depois do RESUME vira AVISO e a troca conclui', () => {
   const v = criarVm();
