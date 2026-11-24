@@ -487,6 +487,9 @@ gravar_env_destino() {
 }
 gravar_banco_ativo() {
   tmp_banco="$(mktemp "$dir/.banco-ativo.XXXXXX")"
+  # mktemp cria 600 e os scripts de implantação (outro usuário) leem este arquivo: sai 644 com o dono do diretório.
+  chmod 644 "$tmp_banco"
+  chown --reference="$dir" "$tmp_banco" 2>/dev/null || true
   printf '%s\n' "$NOVO" > "$tmp_banco" && mv -f "$tmp_banco" "$dir/banco-ativo" || erro "não consegui gravar banco-ativo"
   tmp_banco=""
 }
@@ -494,6 +497,9 @@ gravar_banco_ativo() {
 # no `banco` (estado do preparar), nunca a falta dele no banco_novo.
 gravar_banco_logico() {
   tmp_banco="$(mktemp "$dir/.banco-logico.XXXXXX")"
+  # Mesmo motivo de gravar_banco_ativo: o marcador é lido pelo usuário de implantação.
+  chmod 644 "$tmp_banco"
+  chown --reference="$dir" "$tmp_banco" 2>/dev/null || true
   printf 'logica\n' > "$tmp_banco" && mv -f "$tmp_banco" "$dir/banco-logico" || erro "não consegui gravar banco-logico"
   tmp_banco=""
 }

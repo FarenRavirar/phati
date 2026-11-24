@@ -2474,3 +2474,30 @@ test('E11: sed de restauração falha e o ini está em host=banco_novo → pgb2 
     v.limpar();
   }
 });
+
+// Regressão: o mktemp cria 600 e os scripts de implantação (outro usuário) leem banco-ativo e banco-logico.
+test('trocar: banco-ativo e banco-logico saem 0644 (legíveis pelo usuário de implantação)', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-ativo')).mode & 0o777, 0o644, 'banco-ativo sem modo 0644');
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-logico')).mode & 0o777, 0o644, 'banco-logico sem modo 0644');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('trocar: banco-ativo 600 já existente é substituído por 0644', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco\n', { mode: 0o600 });
+    fs.chmodSync(path.join(v.vm, 'banco-ativo'), 0o600);
+    const r = trocar(v);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    assert.equal(fs.statSync(path.join(v.vm, 'banco-ativo')).mode & 0o777, 0o644, 'banco-ativo novo herdou o 600 antigo');
+  } finally {
+    v.limpar();
+  }
+});
