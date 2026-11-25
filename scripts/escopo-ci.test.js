@@ -280,3 +280,15 @@ test('listarPadrao fora de repositório com PATH hostil: erra e não executa o g
   assert.equal(r.stdout, 'ERRO');
   assert.equal(fs.existsSync(falso.marca), false, 'o git falso do PATH foi executado');
 });
+
+// R9 (spec 011): o job de testes do CI roda na mesma minor do Python da imagem do servidor (servidor/Dockerfile).
+test('CI: python-version do job testes é a minor do FROM python do servidor/Dockerfile', () => {
+  const raiz = path.join(__dirname, '..');
+  const ci = fs.readFileSync(path.join(raiz, '.github', 'workflows', 'ci.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const dockerfile = fs.readFileSync(path.join(raiz, 'servidor', 'Dockerfile'), 'utf8');
+  const versoesCi = [...ci.matchAll(/python-version: "(\d+\.\d+)"/g)].map((m) => m[1]);
+  const imagem = dockerfile.match(/^FROM python:(\d+\.\d+)-slim/m);
+  assert.equal(versoesCi.length, 1, 'esperava um python-version no ci.yml');
+  assert.ok(imagem, 'Dockerfile sem FROM python:<minor>-slim');
+  assert.equal(versoesCi[0], imagem[1]);
+});

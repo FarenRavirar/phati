@@ -8,6 +8,15 @@ base="${1:-}"
 # HTTP puro só para o próprio computador (o teste sobe um servidor local); a implantação real é sempre https.
 [[ "$base" =~ ^(https://[^/]+|http://(127\.0\.0\.1|localhost)(:[0-9]+)?)$ ]] || { echo "ERRO: informe a URL base sem caminho: https://… (http:// só em 127.0.0.1 ou localhost)" >&2; exit 1; }
 
+# Base local (http) numa implantação: o Host é o primeiro de PHATI_HOSTS_PERMITIDOS, o mesmo de implantar.sh e do healthcheck;
+# sem ele, o Django recusa o Host do loopback com 400 (spec 011 R8). Nome fora de host é recusado antes de qualquer curl.
+host_args=()
+if [[ "$base" == http://* && -n "${PHATI_HOSTS_PERMITIDOS:-}" ]]; then
+  host_permitido="${PHATI_HOSTS_PERMITIDOS%%,*}"
+  [[ "$host_permitido" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "ERRO: primeiro host de PHATI_HOSTS_PERMITIDOS inválido" >&2; exit 1; }
+  host_args=(-H "Host: $host_permitido")
+fi
+
 falhas=0
 confere() { # descrição, código de saída da condição (0 = ok)
   local descricao="$1" codigo="$2"
@@ -18,10 +27,10 @@ confere() { # descrição, código de saída da condição (0 = ok)
     falhas=$((falhas + 1))
   fi
 }
-status() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
-cabecalhos() { curl -s -D - -o /dev/null --max-time 10 "$@"; }
+status() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${host_args[@]}" "$@"; }
+cabecalhos() { curl -s -D - -o /dev/null --max-time 10 "${host_args[@]}" "$@"; }
 
-corpo="$(curl -s --max-time 10 "$base/saude" || true)"
+corpo="$(curl -s --max-time 10 "${host_args[@]}" "$base/saude" || true)"
 [[ "$corpo" == *'"estado": "ok"'* ]] && ok=0 || ok=1
 confere "/saude devolve estado ok" "$ok"
 [[ "$(status "$base/entrar")" == 200 ]] && ok=0 || ok=1

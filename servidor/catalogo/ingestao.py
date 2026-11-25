@@ -10,7 +10,6 @@ import math
 import re
 import tempfile
 import time
-import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 from ctypes import c_char_p
@@ -18,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import NoReturn
 
+from defusedxml import DTDForbidden, EntitiesForbidden, ExternalReferenceForbidden
+from defusedxml import ElementTree as ET  # spec 011 R5: o stdlib não recusa DOCTYPE; defusedxml recusa
 from django.contrib.gis.gdal import DataSource, Driver, GDALException, OGRGeometry, SpatialReference
 from django.contrib.gis.gdal.prototypes import ds as capi
 from django.contrib.gis.geos import GEOSException
@@ -33,7 +34,9 @@ EPSG = re.compile(r'(?:urn:ogc:def:crs:)?EPSG:(?:[^:]*:)?(\d+)')
 CRS84 = ('urn:ogc:def:crs:OGC:1.3:CRS84', 'urn:ogc:def:crs:OGC::CRS84')
 # XML 1.0 (W3C REC-xml, §2.2) não aceita U+0000: zero no arquivo é outra codificação (UTF-16, por exemplo).
 KML_FORA_DE_UTF8 = 'KML fora de UTF-8 (zeros no arquivo) recusado'
+KML_COM_DTD = 'KML com DOCTYPE ou entidade recusado'
 GEOJSON_INVALIDO = 'GeoJSON inválido'
+GEOJSON_PROFUNDO = 'GeoJSON com aninhamento acima do limite de profundidade'
 MENSAGEM_TAMANHO = 'arquivo acima do limite de tamanho'  # também usada por envios.criar_envio, antes de gravar
 
 
@@ -219,12 +222,14 @@ def _precheck_geojson(dados, limites):
         objeto = json.loads(dados.decode('utf-8-sig'), parse_constant=proibe)
     except _ConstanteProibida:
         raise RecusaIngestao(['coordenada NaN ou infinita no GeoJSON']) from None
-    except (ValueError, RecursionError):  # UnicodeDecodeError é ValueError; aninhamento fundo estoura a pilha
+    except RecursionError:  # aninhamento fundo: o json estoura a pilha C, cujo limite depende da plataforma; é a recusa de profundidade
+        raise RecusaIngestao([GEOJSON_PROFUNDO]) from None
+    except ValueError:  # UnicodeDecodeError é ValueError
         raise RecusaIngestao([GEOJSON_INVALIDO]) from None
     if not isinstance(objeto, dict):
         raise RecusaIngestao([GEOJSON_INVALIDO])
-    if _profundidade(objeto) > limites.profundidade_aninhamento:
-        raise RecusaIngestao(['GeoJSON com aninhamento acima do limite de profundidade'])
+    if _profundidade(objeto) > limites.profundidade_aninhamento:  # mesma recusa, quando o parser devolve a estrutura
+        raise RecusaIngestao([GEOJSON_PROFUNDO])
     srid, origem = _sistema_do_geojson(objeto)
     return srid, origem, _propriedades_do_geojson(objeto)
 
@@ -233,7 +238,7 @@ def _proibe_dtd(dados):
     if b'\x00' in dados:
         _recusa(KML_FORA_DE_UTF8)
     if re.search(rb'<!\s*(?:DOCTYPE|ENTITY)', dados, re.IGNORECASE):
-        _recusa('KML com DOCTYPE ou entidade recusado')
+        _recusa(KML_COM_DTD)
 
 
 def _valida_coordenada_kml(token):
@@ -256,7 +261,9 @@ def _coordenadas_kml(raiz):
 def _precheck_kml(dados):
     _proibe_dtd(dados)  # antes de qualquer leitura XML: o analisador expande entidade interna
     try:
-        raiz = ET.fromstring(dados)  # sem DOCTYPE, o analisador não resolve entidade
+        raiz = ET.fromstring(dados, forbid_dtd=True)  # segunda barreira, com a regex acima (spec 011 R5)
+    except (DTDForbidden, EntitiesForbidden, ExternalReferenceForbidden):
+        raise RecusaIngestao([KML_COM_DTD]) from None
     except ET.ParseError:
         raise RecusaIngestao(['KML inválido']) from None
     if not raiz.tag.endswith('kml'):

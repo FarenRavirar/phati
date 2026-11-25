@@ -11,6 +11,8 @@ def test_aplicacao_wsgi_responde_404_para_rota_inexistente():
     # Sem ROOT_URLCONF a aplicação devolvia 500 (medido no contêiner); com `urlpatterns`, rota inexistente dá 404.
     ambiente = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/rota-inexistente'}
     setup_testing_defaults(ambiente)
+    # Host do teste (`testserver`, liberado pelo runner do Django): com CommonMiddleware, 127.0.0.1 sem ALLOWED_HOSTS daria 400 (spec 011 R8).
+    ambiente['HTTP_HOST'] = 'testserver'
     estados = []
 
     def iniciar_resposta(estado, cabecalhos, informacao=None):

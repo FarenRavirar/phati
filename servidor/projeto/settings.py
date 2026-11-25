@@ -38,6 +38,8 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.csp.ContentSecurityPolicyMiddleware',
+    # Chama get_host(): Host fora de ALLOWED_HOSTS vira 400 em toda rota (spec 011 R8). Fica logo após a CSP, que o teste de ordem exige colada ao Security.
+    'django.middleware.common.CommonMiddleware',
     # Envio de camada acima do limite é recusado antes do parse do multipart (008 R16): ver projeto/limite_corpo.py.
     'projeto.limite_corpo.LimiteDeCorpoDoEnvio',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -47,6 +49,8 @@ MIDDLEWARE = [
     # `X-Frame-Options: DENY` (padrão do Django): o painel não pode ser embutido em outro site (Qodo, PR #16).
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+# Sem redirecionamento de barra final: a rota inexistente continua 404, como antes do CommonMiddleware (spec 011 R8).
+APPEND_SLASH = False
 # A senha temporária criada no painel vai numa mensagem: na sessão do servidor, nunca no cookie `messages`, que o
 # navegador lê e o proxy pode registrar (Qodo, PR #16).
 MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'

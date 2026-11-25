@@ -11,6 +11,7 @@ import zipfile
 import pytest
 from django.contrib.gis.gdal import SpatialReference
 
+from catalogo import ingestao
 from catalogo.ingestao import Limites, RecusaIngestao, ingerir_envio
 from catalogo.metadados import atributos_da_previa
 from catalogo.models import Feicao
@@ -262,6 +263,36 @@ def test_kml_com_infinito_e_recusado(tmp_path):
 
 def test_kml_com_coordenada_nao_numerica_e_recusado(tmp_path):
     assert 'não numérica' in recusa(arquivo(tmp_path, kml(placemark_ponto('abc,-10.7'))))[0]
+
+
+# DTD e entidade (spec 011 R5): a regex de _proibe_dtd é a primeira barreira; o analisador (defusedxml, forbid_dtd) é a segunda.
+DTD_COM_ENTIDADE = (
+    b'<?xml version="1.0"?><!DOCTYPE kml [<!ENTITY nome "sintetico">]>'
+    b'<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>&nome;</name></Placemark></Document></kml>'
+)
+
+
+def test_kml_com_doctype_e_entidade_e_recusado(tmp_path):
+    assert 'KML com DOCTYPE ou entidade recusado' in recusa(arquivo(tmp_path, DTD_COM_ENTIDADE))[0]
+
+
+def test_kml_com_doctype_e_recusado_pelo_analisador_sem_a_regex(monkeypatch):
+    monkeypatch.setattr(ingestao, '_proibe_dtd', lambda dados: None)
+    with pytest.raises(RecusaIngestao) as excinfo:
+        ingestao._precheck_kml(DTD_COM_ENTIDADE)
+    assert excinfo.value.erros == ['KML com DOCTYPE ou entidade recusado']
+
+
+def test_kml_com_doctype_em_utf16_e_recusado(tmp_path):
+    assert 'KML fora de UTF-8' in recusa(arquivo(tmp_path, DTD_COM_ENTIDADE.decode().encode('utf-16')))[0]
+
+
+def test_kml_valido_passa_pelo_analisador_sem_erro():
+    assert ingestao._precheck_kml(kml(placemark_ponto('-48.3,-10.7'))) is None
+
+
+def test_kml_malformado_e_recusado(tmp_path):
+    assert 'KML inválido' in recusa(arquivo(tmp_path, b'<kml><Document>'))[0]
 
 
 def test_shapefile_com_nan_e_recusado_sem_publicar(tmp_path):
@@ -547,8 +578,30 @@ def test_kmz_com_crc_ruim_e_recusado_como_compactado_invalido(tmp_path):
     assert recusa(arquivo(tmp_path, bytes(dados))) == ['compactado inválido ou criptografado']
 
 
-def test_json_muito_aninhado_e_recusado_como_geojson_invalido(tmp_path):
-    # Achado 4: aninhamento fundo estoura a recursão do json; vira recusa, não exceção.
+PROFUNDIDADE_EXCEDIDA = ['GeoJSON com aninhamento acima do limite de profundidade']
+
+
+def test_json_muito_aninhado_e_recusado_por_profundidade(tmp_path):
+    # Achado 4: aninhamento fundo. Conforme a plataforma, o json lança RecursionError (pilha C) ou devolve a estrutura;
+    # a recusa é a mesma nos dois casos (spec 011, CI 3.15 x86_64 divergiu do arm64).
     profundo = b'{"a": ' + b'[' * 100000 + b']' * 100000 + b'}'
-    assert recusa(arquivo(tmp_path, profundo)) == ['GeoJSON inválido']
+    assert recusa(arquivo(tmp_path, profundo)) == PROFUNDIDADE_EXCEDIDA
+
+
+def test_parser_que_estoura_a_pilha_e_recusado_por_profundidade(tmp_path, monkeypatch):
+    def estoura_a_pilha(*_args, **_kwargs):
+        raise RecursionError('maximum recursion depth exceeded')
+
+    monkeypatch.setattr(ingestao.json, 'loads', estoura_a_pilha)
+    assert recusa(arquivo(tmp_path, b'{"type": "FeatureCollection"}')) == PROFUNDIDADE_EXCEDIDA
+
+
+def test_parser_que_devolve_estrutura_funda_e_recusado_por_profundidade(tmp_path, monkeypatch):
+    funda = {}
+    atual = funda
+    for _ in range(100):  # 100 níveis: acima do limite de 64
+        atual['a'] = {}
+        atual = atual['a']
+    monkeypatch.setattr(ingestao.json, 'loads', lambda *_args, **_kwargs: funda)
+    assert recusa(arquivo(tmp_path, b'{"type": "FeatureCollection"}')) == PROFUNDIDADE_EXCEDIDA
 
