@@ -59,6 +59,8 @@ backup_arquivo=""
 # X3c: `anterior` é o SHA que estava no clone; `repo_mudou` vale depois do checkout do SHA novo (erro() devolve o clone).
 anterior=""
 repo_mudou=0
+# `clone_fica`: a candidata segue no alvo.conf sem pilha anterior para voltar; erro() deixa o clone no SHA dela.
+clone_fica=0
 
 registrar() {
   local extra=""
@@ -86,6 +88,11 @@ infra_faltando() {
     [[ "$modo" == 100644 || "$modo" == 100755 ]] || { echo "$arq"; return 0; }
   done
 }
+# A candidata segue no alvo.conf sem pilha anterior para voltar: o clone fica no SHA dela (erro() só devolve o clone quando a anterior volta a servir).
+erro_candidata_no_ar() {
+  clone_fica=1
+  erro "$@"
+}
 erro() {
   echo "ERRO: $*" >&2
   # Dois casos. Falha depois da migração fora do fluxo: o banco já mudou, então nada de subir a versão anterior às cegas.
@@ -105,6 +112,8 @@ erro() {
     if [[ -n "$(infra_faltando "$anterior")" ]]; then
       # Voltar a um SHA sem a infraestrutura põe o servidor/nginx de volta no bug da VM: o clone fica no SHA que passou na pré-checagem.
       registrar "repo-mantido=${sha:0:12}: anterior sem infraestrutura blue-green"
+    elif [[ "$clone_fica" == 1 ]]; then
+      registrar "repo-mantido=${sha:0:12}: a candidata segue no alvo.conf"
     elif git -C "$dir/repo" checkout -q --detach "$anterior" 2>/dev/null; then
       registrar "repo-restaurado=${anterior:0:12}"
     else
@@ -355,7 +364,7 @@ reverter() {
   if [[ "$recarregou" == 1 ]] && ! nginx_recarrega; then
     # Sem pilha anterior nada foi revertido: o arquivo segue com a candidata, e o comando de recuperação só sobe o nginx.
     if [[ "$tinha" != 1 && -z "$ativa" ]]; then
-      erro "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand, mas o nginx não recarregou; recupere com: $recuperar"
+      erro_candidata_no_ar "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand, mas o nginx não recarregou; recupere com: $recuperar"
     fi
     erro "$motivo; alvo.conf revertido, mas o nginx não recarregou; recupere com: $recuperar"
   fi
@@ -369,7 +378,7 @@ reverter() {
     erro "$motivo; alvo.conf revertido para app_$ativa, que segue servindo"
   fi
   [[ "$tinha" != 1 ]] || erro "$motivo; alvo.conf anterior restaurado (nenhuma pilha servia antes)"
-  erro "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand"
+  erro_candidata_no_ar "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand"
 }
 
 # Troca o destino do nginx para a cor $1: grava o alvo.conf, confere `nginx -t`, recarrega e verifica /saude pelo nginx.
@@ -549,7 +558,7 @@ if [[ -n "$falhou" ]]; then
   fi
   # Migração fora do fluxo (X2 + Codex P1): a ativa anterior foi parada e o esquema já mudou. Voltar a ela agora derruba a candidata.
   if [[ "$esquema_migrado" == 1 ]]; then
-    erro "$falhou falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_$cand segue no alvo.conf. Suba $falhou à mão com: $(comando_compose "up -d --no-deps $falhou")"
+    erro_candidata_no_ar "$falhou falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_$cand segue no alvo.conf. Suba $falhou à mão com: $(comando_compose "up -d --no-deps $falhou")"
   fi
   # Primeira implantação (sem ativa): a candidata já está em `ativa` e no alvo.conf, e não há pilha anterior para reverter.
   # Não remove nem reverte o alvo.conf (o nginx monta o diretório): diz o que subir à mão.
@@ -557,7 +566,7 @@ if [[ -n "$falhou" ]]; then
     if [[ "$falhou" == nginx ]]; then
       motivo+="; suba o nginx à mão com: $(comando_compose "up -d --no-deps nginx")"
     fi
-    erro "$motivo; sem pilha anterior: a candidata app_$cand segue no alvo.conf e em ativa, nada revertido"
+    erro_candidata_no_ar "$motivo; sem pilha anterior: a candidata app_$cand segue no alvo.conf e em ativa, nada revertido"
   fi
   gravar_atomico "$dir/ativa" "$ativa" || erro "$motivo; falha ao regravar ativa=$ativa; recupere com: $(comando_recuperacao "$ativa")"
   reverter "$alvo_tinha" "$alvo_antigo" 1 "$motivo"

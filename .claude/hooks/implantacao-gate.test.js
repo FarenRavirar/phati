@@ -239,3 +239,64 @@ test('payload sem tool_input passa sem saída', () => {
 test('comando que não é texto passa sem saída', () => {
   assert.equal(rodar(null, JSON.stringify({ tool_input: { command: 5 } })), null);
 });
+
+// --- decidir() direto: corpo de heredoc, pipe e git grep -O (sem executar comando real) ---
+
+const { decidir } = require(HOOK);
+
+// O corpo de heredoc executa quando quem o recebe é shell, source, eval, xargs ou ssh (ou comando desconhecido).
+const HEREDOC_QUE_EXECUTA = [
+  "bash <<'EOF'\nscripts/implantar.sh x\nEOF",
+  'bash <<EOF\nscripts/implantar.sh x\nEOF',
+  "ssh maruko <<'EOF'\nscripts/implantar.sh x\nEOF",
+  "cat <<EOF | bash\nscripts/implantar.sh x\nEOF",
+  "cat <<EOF |& bash\nscripts/implantar.sh x\nEOF",
+  "(cat <<EOF | bash)\nscripts/implantar.sh x\nEOF",
+  "sudo bash <<EOF\nscripts/implantar.sh x\nEOF",
+  "xargs bash <<EOF\nscripts/implantar.sh x\nEOF",
+  "eval \"$(cat)\" <<EOF\nscripts/implantar.sh x\nEOF",
+  "python3 <<EOF\nscripts/implantar.sh x\nEOF",
+];
+
+for (const comando of HEREDOC_QUE_EXECUTA) {
+  test(`heredoc que executa o corpo nega o script citado no corpo: ${JSON.stringify(comando)}`, () => {
+    const r = decidir(comando);
+    assert.ok(r, `esperava nega para: ${comando}`);
+    assert.equal(r.regra.nome, 'implantar-direto', comando);
+    assert.equal(r.alvo, 'implantar.sh', comando);
+  });
+}
+
+// Corpo de heredoc que só grava, repassa ou envia texto: o script citado é dado, não executa.
+const HEREDOC_QUE_E_DADO = [
+  "git commit -F - <<'FIM'\nfix: corpo cita scripts/implantar.sh\nFIM",
+  "cat <<EOF > notas.md\nscripts/implantar.sh\nEOF",
+  "cat <<'EOF' | tee notas.md\nscripts/implantar.sh\nEOF",
+  "gh pr edit 12 --body-file - <<'FIM'\nvê scripts/implantar.sh\nFIM",
+];
+
+for (const comando of HEREDOC_QUE_E_DADO) {
+  test(`heredoc de consumidor de texto não nega pelo corpo: ${JSON.stringify(comando)}`, () => {
+    assert.equal(decidir(comando), null, comando);
+  });
+}
+
+// git grep -O / --open-files-in-pager roda um programa sobre os arquivos: não conta como leitura.
+const GIT_GREP_COM_PAGER = [
+  'git grep -O less scripts/implantar.sh',
+  'git grep -Oless scripts/implantar.sh',
+  'git grep --open-files-in-pager=sh scripts/implantar.sh',
+  'git grep --open-files-in-pager scripts/implantar.sh',
+];
+
+for (const comando of GIT_GREP_COM_PAGER) {
+  test(`git grep com pager nega o script citado: ${comando}`, () => {
+    const r = decidir(comando);
+    assert.ok(r, `esperava nega para: ${comando}`);
+    assert.equal(r.regra.nome, 'implantar-direto', comando);
+  });
+}
+
+test('git grep sem pager segue leitura e não nega', () => {
+  assert.equal(decidir('git grep -n implantar scripts/implantar.sh'), null);
+});

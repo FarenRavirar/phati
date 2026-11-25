@@ -20,9 +20,12 @@
 //   b) Quem executa o que recebe pelo stdin (shell sem arquivo, `source`, `eval`, `xargs`)
 //      é negado quando o comando inteiro cita script protegido, porque o texto citado é o
 //      que roda. Cobre `echo scripts/x | bash`, `bash <(cat scripts/x)`, `source <(...)`.
-//   c) Texto de mensagem não executa: corpo de heredoc e valor de -m/-F/--body/--title/--body-file
-//      saem da análise (separarTexto), e só os `$(...)` e crases dentro deles seguem sendo vistos.
-//      Assim `git commit -m "fix: implantar.sh"` passa e `git commit -m "$(scripts/implantar.sh x)"` nega.
+//   c) Texto de mensagem não executa: valor de -m/-F/--body/--title/--body-file sai da análise
+//      (separarTexto), e só os `$(...)` e crases dentro dele seguem sendo vistos. Corpo de heredoc sai
+//      só quando o comando que o recebe é consumidor de texto (cat, tee, git, gh); se quem recebe é
+//      shell, source, eval, xargs, ssh ou desconhecido, o corpo entra na análise (falha fechada).
+//      Assim `git commit -m "fix: implantar.sh"` passa, `git commit -m "$(scripts/implantar.sh x)"` nega,
+//      e `bash <<'EOF'` com script no corpo nega.
 //   Com isso `ln -s scripts/implantar.sh /tmp/x` nega (ln não é leitura e o nome está no
 //   segmento), e `gh workflow run implantar` passa (não cita script). `gh` com script citado
 //   nega pela regra (a), porque gh não é verbo de leitura.
@@ -80,8 +83,10 @@ const GIT_LEITURA = new Set(['log', 'diff', 'show', 'grep', 'blame', 'status', '
 const GH_PR_LEITURA = new Set(['create', 'edit', 'view', 'checks']);
 // Quem executa o que recebe como comando ou pelo stdin.
 const CONSUMIDORES = new Set(['source', '.', 'eval', 'xargs']);
-// Corpo de heredoc e valor de -m/-F/--body/--title/--body-file são texto de mensagem: não executam.
-// Só o `$(...)` e a crase dentro deles executam, e esses saem para análise (ver separarTexto).
+// Quem só grava, repassa ou envia texto: o corpo de heredoc que cai nele é dado (ver corpoEhDado).
+const CONSUMIDOR_DE_TEXTO = new Set(['cat', 'tee', 'git', 'gh', 'wc', 'tr']);
+// Valor de -m/-F/--body/--title/--body-file é texto de mensagem: não executa. Corpo de heredoc só é texto quando o
+// consumidor é de texto (corpoEhDado). Só o `$(...)` e a crase dentro de texto que não executa são analisados (separarTexto).
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\s*\2[ \t]*(?=\n|$)/g;
 const VALOR_TEXTO = /(^|\s)(?:-m|-F|--body-file|--body|--title)(?:\s+|=)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&|()]+)/g;
 const SUBSTITUICAO = /\$\(((?:[^()]|\([^()]*\))*)\)|`([^`]*)`/g;
@@ -145,6 +150,8 @@ function ehLeitura(e) {
   const args = e.resto.slice(1);
   if (LEITURA.has(e.cmd)) return !args.some((t) => t === '--pre' || t.startsWith('--pre=')); // rg --pre roda um programa por arquivo
   if (e.cmd === 'sed') return args[0] === '-n' && !args.some((t) => /^-\w*i/.test(t) || t.startsWith('--in-place'));
+  // git grep -O / --open-files-in-pager roda um programa sobre os arquivos (como rg --pre): não é leitura.
+  if (e.cmd === 'git' && args[0] === 'grep') return !args.some((t) => /^-[a-zA-Z]*O/.test(t) || /^--o/.test(t));
   if (e.cmd === 'git') return GIT_LEITURA.has(args[0]) || (args[0] === 'checkout' && args.includes('--'));
   if (e.cmd === 'gh') return args[0] === 'pr' && GH_PR_LEITURA.has(args[1]);
   if (e.cmd === 'node') return args[0] === '--test';
@@ -236,12 +243,80 @@ function citacoes(bruto) {
   return [...bruto.matchAll(CITACAO)].map((m) => m[1] ?? m[2]);
 }
 
+// Grupos de comando da linha do heredoc: separados por `;`, `&&`, `||`, `&`, parênteses e substituições; cada grupo
+// é uma lista de segmentos ligados por `|` (ou `|&`). Aspas e `\` não cortam.
+function gruposDeLinha(linha) {
+  const grupos = [];
+  let grupo = [];
+  let atual = '';
+  let aspa = null;
+  const fechaSeg = () => {
+    grupo.push(atual);
+    atual = '';
+  };
+  const fechaGrupo = () => {
+    fechaSeg();
+    grupos.push(grupo);
+    grupo = [];
+  };
+  for (let i = 0; i < linha.length; i++) {
+    const c = linha[i];
+    if (aspa) {
+      if (c === aspa) aspa = null;
+      atual += c;
+    } else if (c === '\\') {
+      atual += c + (linha[i + 1] ?? '');
+      i += 1;
+    } else if (c === '"' || c === "'") {
+      aspa = c;
+      atual += c;
+    } else if (c === '|' && linha[i + 1] === '|') {
+      fechaGrupo();
+      i += 1;
+    } else if (c === '|') {
+      fechaSeg();
+      if (linha[i + 1] === '&') i += 1; // `|&` também é pipe
+    } else if (c === '&' && linha[i + 1] === '&') {
+      fechaGrupo();
+      i += 1;
+    } else if (c === ';' || c === '&' || c === '(' || c === ')' || c === '`' || (c === '$' && linha[i + 1] === '(')) {
+      fechaGrupo();
+      if (c === '$') i += 1;
+    } else {
+      atual += c;
+    }
+  }
+  fechaGrupo();
+  return grupos;
+}
+
+// O corpo de heredoc é dado (não executa) só quando o grupo do `<<` é de consumidor de texto (cat, tee, git, gh...)
+// e nenhum segmento dele é shell, source, eval, xargs, ssh ou comando desconhecido. Qualquer outro caso analisa o
+// corpo: falha fechada. Ex.: `bash <<'EOF'`, `ssh host <<EOF`, `cat <<EOF | bash`, `sudo bash <<EOF` executam o corpo.
+function corpoEhDado(linha) {
+  const grupo = gruposDeLinha(linha).find((g) => g.some((s) => s.includes('<<')));
+  if (!grupo) return false;
+  return grupo.every((seg) => {
+    const tokens = tokenizar(seg);
+    if (tokens.length === 0) return true;
+    const e = efetivo(tokens);
+    if (!e) return false;
+    if (e.semExecucao) return true;
+    return CONSUMIDOR_DE_TEXTO.has(e.cmd) && !e.alimentaShell && !e.executaTexto;
+  });
+}
+
 // Tira o texto de mensagem (heredoc e -m/-F/--body/--title/--body-file) e devolve o comando que executa.
-// Os `$(...)` e as crases de dentro do texto viram comandos no fim, para continuarem sendo vistos.
+// Corpo de heredoc que executa entra na análise inteira. Os `$(...)` e as crases de dentro do texto viram comandos no fim, para continuarem sendo vistos.
 function separarTexto(comando) {
   const ignorado = [];
-  let exec = comando.replace(HEREDOC, (_, _aspas, _marca, resto, corpo) => {
-    ignorado.push(corpo);
+  const executado = [];
+  let exec = comando.replace(HEREDOC, (_, _aspas, _marca, resto, corpo, offset) => {
+    const inicio = comando.lastIndexOf('\n', offset) + 1;
+    const fim = comando.indexOf('\n', offset);
+    const linha = comando.slice(inicio, fim === -1 ? undefined : fim);
+    if (corpoEhDado(linha)) ignorado.push(corpo);
+    else executado.push(corpo);
     return resto;
   });
   exec = exec.replace(VALOR_TEXTO, (_, pre, valor) => {
@@ -252,7 +327,7 @@ function separarTexto(comando) {
   for (const texto of ignorado) {
     for (const m of texto.matchAll(SUBSTITUICAO)) substituidos.push(m[1] ?? m[2]);
   }
-  return [exec, ...substituidos].join('\n');
+  return [exec, ...executado, ...substituidos].join('\n');
 }
 
 // Tokens do texto inteiro, sem o echo literal removido: `echo 'x' | bash` ainda cita o script.

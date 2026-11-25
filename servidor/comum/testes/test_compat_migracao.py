@@ -571,7 +571,8 @@ def test_migracao_0001_do_catalogo_e_compativel_pelo_cli():
     assert (SERVIDOR / 'catalogo' / 'migrations' / '0001_initial.py').is_file()
     resultado = _cli('catalogo/migrations/0001_initial.py')
     assert resultado.returncode == 0, resultado.stdout + resultado.stderr
-    assert resultado.stdout.startswith('OK ') and resultado.stdout.rstrip().endswith('0001_initial.py')
+    assert resultado.stdout.startswith('OK ')
+    assert resultado.stdout.rstrip().endswith('0001_initial.py')
 
 
 # --- Migrações reais do repositório (informação: o teste não exige que todas passem) -------------------------
