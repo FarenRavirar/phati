@@ -1,4 +1,4 @@
-"""Catálogo de camadas (spec 008, §Modelo; R1, R2, R10). Cada tabela tem RLS na migração 0002 (T1.3).
+"""Catálogo de camadas (spec 008, §Modelo; R1, R2, R10). Cada tabela tem RLS na migração 0001 (T1.3).
 
 Tema → Estudo → Camada → VersaoCamada → Feição, com atributos da versão. Esta spec só cria versão "em análise":
 a CHECK abaixo impede qualquer outro estado; tornar vigente é da spec de revisão e vigência (R2)."""
@@ -25,7 +25,7 @@ class Tema(models.Model):
         db_table = 'catalogo_tema'
         constraints = [
             models.UniqueConstraint(fields=['empresa', 'nome'], name='tema_nome_unico_na_empresa'),
-            # Chave que o estudo referencia (FK composta, migração 0004): tema e empresa não andam separados.
+            # Chave que o estudo referencia (FK composta, migração 0001): tema e empresa não andam separados.
             models.UniqueConstraint(fields=['id', 'empresa'], name='tema_chave_composta'),
         ]
 
@@ -44,7 +44,7 @@ class Estudo(models.Model):
     class Meta:
         db_table = 'catalogo_estudo'
         constraints = [
-            # Chave que os filhos referenciam (FK composta, migração 0002): empresa e fazenda não andam separadas.
+            # Chave que os filhos referenciam (FK composta, migração 0001): empresa e fazenda não andam separadas.
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='estudo_chave_composta'),
         ]
 
@@ -56,6 +56,7 @@ class Camada(models.Model):
     empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
     fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     nome = models.CharField(max_length=200)
+    coluna_no = models.TextField(null=True, blank=True)  # D119: coluna do arquivo com o nome do nó; marca a divisão da fazenda
     estudo_id: int
     empresa_id: int
     fazenda_id: int
@@ -65,6 +66,8 @@ class Camada(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['estudo', 'nome'], name='camada_nome_unico_no_estudo'),
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='camada_chave_composta'),
+            # Índice único parcial (PostgreSQL: CREATE UNIQUE INDEX ... WHERE): uma divisão por fazenda.
+            models.UniqueConstraint(fields=['fazenda'], condition=Q(coluna_no__isnull=False), name='camada_divisao_unica_por_fazenda'),
         ]
 
 
@@ -76,6 +79,21 @@ class VersaoCamada(models.Model):
     numero = models.PositiveIntegerField()
     estado = models.CharField(max_length=20, default=ESTADO_EM_ANALISE)
     sistema_original = models.TextField()
+    origem = models.TextField()  # obrigatório (R8, DEFINICAO §6.2): origem e arquivos de base; a CHECK recusa vazio
+    metodo = models.TextField(null=True, blank=True)  # opcionais: NULL é "Sem dados", nunca zero (R8, R10)
+    escala_resolucao = models.TextField(null=True, blank=True)
+    unidades = models.TextField(null=True, blank=True)
+    limitacoes = models.TextField(null=True, blank=True)
+    ressalvas = models.TextField(null=True, blank=True)
+    notas_tecnicas = models.TextField(null=True, blank=True)
+    validade_vigencia = models.TextField(null=True, blank=True)  # texto: validade e vigência não se presumem iguais
+    elaborador = models.TextField(null=True, blank=True)
+    revisor = models.TextField(null=True, blank=True)
+    data_coleta = models.DateField(null=True, blank=True)
+    data_referencia = models.DateField(null=True, blank=True)
+    data_elaboracao = models.DateField(null=True, blank=True)
+    data_documento = models.DateField(null=True, blank=True)
+    data_publicacao = models.DateField(null=True, blank=True)
     hash_original = models.CharField(max_length=64)
     caminho_original = models.CharField(max_length=300)  # interno, nunca servido por rota (R15)
     enviada_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
@@ -91,6 +109,8 @@ class VersaoCamada(models.Model):
             models.UniqueConstraint(fields=['camada', 'numero'], name='versao_camada_numero_unico'),
             models.CheckConstraint(condition=Q(numero__gte=1), name='versao_camada_numero_positivo'),
             models.CheckConstraint(condition=Q(estado=ESTADO_EM_ANALISE), name='versao_camada_so_em_analise'),
+            # `origem` não pode ser vazia nem só espaço: pelo menos um caractere que não seja espaço.
+            models.CheckConstraint(condition=Q(origem__regex=r'[^[:space:]]'), name='versao_camada_origem_nao_vazia'),
             models.UniqueConstraint(fields=['id', 'empresa', 'fazenda'], name='versao_camada_chave_composta'),
         ]
 
@@ -126,14 +146,18 @@ class Feicao(models.Model):
     versao_id: int
     empresa_id: int
     fazenda_id: int
+    sub_area_id: int | None  # anotação para o pyright: o Django cria `sub_area_id` (FK nulável)
 
 
 class EnvioCamada(models.Model):
-    """Envio em prévia: linha temporária com expiração, não versão (R12). O arquivo temporário expira com ela."""
+    """Envio em prévia: linha temporária com expiração, não versão (R12). O arquivo temporário expira com ela.
+    `publico_id` é o identificador da URL (opaco, R11); o nome interno do arquivo nunca sai pela API (R15)."""
+    publico_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     criado_por = models.ForeignKey('identidade.Pessoa', on_delete=models.PROTECT, related_name='+')
     empresa = models.ForeignKey(EMPRESA,on_delete=models.PROTECT, related_name='+')
     fazenda = models.ForeignKey(FAZENDA,on_delete=models.PROTECT, related_name='+')
     arquivo_temporario = models.CharField(max_length=300)
+    hash_original = models.CharField(max_length=64)  # sha256 do original em CAMADAS_DIR (R15): a confirmação confere sem reler o envio
     expira_em = models.DateTimeField()
     criado_em = models.DateTimeField(auto_now_add=True)
     criado_por_id: int
@@ -142,3 +166,6 @@ class EnvioCamada(models.Model):
 
     class Meta:
         db_table = 'catalogo_envio_camada'
+        constraints = [
+            models.CheckConstraint(condition=Q(hash_original__regex=r'^[0-9a-f]{64}$'), name='envio_camada_hash_valido'),
+        ]

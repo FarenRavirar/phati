@@ -1,9 +1,29 @@
 {
   "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "blockReadsOutsideWorkingDirectories": false,
+    "blockWritesOutsideWorkingDirectories": false,
     "allow": [
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "Bash(rtk *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(node *)",
+      "Bash(npm *)",
+      "Bash(python *)",
+      "Bash(pytest *)",
+      "Bash(docker *)",
+      "Bash(wsl --shutdown)",
+      "Bash(mutagen sync list*)",
+      "Bash(powershell -NoProfile -Command Start-Process *Docker Desktop*)",
+      "Bash(cmd /c start *Docker Desktop*)",
       "Bash(ssh maruko ls:*)",
-      "Read(servidor/.env.exemplo)",
-      "Edit(servidor/.env.exemplo)",
       "Bash(ssh maruko df:*)",
       "Bash(ssh maruko free:*)",
       "Bash(ssh maruko uptime:*)",
@@ -20,11 +40,17 @@
       "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_MAPA_TESTE_ATIVO)",
       "Bash(ssh maruko docker exec phati-app-1 printenv PHATI_MAPA_FUNDO_GOOGLE_ATIVO)",
       "Bash(ssh maruko docker exec phati-app-1 sh -c 'test -n \"$PHATI_MAPA_GOOGLE_CHAVE\" && echo chave=presente || echo chave=ausente')",
-      "Bash(docker stop *)", "Bash(docker start *)", "Bash(docker rm *)", "Bash(docker rmi *)",
-      "Bash(docker run *)", "Bash(docker compose *)", "Bash(docker build *)", "Bash(docker buildx *)",
-      "Bash(docker info)", "Bash(docker image *)", "Bash(docker exec *)", "Bash(docker logs *)",
-      "Bash(powershell -NoProfile -Command Start-Process *Docker Desktop*)",
-      "Bash(cmd /c start *Docker Desktop*)"
+      "Bash(ssh maruko:*)",
+      "Bash(scp *)",
+      "Bash(rsync *)",
+      "Bash(bash -lc:*)",
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)"
+    ],
+    "ask": [
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(gh pr merge:*)"
     ],
     "deny": [
       "Bash(shutdown*)",
@@ -42,6 +68,10 @@
       "Bash(*commit --amend*)",
       "Bash(*push --force*)",
       "Bash(*push -f *)",
+      "Bash(*push origin dev*)",
+      "Bash(git push origin main*)",
+      "Bash(rtk git push origin main*)",
+      "Bash(rtk bypass git push origin main*)",
       "Bash(*ssh maruko*rm -rf*)",
       "Bash(*ssh maruko*.key*)",
       "Bash(*ssh maruko*.pem*)",
@@ -51,89 +81,41 @@
       "Read(**/*.key)",
       "Read(**/*.pem)",
       "Read(~/.ssh/**)"
-    ],
-    "ask": [
-      "Bash(git commit:*)",
-      "Bash(git worktree:*)",
-      "Bash(git merge:*)",
-      "Bash(git reset:*)",
-      "Bash(git rebase:*)",
-      "Bash(gh pr merge:*)",
-      "Bash(*docker volume rm*)",
-      "Bash(*docker volume prune*)",
-      "Edit(.claude/settings.json)",
-      "Write(.claude/settings.json)",
-      "Bash(ssh maruko:*)",
-      "Bash(scp *)",
-      "Bash(rsync *)"
     ]
   },
   "hooks": {
     "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/caveman-resposta-final.js\""
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/sync-p.ps1\""
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/recursos-locais-gate.js\""
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/caveman-resposta-final.js\"" }] },
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sync-p.js\"" }] },
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/recursos-locais-gate.js\"" }] }
     ],
     "PreToolUse": [
       {
         "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-read-gate.js\""
-          }
-        ]
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-read-gate.js\"" }]
       },
       {
         "matcher": "Bash",
         "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-enforce.js\""
-          },
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\""
-          },
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\""
-          }
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/regra-negada-explicada.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rtk-enforce.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/git-commit-msg-gate.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/autorizacao-gate.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/branch-gate.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/implantacao-gate.js\"" }
         ]
       },
       {
         "matcher": "Edit|Write|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/delegar-executor-gate.js\""
-          }
-        ]
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/delegar-executor-gate.js\"" }]
       }
     ]
   },
   "enabledPlugins": {
-    "agent-skills@addy-agent-skills": true
+    "agent-skills@addy-agent-skills": true,
+    "ponytail@ponytail": true,
+    "humanizer@humanizer": true,
+    "caveman@caveman": true,
+    "pyright-lsp@claude-plugins-official": true
   }
 }

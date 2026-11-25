@@ -21,7 +21,7 @@ Nas sessões seguintes o nome já existe: `docker start phati-pg18-local`. Quem 
 
 Com o contêiner no ar, uma vez como superusuário, criar papéis e banco e migrar:
 
-    PHATI_BANCO_NOME=phati PHATI_BANCO_DONO_USUARIO=dono PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_USUARIO=app PHATI_BANCO_APP_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
+    PHATI_BANCO_NOME=phati PHATI_BANCO_DONO_USUARIO=dono PHATI_BANCO_DONO_SENHA=... PHATI_BANCO_APP_USUARIO=app PHATI_BANCO_APP_SENHA=... PHATI_BANCO_REPLICADOR_SENHA=... psql -h 127.0.0.1 -p 5433 -U postgres -d postgres -f banco/papeis.sql
 
 O papel dono roda as migrações e é dono das tabelas; o papel app é o da aplicação: não é dono e não tem `BYPASSRLS`.
 O processo web recebe só a credencial do `app`; a do dono fica em `migracao` e nos testes (sem `PHATI_BANCO_DONO_SENHA`, o `default` do Django é o próprio `app`).
@@ -45,6 +45,6 @@ A suíte cria o banco `test_phati` com o papel `dono`; os papéis precisam exist
 
     docker compose up -d --build
 
-Sobe `banco` (`postgres:18`, sem porta publicada), roda `migracao` uma vez e sobe `app` (gunicorn em `127.0.0.1:8000`).
+Sobe `banco` (`postgres:18`, sem porta publicada), roda `migracao` uma vez e sobe `app_azul` (gunicorn em `127.0.0.1:8000`). A pilha verde (`app_verde`) só sobe na implantação (`compose.implantacao.yaml`, profile `bluegreen`); o app fala com o PgBouncer (`pgb_ns:6432`), não com o `banco`.
 Além das variáveis de `.env.exemplo`, o compose exige `PHATI_BANCO_SUPER_SENHA` (senha do superusuário do contêiner `banco`,
 usada só na criação do volume). `banco/inicializar-papeis.sh` cria `dono`, `app` e o banco na primeira subida.

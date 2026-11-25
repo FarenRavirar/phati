@@ -2,22 +2,19 @@
   "mcpServers": {
     "context7": {
       "type": "stdio",
-      "command": "cmd",
+      "command": "node",
       "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@upstash/context7-mcp@4.4.4"
+        ".claude/mcp/servidor-mcp.js",
+        "context7"
       ],
       "env": {}
     },
     "magic": {
       "type": "stdio",
-      "command": "powershell",
+      "command": "node",
       "args": [
-        "-NoProfile",
-        "-Command",
-        "if(-not $env:API_KEY_21ST){$env:API_KEY_21ST=[Environment]::GetEnvironmentVariable(\"API_KEY_21ST\",\"User\")}; npx -y @21st-dev/magic@0.2.3"
+        ".claude/mcp/servidor-mcp.js",
+        "magic"
       ]
     }
   }

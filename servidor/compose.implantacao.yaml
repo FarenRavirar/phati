@@ -2,6 +2,9 @@
 # desenvolvimento e só muda o que a VM exige: nenhum serviço publica porta no host (R1), o túnel Cloudflare é a única
 # entrada (R2), tudo volta sozinho depois de reinício da VM e o app liga a configuração de proxy com TLS (R3).
 # Valores (token do túnel, segredos, FQDN) vêm do `.env` da VM, `0600`, fora do repositório (R4).
+# Spec 009: as duas pilhas (`app_azul` e `app_verde`) sobem aqui, com o PgBouncer na frente do banco. O destino do nginx
+# (`PHATI_ALVO_DIR`, com o `alvo.conf` que o `implantar.sh` escreve) vem do `.env` da VM e é obrigatório: sem ele o
+# compose recusa subir, em vez de cair no `alvo.conf` do repositório, que aponta para a pilha azul.
 # Sub-rede fixa: o nginx só confia em `CF-Connecting-IP` vindo dela (`nginx/default.conf`, `set_real_ip_from`).
 networks:
   default:
@@ -9,22 +12,75 @@ networks:
       config:
         - subnet: 172.29.250.0/24
 services:
+  # Sem `command`: o `wal_level` padrão (`replica`) basta para a troca física (spec 009 R15, S2a). O `wal_level=logical` da
+  # troca lógica fica em `compose.troca-logica.yaml`, que só o `trocar-banco.sh` soma; deploy normal não o usa.
   banco:
     restart: unless-stopped
-  app:
+  # Banco de destino da troca (R15, T5.2). Só sobe com `--profile troca-banco`. Sem porta publicada, volume próprio.
+  # Mesmas variáveis e healthcheck do `banco` (as referências ao ambiente são as mesmas; sem valor literal).
+  banco_novo:
+    profiles: ["troca-banco"]
+    build: ./banco
+    environment:
+      POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
+      PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}
+      PHATI_BANCO_DONO_USUARIO: ${PHATI_BANCO_DONO_USUARIO:?}
+      PHATI_BANCO_DONO_SENHA: ${PHATI_BANCO_DONO_SENHA:?}
+      PHATI_BANCO_APP_USUARIO: ${PHATI_BANCO_APP_USUARIO:?}
+      PHATI_BANCO_APP_SENHA: ${PHATI_BANCO_APP_SENHA:?}
+      PHATI_BANCO_REPLICADOR_SENHA: ${PHATI_BANCO_REPLICADOR_SENHA:-}  # `:?` aqui quebra o `config` sem profile (medido, compose valida serviço inativo)
+    volumes:
+      - dados_banco_novo:/var/lib/postgresql
+      - ./banco/papeis.sql:/papeis.sql:ro
+      - ./banco/inicializar-papeis.sh:/docker-entrypoint-initdb.d/inicializar-papeis.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $$PHATI_BANCO_NOME"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+  pgb_ns:
+    restart: unless-stopped
+  pgb1:
+    restart: unless-stopped
+  pgb2:
+    restart: unless-stopped
+  app_azul:
     restart: unless-stopped
     ports: !reset []
     environment:
       PHATI_IMPLANTACAO: "1"
+  app_verde:
+    restart: unless-stopped
+    ports: !reset []
+    profiles: !reset []
+    environment:
+      PHATI_IMPLANTACAO: "1"
+  # Banco ativo (spec 009 R15, T5.4d): `compose.yaml` põe `banco` em `depends_on` de migracao, banco_extensoes e pgb_auth.
+  # Com `PHATI_BANCO_DESTINO=banco_novo`, o `run` desses serviços subia o `banco` antigo. Aqui a dependência sai: o
+  # `implantar.sh` sobe o banco ativo antes de qualquer `run` (`up -d --wait "$banco_srv"`). O dev segue no compose.yaml.
+  migracao:
+    depends_on:
+      banco: !reset null
+  banco_extensoes:
+    depends_on: !reset []
+  pgb_auth:
+    depends_on: !reset []
+  estaticos_verde:
+    profiles: !reset []
   nginx:
     restart: unless-stopped
     ports: !reset []
+    volumes:
+      - ${PHATI_ALVO_DIR:?}:/etc/nginx/alvo:ro
   # Imagem fixada por versão e digest do índice (amd64 e arm64), conferidos no Docker Hub em 2026-11-04.
   cloudflared:
-    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    image: cloudflare/cloudflared:2026.11.1@sha256:e613aadbc2d9511785d2e67a86b0c8ac18dd63a3f9af0d06faf04cbfdcb35f2d
     command: tunnel --no-autoupdate run
     restart: unless-stopped
     environment:
       TUNNEL_TOKEN: ${PHATI_TUNEL_TOKEN:?}
     depends_on:
       nginx: {condition: service_started}
+
+volumes:
+  dados_banco_novo:

@@ -1,0 +1,38 @@
+{% extends "casca.html" %}
+{% load static %}
+{% block titulo %}Publicar camada{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Publicar camada" subtitulo="A publicação cria uma versão em análise. Ela não vira vigente nesta etapa." %}
+{% if vencido %}
+{% include "componentes/aviso.html" with tipo="erro" texto="Este envio expirou. Envie o arquivo de novo." %}
+<p class="acoes-pagina"><a class="botao botao-secundario" href="{{ urls.novo }}">Enviar outro arquivo</a></p>
+{% elif sem_estudo %}
+{% include "componentes/vazio.html" with texto="Esta fazenda não tem estudo cadastrado. A publicação precisa de um estudo existente." %}
+{% else %}
+<section data-camadas="confirmacao" data-api-previa="{{ urls.api_previa }}" data-api-publicar="{{ urls.api_publicar }}">
+<output id="publicacao-carregando">Carregando a prévia…</output>
+<div class="aviso aviso-erro" id="publicacao-erro" role="alert" hidden><p class="aviso-texto"></p></div>
+<output class="aviso aviso-sucesso" id="publicacao-sucesso" hidden><span class="aviso-texto"></span></output>
+<form id="formulario-publicacao" hidden>
+{% csrf_token %}
+{% for c in campos %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo opcoes=c.opcoes obrigatorio=c.obrigatorio %}
+{% endfor %}
+<div class="campo" id="revisao-bloco" hidden>
+<p class="campo-rotulo" id="revisao-titulo">Feições para conferir o nó</p>
+<p class="campo-ajuda">Feições que cruzam mais de um nó já vêm com o nó de maior área escolhido; mude se quiser. Feições em empate entre dois nós precisam de escolha: escolha um nó. Feições fora de todos os nós ficam na própria fazenda. Para deixar uma feição que cruza na fazenda, escolha 'Própria fazenda'.</p>
+<output id="revisao-aviso" class="campo-ajuda" hidden></output>
+<div id="revisao-nos"></div>
+</div>
+<fieldset class="campo campo-caixas" id="campo-ocultos">
+<legend class="campo-rotulo">Atributos a ocultar</legend>
+<p class="campo-ajuda">Coluna oculta não aparece na tela nem na API, e não serve de filtro ou busca.</p>
+</fieldset>
+<div class="campo campo-caixas">
+<label class="campo-caixa"><input type="checkbox" id="campo_sistema_confirmado" name="sistema_confirmado"> Confirmo o sistema de referência mostrado na prévia</label>
+</div>
+<p class="acoes-pagina"><button class="botao" id="publicar" type="submit">Publicar em análise</button> <a class="botao botao-secundario" href="{{ urls.previa }}">Voltar à prévia</a></p>
+</form>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'projeto/camadas.js' %}" {% csp_nonce_attr %}></script>{% endblock %}

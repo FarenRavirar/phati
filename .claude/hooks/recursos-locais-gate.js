@@ -18,8 +18,16 @@ const path = require('node:path');
 
 const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
 
-/** `executar(comando, args)` devolve a saída em texto; falha lança. Devolve o que ainda está de pé. */
-function medir(executar) {
+/**
+ * `executar(comando, args)` devolve a saída em texto; falha lança. Devolve o que ainda está de pé.
+ * Fora do Windows a consulta ao Docker só roda com `PHATI_GATE_DOCKER=1` (ligado de propósito). Sem a variável, devolve []
+ * e não chama nada: a VM Linux tem contêineres `phati-*` de produção que não podem bloquear o fim do turno (spec 010,
+ * tasks.md T0.6: smoke `HOOK_OK` sem aviso Docker/WSL; AGENTS.md §Ao terminar).
+ * Teste: "linux sem variável não consulta Docker nem tasklist" e "linux com variável consulta só docker ps".
+ */
+function medir(executar, plataforma = process.platform, ambiente = process.env) {
+  const windows = plataforma === 'win32';
+  if (!windows && ambiente.PHATI_GATE_DOCKER !== '1') return [];
   const sobras = [];
   try {
     // Só contêiner do projeto (nome começa com `phati`: `phati-pg18-local`, `phatiteste-*` do compose): contêiner de outra
@@ -29,6 +37,7 @@ function medir(executar) {
   } catch {
     // Docker fora do ar ou ausente: nada de contêiner a fechar.
   }
+  if (!windows) return sobras; // vmmemWSL e tasklist são do Windows: fora dele só o Docker é medido
   try {
     const processos = executar('tasklist', ['/FI', 'IMAGENAME eq vmmemWSL.exe', '/FO', 'CSV', '/NH']);
     if (/vmmemWSL/i.test(processos)) sobras.push('processo vmmemWSL');

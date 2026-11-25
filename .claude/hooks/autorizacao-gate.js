@@ -23,9 +23,9 @@
 // declarativa ja cobre bem nao se duplica aqui: duplicar espalha a manutencao e
 // faz as duas divergirem com o tempo.
 //
-// Decisao do mantenedor (2026-10-29): so o COMMIT pergunta; `git push` e `gh pr create`
-// nao aparecem abaixo, porque so acontecem depois de um commit autorizado. Sem regra de SQL: nao ha banco de
-// producao local.
+// Decisao do mantenedor: COMMIT e MERGE (`git merge`, `gh pr merge`) pedem autorizacao nominal, por acao. `git push` e
+// `gh pr create` nao aparecem abaixo, porque so acontecem depois de um commit autorizado; o merge tambem fica no
+// `permissions.ask` de .claude/settings.json (segunda camada). Sem regra de SQL: nao ha banco de producao local.
 //
 // Falha aberta, deliberadamente: payload ilegivel ou erro interno sai com 0. Um
 // gate que derruba o turno e desligado na primeira vez que atrapalha, e ai nao
@@ -33,7 +33,36 @@
 
 'use strict';
 
+const { spawnSync } = require('node:child_process');
 const { lerPayload } = require(require('node:path').join(__dirname, 'ler-payload.js'));
+
+// Lê branch atual, último commit e o aviso que vai no prompt de commit. Falha aberta:
+// qualquer erro (cwd inválido, fora de repositório, HEAD destacado) vira `null` e o
+// `ask` segue, só sem o dado. Não reaproveita o branch-gate: ele roda lerPayload no
+// require e não exporta nada, então importá-lo dispararia a leitura de stdin.
+function contextoRepo(cwd) {
+  try {
+    const dir = typeof cwd === 'string' && cwd ? cwd : process.cwd();
+    const git = (args) => {
+      const r = spawnSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      return r.status === 0 ? (r.stdout || '').trim() || null : null;
+    };
+    return {
+      branch: git(['symbolic-ref', '--short', '-q', 'HEAD']),
+      ultimo: git(['log', '-1', '--format=%h %s']),
+    };
+  } catch {
+    return { branch: null, ultimo: null };
+  }
+}
+
+function avisoCommit({ branch, ultimo }) {
+  const onde = branch
+    ? `Branch atual: ${branch}.`
+    : 'Atenção: branch não identificada (HEAD destacado, fora de repositório ou erro de leitura).';
+  const commit = ultimo ? `Último commit: ${ultimo}.` : 'Último commit não identificado.';
+  return `\n\n${onde} ${commit} Confira se esta é a branch certa para este assunto antes de aprovar.`;
+}
 
 // Normaliza o texto antes de testar, para que o padrao nao precise antecipar
 // cada forma de escrever o mesmo comando. Sem isto, cada regra viraria uma
@@ -91,10 +120,9 @@ const REGRAS = [
   // Estas PERGUNTAM ao mantenedor; nao bloqueiam. Emitiam `deny` ate 2026-09-10,
   // o que tornava a acao impossivel por este harness mesmo com a autorizacao ja
   // dada: o gate nao distinguia "nao autorizado" de "autorizado", porque nunca
-  // chegava a perguntar. O AGENTS.md ja dizia o correto — "commit, worktree,
-  // escrita na VM, SQL write e pacote novo sao `ask`" — e era o hook que
-  // divergia do texto que implementa. Achado ao tentar commitar a propria
-  // spec 101 (F5), com autorizacao nominal dada e recusada pelo gate.
+  // chegava a perguntar. Achado ao tentar commitar a propria spec 101 (F5), com
+  // autorizacao nominal dada e recusada pelo gate.
+  // Politica do mantenedor: so commit e merge pedem autorizacao aqui. Worktree e escrita na VM ficaram de fora.
   {
     nome: 'commit-sem-autorizacao',
     decisao: 'ask',
@@ -102,18 +130,11 @@ const REGRAS = [
     porque: 'AGENTS.md §Decisao, pausa e duvida: cada commit exige autorizacao nominal do mantenedor — nao acumula entre commits, mesmo em branch ja pushada, mesmo no mesmo PR, mesmo na mesma conversa. "pode seguir"/"corrija"/"documente" NAO autorizam commit.',
   },
   {
-    nome: 'worktree-sem-aprovacao',
+    nome: 'merge-sem-autorizacao',
     decisao: 'ask',
-    test: /\bgit\s+worktree\s+(?:add|move|remove)\b/,
-    porque: 'AGENTS.md §Decisao, pausa e duvida: criar/mover/remover worktree exige aprovacao nominal PREVIA. Explique antes por que o cwd nao pode ser usado, o caminho exato, e como o trabalho volta. `git worktree list` e livre.',
-  },
-  {
-    nome: 'vm-escrita',
-    decisao: 'ask',
-    // `ssh maruko` com subcomando de mutacao. Read-only na VM e livre por regra
-    // petrea e nao pode cair aqui — dai a lista fechada de verbos de escrita.
-    test: /\bssh\s+maruko\b[^;&|]*\b(?:docker\s+(?:restart|stop|start|rm|kill|compose\s+(?:up|down))|systemctl\s+(?:start|stop|restart)|rm\s+-|mv\s|cp\s|tee\s|>\s*\/)/,
-    porque: 'AGENTS.md §Decisao, pausa e duvida: escrita na VM maruko exige aprovacao nominal a cada vez. Inspecao read-only (docker ps|logs|inspect, cat, ls) e SEMPRE permitida e nao passa por aqui.',
+    // `(?![\w-])` deixa passar `git merge-base`; `git log --merges` e `gh pr view` não casam.
+    test: /\bgit\s+merge(?![\w-])|\bgh\s+pr\s+merge(?![\w-])/,
+    porque: 'AGENTS.md §Decisao, pausa e duvida: merge (git merge, gh pr merge) exige autorizacao nominal do mantenedor, por acao. "pode seguir"/"corrija" NAO autorizam merge.',
   },
   {
     nome: 'pacote-novo',
@@ -123,19 +144,29 @@ const REGRAS = [
   },
 ];
 
+// Tira a regra que o ambiente desligou. Regra sem `desligavel` é sempre ativa.
+function regrasAtivas(ambiente) {
+  return REGRAS.filter((regra) => !regra.desligavel || ambiente[regra.desligavel] !== '0');
+}
+
 lerPayload((raw) => {
-  let command = '';
+  let payload;
   try {
-    command = JSON.parse(raw)?.tool_input?.command ?? '';
+    payload = JSON.parse(raw);
   } catch {
     process.exit(0); // payload ilegivel nunca bloqueia trabalho
   }
+  const command = payload?.tool_input?.command ?? '';
   if (!command) process.exit(0);
 
   const alvo = normalizar(command);
 
-  for (const regra of REGRAS) {
+  for (const regra of regrasAtivas(process.env)) {
     if (!regra.test.test(alvo)) continue;
+
+    // Só o commit mostra branch e último commit: é a ação em que o mantenedor precisa
+    // conferir a branch antes de aprovar. O `ask` do commit segue mesmo sem leitura.
+    const aviso = regra.nome === 'commit-sem-autorizacao' ? avisoCommit(contextoRepo(payload?.cwd)) : '';
 
     console.log(JSON.stringify({
       hookSpecificOutput: {
@@ -149,7 +180,8 @@ lerPayload((raw) => {
           + (regra.decisao === 'ask'
             ? ''
             : `\n\nPeca a autorizacao ao mantenedor no formato "APROVACAO NECESSARIA" `
-              + `(Acao / Motivo / Risco / Rollback / Escopo / Comandos) antes de reemitir.`),
+              + `(Acao / Motivo / Risco / Rollback / Escopo / Comandos) antes de reemitir.`)
+          + aviso,
       },
     }));
     process.exit(0);
