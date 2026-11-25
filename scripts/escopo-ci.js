@@ -47,8 +47,8 @@ function classificar({ evento, baseRef, listar }) {
   let arquivos;
   try {
     arquivos = listar(baseRef);
-  } catch (erro) {
-    process.stderr.write(`escopo-ci: git falhou, rodando tudo: ${erro.message}\n`);
+  } catch (error_) {
+    process.stderr.write(`escopo-ci: git falhou, rodando tudo: ${error_.message}\n`);
     return { ...tudo() };
   }
   if (arquivos.length === 0) return { ...tudo() };
@@ -74,8 +74,10 @@ function decidirCodeql(args) {
 }
 
 // `-z` e `--no-renames`: nome com espaço ou quebra de linha sai inteiro, e renomeado conta nos dois lados.
+// Caminho fixo: um `git` na frente do PATH não pode ser executado (SonarCloud S4036).
+const GIT = '/usr/bin/git';
 function listarPadrao(baseRef) {
-  const saida = execFileSync('git', ['diff', '--name-only', '-z', '--no-renames', `origin/${baseRef}...HEAD`], {
+  const saida = execFileSync(GIT, ['diff', '--name-only', '-z', '--no-renames', `origin/${baseRef}...HEAD`], {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -95,4 +97,4 @@ function principal() {
 
 if (require.main === module) principal();
 
-module.exports = { decidir, decidirCodeql, jobsDoArquivo };
+module.exports = { decidir, decidirCodeql, jobsDoArquivo, listarPadrao };

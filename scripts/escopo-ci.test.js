@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { decidir, decidirCodeql } = require('./escopo-ci.js');
+const { decidir, decidirCodeql, listarPadrao } = require('./escopo-ci.js');
 
 const SEM_CODEQL = { codeql_python: false, codeql_javascript_typescript: false, codeql_actions: false };
 const TUDO_CODEQL = { codeql_python: true, codeql_javascript_typescript: true, codeql_actions: true };
@@ -241,4 +241,42 @@ test('CLI: fora de um repositório git, o erro do git vira tudo true e exit 0', 
   });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(fs.readFileSync(saida, 'utf8'), 'python=true\nnode=true\ndocker=true\nnavegador=true\ncodeql_python=true\ncodeql_javascript_typescript=true\ncodeql_actions=true\n');
+});
+
+// PATH hostil: um `git` falso na frente do PATH não pode ser executado (S4036). O git real vem por caminho fixo.
+function gitFalsoEmPath() {
+  const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'escopo-path-'));
+  const marca = path.join(pasta, 'marca');
+  fs.writeFileSync(path.join(pasta, 'git'), `#!/bin/sh\ntouch "$MARCA"\necho fake.md\n`, { mode: 0o755 });
+  return { pasta, marca };
+}
+const rodarListagemComPath = (cwd, falso) => spawnSync(process.execPath, ['-e', `
+  const { listarPadrao } = require(${JSON.stringify(path.join(__dirname, 'escopo-ci.js'))});
+  try { process.stdout.write(JSON.stringify(listarPadrao('dev'))); } catch (e) { process.stdout.write('ERRO'); }
+`], { cwd, env: { PATH: falso.pasta, MARCA: falso.marca }, encoding: 'utf8' });
+
+test('listarPadrao com PATH hostil: usa o git real e não executa o git falso', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'escopo-repo-'));
+  const git = (...a) => spawnSync('/usr/bin/git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: repo, encoding: 'utf8' });
+  assert.equal(git('init', '-q').status, 0);
+  fs.writeFileSync(path.join(repo, 'base.md'), 'x');
+  assert.equal(git('add', '-A').status, 0);
+  assert.equal(git('commit', '-q', '-m', 'base').status, 0);
+  assert.equal(git('update-ref', 'refs/remotes/origin/dev', 'HEAD').status, 0);
+  fs.writeFileSync(path.join(repo, 'a b.md'), 'y');
+  assert.equal(git('add', '-A').status, 0);
+  assert.equal(git('commit', '-q', '-m', 'mudanca').status, 0);
+  const falso = gitFalsoEmPath();
+  const r = rodarListagemComPath(repo, falso);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, '["a b.md"]');
+  assert.equal(fs.existsSync(falso.marca), false, 'o git falso do PATH foi executado');
+});
+
+test('listarPadrao fora de repositório com PATH hostil: erra e não executa o git falso', () => {
+  const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'escopo-sem-repo-'));
+  const falso = gitFalsoEmPath();
+  const r = rodarListagemComPath(pasta, falso);
+  assert.equal(r.stdout, 'ERRO');
+  assert.equal(fs.existsSync(falso.marca), false, 'o git falso do PATH foi executado');
 });
