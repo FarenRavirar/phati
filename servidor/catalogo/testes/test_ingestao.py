@@ -578,8 +578,30 @@ def test_kmz_com_crc_ruim_e_recusado_como_compactado_invalido(tmp_path):
     assert recusa(arquivo(tmp_path, bytes(dados))) == ['compactado inválido ou criptografado']
 
 
-def test_json_muito_aninhado_e_recusado_como_geojson_invalido(tmp_path):
-    # Achado 4: aninhamento fundo estoura a recursão do json; vira recusa, não exceção.
+PROFUNDIDADE_EXCEDIDA = ['GeoJSON com aninhamento acima do limite de profundidade']
+
+
+def test_json_muito_aninhado_e_recusado_por_profundidade(tmp_path):
+    # Achado 4: aninhamento fundo. Conforme a plataforma, o json lança RecursionError (pilha C) ou devolve a estrutura;
+    # a recusa é a mesma nos dois casos (spec 011, CI 3.15 x86_64 divergiu do arm64).
     profundo = b'{"a": ' + b'[' * 100000 + b']' * 100000 + b'}'
-    assert recusa(arquivo(tmp_path, profundo)) == ['GeoJSON inválido']
+    assert recusa(arquivo(tmp_path, profundo)) == PROFUNDIDADE_EXCEDIDA
+
+
+def test_parser_que_estoura_a_pilha_e_recusado_por_profundidade(tmp_path, monkeypatch):
+    def estoura_a_pilha(*_args, **_kwargs):
+        raise RecursionError('maximum recursion depth exceeded')
+
+    monkeypatch.setattr(ingestao.json, 'loads', estoura_a_pilha)
+    assert recusa(arquivo(tmp_path, b'{"type": "FeatureCollection"}')) == PROFUNDIDADE_EXCEDIDA
+
+
+def test_parser_que_devolve_estrutura_funda_e_recusado_por_profundidade(tmp_path, monkeypatch):
+    funda = {}
+    atual = funda
+    for _ in range(100):  # 100 níveis: acima do limite de 64
+        atual['a'] = {}
+        atual = atual['a']
+    monkeypatch.setattr(ingestao.json, 'loads', lambda *_args, **_kwargs: funda)
+    assert recusa(arquivo(tmp_path, b'{"type": "FeatureCollection"}')) == PROFUNDIDADE_EXCEDIDA
 
