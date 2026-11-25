@@ -300,3 +300,107 @@ for (const comando of GIT_GREP_COM_PAGER) {
 test('git grep sem pager segue leitura e não nega', () => {
   assert.equal(decidir('git grep -n implantar scripts/implantar.sh'), null);
 });
+
+// --- instalação de script protegido em /opt/phati/bin: PERGUNTA na forma exata; resto segue negando ---
+
+const INSTALACAO_QUE_PERGUNTA = [
+  'install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/',
+  'install -o root -g root -m 755 scripts/implantar.sh scripts/restaurar.sh /opt/phati/bin',
+  'rtk install -o root -g root -m 755 scripts/backup.sh /opt/phati/bin/',
+  'sudo -n install -o root -g root -m 755 scripts/trocar-banco.sh /opt/phati/bin/',
+  'rtk sudo -n install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/',
+  'install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/ && echo ok',
+];
+
+for (const comando of INSTALACAO_QUE_PERGUNTA) {
+  test(`pergunta a instalação na forma exata: ${comando}`, () => {
+    const r = decidir(comando);
+    assert.ok(r, `esperava ask para: ${comando}, hook passou`);
+    assert.equal(r.regra.decisao, 'ask', comando);
+    assert.equal(r.regra.nome, 'instalar-script', comando);
+  });
+}
+
+test('pergunta de instalação diz o que será instalado e onde', () => {
+  const r = decidir('install -o root -g root -m 755 scripts/implantar.sh scripts/restaurar.sh /opt/phati/bin/');
+  assert.equal(r.alvo, 'instalar scripts/implantar.sh, scripts/restaurar.sh em /opt/phati/bin/');
+});
+
+const INSTALACAO_QUE_NEGA = [
+  // destino, modo, dono, grupo e opção extra diferentes da forma exata
+  'install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin2/',
+  'install -o root -g root -m 755 scripts/implantar.sh /tmp/',
+  'install -o root -g root -m 777 scripts/implantar.sh /opt/phati/bin/',
+  'install -o root -g root -m 0755 scripts/implantar.sh /opt/phati/bin/',
+  'install -o nobody -g root -m 755 scripts/implantar.sh /opt/phati/bin/',
+  'install -o root -g wheel -m 755 scripts/implantar.sh /opt/phati/bin/',
+  'install -o root -g root -m 755 -t /opt/phati/bin scripts/implantar.sh',
+  'install -o root -g root -m 755 -D scripts/implantar.sh /opt/phati/bin/x',
+  'install -o root -g root -m 755 --strip-program=/bin/sh scripts/implantar.sh /opt/phati/bin/',
+  // glob, substituição, redireção e aspas tiram o comando da forma exata
+  'install -o root -g root -m 755 scripts/*.sh scripts/implantar.sh /opt/phati/bin/',
+  'install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/ > /tmp/x',
+  'install -o root -g root -m 755 "scripts/implantar.sh" /opt/phati/bin/',
+  // a forma exata seguida de execução do script, ou de cópia com cp, nega
+  'install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/ && /opt/phati/bin/implantar.sh x',
+  'cp scripts/implantar.sh /opt/phati/bin/',
+  'bash -c "install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/"',
+  // com heredoc no comando, a análise de instalação não roda: segue como hoje (nega)
+  'install -o root -g root -m 755 scripts/implantar.sh /opt/phati/bin/\nbash <<EOF\nx\nEOF',
+  '/opt/phati/bin/implantar.sh x',
+];
+
+for (const comando of INSTALACAO_QUE_NEGA) {
+  test(`nega a instalação fora da forma exata: ${JSON.stringify(comando)}`, () => {
+    const r = decidir(comando);
+    assert.ok(r, `esperava deny para: ${comando}, hook passou`);
+    assert.equal(r.regra.decisao, 'deny', comando);
+    assert.equal(r.regra.nome, 'implantar-direto', comando);
+  });
+}
+
+// --- substituição `$(...)` ou crase que cita script protegido: quem a consome decide. Consumidor de leitura
+// passa. Consumidor que não é de leitura, ou substituição na posição de comando, executa o resultado: nega ---
+
+const SUBSTITUICAO_QUE_EXECUTA = [
+  'install -o root -g root -m 755 $(echo scripts/implantar.sh) /opt/phati/bin/',
+  'install -o root -g root -m 755 `echo scripts/implantar.sh` /opt/phati/bin/',
+  'install -o root -g root -m "$(echo scripts/implantar.sh)" /opt/phati/bin/',
+  'rtk install -o root -g root -m 755 $(echo scripts/implantar.sh) /opt/phati/bin/',
+  'install -o root -g root -m 755 $(echo scripts/implantar.sh) /opt/phati/bin/ && echo ok',
+  'bash -c "install -o root -g root -m 755 $(echo scripts/implantar.sh) /opt/phati/bin/"',
+  '$(echo scripts/implantar.sh) x',
+  '"$(echo scripts/implantar.sh)" x',
+  '`echo scripts/implantar.sh` x',
+  'sudo $(echo scripts/implantar.sh) x',
+  'bash $(echo scripts/implantar.sh)',
+  'rtk rg x "$(echo scripts/implantar.sh)" | bash',
+  // aspa aberta depois da substituição: falha fechada
+  'install -o root -g root -m 755 "$(echo scripts/implantar.sh) /opt/phati/bin/',
+];
+
+for (const comando of SUBSTITUICAO_QUE_EXECUTA) {
+  test(`nega o resultado de substituição que executa: ${JSON.stringify(comando)}`, () => {
+    const r = decidir(comando);
+    assert.ok(r, `esperava deny para: ${comando}, hook passou`);
+    assert.equal(r.regra.decisao, 'deny', comando);
+    assert.equal(r.regra.nome, 'implantar-direto', comando);
+    assert.equal(r.alvo, 'implantar.sh', comando);
+  });
+}
+
+const SUBSTITUICAO_QUE_LE_OU_E_MENSAGEM = [
+  'echo "$(cat scripts/implantar.sh)"',
+  'rtk rg -c "$(echo scripts/implantar.sh)" scripts',
+  'git add $(echo scripts/implantar.sh)',
+  'git commit -m "$(echo scripts/implantar.sh)"',
+  'gh pr create --body "$(cat scripts/implantar.sh)"',
+  'bash -n $(echo scripts/implantar.sh)',
+  "git commit -m \"$(cat <<'FIM'\nfix: implantar.sh\nFIM\n)\"",
+];
+
+for (const comando of SUBSTITUICAO_QUE_LE_OU_E_MENSAGEM) {
+  test(`substituição que só lê ou vira mensagem não nega: ${JSON.stringify(comando)}`, () => {
+    assert.equal(decidir(comando), null, comando);
+  });
+}

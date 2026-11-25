@@ -162,13 +162,25 @@ test('workflow de promoção: dispatch com confirmacao, só chama o script e nun
   assert.match(texto, /workflow_dispatch:\n {4}inputs:\n {6}confirmacao:/);
   assert.match(texto, /sha_aprovado:/);
   assert.match(texto, /bash scripts\/promover-dev-para-main\.sh "\$CONFIRMACAO" "\$SHA_APROVADO"/);
-  assert.match(texto, /contents: write/);
-  assert.match(texto, /actions: write/);
   assert.match(texto, /gh workflow run codeql\.yml --ref main/);
   // Promover pede a implantação, que espera a aprovação do Environment (spec 006): o SHA promovido é o que segue adiante.
   assert.match(texto, /SHA_APROVADO: \$\{\{ inputs\.sha_aprovado \}\}/);
   assert.match(texto, /gh workflow run implantar\.yml --ref main -f sha="\$SHA_APROVADO"/);
   assert.doesNotMatch(texto, /git push/);
+});
+
+test('workflow de promoção: sem permissão de escrita no topo; contents e actions só no job que as usa', () => {
+  const texto = ler('promover-dev-para-main.yml');
+  const inicioDosJobs = texto.indexOf('\njobs:');
+  assert.notEqual(inicioDosJobs, -1, 'workflow sem bloco jobs');
+  const topo = texto.slice(0, inicioDosJobs);
+  const jobs = texto.slice(inicioDosJobs);
+  assert.match(topo, /\npermissions: \{\}\n/);
+  assert.doesNotMatch(topo, /contents: write|actions: write/);
+  assert.match(jobs, /\n {4}permissions:\n {6}contents: write\n {6}actions: write\n/);
+  // Caminho infeliz: escrita repetida em outro ponto do arquivo (fora do job) é regressão.
+  assert.equal((texto.match(/contents: write/g) || []).length, 1);
+  assert.equal((texto.match(/actions: write/g) || []).length, 1);
 });
 
 test('PR permanente: o workflow dispara em push em dev e só chama o script', () => {

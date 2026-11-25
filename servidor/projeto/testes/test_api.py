@@ -1,5 +1,6 @@
 """Instância da API: tratamento de erro e as duas autenticações (R15, R17; A4)."""
 
+import http.client
 import json
 import pytest
 from django.contrib.sessions.backends.db import SessionStore
@@ -23,6 +24,30 @@ def _requisicao(url_name=None):
 
 def _corpo(resposta):
     return resposta.status_code, json.loads(resposta.content)
+
+
+def _descricoes_do_status(esquema, status):
+    return [
+        resposta['description']
+        for operacoes in esquema['paths'].values()
+        for operacao in operacoes.values()
+        if isinstance(operacao, dict)
+        for codigo, resposta in operacao.get('responses', {}).items()
+        if str(codigo) == status
+    ]
+
+
+def test_422_do_contrato_nao_depende_da_frase_da_biblioteca_padrao(monkeypatch):
+    # Em Python 3.15 o `http.client` diz 'Unprocessable Content' para 422; o contrato commitado segue 'Unprocessable Entity'.
+    monkeypatch.setitem(http.client.responses, 422, 'Unprocessable Content')
+    descricoes = _descricoes_do_status(api_do_projeto.api.get_openapi_schema(), '422')
+    assert descricoes and set(descricoes) == {'Unprocessable Entity'}
+
+
+def test_outro_status_segue_a_descricao_da_biblioteca(monkeypatch):
+    monkeypatch.setitem(http.client.responses, 200, 'Trocado')
+    descricoes = _descricoes_do_status(api_do_projeto.api.get_openapi_schema(), '200')
+    assert descricoes and set(descricoes) == {'Trocado'}
 
 
 def test_erro_de_entrada_nao_devolve_o_valor_recusado():

@@ -9,6 +9,10 @@
 //      obrigatório: sem ele o Environment recusa).
 //   2. ask `trocar-banco`: trocar-banco.sh não tem workflow; cada execução é decisão do
 //      mantenedor, então pergunta em vez de negar.
+//   3. ask `instalar-script`: instalar script protegido em /opt/phati/bin/ com a forma exata
+//      `install -o root -g root -m 755 <origem...> /opt/phati/bin/` (opcional `rtk`/`bypass` antes e
+//      `sudo -n` antes do install). Qualquer outra opção, destino, glob ou redireção sai
+//      dessa forma e segue como antes (deny). Se outro segmento do comando nega, o resultado é deny.
 //
 // Desenho (inverte o parse antigo, que só seguia embrulhos e deixava escapar `source`,
 // `eval`, `timeout`, `xargs`, `ln`, `<(...)` e `echo x | bash`):
@@ -21,7 +25,8 @@
 //      é negado quando o comando inteiro cita script protegido, porque o texto citado é o
 //      que roda. Cobre `echo scripts/x | bash`, `bash <(cat scripts/x)`, `source <(...)`.
 //   c) Texto de mensagem não executa: valor de -m/-F/--body/--title/--body-file sai da análise
-//      (separarTexto), e só os `$(...)` e crases dentro dele seguem sendo vistos. Corpo de heredoc sai
+//      (separarTexto), salvo quando tem `$` ou crase: aí fica, e a substituição é vista por quem a
+//      consome (alvosDaSubstituicao). Corpo de heredoc sai
 //      só quando o comando que o recebe é consumidor de texto (cat, tee, git, gh); se quem recebe é
 //      shell, source, eval, xargs, ssh ou desconhecido, o corpo entra na análise (falha fechada).
 //      Assim `git commit -m "fix: implantar.sh"` passa, `git commit -m "$(scripts/implantar.sh x)"` nega,
@@ -63,6 +68,15 @@ const REGRAS = [
   },
 ];
 const PROTEGIDOS = new Set(REGRAS.flatMap((r) => r.scripts));
+// Regra da forma exata de instalação. Não tem scripts próprios: é reconhecida por segmento (separarInstalacao).
+const INSTALAR = {
+  nome: 'instalar-script',
+  decisao: 'ask',
+  porque: 'Instalar script protegido em /opt/phati/bin/ na VM exige a decisão do mantenedor, por ação: confirme antes de rodar. Executar o script continua negado.',
+};
+const INSTALACAO_FORMA = /^(?:(?:rtk|bypass)\s+)?(?:sudo(?:\s+-n)?\s+)?install\s+-o\s+root\s+-g\s+root\s+-m\s+755\s+(.+)$/;
+const DESTINO_INSTALACAO = '/opt/phati/bin/';
+const CAMINHO_SIMPLES = /^[A-Za-z0-9_./][A-Za-z0-9_./-]*$/;
 
 const EMBRULHOS = new Set(['rtk', 'bypass', 'proxy', 'sudo', 'env', 'nohup', 'exec', 'command', 'time']);
 // Opções que levam argumento logo depois, por embrulho: `sudo -u root cmd`, `env -u VAR cmd`, `exec -a nome cmd`.
@@ -86,7 +100,7 @@ const CONSUMIDORES = new Set(['source', '.', 'eval', 'xargs']);
 // Quem só grava, repassa ou envia texto: o corpo de heredoc que cai nele é dado (ver corpoEhDado).
 const CONSUMIDOR_DE_TEXTO = new Set(['cat', 'tee', 'git', 'gh', 'wc', 'tr']);
 // Valor de -m/-F/--body/--title/--body-file é texto de mensagem: não executa. Corpo de heredoc só é texto quando o
-// consumidor é de texto (corpoEhDado). Só o `$(...)` e a crase dentro de texto que não executa são analisados (separarTexto).
+// consumidor é de texto (corpoEhDado). Valor com `$` ou crase fica na análise: a substituição nele depende de quem a consome.
 const HEREDOC = /<<-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\s*\2[ \t]*(?=\n|$)/g;
 const VALOR_TEXTO = /(^|\s)(?:-m|-F|--body-file|--body|--title)(?:\s+|=)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&|()]+)/g;
 const SUBSTITUICAO = /\$\(((?:[^()]|\([^()]*\))*)\)|`([^`]*)`/g;
@@ -307,7 +321,7 @@ function corpoEhDado(linha) {
 }
 
 // Tira o texto de mensagem (heredoc e -m/-F/--body/--title/--body-file) e devolve o comando que executa.
-// Corpo de heredoc que executa entra na análise inteira. Os `$(...)` e as crases de dentro do texto viram comandos no fim, para continuarem sendo vistos.
+// Corpo de heredoc que executa entra na análise inteira. Os `$(...)` e as crases de dentro de corpo de heredoc que é dado viram comandos no fim, para continuarem sendo vistos.
 function separarTexto(comando) {
   const ignorado = [];
   const executado = [];
@@ -319,8 +333,8 @@ function separarTexto(comando) {
     else executado.push(corpo);
     return resto;
   });
-  exec = exec.replace(VALOR_TEXTO, (_, pre, valor) => {
-    ignorado.push(valor);
+  exec = exec.replace(VALOR_TEXTO, (casa, pre, valor) => {
+    if (/[$`]/.test(valor)) return casa; // substituição dentro do valor: fica na análise
     return pre;
   });
   const substituidos = [];
@@ -339,14 +353,43 @@ function alvosProtegidos(tokens) {
   return tokens.map((t) => path.basename(t)).filter((n) => PROTEGIDOS.has(n));
 }
 
+// Substituição `$(...)` ou crase que cita script protegido. O texto dela vira argumento ou comando do segmento de
+// fora: se esse segmento não é de leitura, ou a substituição ocupa a posição de comando, o resultado executa.
+// Cada substituição protegida vira uma marca no texto e o segmento que a contém decide. Substituição sem script
+// protegido sai daqui (a análise de segmentos já a vê). Aspa aberta: falha fechada, nega todas as citadas.
+const MARCA_SUBST = /^SUBSTPROTEGIDA(\d+)$/;
+function alvosDaSubstituicao(texto) {
+  const marcas = [];
+  const sem = texto.replace(SUBSTITUICAO, (_, interno, crase) => {
+    const cita = alvosProtegidos(tokensDoTexto(interno ?? crase));
+    if (cita.length === 0) return ' ';
+    marcas.push(cita);
+    return ` SUBSTPROTEGIDA${marcas.length - 1} `;
+  });
+  const segs = cortarSegmentos(sem);
+  if (!segs) return marcas.flat();
+
+  const alvos = [];
+  for (const seg of segs) {
+    const tokens = tokenizar(seg);
+    const marcados = tokens.map((t) => MARCA_SUBST.exec(t)).filter(Boolean);
+    if (marcados.length === 0) continue;
+    const e = efetivo(tokens);
+    if (e && ehLeitura(e)) continue;
+    for (const m of marcados) alvos.push(...marcas[Number(m[1])]);
+  }
+  return alvos;
+}
+
 // Alvos protegidos que o texto executa. Recursivo: a string citada de `bash -c` e de `ssh` é outro
 // comando e é analisada do mesmo jeito. Aspa aberta: falha fechada, vale qualquer alvo citado no texto.
 function alvosDoTexto(texto) {
   const noTexto = alvosProtegidos(tokensDoTexto(texto));
+  const porSubstituicao = alvosDaSubstituicao(texto);
   const segs = cortarSegmentos(texto.replace(ECO_LITERAL, ' '));
-  if (!segs) return noTexto;
+  if (!segs) return [...noTexto, ...porSubstituicao];
 
-  const alvos = [];
+  const alvos = [...porSubstituicao];
   for (const bruto of segs) {
     const tokens = tokenizar(bruto);
     if (tokens.length === 0) continue;
@@ -358,12 +401,49 @@ function alvosDoTexto(texto) {
   return alvos;
 }
 
-// Devolve { regra, alvo } da primeira regra (na ordem de REGRAS) que casa algum alvo, ou null.
-function decidir(comando) {
+// Devolve { origens, destino } se o segmento for exatamente a instalação permitida, ou null.
+// Cada origem é caminho simples (sem aspa, `$`, glob, redireção) cujo basename é script protegido.
+function instalacaoPermitida(seg) {
+  const m = seg.trim().match(INSTALACAO_FORMA);
+  if (!m) return null;
+  const args = m[1].split(/\s+/);
+  const destino = args.at(-1);
+  const origens = args.slice(0, -1);
+  if (destino !== DESTINO_INSTALACAO && destino !== DESTINO_INSTALACAO.slice(0, -1)) return null;
+  if (origens.length === 0) return null;
+  if (!origens.every((o) => CAMINHO_SIMPLES.test(o) && PROTEGIDOS.has(path.basename(o)))) return null;
+  return { origens, destino: DESTINO_INSTALACAO };
+}
+
+// Tira os segmentos que são a instalação permitida. Devolve { instalacoes, resto } ou null se não há instalação
+// permitida. Com `<<` no comando devolve null: heredoc segue pela análise comum (falha fechada).
+function separarInstalacao(comando) {
+  if (comando.includes('<<')) return null;
+  const segs = cortarSegmentos(comando);
+  if (!segs) return null;
+  const formas = segs.map(instalacaoPermitida);
+  const instalacoes = formas.filter(Boolean);
+  if (instalacoes.length === 0) return null;
+  return { instalacoes, resto: segs.filter((_, i) => !formas[i]).join(';') };
+}
+
+// Análise comum: { regra, alvo } da primeira regra (na ordem de REGRAS) que casa algum alvo, ou null.
+function decidirComum(comando) {
   const alvos = alvosDoTexto(separarTexto(comando));
   const regra = REGRAS.find((r) => r.scripts.some((n) => alvos.includes(n)));
   if (!regra) return null;
   return { regra, alvo: regra.scripts.find((n) => alvos.includes(n)) };
+}
+
+// Devolve { regra, alvo } ou null. Instalação permitida pergunta, mas o resto do comando é analisado antes:
+// se ele nega (deny), o deny vence o ask.
+function decidir(comando) {
+  const sep = separarInstalacao(comando);
+  if (!sep) return decidirComum(comando);
+  const veredito = decidirComum(sep.resto);
+  if (veredito) return veredito;
+  const origens = sep.instalacoes.flatMap((i) => i.origens);
+  return { regra: INSTALAR, alvo: `instalar ${origens.join(', ')} em ${DESTINO_INSTALACAO}` };
 }
 
 if (require.main === module) {

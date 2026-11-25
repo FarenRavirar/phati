@@ -1,5 +1,6 @@
 """Rota de saúde (006 R10): 200 com banco, 503 sem banco, aberta, sem cache e sem vazar nada."""
 
+import pytest
 from django.db import OperationalError
 from django.test import Client
 
@@ -47,3 +48,22 @@ def test_saude_responde_503_quando_o_banco_cai_na_consulta_e_nao_ao_abrir_o_curs
 
 def test_saude_so_aceita_consulta():
     assert Client().post('/saude').status_code == 405
+
+
+# Host fora de ALLOWED_HOSTS recebe 400 em toda rota (spec 011 R8): o CommonMiddleware é quem chama get_host().
+@pytest.mark.parametrize('caminho', ['/saude', '/entrar'])
+def test_host_fora_de_allowed_hosts_recebe_400(settings, caminho):
+    settings.ALLOWED_HOSTS = ['phati.exemplo.test']
+    assert Client(HTTP_HOST='estranho.exemplo.test').get(caminho).status_code == 400
+
+
+@pytest.mark.parametrize('caminho', ['/saude', '/entrar'])
+def test_host_permitido_recebe_200_nas_mesmas_rotas(db, settings, caminho):
+    settings.ALLOWED_HOSTS = ['phati.exemplo.test']
+    assert Client(HTTP_HOST='phati.exemplo.test').get(caminho).status_code == 200
+
+
+def test_append_slash_desligado_mantem_404_sem_redirecionar(db, settings):
+    settings.ALLOWED_HOSTS = ['phati.exemplo.test']
+    assert settings.APPEND_SLASH is False
+    assert Client(HTTP_HOST='phati.exemplo.test').get('/rota-que-nao-existe').status_code == 404

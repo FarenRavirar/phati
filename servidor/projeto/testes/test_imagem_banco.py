@@ -23,6 +23,24 @@ def test_dockerfile_fixa_postgres_por_digest_e_postgis_por_versao():
     assert 'postgresql-18-postgis-3-scripts=3.6.4+dfsg-2.pgdg13+1' in DOCKERFILE
 
 
+def usuario_final(dockerfile):
+    # Último USER do Dockerfile (o que vale para o processo do contêiner); None se não houver.
+    usuarios = re.findall(r'^USER\s+(\S+)\s*$', dockerfile, re.M)
+    return usuarios[-1] if usuarios else None
+
+
+def test_dockerfile_termina_como_postgres_e_nao_root():
+    # O apt-get precisa de root, então o USER vem depois dele: o banco não roda como root.
+    assert usuario_final(DOCKERFILE) == 'postgres'
+    assert DOCKERFILE.index('apt-get install') < DOCKERFILE.rindex('USER postgres')
+
+
+def test_usuario_final_acusa_root_e_ausencia_de_user():
+    # Caminho infeliz: o teste acima só vale se o verificador separar root e Dockerfile sem USER.
+    assert usuario_final('FROM x\nUSER postgres\nUSER root\n') == 'root'
+    assert usuario_final('FROM x\nRUN true\n') is None
+
+
 def test_script_cria_postgis_em_template1_e_roda_no_init():
     # Bancos criados depois herdam a extensão de template1; o papel da aplicação não precisa de superusuário.
     assert 'COPY criar-postgis.sh /docker-entrypoint-initdb.d/' in DOCKERFILE

@@ -59,7 +59,25 @@ class LeitorJson(Parser):
         return super().parse_body(request)
 
 
-api = NinjaAPI(
+_DESCRICAO_422 = 'Unprocessable Entity'  # a do contrato commitado; o `http.client` de 3.15 diz 'Unprocessable Content'
+
+
+class _ApiEstavel(NinjaAPI):
+    # shortcut: troca só a descrição do 422 no esquema, porque o ninja a lê de `http.client.responses` (muda por versão do
+    # Python; medido: 3.10 e 3.12 dão 'Unprocessable Entity', 3.15 dá 'Unprocessable Content'). Remover quando o ninja
+    # aceitar descrição por status.
+    def get_openapi_schema(self, *args, **kwargs):
+        esquema = super().get_openapi_schema(*args, **kwargs)
+        for operacoes in esquema.get('paths', {}).values():
+            for operacao in operacoes.values():
+                if isinstance(operacao, dict):
+                    for codigo, resposta in operacao.get('responses', {}).items():
+                        if str(codigo) == '422':
+                            resposta['description'] = _DESCRICAO_422
+        return esquema
+
+
+api = _ApiEstavel(
     title='phati',
     version='1',
     urls_namespace='api_v1',

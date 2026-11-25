@@ -61,7 +61,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: ${{ needs.escopo.outputs.python != 'false' }}
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - run: "pip install --only-binary=:all: -r requirements.lock.txt"
         if: ${{ needs.escopo.outputs.python != 'false' }}
       # Ferramentas da geração do pacote offline (004b): `rio pmtiles` (versões fixas) e o CLI `pmtiles` com o SHA-256 do release v1.31.2.

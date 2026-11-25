@@ -8,3 +8,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 # Roda só na criação do volume: `template1` ganha o PostGIS, e todo banco criado depois herda a extensão (inclusive o de teste do Django).
 COPY criar-postgis.sh /docker-entrypoint-initdb.d/00-criar-postgis.sh
+# Não rodar como root: o apt-get acima é a única parte que precisa dele. Medido: volume novo em /var/lib/postgresql nasce
+# postgres:postgres e o PGDATA (/var/lib/postgresql/18/docker) é criado pelo próprio postgres.
+USER postgres

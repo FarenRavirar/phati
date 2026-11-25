@@ -1,5 +1,5 @@
 # Imagens fixadas por versão e digest do índice multi-arquitetura (amd64 e arm64), conferidos no Docker Hub em 2026-10-23.
-# python:3.12-slim = Python 3.12.15
+# python:3.15-slim = Python 3.15.2 (medido: `python -V` na imagem pelo digest, 2026-11-25)
 FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS construcao
 WORKDIR /construcao
 COPY requirements.lock.txt .

@@ -9,7 +9,8 @@ dependencies = [
     "psycopg[binary]==3.3.9",
     "argon2-cffi==25.1.0",
     "cryptography==50.0.2",
-    "gunicorn==26.2.0",
+    "defusedxml==0.7.1",
+    "gunicorn==27.0.1",
 ]
 
 [project.optional-dependencies]

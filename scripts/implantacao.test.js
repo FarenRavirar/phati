@@ -2704,6 +2704,53 @@ test('smoke recusa URL com caminho, sem esquema e HTTP puro fora do computador l
   }
 });
 
+// Servidor que recusa Host fora da lista, como o ALLOWED_HOSTS do Django (spec 011 R8): o smoke local precisa mandar o Host permitido.
+async function comServidorDeHosts(permitidos, fn) {
+  const servidor = http.createServer((req, res) => {
+    const host = (req.headers.host ?? '').replace(/:\d+$/, '');
+    if (!permitidos.includes(host)) {
+      res.writeHead(400).end();
+      return;
+    }
+    const rota = ROTAS_OK[req.url] ?? { status: 404, corpo: '' };
+    res.writeHead(rota.status, rota.cabecalhos ?? {});
+    res.end(rota.corpo ?? '');
+  });
+  await new Promise((resolver) => servidor.listen(0, '127.0.0.1', resolver));
+  try {
+    return await fn(`http://127.0.0.1:${servidor.address().port}`);
+  } finally {
+    servidor.close();
+  }
+}
+const smokeComHosts = (url, hosts) => {
+  const env = { ...process.env };
+  if (hosts === undefined) delete env.PHATI_HOSTS_PERMITIDOS;
+  else env.PHATI_HOSTS_PERMITIDOS = hosts;
+  return ASSINCRONO('bash', [unix(SMOKE), url], { env }).then(
+    (r) => ({ status: 0, ...r }),
+    (e) => ({ status: e.code, stdout: e.stdout, stderr: e.stderr }),
+  );
+};
+
+test('smoke em base http local manda o Host de PHATI_HOSTS_PERMITIDOS (R8): passa onde o Host 127.0.0.1 recebe 400', async () => {
+  const r = await comServidorDeHosts(['phati.exemplo.test'], (url) => smokeComHosts(url, 'phati.exemplo.test,outro.exemplo.test'));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /smoke_ok/);
+});
+
+test('smoke em base http local sem PHATI_HOSTS_PERMITIDOS não finge sucesso: o 400 da implantação reprova', async () => {
+  const r = await comServidorDeHosts(['phati.exemplo.test'], (url) => smokeComHosts(url, undefined));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /FALHA \/saude devolve estado ok/);
+});
+
+test('smoke recusa PHATI_HOSTS_PERMITIDOS com caractere fora de nome de host', async () => {
+  const r = await comServidorDeHosts(['phati.exemplo.test'], (url) => smokeComHosts(url, 'evil host;x'));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /PHATI_HOSTS_PERMITIDOS/);
+});
+
 // ---- E5: com banco-logico (modo lógico concluído) o override wal_level entra em todo compose; sem ele, não entra; arquivo ausente no clone recusa ----
 const OVERRIDE_LOGICA = 'compose.troca-logica.yaml';
 const comOverride = (v) => fs.writeFileSync(path.join(v.repo, 'servidor', OVERRIDE_LOGICA), 'services: {}\n');
