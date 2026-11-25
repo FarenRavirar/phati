@@ -250,8 +250,14 @@ resumir_pgb() {
     elif [[ "$comitado" == 1 && "$(pgb_host_app "$svc")" != "$NOVO" ]]; then
       echo "AVISO: RESUME de $svc falhou, o pooler não está pausado e não confirmei a linha de $bdnome em $NOVO (SHOW DATABASES): pode ter reiniciado com o host antigo. Recuperação à mão: no contêiner $svc, sed -i 's/host=$ORIG /host=$NOVO /' /tmp/pgb/$svc/pgbouncer.ini; depois psql -h /tmp/pgb/$svc -p 6432 -U pgbouncer pgbouncer -c RELOAD e -c RESUME" >&2
       falhou+=" $svc"
+    elif [[ "$comitado" == 0 && "$(pgb_host_app "$svc")" != "$ORIG" ]]; then
+      # Aborto: o PgBouncer reiniciado na janela gravação→promote leu o destino. Sem o host original confirmado, não retoma.
+      echo "AVISO: RESUME de $svc falhou, o pooler não está pausado e não confirmei a linha de $bdnome em $ORIG (SHOW DATABASES): pode ter reiniciado com o host de destino. Recuperação à mão: no contêiner $svc, sed -i 's/host=$NOVO /host=$ORIG /' /tmp/pgb/$svc/pgbouncer.ini; depois psql -h /tmp/pgb/$svc -p 6432 -U pgbouncer pgbouncer -c RELOAD e -c RESUME" >&2
+      falhou+=" $svc"
     else
-      echo "AVISO: RESUME de $svc falhou, mas o pooler não está pausado (reiniciado na troca): segue no destino" >&2
+      local onde="host original"
+      [[ "$comitado" == 1 ]] && onde=destino
+      echo "AVISO: RESUME de $svc falhou, mas o pooler não está pausado (reiniciado na troca): segue no $onde" >&2
       printf -v "$rn" '%s' 1
     fi
   done
@@ -718,6 +724,9 @@ trocar_fisica() {
   # Destino do PgBouncer logo antes do promote: uma instância reiniciada nesta janela lê o destino com o banco_novo ainda standby.
   destino_pgb_gravado=1
   gravar_destino_pgb || erro "não consegui gravar o destino no volume pgb_cfg: nada trocado"
+  # Um PgBouncer reiniciado daqui até o RESUME lê o destino e sobe com banco_novo: o aborto devolve o host dele (restaurar_host),
+  # não só apaga o destino (medido no dublê: test "pgb1 reinicia entre o destino gravado e o pg_promote").
+  host_trocado=1
   promovido=1  # antes do promote: se ele falhar no meio, o aborto trata o banco_novo como promovido
   [[ "$(sql_em "$NOVO" -At -c 'SELECT pg_promote(true, 60)' || true)" == t ]] || erro "pg_promote falhou: nada trocado"
   esperar_consulta "$NOVO" 'SELECT pg_is_in_recovery()' f || erro "$NOVO não saiu de recovery depois do promote"

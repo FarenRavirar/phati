@@ -18,6 +18,11 @@ if [[ $# -gt 0 ]]; then
   sha="${1:-}"
   opcao="${2:-}"
 else
+  # Quebra de linha ou CR no pedido recusa o pedido inteiro: `read -r` pararia na primeira linha e o resto seria descartado calado.
+  if [[ "${SSH_ORIGINAL_COMMAND:-}" == *$'\n'* || "${SSH_ORIGINAL_COMMAND:-}" == *$'\r'* ]]; then
+    echo "ERRO: pedido com quebra de linha ou CR recusado: nada foi executado" >&2
+    exit 1
+  fi
   read -r sha opcao <<<"${SSH_ORIGINAL_COMMAND:-}" || true
   sha="${sha:-}"
   opcao="${opcao:-}"
@@ -54,6 +59,8 @@ backup_arquivo=""
 # X3c: `anterior` é o SHA que estava no clone; `repo_mudou` vale depois do checkout do SHA novo (erro() devolve o clone).
 anterior=""
 repo_mudou=0
+# `clone_fica`: a candidata segue no alvo.conf sem pilha anterior para voltar; erro() deixa o clone no SHA dela.
+clone_fica=0
 
 registrar() {
   local extra=""
@@ -62,10 +69,15 @@ registrar() {
   [[ -z "$migracao" ]] || extra+=" migracao=$migracao"
   printf '%s %s %s%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${sha:-sem-sha}" "$*" "$extra" >> "$registro" 2>/dev/null || true
 }
+# Comando compose para o operador colar: caminhos e nome do projeto saem com `printf %q` (espaço ou caractere de shell não
+# divide o comando). Texto igual ao antigo para valor simples; o `$1` é texto fixo do script.
+comando_compose() {
+  printf 'PHATI_ALVO_DIR=%q COMPOSE_PROJECT_NAME=%q docker compose --env-file %q -f %q -f %q %s\n' "$alvo_dir" "$COMPOSE_PROJECT_NAME" "$dir/.env" "$dir/repo/servidor/compose.yaml" "$dir/repo/servidor/compose.implantacao.yaml" "$1"
+}
 # Comando exato para subir a ativa de volta (usado quando ela foi parada e a implantação falhou depois).
 comando_subir_ativa() {
   if [[ -z "$ativa" ]]; then echo "$docker start ${legado_ids//$'\n'/ }"; return; fi
-  echo "PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml up -d --no-deps app_$ativa"
+  comando_compose "up -d --no-deps app_$ativa"
 }
 # Primeiro arquivo de infraestrutura que falta em $1 (commit); vazio = completa. Só arquivo regular (100644/100755) serve à
 # montagem: link simbólico (120000) ou diretório (040000) com o mesmo nome não serve (medido com git ls-tree).
@@ -75,6 +87,11 @@ infra_faltando() {
     modo="$(git ls-tree "$rev" -- "$arq" | cut -d' ' -f1)"
     [[ "$modo" == 100644 || "$modo" == 100755 ]] || { echo "$arq"; return 0; }
   done
+}
+# A candidata segue no alvo.conf sem pilha anterior para voltar: o clone fica no SHA dela (erro() só devolve o clone quando a anterior volta a servir).
+erro_candidata_no_ar() {
+  clone_fica=1
+  erro "$@"
 }
 erro() {
   echo "ERRO: $*" >&2
@@ -95,6 +112,8 @@ erro() {
     if [[ -n "$(infra_faltando "$anterior")" ]]; then
       # Voltar a um SHA sem a infraestrutura põe o servidor/nginx de volta no bug da VM: o clone fica no SHA que passou na pré-checagem.
       registrar "repo-mantido=${sha:0:12}: anterior sem infraestrutura blue-green"
+    elif [[ "$clone_fica" == 1 ]]; then
+      registrar "repo-mantido=${sha:0:12}: a candidata segue no alvo.conf"
     elif git -C "$dir/repo" checkout -q --detach "$anterior" 2>/dev/null; then
       registrar "repo-restaurado=${anterior:0:12}"
     else
@@ -218,6 +237,15 @@ if [[ -f "$dir/ativa" ]]; then
   ativa="$(cat "$dir/ativa")"
   [[ "$ativa" == azul || "$ativa" == verde ]] || erro "$dir/ativa tem valor inválido"
 fi
+# Divergência ativa x alvo.conf (falha da reversão pós-troca grava `ativa` antiga com o destino novo no nginx): recusa antes de
+# calcular a candidata e antes de qualquer chamada ao Docker, senão a próxima implantação sobrescreveria a pilha que serve.
+if [[ -n "$ativa" && -e "$alvo_conf" ]]; then
+  servida="$(grep -E '^set \$pilha (azul|verde);$' "$alvo_conf" 2>/dev/null | grep -oE 'azul|verde' || true)"
+  if [[ "$servida" != "$ativa" ]]; then
+    antes_da_troca=0
+    erro "ativa=$ativa mas alvo.conf serve ${servida:-outra coisa}: reconcilie à mão antes de implantar"
+  fi
+fi
 outra() { local atual="$1"; if [[ "$atual" == azul ]]; then echo verde; else echo azul; fi; }
 if [[ -n "$ativa" ]]; then cand="$(outra "$ativa")"; else cand=azul; fi
 primeira=0
@@ -232,9 +260,8 @@ fi
 gravar_atomico() {
   local tmp destino="$1" conteudo="$2"
   tmp="$(mktemp "$(dirname "$destino")/.tmp.XXXXXX")"
-  printf '%s\n' "$conteudo" > "$tmp" || { rm -f "$tmp"; return 1; }
-  chmod 644 "$tmp"
-  mv -f "$tmp" "$destino"
+  # Falha em qualquer passo apaga o temporário (senão sobra `.tmp.*` no diretório que o nginx monta).
+  printf '%s\n' "$conteudo" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$destino" || { rm -f "$tmp"; return 1; }
 }
 # Mesmo contrato de `servidor/nginx/alvo/alvo.conf`: `$alvo` é o app e `$pilha` o volume de estáticos.
 conteudo_alvo() { local cor="$1"; printf 'set $alvo app_%s;\nset $pilha %s;' "$cor" "$cor"; }
@@ -310,9 +337,17 @@ saudavel_agora() {
 }
 # Comando completo de recuperação (usado quando a reversão também falha). Vazio = nenhuma pilha servia antes.
 comando_recuperacao() {
-  local ativa_antes="$1" grava="rm -f $alvo_conf"
-  [[ -z "$ativa_antes" ]] || grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $alvo_conf"
-  echo "$grava && PHATI_ALVO_DIR=$alvo_dir COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME docker compose --env-file $dir/.env -f $dir/repo/servidor/compose.yaml -f $dir/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload"
+  local ativa_antes="$1" grava
+  # Sem pilha anterior o alvo.conf nunca é removido (o nginx monta o diretório, e sem o arquivo ele não sobe): o comando sobe o nginx, que lê o arquivo atual.
+  if [[ -z "$ativa_antes" ]]; then echo "$(comando_compose "up -d --no-deps nginx")"; return; fi
+  # A ativa volta antes do alvo.conf: se só o alvo.conf voltasse, a ativa ficaria na candidata e a próxima implantação recusaria a divergência.
+  local ativa_grava="printf '%s\\n' $ativa_antes > $(printf '%q' "$dir/ativa")"
+  grava="printf 'set \$alvo app_$ativa_antes;\\nset \$pilha $ativa_antes;\\n' > $(printf '%q' "$alvo_conf")"
+  echo "$ativa_grava && $grava && $(comando_compose "exec -T nginx nginx -s reload")"
+}
+# Comando para subir só o túnel à mão, quando o cloudflared falhou depois da troca.
+comando_tunel() {
+  comando_compose "up -d --no-deps cloudflared"
 }
 
 # Devolve o alvo.conf anterior ($2, se $1 = 1) e recarrega se o nginx já tinha recarregado o destino novo ($3 = 1). Sai com erro.
@@ -321,10 +356,16 @@ reverter() {
   recuperar="$(comando_recuperacao "$ativa")"
   if [[ "$tinha" == 1 ]]; then
     gravar_atomico "$alvo_conf" "$antigo" || erro "$motivo; falha ao gravar o alvo.conf anterior; recupere com: $recuperar"
-  else
-    rm -f "$alvo_conf"
+  elif [[ -n "$ativa" ]]; then
+    # Sem alvo.conf antes (ativa sem o arquivo): grava o destino da ativa. Remover o arquivo deixaria o nginx sem config.
+    gravar_atomico "$alvo_conf" "$(conteudo_alvo "$ativa")" || erro "$motivo; falha ao gravar o alvo.conf de app_$ativa; recupere com: $recuperar"
   fi
+  # Sem alvo.conf antes e sem ativa (primeira implantação): o arquivo fica com a candidata, que é o que o nginx serve.
   if [[ "$recarregou" == 1 ]] && ! nginx_recarrega; then
+    # Sem pilha anterior nada foi revertido: o arquivo segue com a candidata, e o comando de recuperação só sobe o nginx.
+    if [[ "$tinha" != 1 && -z "$ativa" ]]; then
+      erro_candidata_no_ar "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand, mas o nginx não recarregou; recupere com: $recuperar"
+    fi
     erro "$motivo; alvo.conf revertido, mas o nginx não recarregou; recupere com: $recuperar"
   fi
   if [[ -n "$ativa" ]]; then
@@ -336,18 +377,20 @@ reverter() {
     fi
     erro "$motivo; alvo.conf revertido para app_$ativa, que segue servindo"
   fi
-  erro "$motivo; alvo.conf removido (nenhuma pilha servia antes)"
+  [[ "$tinha" != 1 ]] || erro "$motivo; alvo.conf anterior restaurado (nenhuma pilha servia antes)"
+  erro_candidata_no_ar "$motivo; sem pilha anterior: alvo.conf segue apontando app_$cand"
 }
 
 # Troca o destino do nginx para a cor $1: grava o alvo.conf, confere `nginx -t`, recarrega e verifica /saude pelo nginx.
 # O alvo.conf anterior fica em `alvo_tinha`/`alvo_antigo` para `ativa`, gravada logo depois, reverter junto se falhar.
 trocar() {
   local novo="$1"
-  antes_da_troca=0
   alvo_tinha=0
   alvo_antigo=""
   if [[ -f "$alvo_conf" ]]; then alvo_tinha=1; alvo_antigo="$(cat "$alvo_conf")"; fi
+  # Falha ao gravar o alvo.conf deixa a ativa servindo (antes_da_troca segue 1: o aviso diz isso).
   gravar_atomico "$alvo_conf" "$(conteudo_alvo "$novo")"
+  antes_da_troca=0
   if ! nginx_recarrega; then
     reverter "$alvo_tinha" "$alvo_antigo" 0 "nginx -t ou reload falhou"
   fi
@@ -429,6 +472,13 @@ passo=migracao
 migracao=pulada
 if [[ "$opcao" != "--sem-migracao" ]]; then
   migracao=nenhuma
+  # R17: nenhuma migração entre o início da replicação lógica e a troca (DDL não é replicado). A publicação criada pelo
+  # trocar-banco.sh existe na origem desde antes do marcador da troca; qualquer publicação na origem recusa a migração.
+  # Consulta que falha recusa também (fecha falhado).
+  publicacoes="$(compor exec -T "$banco_srv" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d "${PHATI_BANCO_NOME:-phati}" -c "SELECT count(*) FROM pg_publication"')" \
+    || erro "não consegui conferir a replicação lógica em $banco_srv (R17): migração não roda"
+  [[ "$publicacoes" =~ ^[0-9]+$ ]] || erro "saída inesperada ao conferir a replicação lógica (R17): migração não roda"
+  [[ "$publicacoes" == 0 ]] || erro "replicação lógica em curso (publicação na origem): migração não roda (R17); termine ou reverta a troca de banco antes"
   # Backup verificado antes de qualquer migração com arquivo a verificar (R8): o caminho vem do backup.sh.
   exigir_backup() {
     [[ -n "$backup_arquivo" && -s "$backup_arquivo" ]] || erro "backup verificado ausente ou vazio: a migração não roda"
@@ -494,15 +544,41 @@ trocar "$cand"
 gravar_atomico "$dir/ativa" "$cand" || reverter "$alvo_tinha" "$alvo_antigo" 1 "falha ao gravar ativa=$cand"
 ativa_parada=0
 passo=nginx-e-tunel
-# A pilha anterior fica de pé (rollback instantâneo). O nginx já recarregou; o `up` só garante o cloudflared.
-compor up -d --no-deps nginx cloudflared
+# A pilha anterior fica de pé (rollback instantâneo). O nginx já recarregou; os dois `up` só garantem nginx e cloudflared.
+# R9: falha aqui é depois da troca, então reverte a troca: `ativa` volta ao anterior antes, para o estado não divergir do alvo.
+# Dois `up` (e não um) para a mensagem dizer qual falhou; sem o nginx, o cloudflared não é tentado.
+falhou=""
+compor up -d --no-deps nginx || falhou=nginx
+if [[ -z "$falhou" ]]; then compor up -d --no-deps cloudflared || falhou=cloudflared; fi
+if [[ -n "$falhou" ]]; then
+  if [[ "$falhou" == nginx ]]; then
+    motivo="nginx falhou depois da troca; cloudflared não foi tentado"
+  else
+    motivo="cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: $(comando_tunel)"
+  fi
+  # Migração fora do fluxo (X2 + Codex P1): a ativa anterior foi parada e o esquema já mudou. Voltar a ela agora derruba a candidata.
+  if [[ "$esquema_migrado" == 1 ]]; then
+    erro_candidata_no_ar "$falhou falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_$cand segue no alvo.conf. Suba $falhou à mão com: $(comando_compose "up -d --no-deps $falhou")"
+  fi
+  # Primeira implantação (sem ativa): a candidata já está em `ativa` e no alvo.conf, e não há pilha anterior para reverter.
+  # Não remove nem reverte o alvo.conf (o nginx monta o diretório): diz o que subir à mão.
+  if [[ -z "$ativa" ]]; then
+    if [[ "$falhou" == nginx ]]; then
+      motivo+="; suba o nginx à mão com: $(comando_compose "up -d --no-deps nginx")"
+    fi
+    erro_candidata_no_ar "$motivo; sem pilha anterior: a candidata app_$cand segue no alvo.conf e em ativa, nada revertido"
+  fi
+  gravar_atomico "$dir/ativa" "$ativa" || erro "$motivo; falha ao regravar ativa=$ativa; recupere com: $(comando_recuperacao "$ativa")"
+  reverter "$alvo_tinha" "$alvo_antigo" 1 "$motivo"
+fi
 # Primeira implantação sobre o layout da 006 (contêiner `app` órfão): só sai depois da troca bem-sucedida. Volumes não são
 # tocados; o `phati_estaticos` antigo fica como pendência manual. Antes da troca o site segue pelo nginx e pelo app antigos;
 # a troca recria o nginx (blip de ~1 s, não medido).
 passo=orfao
 if [[ "$primeira" == 1 ]]; then
   for id in $("$docker" ps -aq --filter label=com.docker.compose.project=$COMPOSE_PROJECT_NAME --filter label=com.docker.compose.service=app); do
-    "$docker" rm -f "$id" >/dev/null
+    # Depois da troca a pilha nova já serve: falha aqui não reverte nada, só diz o que sobrou para remover à mão.
+    "$docker" rm -f "$id" >/dev/null || erro "a troca já foi feita (ativa=$cand), mas não consegui remover o app órfão $id: remova à mão com: $docker rm -f $id"
     registrar "removido-orfao=app"
   done
 fi
