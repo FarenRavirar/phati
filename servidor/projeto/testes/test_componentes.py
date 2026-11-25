@@ -9,10 +9,23 @@ from django.template.loader import render_to_string
 RAIZ = Path(__file__).resolve().parent.parent
 TEMPLATES = RAIZ / 'templates'
 ESTATICOS = RAIZ / 'static' / 'projeto'
+AGRION = ESTATICOS / 'agrion'
 
 
 def _renderizar(modelo, **contexto):
     return render_to_string(modelo, contexto)
+
+
+def _css_do_projeto():
+    # Recursivo (T1.3). `terceiros/` é biblioteca de terceiros, fora desta regra, como antes.
+    return sorted(p for p in ESTATICOS.rglob('*.css') if 'terceiros' not in p.relative_to(ESTATICOS).parts)
+
+
+def _integros_do_pacote():
+    # Exceção de cor literal e de !important só para cópia do pacote cujo hash confere (test_agrion_copia.py).
+    from projeto.testes.test_agrion_copia import integros_do_pacote
+
+    return integros_do_pacote()
 
 
 def test_botao():
@@ -112,10 +125,12 @@ def _requisicao():
 
 def test_cor_so_existe_no_arquivo_de_variaveis():
     cor = r'#[0-9A-Fa-f]{6}\b|\brgba?\(|\bhsla?\('
+    integros = _integros_do_pacote()
     achados = [
         arquivo.name
-        for arquivo in [*ESTATICOS.glob('*.css'), *TEMPLATES.rglob('*.html')]
-        if arquivo.name not in ('tokens.css', 'camadas.css') and re.search(cor, arquivo.read_text(encoding='utf-8'))
+        for arquivo in [*_css_do_projeto(), *TEMPLATES.rglob('*.html')]
+        if arquivo.name != 'camadas.css' and arquivo not in integros
+        and re.search(cor, arquivo.read_text(encoding='utf-8'))
     ]
     assert achados == []
     # camadas.css pode ter cor só dentro do bloco `:root`: fora dele, uma regra com cor literal reabriria o problema.
@@ -138,7 +153,7 @@ def test_todo_script_e_link_de_estilo_dos_moldes_leva_nonce():
 
 
 def test_outline_none_so_com_substituto():
-    for arquivo in ESTATICOS.glob('*.css'):
+    for arquivo in _css_do_projeto():
         texto = arquivo.read_text(encoding='utf-8')
         if re.search(r'outline:\s*(none|0)\b', texto):
             assert ':focus-visible' in texto, arquivo.name
@@ -149,7 +164,11 @@ def test_movimento_so_dentro_da_preferencia_por_movimento():
     # WCAG 2.3.3: `transition` e `animation` só existem dentro de `@media (prefers-reduced-motion: no-preference)`.
     # Comentário não conta (o texto da regra aparece nele); o bloco permitido é removido e nada pode sobrar.
     bloco = r'@media[^{]*prefers-reduced-motion:\s*no-preference[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}'
-    for arquivo in ESTATICOS.glob('*.css'):
+    integros = _integros_do_pacote()
+    for arquivo in _css_do_projeto():
+        # Cópia íntegra do pacote fica de fora: o movimento dela é zerado por `prefers-reduced-motion: reduce` (test_agrion_proprio.py).
+        if arquivo in integros:
+            continue
         texto = re.sub(r'/\*.*?\*/', '', arquivo.read_text(encoding='utf-8'), flags=re.S)
         fora_do_bloco = re.sub(bloco, '', texto)
         assert not re.search(r'\b(transition|animation)\s*:', fora_do_bloco), arquivo.name
@@ -164,8 +183,10 @@ def test_o_teste_de_movimento_detecta_movimento_sem_a_protecao():
 
 
 def test_nenhum_important_no_css():
-    for arquivo in ESTATICOS.glob('*.css'):
-        assert '!important' not in arquivo.read_text(encoding='utf-8'), arquivo.name
+    integros = _integros_do_pacote()
+    for arquivo in _css_do_projeto():
+        if arquivo not in integros:
+            assert '!important' not in arquivo.read_text(encoding='utf-8'), arquivo.name
 
 
 def test_atributo_hidden_vence_o_display_de_qualquer_componente():
@@ -173,14 +194,54 @@ def test_atributo_hidden_vence_o_display_de_qualquer_componente():
     assert 'html [hidden] { display: none; }' in (ESTATICOS / 'base.css').read_text(encoding='utf-8')
 
 
+def _ofensores_de_especificidade(texto):
+    """Seletores com `display` e mais de uma classe, atributo ou pseudo, exceto as regras `html <seletor>[hidden]`."""
+    achados = []
+    for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', texto, flags=re.S)):
+        if re.search(r'(^|;|\s)display\s*:', corpo):
+            for parte in seletor.split(','):
+                parte = parte.strip()
+                if re.fullmatch(r'html .+\[hidden\]', parte):
+                    continue
+                if len(re.findall(r'[.#\[:]', re.sub(r'::?(where|is)\(', '', parte))) > 1:
+                    achados.append(parte)
+    return achados
+
+
+def _seletores_hidden(texto):
+    """Seletores `html <algo>[hidden]` do CSS: a regra que devolve o `hidden` ao ofensor de cópia íntegra."""
+    return {
+        parte.strip()
+        for seletor, _ in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', texto, flags=re.S))
+        for parte in seletor.split(',')
+        if re.fullmatch(r'html .+\[hidden\]', parte.strip())
+    }
+
+
+def _sem_regra_hidden(ofensores, texto_proprio):
+    """Ofensores de cópia íntegra que não têm `html <ofensor>[hidden]` correspondente no CSS próprio."""
+    existentes = _seletores_hidden(texto_proprio)
+    return [ofensor for ofensor in ofensores if f'html {ofensor}[hidden]' not in existentes]
+
+
 def test_nenhum_componente_tem_especificidade_maior_que_a_regra_de_hidden():
-    # `html [hidden]` vale (0,1,1): regra com `display` em seletor mais específico a venceria e reabriria o risco.
-    for arquivo in ESTATICOS.glob('*.css'):
-        for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', arquivo.read_text(encoding='utf-8'), flags=re.S)):
-            if re.search(r'(^|;|\s)display\s*:', corpo) and 'html [hidden]' not in seletor:
-                for parte in seletor.split(','):
-                    ids_classes = len(re.findall(r'[.#\[:]', re.sub(r'::?(where|is)\(', '', parte)))
-                    assert ids_classes <= 1, (arquivo.name, parte.strip())
+    # `html [hidden]` (0,1,1) vence toda regra com `display` de uma classe. Cópia íntegra pode ter seletor mais específico
+    # só com a regra `html <seletor>[hidden]` correspondente no CSS próprio (agrion-proprio.css); o resto não pode.
+    integros = _integros_do_pacote()
+    proprio = ''.join(p.read_text(encoding='utf-8') for p in _css_do_projeto() if p not in integros)
+    for arquivo in _css_do_projeto():
+        texto = arquivo.read_text(encoding='utf-8')
+        if arquivo in integros:
+            assert _sem_regra_hidden(_ofensores_de_especificidade(texto), proprio) == [], arquivo.name
+        else:
+            assert _ofensores_de_especificidade(texto) == [], arquivo.name
+
+
+def test_o_teste_de_especificidade_reprova_seletor_sem_regra_hidden():
+    assert _ofensores_de_especificidade('.a .b { display: grid; }') == ['.a .b']
+    assert _ofensores_de_especificidade('html .a .b[hidden] { display: none; }') == []
+    assert _sem_regra_hidden(['.a .b'], '') == ['.a .b']
+    assert _sem_regra_hidden(['.a .b'], 'html .a .b[hidden] { display: none; }') == []
 
 
 def test_campo_com_teclado_leva_inputmode_e_sem_corretor():

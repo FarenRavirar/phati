@@ -1,0 +1,35 @@
+/* CSS próprio da AgriOn (spec 012, R11, R12, R13): só o que o pacote copiado em agrion/ não traz. Carregado por último.
+   Sem cor literal (só `var()`), sem peso forçado; movimento só dentro de `prefers-reduced-motion: no-preference`. */
+
+/* `html [hidden]` (0,1,1) vence toda regra de classe com `display`. Seletor composto da cópia íntegra ganha a sua regra abaixo. */
+html [hidden] { display: none; }
+html .ag-nav-item .ag-nav-contador[hidden] { display: none; }
+html .ag-casca[data-gaveta] .ag-gaveta-fundo[hidden] { display: none; }
+
+/* Link sem classe segue sublinhado: a cor sozinha não distingue o link no texto (WCAG 1.4.1). */
+a { text-decoration: underline; text-underline-offset: 0.2em; }
+
+/* R13: texto terciário sobre o hover (4,19:1) e sobre o nó selecionado (4,37:1) troca para o secundário (6,24:1 no selecionado). */
+.ag-arvore-no:hover .ag-arvore-meta,
+.ag-arvore-no[aria-current="true"] .ag-arvore-meta { color: var(--texto-secundario); }
+
+/* R11: link de atalho é alvo de toque (WCAG 2.5.8). Link inline não tem altura de alvo: 24 px no desktop. Fica antes do @media:
+   a regra de baixo (44 px) só vence se vier depois, com a mesma especificidade. */
+.lista-atalhos a { display: inline-flex; align-items: center; min-height: 1.5rem; }
+
+/* R11: alvo de 44 px abaixo de 64rem; nas telas públicas, botão e campo sempre. Acima disso o pacote usa 36 px (controle-md). */
+@media (max-width: 64rem) {
+  .ag-botao { --h: var(--controle-lg); }
+  .ag-controle { height: var(--controle-lg); }
+  .lista-atalhos a { min-height: var(--controle-lg); }
+}
+.ag-publica .ag-botao { --h: var(--controle-lg); }
+.ag-publica .ag-controle { height: var(--controle-lg); }
+
+/* R11: em tela estreita o painel de camadas fica na base, a ficha abaixo do seletor de fundo e o zoom acima do painel:
+   nenhum sobrepõe o outro. */
+@media (max-width: 48rem) {
+  .ag-camadas { top: auto; right: 0; bottom: 0; left: 0; width: auto; max-height: 40%; border-radius: 0; }
+  .ag-ficha-flutuante { top: calc(var(--espaco-12) + var(--espaco-3)); right: var(--espaco-3); left: var(--espaco-3); width: auto; max-height: 30%; }
+  .ag-mapa-zoom { right: var(--espaco-3); bottom: calc(40% + var(--espaco-3)); }
+}

@@ -1,0 +1,84 @@
+/* AgriOn — cores. Base = escala; semântico = o que os componentes usam. Pares de texto >= 4,5:1, contorno de campo >= 3:1. */
+:root {
+  /* Verde AgriOn (marca: 200 #C8E6C9, 500 #2E7D52, 700 #1B5E3C) */
+  --verde-25: #F4FAF5;
+  --verde-50: #EAF5EC;
+  --verde-100: #D9EDDD;
+  --verde-200: #C8E6C9;
+  --verde-300: #9DD0A9;
+  --verde-400: #5FAE7A;
+  --verde-500: #2E7D52;
+  --verde-600: #236C46;
+  --verde-700: #1B5E3C;
+  --verde-800: #154A30;
+  --verde-900: #0E3321;
+
+  /* Neutros levemente esverdeados (cinza da marca #424242 ~ 700) */
+  --cinza-0: #FFFFFF;
+  --cinza-25: #FAFBFA;
+  --cinza-50: #F5F6F5;
+  --cinza-100: #ECEEEC;
+  --cinza-200: #E0E3E0;
+  --cinza-300: #CBD0CC;
+  --cinza-400: #879089;
+  --cinza-500: #6B736D;
+  --cinza-600: #545B56;
+  --cinza-700: #3F4541;
+  --cinza-800: #2A2F2B;
+  --cinza-900: #171A18;
+
+  /* Estados */
+  --vermelho-50: #FEF1EF; --vermelho-200: #F8C9C2; --vermelho-500: #D93A26; --vermelho-700: #B42318;
+  --ambar-50: #FFF7E8;    --ambar-200: #FBDDA4;    --ambar-500: #E39A1B;    --ambar-700: #93530A;
+  --azul-50: #EEF4FD;     --azul-200: #C4D8F6;     --azul-500: #2F6FD0;     --azul-700: #1D55A6;
+  --sucesso-50: #ECF7EF;  --sucesso-200: #BFE3C9;  --sucesso-500: #2E9254;  --sucesso-700: #1A6E3B;
+
+  /* Marca (assinatura) */
+  --marca-verde: #1B5E3C;
+  --marca-verde-medio: #2E7D52;
+  --marca-verde-claro: #C8E6C9;
+  --marca-cinza: #424242;
+
+  /* Camadas do mapa — sistema próprio, nunca reutilizado como estado */
+  --camada-1: #2E7D6B;
+  --camada-2: #C26A1E;
+  --camada-3: #4F6BC4;
+  --camada-4: #8E5BA6;
+  --camada-5: #C2405C;
+  --camada-6: #7A8B2A;
+
+  /* ---------- Semântico ---------- */
+  --bg-app: var(--cinza-50);
+  --bg-superficie: var(--cinza-0);
+  --bg-sutil: var(--cinza-25);
+  --bg-hover: var(--cinza-100);
+  --bg-pressionado: var(--cinza-200);
+  --bg-selecionado: var(--verde-50);
+  --bg-inverso: var(--cinza-900);
+  --bg-marca: var(--verde-700);
+
+  --texto-primario: var(--cinza-900);
+  --texto-secundario: var(--cinza-600);
+  --texto-terciario: var(--cinza-500);
+  --texto-desabilitado: var(--cinza-400);
+  --texto-inverso: var(--cinza-0);
+  --texto-marca: var(--verde-700);
+  --texto-link: var(--verde-700);
+
+  --borda-sutil: var(--cinza-100);
+  --borda-padrao: var(--cinza-200);
+  --borda-forte: var(--cinza-300);
+  --borda-campo: var(--cinza-400);
+  --borda-foco: var(--verde-600);
+  --anel-foco: 0 0 0 3px rgba(46, 125, 82, 0.28);
+
+  --acao-primaria: var(--verde-700);
+  --acao-primaria-hover: var(--verde-800);
+  --acao-primaria-pressionada: var(--verde-900);
+  --sobre-primaria: var(--cinza-0);
+
+  --erro-texto: var(--vermelho-700);   --erro-fundo: var(--vermelho-50);   --erro-borda: var(--vermelho-200);   --erro-solido: var(--vermelho-500);
+  --aviso-texto: var(--ambar-700);     --aviso-fundo: var(--ambar-50);     --aviso-borda: var(--ambar-200);     --aviso-solido: var(--ambar-500);
+  --info-texto: var(--azul-700);       --info-fundo: var(--azul-50);       --info-borda: var(--azul-200);       --info-solido: var(--azul-500);
+  --sucesso-texto: var(--sucesso-700); --sucesso-fundo: var(--sucesso-50); --sucesso-borda: var(--sucesso-200); --sucesso-solido: var(--sucesso-500);
+}

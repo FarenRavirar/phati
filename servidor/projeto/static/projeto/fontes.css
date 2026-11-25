@@ -1,0 +1,8 @@
+/* Geist e Geist Mono servidas pelo próprio servidor (R3, spec 012): nenhuma requisição a Google Fonts ou CDN.
+   Arquivos em agrion/fontes/ (cópia do pacote, OFL-1.1, ver agrion/fontes/LICENSE-geist.txt). */
+@font-face { font-family: "Geist"; font-style: normal; font-weight: 400; font-display: swap; src: url("agrion/fontes/Geist-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; font-style: normal; font-weight: 500; font-display: swap; src: url("agrion/fontes/Geist-Medium.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; font-style: normal; font-weight: 600; font-display: swap; src: url("agrion/fontes/Geist-SemiBold.woff2") format("woff2"); }
+@font-face { font-family: "Geist"; font-style: normal; font-weight: 700; font-display: swap; src: url("agrion/fontes/Geist-Bold.woff2") format("woff2"); }
+@font-face { font-family: "Geist Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("agrion/fontes/GeistMono-Regular.woff2") format("woff2"); }
+@font-face { font-family: "Geist Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("agrion/fontes/GeistMono-Medium.woff2") format("woff2"); }

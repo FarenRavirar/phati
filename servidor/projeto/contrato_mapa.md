@@ -22,5 +22,5 @@ Regras:
 - Todo campo existe no registro; sem dado, o valor é `None`. Campo ausente do registro é erro, não "sem informação".
 - Valor derivado (interpolação, sensoriamento) vem com `origem: estimativa` e nunca aparece como medição.
 - Ficha e ressalva são texto visível, nunca tooltip.
-- A cor de cada camada vive em `static/projeto/camadas.css`, nunca em `tokens.css`. Paleta e simbologia vêm da Tatiane; até lá a cor é provisória.
+- A cor de cada camada vive em `static/projeto/camadas.css`, nunca em `agrion/tokens/`. Paleta e simbologia vêm da Tatiane; até lá a cor é provisória.
 - Estados de cada região: vazio, carregando, erro, sem permissão e sem informação (`componentes/regiao.html`).

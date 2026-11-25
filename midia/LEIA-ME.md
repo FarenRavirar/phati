@@ -37,7 +37,7 @@ Pacote da identidade visual definitiva da marca **AgriOn**, para a plataforma de
 | Verde claro | `#C8E6C9` |
 | Cinza escuro e palavra **Agri** | `#424242` |
 
-Os verdes internos do mapa compõem a ilustração da marca. **Não devem ser reutilizados automaticamente** como cores de estados administrativos ou de camadas no sistema. A interface continua sujeita aos pares de contraste definidos em `tokens.css` e às regras do `DESIGN.md`.
+Os verdes internos do mapa compõem a ilustração da marca. **Não devem ser reutilizados automaticamente** como cores de estados administrativos ou de camadas no sistema. A interface continua sujeita aos pares de contraste definidos em `servidor/projeto/static/projeto/agrion/tokens/colors.css` e às regras do `DESIGN.md`.
 
 ## Observações técnicas
 

@@ -123,7 +123,9 @@ def test_carregando_usa_output_erro_e_anunciado_e_titulo_fica_fora_do_summary():
 
 def test_cor_de_camada_mora_so_em_camadas_css():
     estaticos = PROJETO / 'static' / 'projeto'
-    assert 'camada' not in (estaticos / 'tokens.css').read_text(encoding='utf-8')
+    # A paleta do pacote (`--camada-*`, Q25) e o CSS próprio não trazem a cor provisória; ela mora só em camadas.css.
+    assert '--cor-camada' not in (estaticos / 'agrion' / 'tokens' / 'colors.css').read_text(encoding='utf-8')
+    assert '--cor-camada' not in (estaticos / 'agrion-proprio.css').read_text(encoding='utf-8')
     assert '--cor-camada-provisoria-1' in (estaticos / 'camadas.css').read_text(encoding='utf-8')
 
 

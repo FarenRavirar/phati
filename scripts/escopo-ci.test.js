@@ -127,7 +127,7 @@ test('base com caractere de shell: tudo roda (não é nome de branch válido)', 
 // (`--require` com `readFileSync`/`existsSync`/`openSync`...) e, onde o teste lê por código, com a linha citada.
 const LEITURAS = [
   ['servidor/compose.yaml', 'node', 'scripts/implantacao.test.js:1814 (readFileSync)'],
-  ['servidor/projeto/static/projeto/tokens.css', 'node', 'scripts/contraste-tokens.test.js:10 (readFileSync)'],
+  ['servidor/projeto/static/projeto/agrion/tokens/colors.css', 'node', 'scripts/contraste-tokens.test.js:11 (readFileSync)'],
   ['servidor/projeto/static/projeto/estilo_base.json', 'node', 'servidor/projeto/static/projeto/fundo-aberto.test.js:7 (readFileSync)'],
   ['servidor/projeto/templates/camadas_envio.html', 'node', 'servidor/projeto/static/projeto/camadas.test.js:91 (readFileSync via TEMPLATES)'],
   ['servidor/projeto/templates/redefinir_senha.html', 'node', 'servidor/projeto/static/projeto/redefinir-senha.test.js (medido em execução)'],
