@@ -72,6 +72,14 @@ if [[ -n "\${DUBLE_SINAL:-}" && "$args" == *"$DUBLE_SINAL"* && ! -e "$VM/.sinal"
   while [[ "$pid" -gt 1 ]] && ! grep -q 'trocar-banco.sh' "/proc/$pid/cmdline" 2>/dev/null; do pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)"; done
   kill -TERM "$pid" 2>/dev/null || true
 fi
+# Reinício do pgb1 (DUBLE_REINICIA_EM=<trecho>), uma vez, antes do comando que casa: perde a pausa e sobe com a configuração que lê do
+# volume (banco_novo se o destino já foi gravado, senão banco). mem-pgb1 é o host em execução (SHOW DATABASES, só neste modo).
+if [[ -n "\${DUBLE_REINICIA_EM:-}" && "$args" == *"$DUBLE_REINICIA_EM"* && ! -e "$VM/.reiniciou" ]]; then
+  touch "$VM/.reiniciou"
+  rm -f "$VM/.pausado-pgb1"
+  if [[ -e "$VM/.destino-gravado" ]]; then h=banco_novo; else h=banco; fi
+  echo "$h" > "$VM/ini-pgb1"; echo "$h" > "$VM/mem-pgb1"
+fi
 # Lote 2 (R3): o arquivo .assinatura-criada é o estado da assinatura no destino. CREATE que dá certo cria; DROP/ALTER raw sem ela falha
 # como no PostgreSQL ("subscription does not exist"), a menos que o SQL seja guardado por pg_subscription (limpeza nova).
 # DUBLE_ASSINATURA_PERDIDA=1: o CREATE roda no servidor (cria o estado) mas o cliente recebe falha (resposta perdida).
@@ -169,14 +177,18 @@ case "$args" in
   *"srsubstate"*) echo "\${DUBLE_SINCRONIA:-5/5}" ;;
   *"string_agg"*) [[ "\${DUBLE_TABELAS_VAZIA:-0}" == 1 ]] || echo "public.fazenda" ;;
   *"exec -T banco_novo"*"count(*)"*) echo "\${DUBLE_TABELAS_DESTINO:-0}" ;;
-  *"printf"*"/cfg/banco-destino"*) [[ "\${DUBLE_GRAVA_FALHA:-0}" == 1 ]] && exit 1 ;;
-  *"rm -f /cfg/banco-destino"*) [[ "\${DUBLE_REMOVE_FALHA:-0}" == 1 ]] && exit 1 ;;
+  *"printf"*"/cfg/banco-destino"*) [[ "\${DUBLE_GRAVA_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.destino-gravado" ;;
+  *"rm -f /cfg/banco-destino"*) [[ "\${DUBLE_REMOVE_FALHA:-0}" == 1 ]] && exit 1; rm -f "$VM/.destino-gravado" ;;
   # Remoção do passfile no banco_novo: o arquivo sai de $VM/pgpass-gravado para $VM/pgpass-removido (guarda o conteúdo para o teste).
   *"rm -f /tmp/phati-replicador.pgpass"*) [[ "\${DUBLE_PGPASS_REMOVE_FALHA:-0}" == 1 ]] && exit 1; mv -f "$VM/pgpass-gravado" "$VM/pgpass-removido" 2>/dev/null || true ;;
   # Restauração do host (C1): falha o sed de volta só na instância de DUBLE_RESTAURA_FALHA (a ida usa host=banco_novo /, outra forma).
   # Linha do ini (E11): o grep de host=banco (com espaço) passa só se a instância está no host original (DUBLE_INI_PGB1/2, padrão banco_novo).
   *"grep -q host="*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; est="\${DUBLE_INI_PGB1:-banco_novo}"; [[ "$svc" == pgb2 ]] && est="\${DUBLE_INI_PGB2:-banco_novo}"; [[ "$args" == *"host=banco "* && "$est" == banco ]] || exit 1 ;;
-  *"host=banco_novo /host=banco /"*) [[ -n "\${DUBLE_RESTAURA_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESTAURA_FALHA "* ]] && exit 1 ;;
+  *"host=banco_novo /host=banco /"*) [[ -n "\${DUBLE_RESTAURA_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESTAURA_FALHA "* ]] && exit 1
+    svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; echo banco > "$VM/ini-$svc" ;;
+  # Ida do host (sed do passo host): grava o host na configuração da instância, que o RELOAD copia para a memória.
+  *"host=banco /host=banco_novo /"*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; echo banco_novo > "$VM/ini-$svc" ;;
+  *"-c RELOAD"*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; cp "$VM/ini-$svc" "$VM/mem-$svc" 2>/dev/null || true ;;
   # PAUSE pendurado (C2): dorme além do limite em DUBLE_PAUSE_PENDURA; o exec troca o processo, então o timeout mata o sleep.
   # Estado do PgBouncer em $VM/.pausado-<instância>: PAUSE (com sucesso) liga, RESUME (com sucesso) desliga.
   *"-c PAUSE"*) [[ -n "\${DUBLE_PAUSE_PENDURA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_PENDURA "* ]] && exec sleep 3; [[ -n "\${DUBLE_PAUSE_FALHA:-}" && "$args" == *"exec -T $DUBLE_PAUSE_FALHA "* ]] && exit 1; svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2; touch "$VM/.pausado-$svc" ;;
@@ -184,6 +196,7 @@ case "$args" in
   # sai com erro (not paused) e a instância fica não pausada, como um PgBouncer que subiu lendo /cfg/banco-destino.
   *"-c RESUME"*) svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2
     if [[ -n "\${DUBLE_REINICIADO:-}" && "$args" == *"exec -T $DUBLE_REINICIADO "* ]]; then rm -f "$VM/.pausado-$svc"; echo "ERROR: not paused" >&2; exit 1; fi
+    if [[ "$svc" == pgb1 && -e "$VM/.reiniciou" && ! -e "$VM/.pausado-pgb1" ]]; then echo "ERROR: not paused" >&2; exit 1; fi
     [[ -n "\${DUBLE_RESUME_FALHA:-}" && "$args" == *"exec -T $DUBLE_RESUME_FALHA "* ]] && exit 1
     rm -f "$VM/.pausado-$svc" ;;
   # SHOW STATE: formato real do psql -A (key|value, active|yes, paused|no ou yes, (2 rows)). DUBLE_ESTADO_FALHA=1: imprime e sai com erro.
@@ -194,7 +207,9 @@ case "$args" in
     echo "(2 rows)"; [[ "\${DUBLE_ESTADO_FALHA:-0}" == 1 ]] && exit 1 ;;
   # SHOW DATABASES: linha da app com o host em execução (DUBLE_HOST, padrão banco_novo). DUBLE_DB_FALHA=1: sai com erro.
   *"-c SHOW DATABASES"*) [[ "\${DUBLE_DB_FALHA:-0}" == 1 ]] && exit 1
-    echo "name|host|port|database"; echo "pgbouncer||6432|pgbouncer"; echo "phati|\${DUBLE_HOST:-banco_novo}|5432|phati"; echo "(2 rows)" ;;
+    svc=pgb1; [[ "$args" == *"exec -T pgb2 "* ]] && svc=pgb2
+    h="\${DUBLE_HOST:-banco_novo}"; if [[ -n "\${DUBLE_REINICIA_EM:-}" && -e "$VM/mem-$svc" ]]; then h="$(cat "$VM/mem-$svc")"; fi
+    echo "name|host|port|database"; echo "pgbouncer||6432|pgbouncer"; echo "phati|$h|5432|phati"; echo "(2 rows)" ;;
 esac
 if [[ "$tag" == assinatura ]]; then touch "$VM/.assinatura-criada"; fi
 exit 0
@@ -1447,7 +1462,9 @@ test('trocar físico: pg_promote falha: RESUME, host original, AVISO de descarte
     const r = fisica(v, { DUBLE_PROMOTE_FALHA: '1' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /pg_promote falhou: nada trocado/);
-    assert.equal(v.indice('sed -i'), -1, 'host não trocado');
+    // A ida ao banco_novo não roda; a volta roda por garantia (um PgBouncer que reinicie lendo o destino já estaria no banco_novo).
+    assert.equal(v.indice('s/host=banco /host=banco_novo /'), -1, 'host não trocado');
+    assert.ok(v.contar(RESTAURA) >= 1, 'host devolvido à origem no aborto');
     assert.equal(v.contar('-c RESUME'), 2);
     assert.match(r.stderr, /AVISO: banco_novo foi promovido/);
     assert.equal(v.contar('rm -sfv'), 0, 'promovido não é removido sem o descarte');
@@ -1467,6 +1484,77 @@ test('trocar físico: sed do host falha depois do promote: host restaurado, RESU
     assert.equal(v.contar('-c RESUME'), 2);
     assert.match(r.stderr, /descarte/);
     nadaTrocado(v);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Host em execução do PgBouncer (`mem-<instância>` do dublê, gravado no RELOAD e no reinício; sem ele, nunca foi tocado).
+const hostEm = (v, svc) => {
+  const arq = path.join(v.vm, `mem-${svc}`);
+  return fs.existsSync(arq) ? fs.readFileSync(arq, 'utf8').trim() : null;
+};
+
+// Reinício do pgb1 entre a gravação do destino e o pg_promote (modo físico). O PgBouncer que sobe nessa janela lê o destino,
+// serve banco_novo e perde a pausa. Se o promote falha, o aborto tem de devolver o host do pgb1 à origem (sed + RELOAD), e não só
+// apagar o destino: senão o pgb1 segue no banco_novo enquanto o script diz "nada trocado".
+test('trocar físico: pgb1 reinicia entre o destino gravado e o pg_promote, e o promote falha: aborto devolve o host do pgb1 à origem', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_REINICIA_EM: 'pg_promote', DUBLE_PROMOTE_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /pg_promote falhou: nada trocado/);
+    assert.equal(hostEm(v, 'pgb1'), 'banco', 'pgb1 segue em banco_novo depois do aborto');
+    assert.ok(v.contar(RESTAURA) >= 1, 'host do pgb1 não foi devolvido à origem');
+    assert.match(r.stderr, /AVISO: RESUME de pgb1 falhou, mas o pooler não está pausado \(reiniciado na troca\): segue no host original/);
+    assert.equal(v.contar(REMOVE_DESTINO), 1, 'destino removido no aborto');
+    nadaTrocado(v);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('trocar físico: pgb1 reinicia na mesma janela, o promote falha e o host não confirma (SHOW DATABASES falha): aborto com falha e recuperação à mão', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_REINICIA_EM: 'pg_promote', DUBLE_PROMOTE_FALHA: '1', DUBLE_DB_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /RESUME falhou em: pgb1/);
+    assert.match(r.stderr, /pode ter reiniciado com o host de destino/);
+    assert.match(r.stderr, /sed -i 's\/host=banco_novo \/host=banco \/' \/tmp\/pgb\/pgb1\/pgbouncer\.ini/);
+    assert.equal(v.contar(REMOVE_DESTINO), 1, 'destino removido no aborto');
+    nadaTrocado(v);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('trocar físico: pgb1 reinicia na mesma janela e o promote dá certo: RESUME aceito porque o host confirmado é banco_novo', () => {
+  const v = criarVm();
+  try {
+    const r = fisica(v, { DUBLE_REINICIA_EM: 'pg_promote' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m);
+    assert.match(r.stderr, /AVISO: RESUME de pgb1 falhou, mas o pooler não está pausado \(reiniciado na troca\): segue no destino/);
+    assert.equal(hostEm(v, 'pgb1'), 'banco_novo');
+    assert.ok(v.env().includes('PHATI_BANCO_DESTINO=banco_novo'));
+  } finally {
+    v.limpar();
+  }
+});
+
+// Reinício do pgb1 depois do DISABLE e antes do host (modo lógico): a origem já está somente leitura, então o PgBouncer que volta a
+// ela só recebe erro de escrita até o RESUME; a troca segue e o AVISO registra a perda da pausa.
+test('trocar lógico: pgb1 reinicia depois do DISABLE e antes do host: origem já somente leitura, troca conclui com AVISO', () => {
+  const v = criarVm();
+  try {
+    const r = trocar(v, { DUBLE_REINICIA_EM: 'host=banco /host=banco_novo /' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m);
+    assert.ok(v.indice('#sql:desabilita') < v.indice('host=banco /host=banco_novo /'), 'reinício antes do DISABLE');
+    assert.ok(v.indice('#sql:origem_ro') < v.indice('host=banco /host=banco_novo /'), 'origem não estava somente leitura no reinício');
+    assert.match(r.stderr, /AVISO: RESUME de pgb1 falhou, mas o pooler não está pausado \(reiniciado na troca\): segue no destino/);
+    assert.equal(hostEm(v, 'pgb1'), 'banco_novo');
   } finally {
     v.limpar();
   }
@@ -2268,7 +2356,9 @@ test('E4: pg_promote falha depois de a gravação do destino → arquivo removid
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.ok(v.indice(GRAVA_DESTINO) < v.indice('pg_promote'), 'destino antes do promote');
     assert.equal(v.contar(REMOVE_DESTINO), 1, 'arquivo removido no aborto depois do promote');
-    assert.equal(v.indice('sed -i'), -1, 'host não trocado');
+    // A ida ao banco_novo não roda; a volta roda por garantia (um PgBouncer que reinicie lendo o destino já estaria no banco_novo).
+    assert.equal(v.indice('s/host=banco /host=banco_novo /'), -1, 'host não trocado');
+    assert.ok(v.contar(RESTAURA) >= 1, 'host devolvido à origem no aborto');
   } finally {
     v.limpar();
   }

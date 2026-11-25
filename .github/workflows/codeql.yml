@@ -20,7 +20,24 @@ permissions:
   contents: read
 
 jobs:
+  escopo:
+    runs-on: ubuntu-24.04
+    outputs:
+      codeql_python: ${{ steps.escopo.outputs.codeql_python }}
+      codeql_javascript_typescript: ${{ steps.escopo.outputs.codeql_javascript_typescript }}
+      codeql_actions: ${{ steps.escopo.outputs.codeql_actions }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      # Só filtra em pull_request (scripts/escopo-ci.js); schedule, push e workflow_dispatch analisam tudo.
+      - id: escopo
+        run: node scripts/escopo-ci.js
+
   analisar:
+    needs: escopo
+    if: ${{ !cancelled() }}
     name: Analisar (${{ matrix.linguagem }})
     runs-on: ubuntu-24.04
     permissions:
@@ -40,13 +57,15 @@ jobs:
           persist-credentials: false
 
       - name: Inicializar o CodeQL
+        if: ${{ github.event_name != 'pull_request' || (matrix.linguagem == 'python' && needs.escopo.outputs.codeql_python != 'false') || (matrix.linguagem == 'javascript-typescript' && needs.escopo.outputs.codeql_javascript_typescript != 'false') || (matrix.linguagem == 'actions' && needs.escopo.outputs.codeql_actions != 'false') }}
         # Terceiro fixado por SHA; a troca de versão vem pelo Dependabot (SHA e comentário juntos).
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/init@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           languages: ${{ matrix.linguagem }}
           build-mode: none
 
       - name: Executar a análise do CodeQL
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: ${{ github.event_name != 'pull_request' || (matrix.linguagem == 'python' && needs.escopo.outputs.codeql_python != 'false') || (matrix.linguagem == 'javascript-typescript' && needs.escopo.outputs.codeql_javascript_typescript != 'false') || (matrix.linguagem == 'actions' && needs.escopo.outputs.codeql_actions != 'false') }}
+        uses: github/codeql-action/analyze@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           category: "/language:${{ matrix.linguagem }}"
