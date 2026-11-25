@@ -25,10 +25,10 @@ const git = (diretorio, ...argumentos) =>
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...argumentos], { cwd: diretorio, stdio: 'pipe', encoding: 'utf8' }).trim();
 
 // VM de mentira: remoto com `main`, clone em `repo/` (com a pasta `servidor/`), `.env` e um `docker` que anota e responde.
-function criarVm({ comEnv = true } = {}) {
+function criarVm({ comEnv = true, nomeVm = 'vm' } = {}) {
   const raiz = fs.mkdtempSync(path.join(os.tmpdir(), 'implantacao-'));
   const remoto = path.join(raiz, 'remoto.git');
-  const vm = path.join(raiz, 'vm');
+  const vm = path.join(raiz, nomeVm);
   const repo = path.join(vm, 'repo');
   const trabalho = path.join(raiz, 'trabalho');
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remoto]);
@@ -111,6 +111,14 @@ function criarVm({ comEnv = true } = {}) {
       // DUBLE_EXEC_FALHA simula erro do exec (sem marca, rc 1): não é arquivo ausente.
       '  *"exec -T nginx sh -c"*"/etc/nginx/conf.d/default.conf"*) [[ "${DUBLE_EXEC_FALHA:-0}" == 1 ]] && exit 1; if [[ "${DUBLE_CONF_AUSENTE:-0}" == 1 ]] && ! grep -q "force-recreate nginx" "$CHAMADAS"; then echo nao; else echo sim; fi ;;',
       '  *"force-recreate nginx"*) [[ "${DUBLE_RECRIAR_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      // R17: contagem de publicações na origem. DUBLE_PUBLICACAO = contagem (padrão 0); DUBLE_PUBLICACAO_FALHA: consulta falha.
+      '  *"pg_publication"*) [[ "${DUBLE_PUBLICACAO_FALHA:-0}" == 1 ]] && exit 1; echo "${DUBLE_PUBLICACAO:-0}" ;;',
+      // R9/A5 (passos da troca e da faxina): falhas injetadas no `up` do nginx (DUBLE_NGINX_UP_FALHA) e do cloudflared
+      // (DUBLE_TUNEL_FALHA), no `rm` do órfão. Os `up` são separados: a mensagem diz qual falhou.
+      // DUBLE_NGINX_UP_2_FALHA: só o segundo `up` do nginx (o da etapa depois da troca; na primeira implantação o primeiro está na troca).
+      '  *"up -d --no-deps nginx"*) [[ "${DUBLE_NGINX_UP_FALHA:-0}" == 1 ]] && exit 1; [[ "${DUBLE_NGINX_UP_2_FALHA:-0}" == 1 && "$(grep -c "up -d --no-deps nginx" "$CHAMADAS")" -ge 2 ]] && exit 1 ;;',
+      '  *"up -d --no-deps cloudflared"*) [[ "${DUBLE_TUNEL_FALHA:-0}" == 1 ]] && exit 1 ;;',
+      '  *"rm -f"*) [[ "${DUBLE_ORFAO_RM_FALHA:-0}" == 1 ]] && exit 1 ;;',
       '  *"exec -T banco"*pg_dump*) echo "dados-do-banco" ;;',
       // DUBLE_INSPECT_FALHA: o inspect falha (rc 1, sem saída). DUBLE_RUNNING_SAIDA: saída que não é true nem false.
       '  *"State.Running"*) [[ "${DUBLE_INSPECT_FALHA:-0}" == 1 ]] && exit 1; if [[ -n "${DUBLE_RUNNING_SAIDA:-}" ]]; then echo "$DUBLE_RUNNING_SAIDA"; elif [[ "${DUBLE_NGINX_PARADO:-0}" == 1 ]]; then echo false; else echo true; fi ;;',
@@ -248,7 +256,7 @@ test('implantar (instalação existente, sem ativa): backup, build, pgbouncer, m
   try {
     const r = v.rodar(IMPLANTAR, [v.promovido]);
     assert.equal(r.status, 0, r.stderr);
-    const ordem = ['pg_dump', ' build', 'up -d --no-deps pgb_ns pgb1 pgb2', 'run --rm migracao', 'run --rm --no-deps estaticos_azul', 'up -d --no-deps app_azul', 'run --rm --no-deps nginx nginx -t', 'exec -T nginx wget', 'up -d --no-deps nginx cloudflared'].map((t) => v.indice(t));
+    const ordem = ['pg_dump', ' build', 'up -d --no-deps pgb_ns pgb1 pgb2', 'run --rm migracao', 'run --rm --no-deps estaticos_azul', 'up -d --no-deps app_azul', 'run --rm --no-deps nginx nginx -t', 'exec -T nginx wget', 'up -d --no-deps cloudflared'].map((t) => v.indice(t));
     assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
     assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'passos fora de ordem');
     const dumps = fs.readdirSync(path.join(v.vm, 'backups'));
@@ -290,31 +298,25 @@ test('implantar falha fechada se o PostGIS não puder ser aplicado: o app não p
   }
 });
 
-test('implantar roda o dono do volume das camadas antes de subir o app (o `up --no-deps` não dispara depends_on)', () => {
-  const v = criarVm();
-  try {
-    const r = v.rodar(IMPLANTAR, [v.promovido]);
-    assert.equal(r.status, 0, r.stderr);
-    const ordem = ['run --rm --no-deps estaticos', 'run --rm --no-deps camadas_dono', 'up -d --no-deps app'].map((t) => v.indice(t));
-    assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
-    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'o chown das camadas tem de vir antes de subir o app');
-  } finally {
-    v.limpar();
-  }
-});
-
-test('implantar roda o dono do volume dos pacotes antes de subir o app (o `up --no-deps` não dispara depends_on)', () => {
-  const v = criarVm();
-  try {
-    const r = v.rodar(IMPLANTAR, [v.promovido]);
-    assert.equal(r.status, 0, r.stderr);
-    const ordem = ['run --rm --no-deps estaticos', 'run --rm --no-deps pacotes_dono', 'up -d --no-deps app'].map((t) => v.indice(t));
-    assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
-    assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'o chown dos pacotes tem de vir antes de subir o app');
-  } finally {
-    v.limpar();
-  }
-});
+// Um teste por dono de volume: o passo do dono tem de vir antes de subir o app (o `up --no-deps` não dispara depends_on).
+const DONOS_DE_VOLUME = [
+  ['camadas', 'camadas_dono', 'o chown das camadas tem de vir antes de subir o app'],
+  ['pacotes', 'pacotes_dono', 'o chown dos pacotes tem de vir antes de subir o app'],
+];
+for (const [volume, dono, mensagem] of DONOS_DE_VOLUME) {
+  test(`implantar roda o dono do volume dos ${volume} antes de subir o app (o \`up --no-deps\` não dispara depends_on)`, () => {
+    const v = criarVm();
+    try {
+      const r = v.rodar(IMPLANTAR, [v.promovido]);
+      assert.equal(r.status, 0, r.stderr);
+      const ordem = ['run --rm --no-deps estaticos', `run --rm --no-deps ${dono}`, 'up -d --no-deps app'].map((t) => v.indice(t));
+      assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
+      assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, mensagem);
+    } finally {
+      v.limpar();
+    }
+  });
+}
 
 test('implantar falha fechada se o dono do volume dos pacotes falhar: o app não sobe e o registro diz FALHOU', () => {
   const v = criarVm();
@@ -812,7 +814,7 @@ test('primeira implantação (sem ativa) sobe azul, troca o nginx pelo contêine
     assert.equal(v.lerAlvo(), ALVO_AZUL);
     assert.equal(v.lerArquivo('pilha-azul.sha').trim(), v.promovido);
     assert.equal(v.indice('stop '), -1, 'nenhuma pilha é parada');
-    const ordem = [' build', 'up -d --no-deps pgb_ns pgb1 pgb2', 'run --rm migracao', 'run --rm --no-deps estaticos_azul', 'up -d --no-deps app_azul', 'run --rm --no-deps nginx nginx -t', 'exec -T nginx wget', 'up -d --no-deps nginx cloudflared'].map((t) => v.indice(t));
+    const ordem = [' build', 'up -d --no-deps pgb_ns pgb1 pgb2', 'run --rm migracao', 'run --rm --no-deps estaticos_azul', 'up -d --no-deps app_azul', 'run --rm --no-deps nginx nginx -t', 'exec -T nginx wget', 'up -d --no-deps cloudflared'].map((t) => v.indice(t));
     assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
     assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'passos fora de ordem');
     assert.match(v.registro(), / OK origem=nenhuma destino=azul migracao=nenhuma\n/);
@@ -834,7 +836,7 @@ test('segunda implantação sobe verde ao lado da azul, troca o destino e deixa 
     assert.equal(v.lerArquivo('pilha-azul.sha').trim(), v.promovido, 'a azul segue com o SHA dela');
     assert.equal(v.indice('stop '), -1, 'a azul não para');
     assert.equal(v.contarChamadas('up -d --no-deps app_azul'), 0, 'a azul não é recriada');
-    const ordem = [' build', 'run --rm --no-deps estaticos_verde', 'up -d --no-deps app_verde', 'exec -T nginx nginx -t', 'exec -T nginx nginx -s reload', 'exec -T nginx wget', 'up -d --no-deps nginx cloudflared'].map((t) => v.indice(t));
+    const ordem = [' build', 'run --rm --no-deps estaticos_verde', 'up -d --no-deps app_verde', 'exec -T nginx nginx -t', 'exec -T nginx nginx -s reload', 'exec -T nginx wget', 'up -d --no-deps cloudflared'].map((t) => v.indice(t));
     assert.ok(ordem.every((i) => i >= 0), `faltou passo: ${ordem}`);
     assert.deepEqual([...ordem].sort((a, b) => a - b), ordem, 'passos fora de ordem');
     assert.match(v.registro(), / OK origem=azul destino=verde migracao=nenhuma\n/);
@@ -1400,7 +1402,7 @@ test('primeira implantação sobre o app da 006: remove o órfão só depois da 
     assert.equal(r.status, 0, r.stderr);
     assert.equal(v.contarChamadas('rm -f orfao1'), 1, 'o órfão sai uma vez');
     assert.ok(v.indice('rm -f orfao1') > v.indice('exec -T nginx wget'), 'só depois da verificação pelo nginx');
-    assert.ok(v.indice('rm -f orfao1') > v.indice('up -d --no-deps nginx cloudflared'), 'depois da troca e do túnel');
+    assert.ok(v.indice('rm -f orfao1') > v.indice('up -d --no-deps cloudflared'), 'depois da troca e do túnel');
     assert.match(v.registro(), /removido-orfao=app/);
     assert.equal(v.lerChamadas().filter((c) => /volume (rm|prune)|down -v|rm -f .*(estaticos|dados|pacotes|camadas)/.test(c)).length, 0, 'nenhum volume tocado');
   } finally {
@@ -1420,6 +1422,408 @@ test('primeira implantação que falha antes da troca não remove o app antigo',
   }
 });
 
+// R9/A5 (T4.1): falhas injetadas nos passos sem teste. Cada um afirma: pilha ativa de pé, alvo e `ativa` coerentes,
+// comando de recuperação quando a reversão falha, código de saída e registro.
+
+// Dublê de `mv` que falha só quando o destino casa `padrao` (padrão do `case` do shell); o resto vai para o `mv` de verdade.
+function mvQueFalha(padrao) {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'mv-falha-'));
+  const mvReal = unix(execFileSync('bash', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(shim, 'mv'), `#!/usr/bin/env bash\nfor arg; do :; done\ncase "$arg" in ${padrao}) echo "mv: falha simulada" >&2; exit 1 ;; esac\nexec "${mvReal}" "$@"\n`, { mode: 0o755 });
+  return shim;
+}
+const comPath = (shim) => ({ PATH: [shim, process.env.PATH].join(path.delimiter) });
+const temporarios = (dir) => fs.readdirSync(dir).filter((nome) => nome.startsWith('.tmp.'));
+
+test('R9/A5 trava: segunda implantação com a trava ocupada (código 75) sai com erro limpo e a pilha ativa segue intacta', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.writeFileSync(path.join(v.vm, '.trava.ocupado'), '');
+    const r = v.rodar(IMPLANTAR, [b], { PHATI_TRAVA_LIMITE: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /outra implantação ou restauração segue rodando/);
+    assert.doesNotMatch(r.stderr, /falhou no passo/);
+    assert.deepEqual(v.lerChamadas(), [], 'nenhuma chamada ao Docker');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('pilha-azul.sha').trim(), v.promovido);
+    assert.equal(fs.existsSync(path.join(v.vm, 'pilha-verde.sha')), false, 'a candidata não é tocada');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 gravar ativa falha na implantação normal: reverte o alvo.conf para a ativa anterior, avisa e registra FALHOU', () => {
+  const v = criarVm();
+  const shim = mvQueFalha('*/ativa');
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], comPath(shim));
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falha ao gravar ativa=verde; alvo.conf revertido para app_azul, que segue servindo/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.contarChamadas('nginx -s reload'), 2, 'recarrega para verde e de volta para azul');
+    assert.deepEqual(temporarios(v.vm), [], 'nenhum temporário de `ativa` sobra');
+    assert.match(v.registro(), /FALHOU: falha ao gravar ativa=verde/);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('R9/A5 gravar o alvo.conf falha na troca: nenhum reload, alvo e ativa intactos, sem temporário, e o aviso diz que a ativa segue', () => {
+  const v = criarVm();
+  const shim = mvQueFalha('*/alvo.conf');
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], comPath(shim));
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falhou no passo: troca/);
+    assert.match(r.stderr, /a pilha ativa \(azul\) segue servindo/);
+    assert.equal(v.contarChamadas('nginx -s reload'), 0);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.deepEqual(temporarios(v.alvo), [], 'o .tmp do alvo.conf não sobra no diretório que o nginx monta');
+    assert.match(v.registro(), /FALHOU: falhou no passo: troca/);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('R9/A5 cloudflared falha depois da troca: reverte a troca (alvo e ativa voltam ao azul), diz que o túnel segue fora e dá o comando para subi-lo', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const subir = `PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml up -d --no-deps cloudflared`;
+    assert.ok(r.stderr.includes(`cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: ${subir}; alvo.conf revertido para app_azul, que segue servindo`), r.stderr);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.contarChamadas('nginx -s reload'), 2, 'recarrega o destino novo e depois o anterior');
+    // Caso negativo de X3c: reversão normal (a pilha anterior volta a servir) restaura o clone ao SHA anterior.
+    assert.notEqual(b, v.promovido);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'a pilha anterior serve: o clone volta ao SHA anterior');
+    assert.equal(v.indice('stop '), -1, 'nenhuma pilha parada');
+    assert.match(v.registro(), /FALHOU: cloudflared falhou depois da troca; o túnel segue fora/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 nginx falha depois da troca: a mensagem diz que o nginx falhou, que o cloudflared não foi tentado e reverte a troca', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_NGINX_UP_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /nginx falhou depois da troca; cloudflared não foi tentado; alvo.conf revertido para app_azul, que segue servindo/);
+    assert.equal(v.indice('up -d --no-deps cloudflared'), -1, 'o túnel não é tocado quando o nginx falha');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 cloudflared falha depois da troca e a reversão também falha: a mensagem traz o túnel fora e o comando de recuperação completo', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_TUNEL_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: .+; alvo.conf revertido, mas o nginx não recarregou; recupere com:/);
+    const recuperacao = `printf 'set $alvo app_azul;\\nset $pilha azul;\\n' > ${unix(v.alvo)}/alvo.conf && PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml exec -T nginx nginx -s reload`;
+    assert.ok(r.stderr.includes(recuperacao), r.stderr);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul', 'a ativa volta ao anterior antes da reversão do alvo');
+  } finally {
+    v.limpar();
+  }
+});
+
+// Primeira implantação (sem `ativa`): o alvo.conf nunca é removido (o nginx monta o diretório e não sobe sem ele). Antes da
+// correção, a reversão apagava o arquivo e deixava a config inválida.
+test('R9/A5 primeira implantação com cloudflared falhando: alvo.conf segue na candidata, ativa coerente, sem rm na saída e com o comando de subida', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /cloudflared falhou depois da troca; o túnel segue fora, suba à mão com: .+ up -d --no-deps cloudflared; sem pilha anterior: a candidata app_azul segue no alvo.conf e em ativa, nada revertido/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'alvo.conf segue apontando a candidata');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'primeira implantação sobe o nginx por contêiner, sem reload');
+    assert.match(v.registro(), /FALHOU: cloudflared falhou depois da troca/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com nginx falhando depois da troca: alvo.conf fica, a mensagem diz como subir o nginx e o túnel não é tentado', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_NGINX_UP_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /nginx falhou depois da troca; cloudflared não foi tentado; suba o nginx à mão com: .+ up -d --no-deps nginx; sem pilha anterior: a candidata app_azul segue no alvo.conf e em ativa, nada revertido/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.indice('up -d --no-deps cloudflared'), -1, 'o túnel não é tocado quando o nginx falha');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com /saude falhando na troca: mantém o alvo.conf da candidata, não grava ativa e diz que não há pilha anterior', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDA_NGINX_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; sem pilha anterior: alvo.conf segue apontando app_azul/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'o arquivo não some: o nginx o monta');
+    assert.equal(fs.existsSync(path.join(v.vm, 'ativa')), false, 'a ativa não é gravada antes da troca');
+    assert.match(v.registro(), /FALHOU: \/saude pelo nginx falhou/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 ativa sem alvo.conf e /saude falhando: a reversão grava o destino da ativa (app_azul) em vez de remover o arquivo', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.alvo, 'alvo.conf'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; alvo.conf revertido para app_azul, que segue servindo/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'alvo.conf com o destino da ativa');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com /saude e reload falhando na reversão: diz que não há pilha anterior, mantém o alvo.conf da candidata e o comando não tem rm', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_NGINX_UP_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; sem pilha anterior: alvo.conf segue apontando app_azul, mas o nginx não recarregou; recupere com: .+ up -d --no-deps nginx/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.doesNotMatch(r.stderr, /alvo.conf revertido/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'o arquivo existe e aponta a candidata');
+    assert.equal(fs.existsSync(path.join(v.vm, 'ativa')), false, 'a ativa não é gravada');
+  } finally {
+    v.limpar();
+  }
+});
+
+// X3c: a candidata segue no alvo.conf (primeira implantação), então o clone fica no SHA dela e não volta ao anterior.
+// O clone parte de semBancoNovo (SHA anterior, com infraestrutura) para o checkout de volta ser visível.
+function clonarNoAnterior(v) {
+  git(v.repo, 'checkout', '-q', '--detach', v.semBancoNovo);
+}
+
+test('X3c primeira implantação com cloudflared falhando, clone no SHA anterior: o clone segue na candidata que está no ar', () => {
+  const v = criarVm();
+  try {
+    clonarNoAnterior(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /sem pilha anterior: a candidata app_azul segue no alvo.conf e em ativa, nada revertido/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não volta ao SHA anterior: a candidata segue no ar');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X3c primeira implantação com nginx falhando depois da troca, clone no SHA anterior: o clone segue na candidata', () => {
+  const v = criarVm();
+  try {
+    clonarNoAnterior(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_NGINX_UP_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /sem pilha anterior: a candidata app_azul segue no alvo.conf e em ativa, nada revertido/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não volta ao SHA anterior: a candidata segue no ar');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X3c primeira implantação com /saude falhando (reload ok), clone no SHA anterior: o clone segue na candidata', () => {
+  const v = criarVm();
+  try {
+    clonarNoAnterior(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDA_NGINX_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /sem pilha anterior: alvo.conf segue apontando app_azul/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não volta ao SHA anterior: a candidata segue no ar');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('X3c primeira implantação com /saude e reload falhando na reversão, clone no SHA anterior: o clone segue na candidata', () => {
+  const v = criarVm();
+  try {
+    clonarNoAnterior(v);
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_NGINX_UP_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /sem pilha anterior: alvo.conf segue apontando app_azul, mas o nginx não recarregou/);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), v.promovido, 'o clone não volta ao SHA anterior: a candidata segue no ar');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 ativa sem alvo.conf e reload falhando na reversão: o arquivo fica com o destino da ativa e a saída não tem rm -f', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.rmSync(path.join(v.alvo, 'alvo.conf'));
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_SAUDA_NGINX_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /\/saude pelo nginx falhou depois do reload; alvo.conf revertido, mas o nginx não recarregou; recupere com:/);
+    assert.doesNotMatch(r.stderr, /rm -f/);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 primeira implantação com cloudflared falhando: a segunda execução não recusa por divergência e sobe verde com azul anterior', () => {
+  const v = criarVm();
+  try {
+    const r1 = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r1.status, 1, r1.stderr);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    const b = v.promover();
+    const r2 = v.rodar(IMPLANTAR, [b]);
+    assert.equal(r2.status, 0, r2.stderr);
+    assert.doesNotMatch(r2.stderr, /reconcilie/);
+    assert.match(r2.stdout, /implantado=[0-9a-f]{12} ativa=verde anterior=azul/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 remoção do app órfão falha depois da troca: a troca fica (não reverte), e a mensagem diz o que remover à mão', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_ORFAO: '1', DUBLE_ORFAO_RM_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /a troca já foi feita \(ativa=azul\), mas não consegui remover o app órfão orfao1/);
+    assert.ok(r.stderr.includes('rm -f orfao1'), r.stderr);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.contarChamadas('nginx -s reload'), 0, 'primeira implantação sobe o nginx por contêiner, sem reload; nada é revertido');
+    assert.equal(v.contarChamadas('force-recreate'), 0, 'nada é recriado de volta');
+    assert.equal(v.indice('stop '), -1, 'nenhuma pilha parada');
+    assert.match(v.registro(), /FALHOU: a troca já foi feita/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R9/A5 up da candidata falha: a ativa segue, o alvo não muda, o SHA antigo da candidata sai do estado e nada é recarregado', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    fs.writeFileSync(path.join(v.vm, 'pilha-verde.sha'), `${'f'.repeat(40)}\n`);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_APP_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falhou no passo: app-candidata/);
+    assert.match(r.stderr, /a pilha ativa \(azul\) segue servindo/);
+    assert.equal(v.contarChamadas('nginx -s reload'), 0);
+    assert.equal(v.contarChamadas('force-recreate'), 0);
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(fs.existsSync(path.join(v.vm, 'pilha-verde.sha')), false, 'o SHA antigo da candidata sai antes do up');
+    assert.equal(v.indice('stop '), -1);
+    assert.match(v.registro(), /FALHOU: falhou no passo: app-candidata/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R17: publicação lógica na origem recusa a migração antes de qualquer migrate; a consulta que falha ou responde sem número também recusa', () => {
+  const v = criarVm();
+  try {
+    const primeira = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_PUBLICACAO: '1' });
+    assert.equal(primeira.status, 1, primeira.stderr);
+    assert.match(primeira.stderr, /replicação lógica em curso \(publicação na origem\): migração não roda \(R17\)/);
+    assert.equal(v.indice('run --rm migracao'), -1, 'nenhum migrate');
+    assert.equal(v.indice('up -d --no-deps app_azul'), -1, 'a candidata não sobe');
+    assert.match(v.registro(), /FALHOU: replicação lógica em curso/);
+
+    const falha = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_PUBLICACAO_FALHA: '1' });
+    assert.equal(falha.status, 1, falha.stderr);
+    assert.match(falha.stderr, /não consegui conferir a replicação lógica em banco \(R17\): migração não roda/);
+    assert.equal(v.indice('run --rm migracao'), -1);
+
+    const sem = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_PUBLICACAO: 'sim' });
+    assert.equal(sem.status, 1, sem.stderr);
+    assert.match(sem.stderr, /saída inesperada ao conferir a replicação lógica \(R17\)/);
+    assert.equal(v.indice('run --rm migracao'), -1);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R17: com a ativa de pé e publicação na origem, a segunda implantação recusa a migração e a ativa segue', () => {
+  const v = criarVm();
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_PUBLICACAO: '2' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /replicação lógica em curso/);
+    assert.equal(v.indice('run --rm migracao'), -1);
+    assert.equal(v.indice('up -d --no-deps app_verde'), -1, 'a candidata não sobe');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_AZUL);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R17: sem publicação na origem a migração roda normalmente (caminho feliz)', () => {
+  const v = criarVm();
+  try {
+    const r = v.rodar(IMPLANTAR, [v.promovido]);
+    assert.equal(r.status, 0, r.stderr);
+    // Sem a consulta no registro (índice -1), a comparação de ordem não pode passar por acaso.
+    const publicacao = v.indice('pg_publication');
+    assert.ok(publicacao >= 0, 'a consulta de publicação foi feita');
+    assert.ok(v.indice('run --rm migracao') > publicacao, 'a conferência vem antes da migração');
+    assert.ok(v.indice('run --rm migracao') >= 0);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('R17: a consulta de publicação usa o mesmo PHATI_BANCO_NOME (e o mesmo padrão phati) que o compose põe no contêiner do banco', () => {
+  // A consulta roda dentro do contêiner do banco (`compor exec`): o nome vem do ambiente desse contêiner, que o compose
+  // preenche com `${PHATI_BANCO_NOME:-phati}`. Se um dos dois mudar sozinho, o teste reprova.
+  const compose = fs.readFileSync(path.join(PASTA, '..', 'servidor', 'compose.yaml'), 'utf8');
+  const inicio = compose.indexOf('\n  banco:');
+  assert.ok(inicio >= 0, 'serviço banco no compose');
+  // Só o bloco do serviço `banco` (até a próxima chave de serviço, com dois espaços): um serviço posterior com a chave não conta.
+  const resto = compose.slice(inicio + 1);
+  const proximo = resto.search(/\n  [a-z_][a-z_0-9]*:/);
+  const bloco = proximo < 0 ? resto : resto.slice(0, proximo);
+  const chave = bloco.match(/PHATI_BANCO_NOME: (.*)/);
+  assert.ok(chave, 'PHATI_BANCO_NOME dentro do serviço banco');
+  assert.equal(chave[1], '${PHATI_BANCO_NOME:-phati}');
+  assert.match(fs.readFileSync(IMPLANTAR, 'utf8'), /-d "\$\{PHATI_BANCO_NOME:-phati\}" -c "SELECT count\(\*\) FROM pg_publication"/);
+});
+
 // Spec 009 X3b: verificação R4/R5 das migrações novas, na candidata, antes de migrar (comum.compat_migracao).
 const ARQ_MIGRACAO = 'servidor/catalogo/migrations/0002_x.py';
 const MIGRACAO_TEXTO = 'from django.db import migrations\n\n\nclass Migration(migrations.Migration):\n    dependencies = []\n    operations = [migrations.CreateModel(name="Teste", fields=[])]\n';
@@ -1435,6 +1839,14 @@ function promoverCom(v, arquivos) {
   git(v.trabalho, 'commit', '-q', '-m', 'migracao de teste');
   git(v.trabalho, 'push', '-q', 'origin', 'main');
   return git(v.trabalho, 'rev-parse', 'HEAD');
+}
+
+// Implantação inicial, depois promoção de um commit com a migração nova e chamadas zeradas: ponto de partida dos testes do verificador.
+function promoverMigracaoParaVerificar(v) {
+  assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
+  const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
+  v.zerar();
+  return b;
 }
 
 test('migração: sem arquivo novo de migração, migracao=nenhuma e o verificador não é chamado', () => {
@@ -1454,9 +1866,7 @@ test('migração: sem arquivo novo de migração, migracao=nenhuma e o verificad
 test('migração compatível (rc 0): verificada na candidata antes de rodar, com backup, e o log diz compativel sem segredo', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b]);
     assert.equal(r.status, 0, r.stderr);
     const verificacao = v.indice('run --rm --no-deps migracao python -m comum.compat_migracao');
@@ -1474,9 +1884,7 @@ test('migração compatível (rc 0): verificada na candidata antes de rodar, com
 test('migração reprovada (rc 1): não roda, nginx e alvo.conf intactos, ativa segue, e a mensagem traz a linha REPROVADA', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const linha = 'REPROVADA servidor/catalogo/migrations/0002_x.py:7 RemoveField: remove coluna que a versão anterior ainda lê';
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '1', DUBLE_COMPAT_SAIDA: linha });
     assert.equal(r.status, 1);
@@ -1497,9 +1905,7 @@ test('migração reprovada (rc 1): não roda, nginx e alvo.conf intactos, ativa 
 test('verificador com erro (rc 2, ilegível ou sintaxe): erro antes da migração, ativa segue', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '2', DUBLE_COMPAT_SAIDA: 'ERRO arquivo ilegível' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /rc 2/);
@@ -1513,9 +1919,7 @@ test('verificador com erro (rc 2, ilegível ou sintaxe): erro antes da migraçã
 test('rc desconhecido do verificador (ex.: 5): erro, fecha falhado, migração não roda', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '5' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /saída inesperada do verificador de migração \(rc 5\)/);
@@ -1529,9 +1933,7 @@ test('rc desconhecido do verificador (ex.: 5): erro, fecha falhado, migração n
 test('migração fora do fluxo (rc 3) sem PHATI_ACEITO_PARADA: erro que pede parada e aprovação, nada parado, nada migrado', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO servidor/catalogo/migrations/0002_x.py' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /exige parada do site, janela e aprovação do mantenedor/);
@@ -1546,9 +1948,7 @@ test('migração fora do fluxo (rc 3) sem PHATI_ACEITO_PARADA: erro que pede par
 test('migração fora do fluxo (rc 3) com PHATI_ACEITO_PARADA=1: para a ativa antes de migrar, avisa, troca e registra fora-do-fluxo', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO servidor/catalogo/migrations/0002_x.py', PHATI_ACEITO_PARADA: '1' });
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stderr, /FICA FORA DO AR/);
@@ -1565,9 +1965,7 @@ test('migração fora do fluxo (rc 3) com PHATI_ACEITO_PARADA=1: para a ativa an
 test('X2: migração fora do fluxo: falha depois da migração diz que o esquema já mudou e não manda subir a ativa', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_SAUDE_VERDE: 'unhealthy' });
     assert.equal(r.status, 1);
     assert.equal(v.contarChamadas('stop app_azul'), 1);
@@ -1594,9 +1992,7 @@ test('primeira implantação: sem ativa não há verificação (nada a comparar)
 test('--sem-migracao: sem verificação e sem migração, log diz pulada', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b, '--sem-migracao'], { DUBLE_COMPAT_RC: '1' });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(v.contarChamadas('comum.compat_migracao'), 0);
@@ -1643,9 +2039,7 @@ test('base da verificação inexistente no repositório: erro, sem chamar o veri
 test('backup ausente com migração a verificar: erro antes da migração', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_BANCO: '0', DUBLE_VOLUME: '0', DUBLE_COMPAT_RC: '0' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /backup verificado ausente ou vazio: a migração não roda/);
@@ -1707,9 +2101,7 @@ test('X1: legado da 006 com migração fora do fluxo para o contêiner antes de 
 test('X2: falha em estáticos depois da migração fora do fluxo manda recuperar à mão, não subir a ativa', () => {
   const v = criarVm();
   try {
-    assert.equal(v.rodar(IMPLANTAR, [v.promovido]).status, 0);
-    const b = promoverCom(v, { [ARQ_MIGRACAO]: MIGRACAO_TEXTO });
-    v.zerar();
+    const b = promoverMigracaoParaVerificar(v);
     const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_ESTATICOS_FALHA: '1' });
     assert.equal(r.status, 1, r.stderr);
     assert.ok(v.indice('run --rm migracao') >= 0, 'a migração rodou antes da falha');
@@ -2461,5 +2853,232 @@ test('R2: destino banco com aspas ou comentário no .env segue nos três scripts
     } finally {
       v.limpar();
     }
+  }
+});
+
+// Revisão do PR 91 (CodeRabbit e Codex): ativa x alvo.conf, escape do comando impresso e migração fora do fluxo na falha pós-troca.
+
+// Dublê de `mv` com contador: falha a partir da (limite+1)ª vez que o destino casa `padrao`. Deixa a troca gravar o alvo.conf
+// e falha só a reversão (a gravação do alvo.conf é `mv` do bash, não o Docker).
+function mvQueFalhaDepois(padrao, limite) {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'mv-falha-'));
+  const mvReal = unix(execFileSync('bash', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim());
+  const contador = unix(path.join(shim, 'contador'));
+  fs.writeFileSync(path.join(shim, 'mv'), `#!/usr/bin/env bash\nfor arg; do :; done\ncase "$arg" in ${padrao}) n=$(( $(cat "${contador}" 2>/dev/null || echo 0) + 1 )); echo "$n" > "${contador}"; [[ "$n" -le ${limite} ]] || { echo "mv: falha simulada" >&2; exit 1; } ;; esac\nexec "${mvReal}" "$@"\n`, { mode: 0o755 });
+  return shim;
+}
+
+test('ativa x alvo.conf: alvo.conf servindo outra pilha recusa antes de qualquer chamada ao Docker, sem aviso de "segue servindo"', () => {
+  const v = criarVm();
+  try {
+    implantarEPromover(v);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    fs.writeFileSync(path.join(v.alvo, 'alvo.conf'), ALVO_VERDE);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2]);
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /ativa=azul mas alvo\.conf serve verde: reconcilie à mão antes de implantar/);
+    assert.doesNotMatch(r.stderr, /segue servindo/, 'o aviso de pilha que segue servindo seria enganoso');
+    assert.deepEqual(v.lerChamadas(), [], 'nenhuma chamada ao Docker');
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: alvo.conf consistente com a ativa segue normalmente (caminho feliz)', () => {
+  const v = criarVm();
+  try {
+    implantarEPromover(v);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: falha ao gravar o alvo.conf na reversão pós-troca deixa divergência, e a próxima execução recusa', () => {
+  const v = criarVm();
+  // O 1º mv para alvo.conf é a troca (passa); o 2º é a reversão, que falha.
+  const shim = mvQueFalhaDepois('*/alvo.conf', 1);
+  try {
+    implantarEPromover(v);
+    const b2 = v.promover();
+    v.zerar();
+    const r = v.rodar(IMPLANTAR, [b2], { ...comPath(shim), DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /falha ao gravar o alvo.conf anterior/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul');
+    assert.equal(v.lerAlvo(), ALVO_VERDE, 'a reversão não gravou: o alvo segue na candidata');
+    const b3 = v.promover();
+    v.zerar();
+    const segunda = v.rodar(IMPLANTAR, [b3]);
+    assert.equal(segunda.status, 1, segunda.stderr);
+    assert.match(segunda.stderr, /ativa=azul mas alvo\.conf serve verde: reconcilie à mão/);
+    assert.deepEqual(v.lerChamadas(), [], 'a segunda execução não toca no Docker nem sobrescreve a pilha que serve');
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: falha ao regravar ativa depois da troca, o comando impresso regrava ativa antes do alvo.conf, e a próxima implantação segue', () => {
+  const v = criarVm();
+  // O 1º mv para ativa é a troca (passa); o 2º é a regravação de ativa na recuperação pós-troca, que falha.
+  const shim = mvQueFalhaDepois('*/ativa', 1);
+  const docker = dublePegaArgumentos();
+  const argv = path.join(docker, 'argv.txt');
+  try {
+    const r = falharRegravacaoDaAtiva(v, shim);
+    assert.match(r.stderr, /falha ao regravar ativa=azul/);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+    const cmd = /recupere com: (.+)$/m.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    // Roda sem o shim de mv (a falha era dele), com o docker dublê no PATH.
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [docker, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.equal(colado.status, 0, colado.stderr);
+    assert.equal(v.lerArquivo('ativa').trim(), 'azul', 'o comando regrava ativa com a cor anterior');
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'e depois o alvo.conf');
+    const b3 = v.promover();
+    v.zerar();
+    const seguinte = v.rodar(IMPLANTAR, [b3]);
+    assert.equal(seguinte.status, 0, seguinte.stderr);
+    assert.doesNotMatch(seguinte.stderr, /mas alvo\.conf serve/, 'sem divergência ativa x alvo.conf');
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    fs.rmSync(docker, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('ativa x alvo.conf: se o comando impresso não consegue regravar ativa, o alvo.conf segue na candidata e nada é recarregado', () => {
+  const v = criarVm();
+  const shim = mvQueFalhaDepois('*/ativa', 1);
+  const docker = dublePegaArgumentos();
+  const argv = path.join(docker, 'argv.txt');
+  try {
+    const r = falharRegravacaoDaAtiva(v, shim);
+    const cmd = /recupere com: (.+)$/m.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    // ativa vira diretório: o `printf > ativa` do comando falha e o `&&` impede a gravação do alvo.conf e o reload.
+    fs.rmSync(path.join(v.vm, 'ativa'));
+    fs.mkdirSync(path.join(v.vm, 'ativa'));
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [docker, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.notEqual(colado.status, 0, 'a gravação de ativa falhou no comando');
+    assert.equal(v.lerAlvo(), ALVO_VERDE, 'o alvo.conf segue na candidata');
+    assert.equal(fs.existsSync(argv), false, 'nenhuma chamada ao docker (sem reload)');
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    fs.rmSync(docker, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+// Primeira implantação e promoção; a 2ª escrita em ativa (regravação pós-troca) falha pelo shim de mv. Devolve o resultado da falha.
+function falharRegravacaoDaAtiva(v, shim) {
+  implantarEPromover(v);
+  const b2 = v.promover();
+  v.zerar();
+  const r = v.rodar(IMPLANTAR, [b2], { ...comPath(shim), DUBLE_TUNEL_FALHA: '1' });
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(fs.readFileSync(path.join(shim, 'contador'), 'utf8').trim(), '2', 'a falha caiu no 2º mv para ativa (regravação), não na troca');
+  return r;
+}
+
+// Escape (CodeRabbit): o comando impresso para o operador, colado num `bash -c`, não divide um caminho com espaço.
+// O docker do teste é um dublê que grava cada argumento numa linha, então "dividido" aparece como argumento separado.
+function dublePegaArgumentos() {
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'docker-argv-'));
+  fs.writeFileSync(path.join(shim, 'docker'), '#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$ARGV_DOCKER"\n', { mode: 0o755 });
+  return shim;
+}
+
+test('escape: o comando do túnel impresso com PHATI_DIR com espaço, colado em bash -c, chega ao docker com o caminho inteiro', () => {
+  const v = criarVm({ nomeVm: 'vm com espaco' });
+  const shim = dublePegaArgumentos();
+  const argv = path.join(shim, 'argv.txt');
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const cmd = /suba à mão com: (.+?); alvo\.conf revertido/.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [shim, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.equal(colado.status, 0, colado.stderr);
+    const args = lerLinhas(argv);
+    assert.ok(args.includes(`${unix(v.vm)}/.env`), `--env-file inteiro: ${args}`);
+    assert.ok(args.includes(`${unix(v.vm)}/repo/servidor/compose.yaml`), `-f inteiro: ${args}`);
+    assert.ok(args.includes('cloudflared'), `serviço: ${args}`);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+test('escape: o comando de recuperação impresso com PHATI_DIR com espaço, colado em bash -c, grava o alvo e chega ao docker inteiro', () => {
+  const v = criarVm({ nomeVm: 'vm com espaco' });
+  const shim = dublePegaArgumentos();
+  const argv = path.join(shim, 'argv.txt');
+  try {
+    const b = implantarEPromover(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_TUNEL_FALHA: '1', DUBLE_RELOAD_2_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const cmd = /recupere com: (.+)$/m.exec(r.stderr);
+    assert.ok(cmd, r.stderr);
+    // Alvo fora da ativa de propósito: o primeiro passo do comando precisa gravar o alvo da ativa (azul) para o teste provar algo.
+    fs.writeFileSync(path.join(v.alvo, 'alvo.conf'), ALVO_VERDE);
+    const colado = spawnSync('bash', ['-c', cmd[1]], { env: { ...process.env, PATH: [shim, process.env.PATH].join(path.delimiter), ARGV_DOCKER: unix(argv) }, encoding: 'utf8' });
+    assert.equal(colado.status, 0, colado.stderr);
+    assert.equal(v.lerAlvo(), ALVO_AZUL, 'o primeiro passo do comando grava o alvo da ativa');
+    const args = lerLinhas(argv);
+    assert.ok(args.includes(`${unix(v.vm)}/repo/servidor/compose.yaml`), `-f inteiro: ${args}`);
+    assert.ok(args.includes('nginx'), `serviço: ${args}`);
+  } finally {
+    fs.rmSync(shim, { recursive: true, force: true });
+    v.limpar();
+  }
+});
+
+// X2 + CR (Codex P1): migração fora do fluxo parou a ativa e o esquema já mudou. Falha de nginx ou de túnel depois da troca
+// não reverte à versão parada: a candidata segue no alvo.conf e a mensagem diz o comando para subir o serviço à mão.
+test('migração fora do fluxo + cloudflared falha depois da troca: não reverte à ativa parada, mantém a candidata e dá o comando à mão', () => {
+  const v = criarVm();
+  try {
+    const b = promoverMigracaoParaVerificar(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_TUNEL_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const subir = `PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml up -d --no-deps cloudflared`;
+    assert.ok(r.stderr.includes(`cloudflared falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_verde segue no alvo.conf. Suba cloudflared à mão com: ${subir}`), r.stderr);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), b, 'o clone segue no SHA da candidata, que está no ar');
+    assert.equal(v.lerAlvo(), ALVO_VERDE, 'a candidata segue no alvo.conf');
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.contarChamadas('nginx -s reload'), 1, 'só o reload da troca: nenhuma reversão recarrega o alvo anterior');
+    assert.match(v.registro(), /FALHOU: cloudflared falhou depois da troca/);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('migração fora do fluxo + nginx falha depois da troca: não reverte, mantém a candidata e dá o comando do nginx à mão', () => {
+  const v = criarVm();
+  try {
+    const b = promoverMigracaoParaVerificar(v);
+    const r = v.rodar(IMPLANTAR, [b], { DUBLE_COMPAT_RC: '3', DUBLE_COMPAT_SAIDA: 'FORA_DO_FLUXO x', PHATI_ACEITO_PARADA: '1', DUBLE_NGINX_UP_FALHA: '1' });
+    assert.equal(r.status, 1, r.stderr);
+    const subir = `PHATI_ALVO_DIR=${unix(v.alvo)} COMPOSE_PROJECT_NAME=phati docker compose --env-file ${unix(v.vm)}/.env -f ${unix(v.vm)}/repo/servidor/compose.yaml -f ${unix(v.vm)}/repo/servidor/compose.implantacao.yaml up -d --no-deps nginx`;
+    assert.ok(r.stderr.includes(`nginx falhou depois da troca; esquema já migrado: não volto à versão anterior (ver AVISO); a candidata app_verde segue no alvo.conf. Suba nginx à mão com: ${subir}`), r.stderr);
+    assert.equal(git(v.repo, 'rev-parse', 'HEAD'), b, 'o clone segue no SHA da candidata, que está no ar');
+    assert.equal(v.lerAlvo(), ALVO_VERDE);
+    assert.equal(v.lerArquivo('ativa').trim(), 'verde');
+    assert.equal(v.contarChamadas('nginx -s reload'), 1, 'só o reload da troca');
+    assert.equal(v.indice('up -d --no-deps cloudflared'), -1, 'o túnel não é tocado quando o nginx falha');
+  } finally {
+    v.limpar();
   }
 });
