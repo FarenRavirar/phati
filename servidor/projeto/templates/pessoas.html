@@ -2,7 +2,7 @@
 {% block titulo %}Pessoas{% endblock %}
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Pessoas" subtitulo=empresa.nome %}
-{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso %}{% endif %}
+{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso only %}{% endif %}
 {% include "componentes/acoes.html" with acoes=acoes %}
 {% if itens %}<ul class="lista-pessoas">
 {% for pessoa in itens %}<li class="pessoa">
@@ -17,9 +17,9 @@
 </li>
 {% endfor %}</ul>
 {% if pagina.has_other_pages %}<nav class="paginacao" aria-label="Páginas de pessoas"><p class="acoes-pagina">
-{% if pagina.has_previous %}<a class="botao botao-secundario" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+{% if pagina.has_previous %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
 <span class="tipo-arquivada">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
-{% if pagina.has_next %}<a class="botao botao-secundario" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
+{% if pagina.has_next %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
 </p></nav>{% endif %}
-{% else %}{% include "componentes/vazio.html" with texto="Nenhuma pessoa com acesso a esta empresa." acao_rotulo=vazio_rotulo acao_destino=vazio_destino %}{% endif %}
+{% else %}{% include "componentes/vazio.html" with texto="Nenhuma pessoa com acesso a esta empresa." acao_rotulo=vazio_rotulo acao_destino=vazio_destino only %}{% endif %}
 {% endblock %}

@@ -2,7 +2,9 @@
 // antes de qualquer coisa, e só vai adiante no corpo do POST (T5.5g, R5).
 const segredo = new URLSearchParams(location.hash.slice(1)).get('segredo');
 history.replaceState(null, '', location.pathname);
-const mensagem = document.getElementById('mensagem');
+// Sucesso e erro são dois avisos do componente: cada um tem o próprio ícone e papel (status ou alert).
+const mensagemErro = document.getElementById('mensagem');
+const mensagemSucesso = document.getElementById('mensagem-sucesso');
 const formulario = document.getElementById('formulario');
 const TEXTOS = {
   link_invalido: 'Este link não vale mais. Peça um novo link de redefinição.',
@@ -11,12 +13,11 @@ const TEXTOS = {
   senha_comum: 'Essa senha é comum demais. Escolha outra.',
   senha_contexto: 'A senha não pode conter seu nome, e-mail ou CPF.',
 };
-// Sucesso usa a variante verde e `status`; erro, a vermelha e `alert` (o par de classes é o de `componentes/aviso.html`).
 function avisar(texto, sucesso = false) {
-  mensagem.className = sucesso ? 'aviso aviso-sucesso' : 'aviso aviso-erro';
-  mensagem.setAttribute('role', sucesso ? 'status' : 'alert');
-  mensagem.textContent = texto;
-  mensagem.hidden = false;
+  const mostrar = sucesso ? mensagemSucesso : mensagemErro;
+  (sucesso ? mensagemErro : mensagemSucesso).hidden = true;
+  mostrar.querySelector('.ag-aviso-texto').textContent = texto;
+  mostrar.hidden = false;
 }
 if (!segredo) {
   avisar(TEXTOS.link_invalido);

@@ -3,7 +3,7 @@
 // revogar pelas telas, nos dois tamanhos, com axe e sem rolagem horizontal; e o acesso negado por URL direta. A plataforma
 // cria uma empresa própria de cada projeto e muda só ela (como em `territorio.spec.js`): as outras empresas ficam como estão.
 const { test, expect } = require('@playwright/test');
-const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel, cpfSintetico } = require('./apoio.js');
+const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel, cpfSintetico, abrirMenu } = require('./apoio.js');
 
 async function conferirTela(pagina) {
   await semRolagemHorizontal(pagina);
@@ -28,7 +28,9 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   await page.getByRole('button', { name: 'Criar empresa' }).click();
   await page.getByRole('link', { name: 'Abrir a empresa' }).click();
 
-  await page.getByRole('link', { name: 'Pessoas', exact: true }).click();
+  // A página da empresa também tem um botão "Pessoas": o clique é no link do menu, com a gaveta aberta em 320.
+  await abrirMenu(page);
+  await page.getByRole('navigation', { name: 'Menu principal' }).getByRole('link', { name: 'Pessoas', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Pessoas', level: 1 })).toBeVisible();
   await expect(page.getByText('Administrador Pessoas', { exact: true })).toBeVisible();
   await conferirTela(page);

@@ -1,6 +1,7 @@
 """Início (R9, 003 R7): convites pendentes da pessoa, atalhos de gestão e as fazendas (ou, na plataforma, as empresas). Aceitar e Recusar chamam os mesmos
 serviços da API (`permissao.convite`); o id só alcança convite dirigido a quem chama, e outro id dá 404."""
 
+import re
 from urllib.parse import urlencode
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -11,8 +12,13 @@ from django.views.decorators.http import require_GET, require_POST
 from permissao import convite
 from permissao.models import Convite
 from permissao.uso import definir_estado
-from projeto.paginas_autenticadas import PROPRIA_PESSOA, exige_acao, exige_entrada, renderizar_na_casca
+from projeto.escopo import CHAVE_EMPRESA, empresa_lembrada
+from projeto.paginas_autenticadas import PROPRIA_PESSOA, destino_seguro, exige_acao, exige_entrada, renderizar_na_casca
 from projeto.menu import ACOES_DE_ATALHO, atalhos_da_pessoa
+
+# Empresa do seletor: só dígitos e no máximo 18 (cabe no inteiro do banco); outro texto é recusado antes de consultar.
+EMPRESA_DO_SELETOR = re.compile(r'\d{1,18}')
+ESCOPO_DE_EMPRESA = re.compile(r'/empresa/(\d{1,18})(?:/|$)')  # o escopo que a URL põe no destino (`proximo`)
 from territorio.listagem import empresas_autorizadas, fazendas_autorizadas
 
 # A recusa volta ao Início por redirecionamento (`/?erro=<código>`): recarregar a página não repete o POST. O texto vem
@@ -28,7 +34,7 @@ TEXTOS_DO_CONVITE = {
 @exige_entrada
 @exige_acao(PROPRIA_PESSOA)
 def inicio(requisicao):
-    atalhos, atalhos_ocultos, atalhos_disponiveis = atalhos_da_pessoa(requisicao.user)
+    atalhos, atalhos_ocultos, atalhos_disponiveis = atalhos_da_pessoa(requisicao.user, empresa_lembrada(requisicao))
     contexto = {
         'convites': convite.convites_da_pessoa(requisicao.user),
         'atalhos': atalhos,
@@ -40,6 +46,27 @@ def inicio(requisicao):
         'erro': TEXTOS_DO_CONVITE.get(requisicao.GET.get('erro', '')),
     }
     return renderizar_na_casca(requisicao, 'inicio.html', contexto)
+
+
+@require_POST
+@exige_entrada
+@exige_acao(PROPRIA_PESSOA)
+def escolher_empresa(requisicao):
+    """Grava a empresa do seletor de escopo na sessão (R17). Só empresa que a pessoa alcança, revalidada agora; o destino
+    (`proximo`) volta só para endereço do próprio site (`destino_seguro`), nunca para outro host."""
+    valor = requisicao.POST.get('escolhida', '')
+    if not EMPRESA_DO_SELETOR.fullmatch(valor):
+        raise Http404
+    empresa = next(iter(empresas_autorizadas(requisicao.user, pk=int(valor))), None)
+    if empresa is None:
+        raise Http404
+    requisicao.session[CHAVE_EMPRESA] = empresa.pk
+    destino = destino_seguro(requisicao.POST.get('proximo'))
+    # A URL prevalece sobre a sessão (D063): destino de outra empresa levaria de volta à antiga e a troca não teria efeito.
+    escopo = ESCOPO_DE_EMPRESA.match(destino)
+    if escopo and int(escopo.group(1)) != empresa.pk:
+        destino = '/'
+    return redirect(destino)
 
 
 # Fixar e Ocultar são exclusivos: fixar tira da lista de ocultos e ocultar desfixa (R27). O estado vem desta tabela, nunca cru do POST.

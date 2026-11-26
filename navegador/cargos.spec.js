@@ -3,7 +3,7 @@
 // pelas telas, concede esse cargo a uma pessoa e vê o acesso na lista, nos dois tamanhos, com axe e sem rolagem horizontal; e o
 // acesso negado por URL direta. Nome e CPFs mudam a cada rodada, como em `pessoas.spec.js`.
 const { test, expect } = require('@playwright/test');
-const { dados, entrar, semRolagemHorizontal, acessivel, cpfSintetico } = require('./apoio.js');
+const { dados, entrar, semRolagemHorizontal, acessivel, cpfSintetico, abrirMenu } = require('./apoio.js');
 
 async function conferirTela(pagina) {
   await semRolagemHorizontal(pagina);
@@ -25,7 +25,9 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
   await page.getByRole('button', { name: 'Criar empresa' }).click();
   await page.getByRole('link', { name: 'Abrir a empresa' }).click();
 
-  await page.getByRole('link', { name: 'Cargos', exact: true }).click();
+  // A página da empresa também tem um botão "Cargos": o clique é no link do menu, com a gaveta aberta em 320.
+  await abrirMenu(page);
+  await page.getByRole('navigation', { name: 'Menu principal' }).getByRole('link', { name: 'Cargos', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Cargos', level: 1 })).toBeVisible();
   await expect(page.getByText('nível Administrador').first()).toBeVisible();
   await conferirTela(page);

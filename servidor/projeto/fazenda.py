@@ -78,4 +78,4 @@ def sub_area(requisicao, empresa_id, fazenda_id, sub_area_id):
         'sub_area': alvo, 'nivel': nivel, 'acoes': acoes_do_alvo(alvo, efetivas, pessoa=requisicao.user),
         'arvore': _arvore(dentro, _destino_da_sub_area(empresa, fazenda_do_endereco, 'sub_area')),
     }
-    return renderizar_na_casca(requisicao, 'sub_area.html', contexto, empresa=empresa, fazenda=fazenda_do_endereco)
+    return renderizar_na_casca(requisicao, 'sub_area.html', contexto, empresa=empresa, fazenda=fazenda_do_endereco, sub_area=alvo)

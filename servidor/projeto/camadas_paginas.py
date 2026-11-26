@@ -58,7 +58,8 @@ def _urls(empresa_id, fazenda_id, envio_id=ENVIO_MODELO):
 
 
 def _pagina(requisicao, modelo, fazenda, contexto):
-    return renderizar_na_casca(requisicao, modelo, contexto, empresa=fazenda.empresa, fazenda=fazenda)
+    # envio, prévia e publicação levam a etapa "Enviar camada" na trilha (telas.md §0)
+    return renderizar_na_casca(requisicao, modelo, contexto, empresa=fazenda.empresa, fazenda=fazenda, etapa='Enviar camada')
 
 
 @require_GET

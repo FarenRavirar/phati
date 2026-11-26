@@ -35,7 +35,7 @@ def test_ninguem_ve_a_ponte_de_gestao(cenario, fabrica_pessoa, conceder_direto, 
     # R24: o item sai do menu de todos os papéis; o painel é endereço, não link.
     administrador = _com(fabrica_pessoa, conceder_direto, cenario.cargos_x['administrador'], cenario.x)
     assert _nomes(administrador, cenario.x) == ['Início', 'Fazendas', 'Auditoria']  # 005 R6: o Administrador de empresa lê a auditoria
-    assert _nomes(plataforma) == ['Início', 'Fazendas', 'Uso do Google', 'Auditoria']  # 004b R13: só a plataforma vê o monitor
+    assert _nomes(plataforma) == ['Início', 'Fazendas', 'Auditoria', 'Uso do Google']  # 004b R13: só a plataforma vê o monitor; telas.md §0 põe Auditoria antes
 
 
 @pytest.mark.parametrize('base', ['curador', 'tecnico', 'usuario'])

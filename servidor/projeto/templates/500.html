@@ -2,6 +2,6 @@
 {% block titulo %}Erro no servidor{% endblock %}
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Erro no servidor" %}
-{% include "componentes/aviso.html" with tipo="erro" texto="Algo deu errado do nosso lado. Tente de novo em instantes." %}
-<a class="botao" href="/">Voltar ao início</a>
+{% include "componentes/aviso.html" with tipo="erro" texto="Algo deu errado do nosso lado. Tente de novo em instantes." only %}
+<a class="ag-botao" data-variante="primario" data-tamanho="md" href="/">Voltar ao início</a>
 {% endblock %}

@@ -29,15 +29,16 @@ function elemento(oculto = false) {
   const ouvintes = {};
   const atributos = {};
   return {
-    hidden: oculto, textContent: '', value: '', disabled: false, className: 'aviso aviso-erro', atributos, ouvintes,
+    hidden: oculto, textContent: '', value: '', disabled: false, atributos, ouvintes,
     setAttribute(nome, valor) { atributos[nome] = valor; },
     addEventListener(nome, funcao) { ouvintes[nome] = funcao; },
+    querySelector() { return this; },
   };
 }
 
 function abrir(fragmento, respostas) {
   const el = {
-    mensagem: elemento(true), formulario: elemento(true), senha_nova: elemento(), repeticao: elemento(), salvar: elemento(),
+    mensagem: elemento(true), 'mensagem-sucesso': elemento(true), formulario: elemento(true), senha_nova: elemento(), repeticao: elemento(), salvar: elemento(),
   };
   const chamadas = [];
   const substituicoes = [];
@@ -93,11 +94,11 @@ test('sucesso envia segredo e senha em JSON, esconde o formulário e fica final'
     cabecalhos: { 'Content-Type': 'application/json' },
   });
   assert.equal(pagina.el.formulario.hidden, true);
-  assert.match(pagina.el.mensagem.textContent, /Senha alterada/);
+  assert.match(pagina.el['mensagem-sucesso'].textContent, /Senha alterada/);
   assert.equal(pagina.el.salvar.disabled, true);
   // Qodo e Greptile, PR #20: a confirmação não pode sair com a cor e o papel de erro.
-  assert.equal(pagina.el.mensagem.className, 'aviso aviso-sucesso');
-  assert.equal(pagina.el.mensagem.atributos.role, 'status');
+  assert.equal(pagina.el['mensagem-sucesso'].hidden, false);
+  
 });
 
 test('link inválido esconde o formulário', async () => {
@@ -105,8 +106,8 @@ test('link inválido esconde o formulário', async () => {
   await pagina.enviar();
   assert.equal(pagina.el.formulario.hidden, true);
   assert.match(pagina.el.mensagem.textContent, /não vale mais/);
-  assert.equal(pagina.el.mensagem.className, 'aviso aviso-erro');
-  assert.equal(pagina.el.mensagem.atributos.role, 'alert');
+  assert.equal(pagina.el.mensagem.hidden, false);
+  
 });
 
 test('senha recusada mostra o motivo e libera nova tentativa', async () => {
@@ -134,5 +135,5 @@ test('segundo envio enquanto o primeiro corre não chama a API de novo e o suces
   liberar();
   await primeiro;
   assert.equal(pagina.chamadas.length, 1);
-  assert.match(pagina.el.mensagem.textContent, /Senha alterada/);
+  assert.match(pagina.el['mensagem-sucesso'].textContent, /Senha alterada/);
 });

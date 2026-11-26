@@ -204,7 +204,7 @@ const modelo = (nome) => document.querySelector(`template[data-modelo="${nome}"]
 export function definirEstado(id, estado, texto) {
   const { estado: caixa } = regiao(id);
   const bloco = modelo(estado);
-  const alvo = bloco.querySelector('.vazio-texto, .aviso-texto');
+  const alvo = bloco.querySelector('.ag-vazio-texto, .ag-aviso-texto');
   if (texto && alvo) alvo.textContent = texto;
   caixa.replaceChildren(bloco);
 }
@@ -230,7 +230,9 @@ function elemento(tag, classe, texto) {
 }
 
 function botao(texto, rotulo, aoClicar) {
-  const b = elemento('button', 'botao botao-secundario botao-camada', texto);
+  const b = elemento('button', 'ag-botao botao-camada', texto);
+  b.dataset.variante = 'secundario';
+  b.dataset.tamanho = 'md';
   b.type = 'button';
   b.setAttribute('aria-label', rotulo);
   b.addEventListener('click', aoClicar);
@@ -332,7 +334,9 @@ function mostrarConsulta(itens, lngLat) {
   lista.dataset.listaConsulta = '';
   for (const { properties: p } of itens) {
     const item = elemento('li', 'consulta-item');
-    const b = elemento('button', 'botao botao-secundario consulta-botao', `${p.camada}: ${p.atributo}, ${p.valor} (${p.situacao}, ${p.origem})`);
+    const b = elemento('button', 'ag-botao consulta-botao', `${p.camada}: ${p.atributo}, ${p.valor} (${p.situacao}, ${p.origem})`);
+    b.dataset.variante = 'secundario';
+    b.dataset.tamanho = 'md';
     b.type = 'button';
     b.addEventListener('click', () => mostrarFicha(p));
     item.append(b);
@@ -454,7 +458,7 @@ function ligarRecentralizar(mapa) {
   const mensagem = document.querySelector('[data-mapa-mensagem]');
   if (!botaoPosicao || !mensagem) return;
   const dizer = (texto) => {
-    mensagem.querySelector('.aviso-texto').textContent = texto;
+    mensagem.querySelector('.ag-aviso-texto').textContent = texto;
     mensagem.hidden = !texto;
   };
   if (!geolocalizacaoDisponivel(window)) {
@@ -527,7 +531,7 @@ export function comPrazo(promessa, ms) {
 function avisarFundo(alvo, texto) {
   const caixa = alvo.parentElement.querySelector('[data-mapa-fundo-aviso]');
   if (!caixa) return;
-  caixa.querySelector('.aviso-texto').textContent = texto;
+  caixa.querySelector('.ag-aviso-texto').textContent = texto;
   caixa.hidden = false;
 }
 

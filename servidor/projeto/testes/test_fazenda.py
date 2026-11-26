@@ -15,8 +15,13 @@ def _caminho(empresa, fazenda):
     return f'/empresa/{empresa.pk}/fazenda/{fazenda.pk}/'
 
 
+def _sem_valor_aleatorio(texto):
+    # Nonce do CSP e token CSRF mudam a cada resposta e podem conter "G1", "T1" ou "FY": a checagem de ausência não pode vê-los.
+    return re.sub(r'nonce="[^"]*"|csrfmiddlewaretoken" value="[^"]*"', '', texto)
+
+
 def _conteudo(resposta):
-    return resposta.content.decode().split('<main')[1]
+    return _sem_valor_aleatorio(resposta.content.decode()).split('<main')[1]
 
 
 def test_arvore_de_tres_niveis_aparece_aninhada(cliente_logado, conta, cenario, conceder_direto):
@@ -26,10 +31,10 @@ def test_arvore_de_tres_niveis_aparece_aninhada(cliente_logado, conta, cenario, 
     assert '<h1>F1</h1>' in html
     assert 'Empresa X' in html
     # Procura a partir da árvore: o `nonce` aleatório do `<head>` pode conter "G1" ou "T1" e quebrar a ordem às vezes.
-    arvore = html[html.index('<ul class="arvore">'):]
+    arvore = html[html.index('<ul class="ag-arvore">'):]
     ordem = [arvore.index(nome) for nome in ('G1', 'T1', 'Parcela P1', 'G2')]
     assert ordem == sorted(ordem)
-    assert html.count('<ul class="arvore">') == 3  # raiz, filhos de G1 e filhos de T1; G2 e a parcela não abrem lista
+    assert html.count('<ul class="ag-arvore">') == 3  # raiz, filhos de G1 e filhos de T1; G2 e a parcela não abrem lista
     assert 'Sem camadas ainda.' in html
 
 
@@ -87,26 +92,39 @@ def test_irma_sem_concessao_da_mesma_empresa_recebe_404(cliente_logado, conta, c
 def test_trilha_da_faixa_tem_um_link_para_a_empresa_e_outro_para_a_fazenda(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.f1)
     resposta = cliente_logado.get(_caminho(cenario.x, cenario.f1))
-    faixa = resposta.content.decode().split('<nav class="faixa-escopo"')[1].split('</nav>')[0]
-    assert re.findall(r'<a href="([^"]+)"( aria-current="page")?>([^<]+)</a>', faixa) == [
-        (f'/empresa/{cenario.x.pk}/', '', 'Empresa X'),
-        (_caminho(cenario.x, cenario.f1), ' aria-current="page"', 'F1'),  # só o trecho da página atual leva aria-current
-    ]
+    trilha = resposta.content.decode().split('<ol class="ag-trilha"')[1].split('</ol>')[0]
+    assert re.findall(r'<li(?: aria-current="page")?>([^<]+)</li>', trilha) == ['Fazendas', 'F1']  # só o último item leva aria-current
     assert 'Empresa X' not in _conteudo(resposta)  # A2: o nome da empresa não se repete no <main>
+
+
+def test_trilha_da_sub_area_leva_a_fazenda_e_a_sub_area(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+    resposta = cliente_logado.get(f'{_caminho(cenario.x, cenario.f1)}sub-area/{cenario.g1.pk}/')
+    assert resposta.status_code == 200
+    trilha = resposta.content.decode().split('<ol class="ag-trilha"')[1].split('</ol>')[0]
+    assert re.findall(r'<li(?: aria-current="page")?>([^<]+)</li>', trilha) == ['Fazendas', 'F1', 'G1']
+
+
+def test_trilha_da_sub_area_sem_concessao_nao_mostra_a_pagina(cliente_logado, conta, cenario):
+    resposta = cliente_logado.get(f'{_caminho(cenario.x, cenario.f1)}sub-area/{cenario.g1.pk}/')
+    assert resposta.status_code == 404
+    assert b'ag-trilha' not in resposta.content
 
 
 def test_no_da_arvore_de_quem_so_le_leva_a_pagina_da_sub_area(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
     html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
-    arvore = html[html.index('<ul class="arvore">'):html.index('</main>')]
-    assert f'<a href="/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area/{cenario.g1.pk}/">G1</a>' in arvore  # R5: há página, então é link
+    arvore = html[html.index('<ul class="ag-arvore">'):html.index('</main>')]
+    assert f'<a class="ag-arvore-no" href="/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area/{cenario.g1.pk}/"' in arvore  # R5: há página, então é link
+    assert '<span>G1</span></a>' in arvore
 
 
 def test_no_da_arvore_do_administrador_leva_a_pagina_da_sub_area(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
     html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
-    arvore = html[html.index('<ul class="arvore">'):html.index('</main>')]
-    assert f'<a href="/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area/{cenario.g1.pk}/">G1</a>' in arvore
+    arvore = html[html.index('<ul class="ag-arvore">'):html.index('</main>')]
+    assert f'<a class="ag-arvore-no" href="/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area/{cenario.g1.pk}/"' in arvore
+    assert '<span>G1</span></a>' in arvore
 
 
 def test_fazenda_arquivada_mostra_aviso_e_so_a_acao_de_desarquivar(cliente_logado, conta, cenario, conceder_direto):
@@ -119,7 +137,8 @@ def test_fazenda_arquivada_mostra_aviso_e_so_a_acao_de_desarquivar(cliente_logad
     assert 'Desarquivar' in html
     for texto in ('Renomear fazenda', 'Arquivar fazenda', 'Cadastrar sub-área'):
         assert texto not in html
-    assert f'/sub-area/{cenario.g1.pk}/">G1</a>' in html  # arquivada segue consultável: o nó leva à página, só leitura
+    assert f'/sub-area/{cenario.g1.pk}/">' in html  # arquivada segue consultável: o nó leva à página, só leitura
+    assert '<span>G1</span></a>' in html
 
 
 def test_deslogado_vai_a_entrada_e_senha_temporaria_vai_a_troca(cliente_logado, conta, cenario):
@@ -139,10 +158,12 @@ def test_pagina_so_aceita_consulta(cliente_logado, conta, cenario, conceder_dire
 def test_administrador_so_de_sub_area_ve_o_link_das_sub_areas_dele_e_de_mais_nenhuma(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.g1)
     html = cliente_logado.get(_caminho(cenario.x, cenario.f1)).content.decode()
-    arvore = html[html.index('<ul class="arvore">'):html.index('</main>')]  # a árvore aninha outras <ul class="arvore">
+    arvore = html[html.index('<ul class="ag-arvore">'):html.index('</main>')]  # a árvore aninha outras <ul class="ag-arvore">
     base = f'/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area'
-    assert f'<a href="{base}/{cenario.g1.pk}/">G1</a>' in arvore
-    assert f'<a href="{base}/{cenario.t1.pk}/">T1</a>' in arvore
+    assert f'<a class="ag-arvore-no" href="{base}/{cenario.g1.pk}/"' in arvore
+    assert f'<a class="ag-arvore-no" href="{base}/{cenario.t1.pk}/"' in arvore
+    assert '<span>G1</span></a>' in arvore
+    assert '<span>T1</span></a>' in arvore
     assert 'G2' not in arvore
 
 

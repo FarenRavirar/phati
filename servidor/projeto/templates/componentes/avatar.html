@@ -1,0 +1,1 @@
+{% comment %}Avatar (conteudo/Avatar.jsx). Parâmetros: nome (mostra as iniciais das duas primeiras palavras), tamanho (sm|md|lg; padrão md). Decorativo: aria-hidden, o nome vem do texto ao lado. Chamar com `only`.{% endcomment %}<span class="ag-avatar" data-tamanho="{{ tamanho|dentre:"sm md lg"|default:"md" }}" aria-hidden="true">{{ nome|iniciais }}</span>

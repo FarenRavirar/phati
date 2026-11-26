@@ -14,7 +14,8 @@ from django.views.decorators.http import require_http_methods
 
 from identidade import sessao
 from permissao.pode import pode
-from projeto.menu import itens_do_menu
+from projeto.escopo import cargos_na_empresa, empresa_lembrada, seletor_da_pessoa
+from projeto.menu import itens_do_menu, trilha_da
 
 CAMINHO_ENTRAR = '/entrar'
 CAMINHO_TROCAR_SENHA = '/trocar-senha'
@@ -91,10 +92,17 @@ def exige_entrada(visao):
     return interna
 
 
-def renderizar_na_casca(requisicao, modelo, contexto=None, empresa=None, fazenda=None):
-    """Renderiza `modelo` (que estende `casca.html`) com o menu da pessoa no escopo atual (a fazenda, ou a empresa)."""
-    itens = itens_do_menu(requisicao.user, fazenda or empresa, requisicao.path)
-    base = {'itens_menu': itens, 'empresa': empresa, 'fazenda': fazenda, 'cor_do_tema': _cor_do_tema()}
+def renderizar_na_casca(requisicao, modelo, contexto=None, empresa=None, fazenda=None, sub_area=None, etapa=''):
+    """Renderiza `modelo` (que estende `casca.html`) com o menu da pessoa no escopo atual (a fazenda, ou a empresa).
+    Sem empresa na URL, a escolhida no seletor (R17) vale para Pessoas e Cargos; a da URL prevalece (D063).
+    `sub_area` e `etapa` completam a trilha (telas.md §0)."""
+    escolhida = empresa or empresa_lembrada(requisicao)
+    itens = itens_do_menu(requisicao.user, fazenda or empresa, requisicao.path, empresa=escolhida)
+    base = {
+        'itens_menu': itens, 'trilha_do_topo': trilha_da(itens, empresa, fazenda, sub_area, etapa), 'empresa': empresa, 'fazenda': fazenda,
+        'empresa_escolhida': escolhida, 'seletor': seletor_da_pessoa(requisicao.user), 'cargos_da_empresa': cargos_na_empresa(requisicao.user, escolhida),
+        'cor_do_tema': _cor_do_tema(),
+    }
     return render(requisicao, modelo, {**(contexto or {}), **base})
 
 
@@ -129,13 +137,14 @@ def texto_do_erro(erro):
     return ' '.join(erro.messages)
 
 
-def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, acoes=(), escondidos=None, historico=None, codigo_http=200):
-    """`historico`: `{titulo, linhas, vazio}`, uma lista só de leitura que aparece depois do formulário."""
+def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, acoes=(), escondidos=None, historico=None, codigo_http=200, **lugar):
+    """`lugar` (`empresa`, `fazenda`, `sub_area`) vai à casca. `historico`: `{titulo, linhas, vazio}`, uma lista só de leitura que aparece depois do formulário. `sub_area`: a trilha
+    leva até ela (renomear sub-área)."""
     contexto = {
         'titulo': titulo, 'subtitulo': subtitulo, 'campos': campos, 'botao': botao, 'cancelar': cancelar,
         'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {}, 'historico': historico,
     }
-    resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, empresa=empresa, fazenda=fazenda)
+    resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, **lugar)
     resposta.status_code = codigo_http
     return resposta
 

@@ -1,32 +1,52 @@
-"""Menu lateral (R2): tabela de itens e filtro pela permissão efetiva do servidor, a cada requisição.
+"""Menu lateral (R15, R16): tabela de itens, filtro pela permissão efetiva do servidor a cada requisição e a página atual.
 
-Esconder o item não protege a rota: ela responde 404 a quem não pode (R3). A 003 acrescenta itens a `ITENS`.
+Esconder o item não protege a rota: ela responde 404 ou 403 a quem não pode (R3). Cada item decide com a mesma checagem
+da view dele (`alcance_na_empresa`, `age_na_plataforma_ou_em_empresa`, `permissoes_efetivas`). A 003 acrescenta itens a `ITENS`.
 """
 
 from dataclasses import dataclass, replace
 
 from permissao.pode import administrador_da_empresa, age_em_algum_escopo, age_na_plataforma_ou_em_empresa, escopos_da_acao, permissoes_efetivas
 from permissao.uso import usos_da_pessoa
+from projeto.escopo import alcance_na_empresa
+from projeto.painel import ACOES_DE_PESSOAS
 from territorio.listagem import empresas_autorizadas
+
+CAMINHO_PESSOAS = '/empresa/{empresa_id}/pessoas/'
+CAMINHO_CARGOS = '/empresa/{empresa_id}/cargos/'
+GRUPO_GESTAO = 'Gestão'
 
 
 @dataclass(frozen=True)
 class ItemDoMenu:
     nome: str
-    caminho: str
+    caminho: str  # com `{empresa_id}`, o item é de uma empresa e só aparece com a empresa escolhida (ou a da URL)
+    icone: str = ''  # nome do ícone Lucide, pela tag `icone`
+    grupo: str = ''  # título do grupo ('' sem título; 'Gestão' para as telas de gestão)
     acoes: tuple[str, ...] = ()  # sem ação, o item é de toda pessoa autenticada
-    prefixos: tuple[str, ...] = ()  # páginas filhas que também marcam o item como atual
+    prefixos: tuple[str, ...] = ()  # caminhos das páginas filhas; a correspondência mais longa vence (um só item atual)
     atual: str = ''  # `aria-current` do link: 'page' na própria página, 'true' numa página filha; vazio fora disso
     # Com `em_empresa`, `acoes` vale na plataforma ou em alguma empresa inteira, não só na plataforma (005 Q1: o Administrador de
     # empresa lê a auditoria). `permissoes_efetivas(pessoa, None)` dá ação só à plataforma, por isso o item usa o helper.
     em_empresa: bool = False
+    # 'alcance': alguma ação no alcance da empresa, como a tela de pessoas; 'inteira': só com a empresa inteira, como cargos (003 R18).
+    na_empresa: str = ''
+    contador: int = 0  # zero não aparece (telas.md §0); nenhum item tem fonte de contagem nesta fase
 
 
 ITENS = (
-    ItemDoMenu('Início', '/'),
-    ItemDoMenu('Fazendas', '/empresas/', prefixos=('/empresa/',)),
-    ItemDoMenu('Uso do Google', '/monitor-google', acoes=('ver_monitor_google',)),  # só o Administrador da plataforma (004b R13)
-    ItemDoMenu('Auditoria', '/auditoria/', acoes=('ver_auditoria',), em_empresa=True),  # 005 R6: a plataforma e o Administrador de empresa
+    ItemDoMenu('Início', '/', icone='house'),
+    ItemDoMenu('Fazendas', '/empresas/', icone='map', prefixos=('/empresa/',)),
+    ItemDoMenu(
+        'Pessoas', CAMINHO_PESSOAS, icone='users', grupo=GRUPO_GESTAO, acoes=ACOES_DE_PESSOAS, na_empresa='alcance',
+        prefixos=(CAMINHO_PESSOAS, '/empresa/{empresa_id}/pessoa/', '/empresa/{empresa_id}/titularidade'),
+    ),
+    ItemDoMenu(
+        'Cargos', CAMINHO_CARGOS, icone='shield', grupo=GRUPO_GESTAO, acoes=('gerenciar_cargo',), na_empresa='inteira',
+        prefixos=(CAMINHO_CARGOS,),
+    ),
+    ItemDoMenu('Auditoria', '/auditoria/', icone='scroll-text', grupo=GRUPO_GESTAO, acoes=('ver_auditoria',), em_empresa=True),  # 005 R6: a plataforma e o Administrador de empresa
+    ItemDoMenu('Uso do Google', '/monitor-google', icone='gauge', grupo=GRUPO_GESTAO, acoes=('ver_monitor_google',)),  # só o Administrador da plataforma (004b R13)
 )
 
 
@@ -46,20 +66,20 @@ class Atalho:
 ATALHOS: tuple[Atalho, ...] = (
     Atalho('Convidar pessoa', '/empresa/{empresa_id}/pessoas/convidar', 'convidar_pessoa'),
     # Candidatos a atalho de frequência (R27): cada um é registrado com `registrar_uso` quando a ação dá certo.
-    Atalho('Cargos', '/empresa/{empresa_id}/cargos/', 'gerenciar_cargo', fixo=False, empresa_inteira=True),
+    Atalho('Cargos', CAMINHO_CARGOS, 'gerenciar_cargo', fixo=False, empresa_inteira=True),
     # Redefinir é por pessoa: o atalho abre a lista de pessoas, onde cada linha leva à confirmação (A16).
-    Atalho('Redefinir senha', '/empresa/{empresa_id}/pessoas/', 'redefinir_senha', fixo=False, so_administrador=True),
+    Atalho('Redefinir senha', CAMINHO_PESSOAS, 'redefinir_senha', fixo=False, so_administrador=True),
     Atalho('Cadastrar fazenda', '/empresa/{empresa_id}/fazenda/nova', 'criar_fazenda', fixo=False, empresa_inteira=True),
 )
 ACOES_DE_ATALHO = frozenset(atalho.acao for atalho in ATALHOS)
 LIMITE_POR_FREQUENCIA = 2  # R27 e A16
 
 
-def _por_empresa(pessoa, atalho):
-    """Um link para cada empresa em que a pessoa tem a ação, no alcance que o destino exige."""
+def _por_empresa(pessoa, atalho, empresa=None):
+    """Um link para cada empresa em que a pessoa tem a ação, no alcance que o destino exige; com `empresa`, só a dela."""
     escopos = escopos_da_acao(pessoa, atalho.acao)
     lugares = escopos.empresas if atalho.empresa_inteira else escopos.empresas | escopos.empresas_das_fazendas
-    alcancadas = [e for e in empresas_autorizadas(pessoa) if e.pk in lugares]
+    alcancadas = [e for e in empresas_autorizadas(pessoa) if e.pk in lugares and (empresa is None or e.pk == empresa.pk)]
     if atalho.so_administrador:
         alcancadas = [e for e in alcancadas if administrador_da_empresa(pessoa, e.pk)]
     return [
@@ -68,23 +88,24 @@ def _por_empresa(pessoa, atalho):
     ]
 
 
-def atalhos_do_inicio(pessoa):
+def atalhos_do_inicio(pessoa, empresa=None):
     atalhos = []
     for atalho in ATALHOS:
         if '{empresa_id}' in atalho.caminho:
             # O Administrador da plataforma escolhe a empresa pela lista do Início: um atalho por empresa seria uma parede.
             if not pessoa.administrador_plataforma:
-                atalhos.extend(_por_empresa(pessoa, atalho))
+                atalhos.extend(_por_empresa(pessoa, atalho, empresa))
         elif age_em_algum_escopo(pessoa, atalho.acao):
             atalhos.append(atalho)
     return atalhos
 
 
-def atalhos_da_pessoa(pessoa):
+def atalhos_da_pessoa(pessoa, empresa=None):
     """Atalhos do Início (R27): fixos do papel, os que a pessoa fixou e até `LIMITE_POR_FREQUENCIA` por frequência, só os que a
     permissão atual ainda dá e que a pessoa não ocultou. Devolve `(mostrados, ocultos, disponiveis)`; os dois últimos são
-    `[(acao, nome)]`: `ocultos` para o botão Mostrar e `disponiveis` (permitidos, fora do Início) para o botão Fixar. Ação por empresa gera um link por empresa e conta como um atalho no limite."""
-    permitidos = atalhos_do_inicio(pessoa)
+    `[(acao, nome)]`: `ocultos` para o botão Mostrar e `disponiveis` (permitidos, fora do Início) para o botão Fixar. Ação por empresa gera um link por empresa e conta como um atalho no limite.
+    `empresa` (a escolhida no seletor) restringe os atalhos por empresa à dela."""
+    permitidos = atalhos_do_inicio(pessoa, empresa)
     usos = usos_da_pessoa(pessoa)
 
     def uso_de(acao, campo, padrao):
@@ -106,19 +127,56 @@ def atalhos_da_pessoa(pessoa):
     return mostrados, [(acao, nomes[acao]) for acao in sorted(ocultas)], [(acao, nomes[acao]) for acao in disponiveis]
 
 
-def itens_do_menu(pessoa, escopo=None, caminho=None):
+def itens_do_menu(pessoa, escopo=None, caminho=None, empresa=None):
+    """`escopo` decide as ações de plataforma e de empresa; `empresa` (a escolhida ou a da URL) abre Pessoas e Cargos."""
     efetivas = permissoes_efetivas(pessoa, escopo)
-    return [replace(item, atual=_atual(item, caminho)) for item in ITENS if _visivel(item, pessoa, efetivas)]
+    visiveis = [_no_escopo(item, empresa) for item in ITENS if _visivel(item, pessoa, efetivas, empresa)]
+    atuais = _atuais(visiveis, caminho)
+    return [replace(item, atual=atuais.get(item.nome, '')) for item in visiveis]
 
 
-def _atual(item, caminho):
-    if caminho == item.caminho:
-        return 'page'
-    # `startswith(())` é falso: item sem páginas filhas nunca cai aqui.
-    return 'true' if caminho is not None and caminho.startswith(item.prefixos) else ''
+def trilha_da(itens, empresa=None, fazenda=None, sub_area=None, etapa=''):
+    """Trilha do topo (telas.md §0): grupo e página. Em Fazendas: empresa ou fazenda, depois sub-área ou a etapa do envio
+    ("Enviar camada"); sub-área e etapa só valem com a fazenda aberta."""
+    atual = next((item for item in itens if item.atual), None)
+    if atual is None:
+        return []
+    if atual.nome == 'Fazendas':
+        lugar = fazenda or empresa
+        trilha = ['Fazendas', lugar.nome] if lugar else ['Fazendas']
+        if fazenda and sub_area:
+            trilha.append(sub_area.nome)
+        if fazenda and etapa:
+            trilha.append(etapa)
+        return trilha
+    return [atual.grupo, atual.nome] if atual.grupo else [atual.nome]
 
 
-def _visivel(item, pessoa, efetivas):
+def _no_escopo(item, empresa):
+    if empresa is None:
+        return item
+    return replace(item, caminho=item.caminho.format(empresa_id=empresa.pk), prefixos=tuple(p.format(empresa_id=empresa.pk) for p in item.prefixos))
+
+
+def _atuais(itens, caminho):
+    """Um item só é o atual: o de correspondência mais longa, para `/empresa/1/pessoas/` marcar Pessoas e não Fazendas."""
+    if caminho is None:
+        return {}
+    casos = []
+    for item in itens:
+        if caminho == item.caminho:
+            casos.append((len(item.caminho), item.nome, 'page'))
+        elif any(caminho.startswith(prefixo) for prefixo in item.prefixos):
+            casos.append((max(len(p) for p in item.prefixos if caminho.startswith(p)), item.nome, 'true'))
+    if not casos:
+        return {}
+    _, nome, marca = max(casos, key=lambda caso: caso[0])
+    return {nome: marca}
+
+
+def _visivel(item, pessoa, efetivas, empresa):
+    if item.na_empresa:
+        return empresa is not None and alcance_na_empresa(pessoa, empresa, item.acoes, inteira=item.na_empresa == 'inteira')
     if not item.acoes:
         return True
     if item.em_empresa:

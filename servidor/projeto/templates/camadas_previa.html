@@ -4,16 +4,16 @@
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Prévia da camada" subtitulo="Confira o que foi lido. Nada foi publicado: a camada só vira versão depois da confirmação." %}
 {% if vencido %}
-{% include "componentes/aviso.html" with tipo="erro" texto="Este envio expirou. Envie o arquivo de novo." %}
-<p class="acoes-pagina"><a class="botao botao-secundario" href="{{ urls.novo }}">Enviar outro arquivo</a></p>
+{% include "componentes/aviso.html" with tipo="erro" texto="Este envio expirou. Envie o arquivo de novo." only %}
+<p class="acoes-pagina"><a class="ag-botao" data-variante="secundario" data-tamanho="md" href="{{ urls.novo }}">Enviar outro arquivo</a></p>
 {% else %}
 {% if mapa %}{% include "componentes/mapa.html" with camadas_url=urls.geometria %}
 {% include "componentes/regiao_dinamica.html" with id="camadas" titulo="Camadas" texto="Sem camadas ainda." %}
 {% include "componentes/regiao_dinamica.html" with id="consulta" titulo="Consulta" texto="Escolha um ponto no mapa para consultar." %}
-{% include "componentes/regiao_dinamica.html" with id="ficha" titulo="Ficha técnica" texto="A ficha, as fontes e as ressalvas aparecem aqui." %}{% else %}<p class="campo-ajuda">A geometria sobre o mapa não está disponível neste ambiente. A prévia segue só com o resumo.</p>{% endif %}
+{% include "componentes/regiao_dinamica.html" with id="ficha" titulo="Ficha técnica" texto="A ficha, as fontes e as ressalvas aparecem aqui." %}{% else %}<p class="ag-ajuda">A geometria sobre o mapa não está disponível neste ambiente. A prévia segue só com o resumo.</p>{% endif %}
 <section data-camadas="previa" data-api-previa="{{ urls.api_previa }}" aria-labelledby="titulo-previa">
 <output id="previa-carregando">Carregando a prévia…</output>
-<div class="aviso aviso-erro" id="previa-erro" role="alert" hidden><p class="aviso-texto"></p></div>
+{% include "componentes/aviso.html" with tipo="erro" texto="" id="previa-erro" oculto=True only %}
 <div id="previa-conteudo" hidden>
 <h2 id="titulo-previa">Resumo</h2>
 <dl id="previa-resumo"></dl>
@@ -23,7 +23,7 @@
 <ul id="previa-colunas"></ul>
 <h2>Nós da fazenda</h2>
 <p id="previa-nos"></p>
-<p class="acoes-pagina"><a class="botao" href="{{ urls.confirmacao }}">Ir para a publicação</a></p>
+<p class="acoes-pagina"><a class="ag-botao" data-variante="primario" data-tamanho="md" href="{{ urls.confirmacao }}">Ir para a publicação</a></p>
 </div>
 </section>
 {% endif %}

@@ -24,7 +24,7 @@ def cliente_de_x(cliente_logado, conta, cenario, conceder_direto):
 def test_quinze_fazendas_visiveis_e_as_tres_de_outra_empresa_ausentes_do_html(cliente_de_x):
     html = cliente_de_x.get('/empresas/').content.decode()
     assert html.count('data-fazenda') == 15
-    assert len(re.findall(r'Fazenda Teste', html)) == 13
+    assert len(re.findall(r'Fazenda Teste', html.split('<main')[1])) == 13  # o seletor da sidebar repete as fazendas, fora do conteúdo
     assert len(re.findall(r'Fazenda Alheia|Empresa Y|>FY<', html)) == 0  # a busca de texto devolve 0 (A8)
     assert 'data-busca-campo' in html
     assert 'busca-fazendas.js' in html
@@ -34,7 +34,8 @@ def test_fazendas_vem_agrupadas_por_empresa(cliente_logado, conta, cenario, conc
     conceder_direto(conta.pessoa, cenario.cargos_x['administrador'], cenario.x)
     conceder_direto(conta.pessoa, cenario.cargos_y['administrador'], cenario.y)
     html = cliente_logado.get('/empresas/').content.decode()
-    assert html.index('Empresa X') < html.index('>F1<') < html.index('>F2<') < html.index('Empresa Y') < html.index('>FY<')
+    conteudo = html.split('<main')[1]  # a ordem vale para o conteúdo; o seletor da sidebar lista as mesmas fazendas antes
+    assert conteudo.index('Empresa X') < conteudo.index('>F1<') < conteudo.index('>F2<') < conteudo.index('Empresa Y') < conteudo.index('>FY<')
 
 
 def test_pessoa_sem_concessao_ve_lista_vazia_sem_nome_de_empresa(cliente_logado, cenario):

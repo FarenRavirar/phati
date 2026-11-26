@@ -1,4 +1,5 @@
-{% comment %}Parâmetros: tipo (erro, aviso, info, sucesso), texto. Cor, ícone e texto juntos; erro e sucesso são anunciados na hora.{% endcomment %}<div class="aviso aviso-{{ tipo }}"{% if tipo == 'erro' %} role="alert"{% elif tipo == 'sucesso' %} role="status"{% endif %}>
-{% if tipo == 'erro' %}{% include 'icones/erro.html' %}{% elif tipo == 'aviso' %}{% include 'icones/aviso.html' %}{% elif tipo == 'sucesso' %}{% include 'icones/sucesso.html' %}{% else %}{% include 'icones/info.html' %}{% endif %}
-<p class="aviso-texto">{{ texto }}</p>
-</div>
+{% comment %}Aviso (feedback/Aviso.jsx). Parâmetros: tipo (erro|aviso|info|sucesso; padrão info; desconhecido vira info), texto (None não imprime o parágrafo; "" imprime vazio para o JS preencher), titulo, acoes (texto escapado ou HTML já seguro), fechavel (botão Fechar aviso; nasce hidden e agrion-componentes.js o libera), id, oculto (nasce hidden). erro anuncia como alert e sucesso como status. Chamar com `only`.{% endcomment %}{% with t=tipo|dentre:"erro aviso info sucesso"|default:"info" %}<div class="ag-aviso" data-tipo="{{ t }}"{% if t == 'erro' %} role="alert"{% elif t == 'sucesso' %} role="status"{% endif %}{% if id %} id="{{ id }}"{% endif %}{% if oculto %} hidden{% endif %}>
+{% if t == 'erro' %}{% icone "circle-alert" tamanho=18 %}{% elif t == 'aviso' %}{% icone "triangle-alert" tamanho=18 %}{% elif t == 'sucesso' %}{% icone "circle-check" tamanho=18 %}{% else %}{% icone "info" tamanho=18 %}{% endif %}
+<div class="ag-aviso-corpo">{% if titulo %}<p class="ag-aviso-titulo">{{ titulo }}</p>{% endif %}{% if texto is not None %}<p class="ag-aviso-texto">{{ texto }}</p>{% endif %}{% if acoes %}<div class="ag-aviso-acoes">{{ acoes }}</div>{% endif %}</div>{% if fechavel %}
+<button class="ag-botao ag-aviso-fechar" type="button" data-variante="fantasma" data-tamanho="sm" data-icone="" hidden><span class="so-leitor">Fechar aviso</span>{% icone "x" tamanho=14 %}</button>{% endif %}
+</div>{% endwith %}

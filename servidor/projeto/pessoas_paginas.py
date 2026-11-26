@@ -29,7 +29,7 @@ from permissao.api import pessoas_do_escopo
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, concessoes_ativas, concessoes_vigentes_ou_futuras
 from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, permissoes_efetivas, unir_escopos
 from permissao.uso import registrar_uso
-from projeto.escopo import resolver_escopo
+from projeto.escopo import alcance_na_empresa, resolver_escopo
 from projeto.painel import ACOES_DE_PESSOAS
 from projeto.paginas_autenticadas import campo, confirmacao, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
 from territorio.listagem import fazendas_autorizadas
@@ -55,10 +55,8 @@ def _empresa(requisicao, empresa_id):
 def _com_alcance(requisicao, empresa, *acoes):
     """Quem não tem nenhuma das `acoes` em algum lugar desta empresa recebe 403 (alcance sem a ação). A decisão por alvo
     continua na função de serviço, a mesma da API."""
-    escopos = unir_escopos(requisicao.user, *acoes)
-    if not (escopos.plataforma or empresa.pk in escopos.empresas | escopos.empresas_das_fazendas):
+    if not alcance_na_empresa(requisicao.user, empresa, acoes):
         raise PermissionDenied
-    return escopos
 
 
 def _contexto(requisicao):

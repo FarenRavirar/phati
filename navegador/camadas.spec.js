@@ -122,7 +122,7 @@ test('envio inválido: o erro aparece na tela, a página segue no formulário e 
   await page.locator('#campo_arquivo').setInputFiles({ name: 'vazio.geojson', mimeType: 'application/geo+json', buffer: Buffer.from('') });
   await page.locator('#enviar').click();
   await expect(page.locator('#aviso-envio')).toBeVisible();
-  await expect(page.locator('#aviso-envio .aviso-texto')).not.toHaveText('');
+  await expect(page.locator('#aviso-envio .ag-aviso-texto')).not.toHaveText('');
   await expect(page).toHaveURL(/\/camadas\/novo$/);
   await expect(page.locator('#formulario-envio')).toBeVisible();
   await conferirTela(page);
@@ -159,7 +159,7 @@ async function preencherEPublicar(page, informacoes) {
 test('trocar nó e publicar: a feição que cruza dois nós recebe o nó escolhido na lista', async ({ page }, informacoes) => {
   await entrar(page, dados.administradora_a.cpf);
   await enviarEPrevia(page, geojsonDeRevisao([dados.camadas.cruza]));
-  await expect(page.locator('#revisao-nos .campo')).toHaveCount(1);
+  await expect(page.locator('#revisao-nos .ag-campo')).toHaveCount(1);
   await conferirTela(page); // com a revisão aberta: axe (rótulo ligado ao select) e sem rolagem horizontal
   await page.locator('#revisao_no_1').selectOption({ label: 'Talhão A3-2' });
   await preencherEPublicar(page, informacoes);
@@ -233,7 +233,7 @@ test('envio inexistente por URL direta: 404 igual ao de envio alheio', async ({ 
 test('escolha explícita de Própria fazenda numa feição que cruza: publica, e o texto da revisão diz o comportamento', async ({ page }, informacoes) => {
   await entrar(page, dados.administradora_a.cpf);
   await enviarEPrevia(page, geojsonDeRevisao([dados.camadas.cruza]));
-  const texto = await page.locator('#revisao-bloco .campo-ajuda').first().textContent();
+  const texto = await page.locator('#revisao-bloco .ag-ajuda').first().textContent();
   expect(texto).toContain('já vêm com o nó de maior área escolhido');
   expect(texto).toContain('ficam na própria fazenda');
   await page.locator('#revisao_no_1').selectOption({ label: 'Própria fazenda' });
@@ -281,7 +281,7 @@ test('linha que cruza dois nós: entra na lista com o rótulo de cruzamento e pu
     { type: 'Feature', properties: { valor: 2 }, geometry: { type: 'LineString', coordinates: dados.camadas.linha } },
   ] }));
   await enviarEPrevia(page, conteudo);
-  await expect(page.locator('#revisao-nos .campo')).toHaveCount(1);
+  await expect(page.locator('#revisao-nos .ag-campo')).toHaveCount(1);
   await expect(page.locator('#revisao-nos label').first()).toContainText('cruza 2 nós');
   await conferirTela(page);
   await preencherEPublicar(page, informacoes);

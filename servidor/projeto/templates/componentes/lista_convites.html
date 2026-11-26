@@ -1,12 +1,3 @@
-{% comment %}Parâmetros: convites (empresa_nome, cargo_nome, expira_em, id). Aceitar e Recusar são POST com CSRF; as rotas estão em `projeto/inicio.py`.{% endcomment %}<ul class="lista-convites">
-{% for convite in convites %}<li class="convite">
-<div>
-<p class="convite-titulo">{{ convite.empresa_nome }}</p>
-<p class="convite-detalhe">Cargo: {{ convite.cargo_nome }} · válido até {{ convite.expira_em|date:'d/m/Y' }}</p>
-</div>
-<div class="convite-acoes">
-<form method="post" action="/convites/{{ convite.id }}/aceitar">{% csrf_token %}<button class="botao" type="submit">Aceitar</button></form>
-<form method="post" action="/convites/{{ convite.id }}/recusar">{% csrf_token %}<button class="botao botao-secundario" type="submit">Recusar</button></form>
-</div>
-</li>
+{% comment %}Lista de convites (conteudo/ListaConvites.jsx). Parâmetros: convites (empresa_nome, cargo_nome, expira_em, id). Recusar e Aceitar são POST com CSRF; as rotas estão em `projeto/inicio.py`. Sem data ou cargo, mostra "Sem informação". Nenhum convite: a lista sai vazia (a página decide o texto do vazio).{% endcomment %}<ul class="ag-convites">
+{% for convite in convites %}<li class="ag-convite">{% include "componentes/avatar.html" with nome=convite.empresa_nome only %}<div class="ag-convite-texto"><span class="ag-convite-titulo">{{ convite.empresa_nome }}</span><span class="ag-convite-detalhe">Cargo: {{ convite.cargo_nome|default:"Sem informação" }} · válido até {{ convite.expira_em|date:'d/m/Y'|default:"Sem informação" }}</span></div><div class="ag-convite-acoes"><form method="post" action="/convites/{{ convite.id }}/recusar">{% csrf_token %}<button class="ag-botao" data-variante="secundario" data-tamanho="sm" type="submit">Recusar</button></form><form method="post" action="/convites/{{ convite.id }}/aceitar">{% csrf_token %}<button class="ag-botao" data-variante="primario" data-tamanho="sm" type="submit">Aceitar</button></form></div></li>
 {% endfor %}</ul>

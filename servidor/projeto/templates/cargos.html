@@ -2,7 +2,7 @@
 {% block titulo %}Cargos{% endblock %}
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Cargos" subtitulo=empresa.nome %}
-{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso %}{% endif %}
+{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso only %}{% endif %}
 {% include "componentes/acoes.html" with acoes=acoes %}
 <ul class="lista-pessoas">
 {% for cargo in itens %}<li class="pessoa">

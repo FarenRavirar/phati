@@ -226,15 +226,16 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         nome = requisicao.POST.get('nome', alvo.nome) if requisicao.method == 'POST' else alvo.nome
         campos = [campo('nome', 'Nome', nome, obrigatorio=True)]
         funcao = {Empresa: cadastro.renomear_empresa, Fazenda: cadastro.renomear_fazenda, SubArea: cadastro.renomear_sub_area}[type(alvo)]
+        sub_area = alvo if isinstance(alvo, SubArea) else None  # trilha: Fazendas / fazenda / sub-área
         acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',), pessoa=requisicao.user)
         if requisicao.method == 'POST':
             try:
                 funcao(requisicao.user, alvo, nome)
             except ValidationError as erro:
                 campos[0]['erro'] = texto_do_erro(erro)
-                return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes, codigo_http=400)
+                return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, sub_area=sub_area, acoes=acoes, codigo_http=400)
             return redirect(caminho_de(alvo))
-        return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, acoes=acoes)
+        return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, sub_area=sub_area, acoes=acoes)
 
 
 def _gravar_niveis(pessoa, empresa, campos, valores, atuais):

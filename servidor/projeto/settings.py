@@ -62,6 +62,8 @@ TEMPLATES = [
         'DIRS': [Path(__file__).resolve().parent / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
+            # `{% icone %}` sem `{% load %}` em todo template (spec 012, R4): ver projeto/templatetags/icones.py.
+            'builtins': ['projeto.templatetags.icones', 'projeto.templatetags.componentes'],
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',

@@ -104,7 +104,7 @@ function tokenCsrf(formulario) {
 
 function mostrarAviso(documento, id, texto) {
   const caixa = documento.getElementById(id);
-  caixa.querySelector('.aviso-texto').textContent = texto;
+  caixa.querySelector('.ag-aviso-texto').textContent = texto;
   caixa.hidden = false;
 }
 
@@ -167,7 +167,7 @@ function marcarOcultos(documento, colunas) {
   const fieldset = documento.getElementById('campo-ocultos');
   colunas.forEach((coluna, indice) => {
     const rotulo = documento.createElement('label');
-    rotulo.className = 'campo-caixa';
+    rotulo.className = 'ag-caixa';
     const caixa = documento.createElement('input');
     caixa.type = 'checkbox';
     caixa.name = 'ocultos';
@@ -223,9 +223,9 @@ function avisoDeBloqueio(documento) {
 // Um item da revisão: o rótulo aponta ao select pelo `for`/`id`, para o leitor de tela anunciar o nome do campo.
 function montarItemDeRevisao(documento, item, nosDaFazenda) {
   const campo = documento.createElement('div');  // o mesmo molde dos outros campos da tela (componentes/campo.html)
-  campo.className = 'campo';
+  campo.className = 'ag-campo';
   const seletor = documento.createElement('select');
-  seletor.className = 'campo-controle';
+  seletor.className = 'ag-controle';
   seletor.id = `revisao_no_${item.indice}`;
   seletor.dataset.indice = String(item.indice);
   const empate = item.motivo === 'empate';
@@ -245,7 +245,7 @@ function montarItemDeRevisao(documento, item, nosDaFazenda) {
   }
   seletor.value = empate || item.sugerido === null ? '' : String(item.sugerido);
   const rotulo = criarNo(documento, 'label', rotuloDaRevisao(item));
-  rotulo.className = 'campo-rotulo';
+  rotulo.className = 'ag-rotulo';
   rotulo.htmlFor = seletor.id;
   campo.append(rotulo, seletor);
   return campo;

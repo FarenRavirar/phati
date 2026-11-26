@@ -10,7 +10,7 @@ test('a plataforma vê as duas janelas com total, renovação e origem; sem cont
   await entrar(page, dados.plataforma.cpf);
   await page.goto(MONITOR);
   await expect(page.getByRole('heading', { name: 'Uso do Google', level: 1 })).toBeVisible();
-  const linhas = page.locator('table.tabela tbody tr');
+  const linhas = page.locator('table.ag-tabela tbody tr');
   await expect(linhas).toHaveCount(2);
   await expect(linhas.nth(0)).toContainText('Diária (cota do projeto)');
   await expect(linhas.nth(0)).toContainText('15.000');

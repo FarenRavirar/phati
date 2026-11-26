@@ -1,5 +1,6 @@
 """Telas de gestão do território (003 R9 a R12, R28, R33; A6, A27): caso feliz, validação, acesso negado e escape de HTML."""
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -228,7 +229,9 @@ def test_secao_arquivadas_lista_e_desarquiva_pela_confirmacao(cliente_logado, ad
     resposta = cliente_logado.post(_fazenda(cenario) + 'desarquivar')
     assert (resposta.status_code, resposta['Location']) == (302, _fazenda(cenario))
     assert Fazenda.objects.get(pk=cenario.f1.pk).arquivada_em is None
-    assert 'F1' not in cliente_logado.get('/arquivadas/').content.decode().split('<main')[1]
+    # Nonce do CSP e token CSRF são aleatórios e podem conter "F1": a checagem de ausência não os vê.
+    pagina = re.sub(r'nonce="[^"]*"|csrfmiddlewaretoken" value="[^"]*"', '', cliente_logado.get('/arquivadas/').content.decode())
+    assert 'F1' not in pagina.split('<main')[1]
 
 
 def test_desarquivar_com_ancestral_arquivado_mostra_o_motivo_e_nao_restaura(cliente_logado, administradora, cenario):
@@ -272,7 +275,7 @@ def test_empresa_criada_mostra_a_casca_com_menu_e_cor_do_tema(cliente_logado, co
     _plataforma(conta)
     campos = {'nome': 'Empresa Menu', 'nome_administrador': 'Ana', 'email_administrador': 'ana@exemplo.test', 'cpf_administrador': cpf_novo()}
     html = cliente_logado.post('/empresas/nova', campos).content.decode()
-    assert 'class="menu-item"' in html
+    assert 'class="ag-nav-item"' in html
     assert 'name="theme-color" content="#' in html
 
 
@@ -391,7 +394,8 @@ def test_pagina_da_sub_area_mostra_nivel_o_que_ha_dentro_e_as_acoes_do_administr
     html = cliente_logado.get(_sub_area(cenario, cenario.g1)).content.decode()
     assert '<h1>G1</h1>' in html
     assert 'Nível 1' in html
-    assert f'{_sub_area(cenario, cenario.t1)}">T1</a>' in html
+    assert f'{_sub_area(cenario, cenario.t1)}">' in html
+    assert '<span>T1</span></a>' in html
     for texto in ('Cadastrar dentro desta', 'Renomear sub-área', 'Arquivar sub-área'):
         assert texto in html
 
