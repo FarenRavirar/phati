@@ -23,6 +23,9 @@
 .camada input[type="range"] { flex: 1 1 100%; min-width: 0; }
 .botao-camada, .consulta-botao { min-width: 44px; min-height: 44px; }
 .consulta-botao { width: 100%; text-align: left; }
+/* Resultado da consulta e botão de camada levam texto de dado: o pacote traz `nowrap` e altura fixa. Quebram a linha e crescem;
+   o mínimo de 44 px fica. Seletor `.ag-botao.…` (0,2,0) vence a regra compartilhada de agrion-proprio.css, qualquer que seja a ordem. */
+.ag-botao.consulta-botao, .ag-botao.botao-camada { min-height: 44px; height: auto; white-space: normal; overflow-wrap: anywhere; }
 .consulta-item { margin-bottom: var(--espaco-2); }
 .legenda-titulo { margin: var(--espaco-3) 0 var(--espaco-2); font-size: var(--texto-base); }
 .legenda-item { display: flex; align-items: center; gap: var(--espaco-2); }

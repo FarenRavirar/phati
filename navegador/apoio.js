@@ -34,6 +34,22 @@ async function semRolagemHorizontal(pagina) {
   expect(cabe, 'a página rola na horizontal').toBe(true);
 }
 
+// Texto de dado longo (nome de empresa, fazenda ou camada, sintético): tem trecho sem espaço, que só quebra com `overflow-wrap`.
+const TEXTO_LONGO = 'Empresa Inventada A com um nome bem maior que o painel comporta, incluindo Trecho-Sem-Espacos-Para-Forcar-Quebra';
+
+// Botão com texto de dado não estoura a própria caixa: o texto quebra e o botão cresce em altura (scrollWidth <= clientWidth).
+// `minimo` é o min-height calculado do próprio botão (44 px abaixo de 64rem, `--h` acima), não um número fixo.
+async function caberNoBotao(botao) {
+  const medida = await botao.evaluate((b) => ({
+    rolagem: b.scrollWidth,
+    largura: b.clientWidth,
+    altura: b.getBoundingClientRect().height,
+    minimo: parseFloat(getComputedStyle(b).minHeight),
+  }));
+  expect(medida.rolagem, 'texto do botão estoura a largura').toBeLessThanOrEqual(medida.largura);
+  return medida;
+}
+
 async function acessivel(pagina) {
   expect(await violacoes(pagina), 'violações do axe (WCAG 2.2 AA)').toEqual([]);
 }
@@ -112,6 +128,8 @@ module.exports = {
   entrar,
   semRolagemHorizontal,
   acessivel,
+  caberNoBotao,
+  TEXTO_LONGO,
   abrirMenu,
   cpfSintetico,
 };

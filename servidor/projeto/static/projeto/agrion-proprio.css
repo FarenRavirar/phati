@@ -28,6 +28,10 @@ a { text-decoration: underline; text-underline-offset: 0.2em; }
 .ag-publica .ag-botao { --h: var(--controle-lg); }
 .ag-publica .ag-controle { height: var(--controle-lg); }
 
+/* Texto de dado (nome de empresa, fazenda, atalho) quebra a linha e o botão cresce: o pacote traz `nowrap` e altura fixa (`--h`).
+   O mínimo do alvo continua em `--h` (44 px abaixo de 64rem). O resultado da consulta tem regra própria em camadas.css. */
+.ag-botao { height: auto; min-height: var(--h); white-space: normal; overflow-wrap: anywhere; padding-block: var(--espaco-1); line-height: 1.25; }
+
 /* R11: em tela estreita o painel de camadas fica na base, a ficha abaixo do seletor de fundo e o zoom acima do painel:
    nenhum sobrepõe o outro. */
 @media (max-width: 48rem) {

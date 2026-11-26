@@ -5,7 +5,7 @@
 // Sem `test.skip`: quando a regra só vale numa largura, o teste confere a largura e segue pelo ramo da outra.
 const path = require('node:path');
 const { test, expect } = require('@playwright/test');
-const { dados, entrar, semRolagemHorizontal, acessivel } = require('./apoio.js');
+const { dados, entrar, semRolagemHorizontal, acessivel, caberNoBotao, TEXTO_LONGO } = require('./apoio.js');
 
 const TELAS = [
   ['inicio', '/'],
@@ -256,4 +256,34 @@ test('acesso negado por URL direta à casca de quem não tem alcance (R16, camin
     expect(resposta.status(), `status de ${rota}`).toBe(404);
     await expect(page.locator('.ag-sidebar .ag-nav-item', { hasText: 'Pessoas' })).toHaveCount(0);
   }
+});
+
+test('botões da casca com texto de dado longo quebram sem rolagem horizontal (regressão, nowrap do pacote)', async ({ page }) => {
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto('/');
+  // Atalho do Início: o nome vem de dado, então o rótulo "Ocultar X" cresce com ele.
+  const atalho = page.locator('.controles-atalho button').first();
+  await expect(atalho).toBeVisible();
+  await atalho.evaluate((b, t) => { b.textContent = t; }, `Ocultar ${TEXTO_LONGO}`);
+  const medidaAtalho = await caberNoBotao(atalho);
+  expect(medidaAtalho.altura, 'atalho com texto longo não fica abaixo do mínimo do alvo').toBeGreaterThanOrEqual(medidaAtalho.minimo);
+  // Seletor de escopo: a lista nasce com `hidden` e abre ao tirá-lo (o que casca.js faz no clique); o item recebe o nome longo.
+  const lista = page.locator('[data-escopo-lista]');
+  await lista.evaluate((l, t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ag-botao';
+    b.dataset.variante = 'fantasma';
+    b.dataset.tamanho = 'sm';
+    b.dataset.testeLongo = '';
+    b.textContent = t;
+    l.append(b);
+    l.hidden = false;
+  }, TEXTO_LONGO);
+  const escopo = page.locator('[data-teste-longo]');
+  await caberNoBotao(escopo);
+  const caixa = await escopo.boundingBox();
+  const caixaLista = await lista.boundingBox();
+  expect(caixa.width, 'item do seletor de escopo passa da largura da lista').toBeLessThanOrEqual(caixaLista.width + 0.5);
+  await semRolagemHorizontal(page);
 });
