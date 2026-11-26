@@ -5,7 +5,10 @@
 // Um token `--cor-*` fora de par só passa com `/* isento: --cor-x (motivo) */`.
 // Formato fixo, de espaço simples: regex frouxa tem custo super-linear (Sonar S8786, PR #19) e deixaria passar
 // comentário malformado (Qodo e Greptile, PR #19). Nome de token aceita dígito e maiúscula (`--cor-cinza-100`).
-const DECLARACAO = /(--[A-Za-z0-9-]+):([^;]+);/g;
+// Lookbehind: `--` só começa nome, não no meio dele (senão cada `-` rescaneia a corrida). `[^;:{}]` no valor: sem `:`,
+// cada nome acha o próprio fim, sem rescanear até o fim do texto (Sonar S8786, linear).
+// shortcut: valor com `:` (ex. `url(http://...)`) não vira declaração, nenhum token do repo tem; revisar se surgir.
+const DECLARACAO = /(?<![A-Za-z0-9-])(--[A-Za-z0-9-]+):([^;:{}]+);/g;
 const PAR = /\/\* contraste: (--cor-[A-Za-z0-9-]+) sobre (--cor-[A-Za-z0-9-]+) >= (\d+(?:\.\d+)?) \*\//g;
 const ISENTO = /\/\* isento: (--cor-[A-Za-z0-9-]+) \(([^)]*)\) \*\//g;
 const COMENTARIO_DE_PAR = /\/\*\s*contraste:/g;

@@ -105,6 +105,13 @@ test('ciclo de var() reprova sem travar', () => {
   assert.deepEqual(analisar(css, [{ a: '--a', b: '--f', minimo: 3 }]).erros, ['--a sobre --f: token ausente ou fora do formato #RRGGBB']);
 });
 
+test('entrada longa sem ponto e vírgula não cresce em tempo quadrático (Sonar S8786)', () => {
+  // Regex antiga: ~10 s com 40 mil repetições; a corrigida leva milissegundos. Folga grande para não ser flaky.
+  const inicio = Date.now();
+  analisar(':root { ' + '--a'.repeat(40000));
+  assert.ok(Date.now() - inicio < 1000, `levou ${Date.now() - inicio} ms`);
+});
+
 test('valor que não é #RRGGBB não é medido e reprova', () => {
   const css = ':root { --a: rgba(0, 0, 0, 0.5); --f: #FFFFFF; }';
   assert.deepEqual(analisar(css, [{ a: '--a', b: '--f', minimo: 3 }]).erros, ['--a sobre --f: token ausente ou fora do formato #RRGGBB']);

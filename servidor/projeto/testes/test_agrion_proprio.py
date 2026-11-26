@@ -132,7 +132,8 @@ def test_moldes_carregam_pacote_fontes_e_o_proprio_por_ultimo():
 def test_casca_carrega_toda_copia_do_pacote():
     hrefs = set(_hrefs((TEMPLATES / 'casca.html').read_text(encoding='utf-8')))
     copias = {f'projeto/{p.relative_to(ESTATICOS).as_posix()}' for p in AGRION.rglob('*.css')}
-    assert copias and copias <= hrefs, sorted(copias - hrefs)
+    assert copias
+    assert copias <= hrefs, sorted(copias - hrefs)
 
 
 def test_o_teste_de_ordem_reprova_proprio_antes_do_pacote():
@@ -158,7 +159,8 @@ def test_html_hidden_e_links_sublinhados():
     assert 'html [hidden] { display: none; }' in texto
     assert 'text-decoration: underline' in (_corpo(texto, 'a') or '')
     sem_sublinhado = _corpo('a { color: red; }', 'a')
-    assert sem_sublinhado is not None and 'underline' not in sem_sublinhado
+    assert sem_sublinhado is not None
+    assert 'underline' not in sem_sublinhado
 
 
 def test_meta_da_arvore_troca_para_o_texto_secundario_no_hover_e_no_selecionado():

@@ -145,11 +145,21 @@ def test_template_nao_tem_script_inline_nem_estilo_inline():
         assert not re.search(r'<style\b|\sstyle=', texto), arquivo.name
 
 
+def _etiquetas_sem_nonce(texto):
+    # IGNORECASE: `<LINK>` ou `<SCRIPT>` em maiúsculas também é etiqueta e precisa de nonce (alerta py/bad-tag-filter).
+    return [e for e in re.findall(r'<(?:script|link)\b[^>]*>', texto, re.IGNORECASE) if '{% csp_nonce_attr %}' not in e]
+
+
 def test_todo_script_e_link_de_estilo_dos_moldes_leva_nonce():
     for molde in ('casca.html', 'publica.html'):
         texto = (TEMPLATES / molde).read_text(encoding='utf-8')
-        for etiqueta in re.findall(r'<(?:script|link)\b[^>]*>', texto):
-            assert '{% csp_nonce_attr %}' in etiqueta, (molde, etiqueta)
+        assert _etiquetas_sem_nonce(texto) == [], molde
+
+
+def test_etiqueta_sem_nonce_reprova_inclusive_em_maiuscula():
+    assert _etiquetas_sem_nonce('<LINK rel="stylesheet" href="a.css">') == ['<LINK rel="stylesheet" href="a.css">']
+    assert _etiquetas_sem_nonce('<SCRIPT src="a.js"></SCRIPT>') == ['<SCRIPT src="a.js">']
+    assert _etiquetas_sem_nonce('<script {% csp_nonce_attr %} src="a.js"></script>') == []
 
 
 def test_outline_none_so_com_substituto():

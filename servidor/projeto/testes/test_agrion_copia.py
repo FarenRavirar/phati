@@ -140,5 +140,6 @@ def test_fontes_locais_existem_no_disco():
     alvos = re.findall(r'url\("([^"]+)"\)', css)
     assert len(alvos) == 6
     assert [a for a in alvos if not (ESTATICOS / a).is_file()] == []
-    assert 'Geist Mono' in css and 'Geist' in css
+    assert 'Geist Mono' in css
+    assert 'Geist' in css
     assert not URL_EM_CSS.search(css)
