@@ -137,14 +137,14 @@ def texto_do_erro(erro):
     return ' '.join(erro.messages)
 
 
-def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, empresa=None, fazenda=None, sub_area=None, acoes=(), escondidos=None, historico=None, codigo_http=200):
-    """`historico`: `{titulo, linhas, vazio}`, uma lista só de leitura que aparece depois do formulário. `sub_area`: a trilha
+def formulario(requisicao, titulo, campos, botao, cancelar, *, subtitulo=None, erro=None, acoes=(), escondidos=None, historico=None, codigo_http=200, **lugar):
+    """`lugar` (`empresa`, `fazenda`, `sub_area`) vai à casca. `historico`: `{titulo, linhas, vazio}`, uma lista só de leitura que aparece depois do formulário. `sub_area`: a trilha
     leva até ela (renomear sub-área)."""
     contexto = {
         'titulo': titulo, 'subtitulo': subtitulo, 'campos': campos, 'botao': botao, 'cancelar': cancelar,
         'erro': erro, 'acoes': list(acoes), 'escondidos': escondidos or {}, 'historico': historico,
     }
-    resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, empresa=empresa, fazenda=fazenda, sub_area=sub_area)
+    resposta = renderizar_na_casca(requisicao, 'formulario.html', contexto, **lugar)
     resposta.status_code = codigo_http
     return resposta
 

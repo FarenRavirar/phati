@@ -42,6 +42,16 @@ for (const [nome, rota] of TELAS) {
   });
 }
 
+// Telas públicas (sem casca): centralizadas em 320 e 1280, sem rolagem horizontal; a captura confere o rodapé de termos.
+for (const [nome, rota] of [['entrar', '/entrar'], ['esqueci-senha', '/esqueci-senha']]) {
+  test(`tela pública ${nome} centralizada, sem rolagem horizontal e capturada`, async ({ page }) => {
+    await page.goto(rota);
+    await expect(page.locator('.publica')).toBeVisible();
+    await semRolagemHorizontal(page);
+    await capturar(page, nome);
+  });
+}
+
 test('logo horizontal tem 95×26 px (R15)', async ({ page }) => {
   await entrar(page, dados.administradora_a.cpf);
   await page.goto('/');
@@ -175,6 +185,17 @@ test('seletor troca a empresa e a casca passa a mostrá-la (R17)', async ({ page
   await page.locator('[data-escopo-abrir]').click();
   await expect(page.locator('#escopo-lista')).toBeVisible();
   await page.locator('#escopo-lista button', { hasText: 'Empresa Inventada B' }).click();
+  await expect(page.locator('.ag-escopo-texto b')).toHaveText('Empresa Inventada B');
+});
+
+test('escolher empresa B estando em uma tela da empresa A leva a / com B escolhida (R17)', async ({ page }) => {
+  await entrar(page, dados.plataforma.cpf);
+  await page.goto('/empresa/1/pessoas/');
+  if (estreita(page)) await abrirGaveta(page);
+  await page.locator('[data-escopo-abrir]').click();
+  await expect(page.locator('#escopo-lista')).toBeVisible();
+  await page.locator('#escopo-lista button', { hasText: 'Empresa Inventada B' }).click();
+  await expect(page).toHaveURL((url) => url.pathname === '/');
   await expect(page.locator('.ag-escopo-texto b')).toHaveText('Empresa Inventada B');
 });
 

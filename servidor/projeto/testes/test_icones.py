@@ -68,7 +68,8 @@ def test_todos_os_arquivos_da_pasta_renderizam_svg_valido():
     assert arquivos, 'a pasta de ícones não tem SVG'
     for arquivo in arquivos:
         html = icones.icone(arquivo.stem)
-        assert html.startswith('<svg ') and html.endswith('</svg>'), arquivo.name
+        assert html.startswith('<svg ')
+        assert html.endswith('</svg>'), arquivo.name
 
 
 @pytest.mark.parametrize('nome', ['../segredo', '..', '', 'a/b', 'House', 'casa.svg', 'x y', None, 7])

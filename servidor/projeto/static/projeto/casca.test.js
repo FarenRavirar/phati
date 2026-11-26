@@ -7,7 +7,7 @@ const { iniciarCasca } = require('./casca.js');
 function no(tipo, { filhos = {}, atributos = {}, hidden = false, pai = null } = {}) {
   const ouvintes = {};
   const n = {
-    tipo, hidden, atributos, filhos, pai, foco: 0,
+    tipo, hidden, atributos, dataset: {}, filhos, pai, foco: 0,
     setAttribute(nome, valor) { n.atributos[nome] = String(valor); },
     removeAttribute(nome) { delete n.atributos[nome]; },
     hasAttribute(nome) { return nome in n.atributos; },
@@ -51,11 +51,11 @@ function casca() {
 test('a gaveta abre pelo botão, leva o foco ao primeiro link e marca a casca', () => {
   const c = casca();
   iniciarCasca(c.documento);
-  assert.equal(c.raiz.atributos['data-js'], '');
+  assert.equal(c.raiz.dataset.js, '');
   assert.equal(c.abrir.hidden, false);
   assert.equal(c.resumo.hidden, true);
   c.abrir.dispara('click');
-  assert.equal(c.raiz.hasAttribute('data-gaveta'), true);
+  assert.equal(('gaveta' in c.raiz.dataset), true);
   assert.equal(c.abrir.atributos['aria-expanded'], 'true');
   assert.equal(c.link.foco, 1);
   assert.equal(c.linkEscondido.foco, 0); // negativo: link escondido não recebe foco
@@ -66,7 +66,7 @@ test('escolher um item fecha a gaveta, sem devolver o foco ao botão', () => {
   iniciarCasca(c.documento);
   c.abrir.dispara('click');
   c.sidebar.dispara('click', c.link); // o clique sobe da link até a sidebar, onde o ouvinte está
-  assert.equal(c.raiz.hasAttribute('data-gaveta'), false);
+  assert.equal(('gaveta' in c.raiz.dataset), false);
   assert.equal(c.abrir.foco, 0);
 });
 
@@ -75,7 +75,7 @@ test('clique no fundo fecha a gaveta e devolve o foco ao botão que a abriu', ()
   iniciarCasca(c.documento);
   c.abrir.dispara('click');
   c.fundo.dispara('click');
-  assert.equal(c.raiz.hasAttribute('data-gaveta'), false);
+  assert.equal(('gaveta' in c.raiz.dataset), false);
   assert.equal(c.abrir.foco, 1);
 });
 
@@ -84,7 +84,7 @@ test('Esc fecha a gaveta aberta e devolve o foco ao botão', () => {
   iniciarCasca(c.documento);
   c.abrir.dispara('click');
   c.documento.tecla('Escape');
-  assert.equal(c.raiz.hasAttribute('data-gaveta'), false);
+  assert.equal(('gaveta' in c.raiz.dataset), false);
   assert.equal(c.abrir.foco, 1);
 });
 
@@ -101,7 +101,7 @@ test('tecla que não é Esc não fecha a gaveta (negativo)', () => {
   iniciarCasca(c.documento);
   c.abrir.dispara('click');
   c.documento.tecla('Enter');
-  assert.equal(c.raiz.hasAttribute('data-gaveta'), true);
+  assert.equal(('gaveta' in c.raiz.dataset), true);
 });
 
 test('o seletor de escopo abre e fecha pelo botão e marca aria-expanded', () => {
@@ -123,7 +123,7 @@ test('Esc fecha o seletor e devolve o foco ao botão dele, sem tocar na gaveta',
   c.documento.tecla('Escape');
   assert.equal(c.lista.hidden, true);
   assert.equal(c.botao.foco, 1);
-  assert.equal(c.raiz.hasAttribute('data-gaveta'), true);
+  assert.equal(('gaveta' in c.raiz.dataset), true);
 });
 
 test('sem casca na página, nada é ligado e nada quebra (negativo)', () => {

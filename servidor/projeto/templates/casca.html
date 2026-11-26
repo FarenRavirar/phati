@@ -30,7 +30,7 @@
 <div class="ag-escopo">
 <span class="ag-escopo-icone" aria-hidden="true">{{ empresa_escolhida.nome|iniciais }}</span>
 <span class="ag-escopo-texto"><b>{% if empresa_escolhida %}{{ empresa_escolhida.nome }}{% else %}Escolher empresa{% endif %}</b><span>{% if fazenda %}{{ fazenda.nome }}{% else %}Todas as fazendas{% endif %}</span></span>
-<button type="button" class="ag-botao" data-variante="fantasma" data-tamanho="sm" data-icone="" aria-label="Trocar empresa ou fazenda" aria-expanded="false" aria-controls="escopo-lista" data-escopo-abrir hidden>{% icone "chevrons-up-down" %}</button>
+<button type="button" class="ag-botao" data-variante="fantasma" data-tamanho="sm" data-icone="" aria-expanded="false" aria-controls="escopo-lista" data-escopo-abrir hidden><span class="so-leitor">Trocar empresa ou fazenda</span>{% icone "chevrons-up-down" %}</button>
 </div>
 <div id="escopo-lista" class="ag-escopo-lista" data-escopo-lista hidden>
 {% for empresa_da_lista in seletor.empresas %}<form method="post" action="{% url 'escolher_empresa' %}">{% csrf_token %}<input type="hidden" name="escolhida" value="{{ empresa_da_lista.pk }}"><input type="hidden" name="proximo" value="{{ request.path }}">{% include "componentes/botao.html" with texto=empresa_da_lista.nome variante="fantasma" tamanho="sm" tipo="submit" only %}</form>
@@ -50,12 +50,12 @@
 <div class="ag-sidebar-pe">
 {% include "componentes/avatar.html" with nome=request.user.nome only %}
 <span class="ag-sidebar-pe-texto"><b>{{ request.user.nome }}</b><span>{% if cargos_da_empresa %}{{ cargos_da_empresa.0 }}{% if cargos_da_empresa|length > 1 %} <span class="ag-nav-contador">+{{ cargos_da_empresa|length|add:"-1" }}</span>{% endif %}{% endif %}</span></span>
-<form method="post" action="/sair">{% csrf_token %}<button class="ag-botao" data-variante="fantasma" data-tamanho="sm" data-icone="" type="submit" aria-label="Sair" title="Sair">{% icone "log-out" %}</button></form>
+<form method="post" action="/sair">{% csrf_token %}<button class="ag-botao" data-variante="fantasma" data-tamanho="sm" data-icone="" type="submit" title="Sair"><span class="so-leitor">Sair</span>{% icone "log-out" %}</button></form>
 </div>
 </aside>
 <div class="ag-principal">
 <header class="ag-topo">
-<button type="button" class="ag-botao ag-topo-menu" data-variante="fantasma" data-tamanho="sm" data-icone="" aria-label="Abrir menu" aria-expanded="false" aria-controls="ag-sidebar-controle" data-abrir-menu hidden>{% icone "menu" %}</button>
+<button type="button" class="ag-botao ag-topo-menu" data-variante="fantasma" data-tamanho="sm" data-icone="" aria-expanded="false" aria-controls="ag-sidebar-controle" data-abrir-menu hidden><span class="so-leitor">Abrir menu</span>{% icone "menu" %}</button>
 <div class="ag-topo-trilha">{% if trilha_do_topo %}<ol class="ag-trilha" aria-label="Você está em">{% for parte in trilha_do_topo %}<li{% if forloop.last %} aria-current="page"{% endif %}>{{ parte }}</li>{% if not forloop.last %}<li aria-hidden="true">/</li>{% endif %}{% endfor %}</ol>{% endif %}</div>
 </header>
 <main class="ag-conteudo">

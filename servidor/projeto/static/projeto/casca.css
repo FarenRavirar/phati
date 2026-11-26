@@ -26,3 +26,9 @@ html .ag-sidebar-resumo[hidden] { display: none; }
   .ag-casca[data-js]:not([data-gaveta]) .ag-sidebar { visibility: hidden; }
   .ag-sidebar-resumo { display: flex; cursor: pointer; }
 }
+.publica { display: grid; min-height: 100vh; place-items: start center; padding: var(--espaco-8) var(--espaco-4); }
+.publica-caixa { width: 100%; max-width: 28rem; padding: var(--espaco-6); border: 1px solid var(--borda-padrao); border-radius: var(--raio-md); background: var(--bg-superficie); }
+.publica-links { margin-top: var(--espaco-4); }
+.publica-produto { margin-bottom: var(--espaco-4); font-weight: 700; color: var(--acao-primaria); }
+.rodape-termos { grid-column: 1 / -1; padding: var(--espaco-2) var(--espaco-4); border-top: 1px solid var(--borda-padrao); color: var(--texto-secundario); }
+.rodape-termos ul { display: flex; flex-wrap: wrap; gap: var(--espaco-3); margin: 0; padding: 0; list-style: none; }

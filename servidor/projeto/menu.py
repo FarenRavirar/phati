@@ -12,6 +12,10 @@ from projeto.escopo import alcance_na_empresa
 from projeto.painel import ACOES_DE_PESSOAS
 from territorio.listagem import empresas_autorizadas
 
+CAMINHO_PESSOAS = '/empresa/{empresa_id}/pessoas/'
+CAMINHO_CARGOS = '/empresa/{empresa_id}/cargos/'
+GRUPO_GESTAO = 'Gestão'
+
 
 @dataclass(frozen=True)
 class ItemDoMenu:
@@ -34,15 +38,15 @@ ITENS = (
     ItemDoMenu('Início', '/', icone='house'),
     ItemDoMenu('Fazendas', '/empresas/', icone='map', prefixos=('/empresa/',)),
     ItemDoMenu(
-        'Pessoas', '/empresa/{empresa_id}/pessoas/', icone='users', grupo='Gestão', acoes=ACOES_DE_PESSOAS, na_empresa='alcance',
-        prefixos=('/empresa/{empresa_id}/pessoas/', '/empresa/{empresa_id}/pessoa/', '/empresa/{empresa_id}/titularidade'),
+        'Pessoas', CAMINHO_PESSOAS, icone='users', grupo=GRUPO_GESTAO, acoes=ACOES_DE_PESSOAS, na_empresa='alcance',
+        prefixos=(CAMINHO_PESSOAS, '/empresa/{empresa_id}/pessoa/', '/empresa/{empresa_id}/titularidade'),
     ),
     ItemDoMenu(
-        'Cargos', '/empresa/{empresa_id}/cargos/', icone='shield', grupo='Gestão', acoes=('gerenciar_cargo',), na_empresa='inteira',
-        prefixos=('/empresa/{empresa_id}/cargos/',),
+        'Cargos', CAMINHO_CARGOS, icone='shield', grupo=GRUPO_GESTAO, acoes=('gerenciar_cargo',), na_empresa='inteira',
+        prefixos=(CAMINHO_CARGOS,),
     ),
-    ItemDoMenu('Auditoria', '/auditoria/', icone='scroll-text', grupo='Gestão', acoes=('ver_auditoria',), em_empresa=True),  # 005 R6: a plataforma e o Administrador de empresa
-    ItemDoMenu('Uso do Google', '/monitor-google', icone='gauge', grupo='Gestão', acoes=('ver_monitor_google',)),  # só o Administrador da plataforma (004b R13)
+    ItemDoMenu('Auditoria', '/auditoria/', icone='scroll-text', grupo=GRUPO_GESTAO, acoes=('ver_auditoria',), em_empresa=True),  # 005 R6: a plataforma e o Administrador de empresa
+    ItemDoMenu('Uso do Google', '/monitor-google', icone='gauge', grupo=GRUPO_GESTAO, acoes=('ver_monitor_google',)),  # só o Administrador da plataforma (004b R13)
 )
 
 
@@ -62,9 +66,9 @@ class Atalho:
 ATALHOS: tuple[Atalho, ...] = (
     Atalho('Convidar pessoa', '/empresa/{empresa_id}/pessoas/convidar', 'convidar_pessoa'),
     # Candidatos a atalho de frequência (R27): cada um é registrado com `registrar_uso` quando a ação dá certo.
-    Atalho('Cargos', '/empresa/{empresa_id}/cargos/', 'gerenciar_cargo', fixo=False, empresa_inteira=True),
+    Atalho('Cargos', CAMINHO_CARGOS, 'gerenciar_cargo', fixo=False, empresa_inteira=True),
     # Redefinir é por pessoa: o atalho abre a lista de pessoas, onde cada linha leva à confirmação (A16).
-    Atalho('Redefinir senha', '/empresa/{empresa_id}/pessoas/', 'redefinir_senha', fixo=False, so_administrador=True),
+    Atalho('Redefinir senha', CAMINHO_PESSOAS, 'redefinir_senha', fixo=False, so_administrador=True),
     Atalho('Cadastrar fazenda', '/empresa/{empresa_id}/fazenda/nova', 'criar_fazenda', fixo=False, empresa_inteira=True),
 )
 ACOES_DE_ATALHO = frozenset(atalho.acao for atalho in ATALHOS)

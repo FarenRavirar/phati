@@ -18,6 +18,7 @@ from projeto.menu import ACOES_DE_ATALHO, atalhos_da_pessoa
 
 # Empresa do seletor: só dígitos e no máximo 18 (cabe no inteiro do banco); outro texto é recusado antes de consultar.
 EMPRESA_DO_SELETOR = re.compile(r'\d{1,18}')
+ESCOPO_DE_EMPRESA = re.compile(r'/empresa/(\d{1,18})(?:/|$)')  # o escopo que a URL põe no destino (`proximo`)
 from territorio.listagem import empresas_autorizadas, fazendas_autorizadas
 
 # A recusa volta ao Início por redirecionamento (`/?erro=<código>`): recarregar a página não repete o POST. O texto vem
@@ -60,7 +61,12 @@ def escolher_empresa(requisicao):
     if empresa is None:
         raise Http404
     requisicao.session[CHAVE_EMPRESA] = empresa.pk
-    return redirect(destino_seguro(requisicao.POST.get('proximo')))
+    destino = destino_seguro(requisicao.POST.get('proximo'))
+    # A URL prevalece sobre a sessão (D063): destino de outra empresa levaria de volta à antiga e a troca não teria efeito.
+    escopo = ESCOPO_DE_EMPRESA.match(destino)
+    if escopo and int(escopo.group(1)) != empresa.pk:
+        destino = '/'
+    return redirect(destino)
 
 
 # Fixar e Ocultar são exclusivos: fixar tira da lista de ocultos e ocultar desfixa (R27). O estado vem desta tabela, nunca cru do POST.

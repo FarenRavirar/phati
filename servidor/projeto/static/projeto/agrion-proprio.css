@@ -75,3 +75,5 @@ dialog.ag-dialogo::backdrop { background: color-mix(in srgb, var(--texto-primari
 
 /* Link de apoio na tela de login: alvo de 24 px no mínimo (WCAG 2.5.8, axe target-size). */
 .publica-links a { display: inline-block; min-height: 24px; padding-block: 4px; }
+.ag-envio:focus-within { outline: 2px solid var(--verde-500); outline-offset: 2px; }
+fieldset.ag-segmentado { border: 0; margin: 0; min-inline-size: 0; }

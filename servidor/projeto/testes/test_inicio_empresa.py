@@ -70,6 +70,21 @@ def test_destino_externo_volta_para_a_raiz(entrada, conta, cenario, conceder_dir
     assert resposta['Location'] == '/'
 
 
+# Regressão (Codex): a URL prevalece sobre a sessão (D063). Um `proximo` com escopo de outra empresa devolveria à empresa antiga,
+# e a troca não teria efeito; o que não tem escopo de empresa, ou é da escolhida, segue como veio.
+@pytest.mark.parametrize(('proximo', 'esperado'), [
+    ('/empresa/{y}/pessoas/', '/'),
+    ('/empresa/{y}/fazenda/1', '/'),
+    ('/empresa/{x}/cargos/', '/empresa/{x}/cargos/'),
+    ('/empresas/', '/empresas/'),
+])
+def test_proximo_de_outra_empresa_volta_a_raiz_e_o_resto_fica(entrada, conta, cenario, conceder_direto, proximo, esperado):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.f1)
+    resposta = _postar(entrada, {'escolhida': cenario.x.pk, 'proximo': proximo.format(x=cenario.x.pk, y=cenario.y.pk)})
+    assert resposta['Location'] == esperado.format(x=cenario.x.pk, y=cenario.y.pk)
+    assert entrada.session[CHAVE_EMPRESA] == cenario.x.pk
+
+
 def test_get_e_negado_com_405(entrada, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.f1)
     assert entrada.get(f'{ROTA}?empresa_id={cenario.x.pk}').status_code == 405

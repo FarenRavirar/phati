@@ -4,7 +4,7 @@
 function iniciarCasca(documento) {
   const casca = documento.querySelector('.ag-casca');
   if (!casca) return null;
-  casca.setAttribute('data-js', '');
+  casca.dataset.js = '';
 
   const abrirMenu = casca.querySelector('[data-abrir-menu]');
   const fundo = casca.querySelector('[data-gaveta-fundo]');
@@ -15,18 +15,17 @@ function iniciarCasca(documento) {
   const resumo = casca.querySelector('.ag-sidebar-resumo');
   if (resumo) resumo.hidden = true; // com JS, a gaveta substitui o resumo do <details>
 
-  const gavetaAberta = () => casca.hasAttribute('data-gaveta');
+  const gavetaAberta = () => 'gaveta' in casca.dataset;
   const fecharGaveta = (devolverFoco) => {
-    casca.removeAttribute('data-gaveta');
+    delete casca.dataset.gaveta;
     if (abrirMenu) abrirMenu.setAttribute('aria-expanded', 'false');
     if (devolverFoco && abrirMenu) abrirMenu.focus();
   };
   const abrirGaveta = () => {
-    casca.setAttribute('data-gaveta', '');
+    casca.dataset.gaveta = '';
     if (abrirMenu) abrirMenu.setAttribute('aria-expanded', 'true');
     // O seletor de escopo também tem links, escondidos até abrir: o foco vai ao primeiro item do menu, que é visível.
-    const primeiro = sidebar && sidebar.querySelector('.ag-nav-principal a');
-    if (primeiro) primeiro.focus();
+    sidebar?.querySelector('.ag-nav-principal a')?.focus();
   };
   const escopoAberto = () => listaEscopo && !listaEscopo.hidden;
   const fecharEscopo = (devolverFoco) => {
@@ -39,7 +38,7 @@ function iniciarCasca(documento) {
   if (fundo) fundo.addEventListener('click', () => fecharGaveta(true));
   // Escolher um item fecha a gaveta; o foco segue para a página nova, não para o botão.
   if (sidebar) sidebar.addEventListener('click', (evento) => {
-    if (evento.target && evento.target.closest && evento.target.closest('a')) fecharGaveta(false);
+    if (evento.target?.closest?.('a')) fecharGaveta(false);
   });
   if (botaoEscopo) botaoEscopo.addEventListener('click', () => {
     const abrir = !escopoAberto();

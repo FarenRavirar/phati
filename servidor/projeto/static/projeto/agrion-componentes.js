@@ -1,5 +1,6 @@
-// Comportamento dos componentes AgriOn que precisam de JS (spec 012, R37): fechar aviso, zona de envio e diálogo nativo.
-// Sem este script: o botão Fechar aviso segue escondido, a zona de envio não reage e o link de diálogo vai para a página de formulário.
+// Comportamento dos componentes AgriOn que precisam de JS (spec 012, R37): fechar aviso, arrastar e soltar na zona de envio e diálogo nativo.
+// Sem este script: o botão Fechar aviso segue escondido, arrastar e soltar não funciona e o link de diálogo vai para a página de formulário.
+// A zona de envio é um <label> ligado ao input de arquivo: clique e teclado são do navegador, sem código aqui.
 function fecharAviso(botao) {
   const aviso = botao.closest('.ag-aviso');
   if (aviso) aviso.hidden = true;
@@ -10,16 +11,10 @@ function aoClicar(documento, evento) {
   const alvo = evento.target;
   const botaoFechar = alvo.closest('.ag-aviso-fechar');
   if (botaoFechar) return fecharAviso(botaoFechar);
-  const zona = alvo.closest('.ag-envio');
-  if (zona && !alvo.closest('input')) {
-    const entrada = zona.querySelector('input[type="file"]');
-    if (entrada) entrada.click();
-    return false;
-  }
   const abrir = alvo.closest('[data-dialogo-abrir]');
   if (abrir) {
     const dialogo = documento.getElementById(abrir.dataset.dialogoAbrir);
-    if (dialogo && typeof dialogo.showModal === 'function') {
+    if (typeof dialogo?.showModal === 'function') {
       evento.preventDefault();
       dialogo.showModal();
       return true;
@@ -39,22 +34,12 @@ function aoClicar(documento, evento) {
   return false;
 }
 
-function aoTecla(evento) {
-  if (evento.key !== 'Enter' && evento.key !== ' ') return false;
-  const zona = evento.target.closest('.ag-envio');
-  const entrada = zona && zona.querySelector('input[type="file"]');
-  if (!entrada) return false;
-  evento.preventDefault();
-  entrada.click();
-  return true;
-}
-
 function aoArrastar(evento, entrando) {
   const zona = evento.target.closest('.ag-envio');
   if (!zona) return false;
   evento.preventDefault();
-  if (entrando) zona.setAttribute('data-arrastando', '');
-  else zona.removeAttribute('data-arrastando');
+  if (entrando) zona.dataset.arrastando = '';
+  else delete zona.dataset.arrastando;
   return true;
 }
 
@@ -62,10 +47,10 @@ function aoSoltar(evento) {
   const zona = evento.target.closest('.ag-envio');
   if (!zona) return false;
   evento.preventDefault();
-  zona.removeAttribute('data-arrastando');
+  delete zona.dataset.arrastando;
   const entrada = zona.querySelector('input[type="file"]');
-  const arquivos = evento.dataTransfer && evento.dataTransfer.files;
-  if (!entrada || !arquivos || arquivos.length === 0) return false;
+  const arquivos = evento.dataTransfer?.files;
+  if (!entrada || !arquivos?.length) return false;
   entrada.files = arquivos;
   // Avisa o formulário ou o script do consumidor, como uma escolha pelo seletor de arquivo.
   entrada.dispatchEvent(new Event('change', { bubbles: true }));
@@ -74,7 +59,6 @@ function aoSoltar(evento) {
 
 function iniciar(documento) {
   documento.addEventListener('click', (evento) => aoClicar(documento, evento));
-  documento.addEventListener('keydown', aoTecla);
   documento.addEventListener('dragover', (evento) => aoArrastar(evento, true));
   documento.addEventListener('dragleave', (evento) => aoArrastar(evento, false));
   documento.addEventListener('drop', aoSoltar);
@@ -83,7 +67,7 @@ function iniciar(documento) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { fecharAviso, aoClicar, aoTecla, aoArrastar, aoSoltar, iniciar };
+  module.exports = { fecharAviso, aoClicar, aoArrastar, aoSoltar, iniciar };
 } else {
   iniciar(document);
 }

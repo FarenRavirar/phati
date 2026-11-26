@@ -1,4 +1,4 @@
-// Executa o agrion-componentes.js real: fechar aviso, zona de envio por clique, teclado e arrasto, e diálogo nativo.
+// Executa o agrion-componentes.js real: fechar aviso, arrastar e soltar na zona de envio, e diálogo nativo.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const componentes = require('./agrion-componentes.js');
@@ -63,58 +63,43 @@ test('ao carregar, o script libera o botão Fechar aviso que nasce hidden', () =
   assert.equal(botao.hidden, false);
 });
 
-test('clicar na zona de envio abre o seletor de arquivo; clicar no input não repete o clique', () => {
-  const entrada = no('input');
-  const zona = no('div', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
-  componentes.aoClicar(documento(), evento(no('p', { pai: zona })));
-  assert.equal(entrada.cliques, 1);
-  componentes.aoClicar(documento(), evento(no('input', { pai: zona })));
-  assert.equal(entrada.cliques, 1);
-});
-
-test('zona de envio sem input não quebra o clique', () => {
-  const zona = no('div', { classes: ['ag-envio'] });
-  assert.equal(componentes.aoClicar(documento(), evento(zona)), false);
-});
-
-test('Enter e Espaço na zona abrem o seletor; outra tecla não', () => {
-  const entrada = no('input');
-  const zona = no('div', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
-  const enter = evento(zona, { key: 'Enter' });
-  componentes.aoTecla(enter);
-  assert.equal(entrada.cliques, 1);
-  assert.equal(enter.prevenido, 1);
-  componentes.aoTecla(evento(zona, { key: ' ' }));
-  assert.equal(entrada.cliques, 2);
-  const outra = evento(zona, { key: 'a' });
-  assert.equal(componentes.aoTecla(outra), false);
-  assert.equal(entrada.cliques, 2);
-  assert.equal(outra.prevenido, 0);
+test('clique na zona de envio (label) não é tratado aqui: o navegador abre o seletor sozinho (negativo)', () => {
+  const zona = no('label', { classes: ['ag-envio'] });
+  const e = evento(no('span', { pai: zona }));
+  assert.equal(componentes.aoClicar(documento(), e), false);
+  assert.equal(e.prevenido, 0);
 });
 
 test('arrastar sobre a zona marca; soltar o arquivo põe no input e avisa a troca', () => {
   const entrada = no('input');
-  const zona = no('div', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
+  const zona = no('label', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
   const arrasto = evento(zona);
   assert.equal(componentes.aoArrastar(arrasto, true), true);
-  assert.equal(zona.atributos['data-arrastando'], '');
+  assert.equal(zona.dataset.arrastando, '');
   assert.equal(arrasto.prevenido, 1);
   const arquivos = [{ name: 'camada.zip' }];
   componentes.aoSoltar(evento(zona, { dataTransfer: { files: arquivos } }));
   assert.equal(entrada.files, arquivos);
   assert.equal(entrada.disparado, 'change');
-  assert.equal('data-arrastando' in zona.atributos, false);
+  assert.equal('arrastando' in zona.dataset, false);
 });
 
 test('soltar sem arquivo não troca o input; arrastar fora da zona não é tratado', () => {
   const entrada = no('input');
-  const zona = no('div', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
+  const zona = no('label', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
   componentes.aoSoltar(evento(zona, { dataTransfer: { files: [] } }));
   assert.equal(entrada.files, undefined);
   assert.equal(entrada.disparado, undefined);
   const fora = evento(no('div'));
   assert.equal(componentes.aoArrastar(fora, true), false);
   assert.equal(fora.prevenido, 0);
+});
+
+test('soltar sem dataTransfer (navegador sem arquivo no evento) não quebra', () => {
+  const entrada = no('input');
+  const zona = no('label', { classes: ['ag-envio'], filhos: { 'input[type="file"]': entrada } });
+  assert.equal(componentes.aoSoltar(evento(zona)), false);
+  assert.equal(entrada.disparado, undefined);
 });
 
 test('link com data-dialogo-abrir abre o diálogo nativo e impede a navegação', () => {

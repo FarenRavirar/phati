@@ -162,7 +162,8 @@ def test_administrador_so_de_sub_area_ve_o_link_das_sub_areas_dele_e_de_mais_nen
     base = f'/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/sub-area'
     assert f'<a class="ag-arvore-no" href="{base}/{cenario.g1.pk}/"' in arvore
     assert f'<a class="ag-arvore-no" href="{base}/{cenario.t1.pk}/"' in arvore
-    assert '<span>G1</span></a>' in arvore and '<span>T1</span></a>' in arvore
+    assert '<span>G1</span></a>' in arvore
+    assert '<span>T1</span></a>' in arvore
     assert 'G2' not in arvore
 
 

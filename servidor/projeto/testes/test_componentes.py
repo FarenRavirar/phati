@@ -7,6 +7,8 @@ import pytest
 from django.template import Context, Template, TemplateSyntaxError
 from django.template.loader import render_to_string
 
+from projeto.templatetags.componentes import dentre, repetir, selo_rotulo, selo_tom
+
 RAIZ = Path(__file__).resolve().parent.parent
 TEMPLATES = RAIZ / 'templates'
 ESTATICOS = RAIZ / 'static' / 'projeto'
@@ -399,7 +401,8 @@ def test_arvore_vazia_meta_e_nome_hostil():
     assert '<ul class="ag-arvore">' in _renderizar('componentes/arvore.html', nos=[])
     assert '<li' not in _renderizar('componentes/arvore.html', nos=[])
     html = _renderizar('componentes/arvore.html', nos=[{'nome': HOSTIL, 'meta': '', 'destino': None}])
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
     assert 'ag-arvore-meta' not in html  # meta vazia não aparece
 
 
@@ -413,7 +416,8 @@ def test_avatar_ausente_nao_inventa_letra_e_hostil_sai_escapado():
     assert 'aria-hidden="true"></span>' in _renderizar('componentes/avatar.html', nome=None)
     assert 'aria-hidden="true"></span>' in _renderizar('componentes/avatar.html', nome='')
     html = _renderizar('componentes/avatar.html', nome=HOSTIL)
-    assert HOSTIL not in html and '&lt;' in html
+    assert HOSTIL not in html
+    assert '&lt;' in html
 
 
 def test_cabecalho_com_trilha_marca_o_ultimo_item_como_pagina_atual():
@@ -429,7 +433,8 @@ def test_cabecalho_com_trilha_marca_o_ultimo_item_como_pagina_atual():
 def test_cabecalho_sem_trilha_nem_descricao_e_titulo_hostil_escapado():
     html = _renderizar('componentes/cabecalho_pagina.html', titulo='Início')
     assert '<h1>Início</h1>' in html
-    assert 'ag-trilha' not in html and 'ag-cabecalho-descricao' not in html
+    assert 'ag-trilha' not in html
+    assert 'ag-cabecalho-descricao' not in html
     assert HOSTIL not in _renderizar('componentes/cabecalho_pagina.html', titulo=HOSTIL)
 
 
@@ -492,7 +497,8 @@ def test_ficha_tem_os_campos_com_data_campo_e_modelo_vazio_para_o_mapa():
 def test_ficha_com_texto_hostil_sai_escapado():
     ficha = {campo: HOSTIL for campo in ('camada', 'atributo', 'valor', 'origem', 'metodo', 'fonte', 'data', 'situacao', 'ressalva')}
     html = _renderizar('componentes/ficha.html', ficha=ficha)
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
 
 
 def test_indicador_com_zero_mostra_zero_e_nao_sem_dados():
@@ -512,7 +518,8 @@ def test_indicador_ausente_mostra_sem_dados_nunca_zero():
 
 def test_indicador_com_rodape_e_texto_hostil_escapado():
     html = _renderizar('componentes/indicador.html', rotulo='Camadas', valor=HOSTIL, rodape='Revisar agora')
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
     assert '<span class="ag-indicador-rodape">Revisar agora</span>' in html
     assert 'ag-indicador-rodape' not in _renderizar('componentes/indicador.html', rotulo='X', valor=1)
 
@@ -529,7 +536,8 @@ def test_lista_de_convites_vazia_nao_tem_item_e_ausente_vira_sem_informacao():
 def test_lista_de_convites_com_empresa_hostil_sai_escapada():
     convites = [{'id': 1, 'empresa_nome': HOSTIL, 'cargo_nome': 'Técnico', 'expira_em': None}]
     html = _renderizar('componentes/lista_convites.html', convites=convites)
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
 
 
 def test_painel_com_titulo_acoes_e_corpo_nomeado():
@@ -539,13 +547,15 @@ def test_painel_com_titulo_acoes_e_corpo_nomeado():
     )
     assert '<h2>Convites</h2>' in html
     assert '<p class="ag-painel-sub">2 aguardando</p>' in html
-    assert 'href="/f/"' in html and 'Ver todas' in html
+    assert 'href="/f/"' in html
+    assert 'Ver todas' in html
     assert 'Sem nada' in html  # o corpo vem do template nomeado
 
 
 def test_painel_acao_sem_destino_nao_vira_botao_e_sem_titulo_nao_tem_topo():
     html = _renderizar('componentes/painel.html', acoes=[{'rotulo': 'Sem destino'}])
-    assert 'Sem destino' not in html and '<a ' not in html  # botão sem ação não pode aparecer
+    assert 'Sem destino' not in html
+    assert '<a ' not in html  # botão sem ação não pode aparecer
     vazio = _renderizar('componentes/painel.html')
     assert 'ag-painel-topo' not in vazio
     assert 'data-sem-margem' in _renderizar('componentes/painel.html', sem_margem=True)
@@ -557,15 +567,18 @@ def test_tabela_primeira_celula_vira_link_so_com_destino():
     html = _renderizar('componentes/tabela.html', legenda='Fazendas', colunas=colunas, linhas=linhas, destinos=['/f/1', None])
     assert '<a href="/f/1">F1</a>' in html
     assert html.count('data-clicavel=""') == 1
-    assert '<td>F2</td>' in html and '<td>20</td>' in html
+    assert '<td>F2</td>' in html
+    assert '<td>20</td>' in html
     assert '<a href="/f/2"' not in html
 
 
 def test_tabela_sem_linhas_e_com_celula_hostil_escapada():
     vazia = _renderizar('componentes/tabela.html', legenda='Fazendas', colunas=['Nome'], linhas=[])
-    assert '<td>' not in vazia and '<th scope="col">Nome</th>' in vazia
+    assert '<td>' not in vazia
+    assert '<th scope="col">Nome</th>' in vazia
     html = _renderizar('componentes/tabela.html', legenda='F', colunas=['Nome'], linhas=[[HOSTIL]], destinos=['/f/1'])
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
 
 
 def test_legenda_cor_valida_entra_por_data_cor_e_invalida_fica_sem_cor():
@@ -579,7 +592,8 @@ def test_legenda_cor_valida_entra_por_data_cor_e_invalida_fica_sem_cor():
 def test_legenda_sem_itens_nao_aparece_e_rotulo_hostil_sai_escapado():
     assert _renderizar('componentes/legenda.html', itens=[]).strip() == ''
     html = _renderizar('componentes/legenda.html', itens=[{'rotulo': HOSTIL, 'cor': '1'}])
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
 
 
 def test_painel_de_camadas_visivel_oculta_e_opacidade():
@@ -589,19 +603,22 @@ def test_painel_de_camadas_visivel_oculta_e_opacidade():
     ]}]
     html = _renderizar('componentes/painel_camadas.html', grupos=grupos)
     assert '<span class="ag-camada-amostra" data-cor="1"></span>' in html
-    assert 'aria-label="Ocultar Talhões"' in html and 'aria-pressed="true"' in html
-    assert 'aria-label="Mostrar Pivôs"' in html and 'aria-pressed="false"' in html
+    assert '<span class="so-leitor">Ocultar Talhões</span>' in html
+    assert 'aria-pressed="true"' in html
+    assert '<span class="so-leitor">Mostrar Pivôs</span>' in html
+    assert 'aria-pressed="false"' in html
     assert 'data-oculta=""' in html  # Pivôs está oculta
     assert html.count('type="range"') == 1  # só a camada visível com opacidade tem o controle
     assert '<span class="ag-camada-opacidade-valor">60%</span>' in html
-    assert 'aria-label="Recolher camadas" hidden' in html  # depende de JS: nasce oculto
+    assert 'hidden><span class="so-leitor">Recolher camadas</span>' in html  # depende de JS: nasce oculto
 
 
 def test_painel_de_camadas_cor_invalida_grupo_vazio_e_nome_hostil():
     grupos = [{'nome': 'G', 'camadas': [{'id': 1, 'nome': HOSTIL, 'cor': '9', 'visivel': True, 'opacidade': None}]}]
     html = _renderizar('componentes/painel_camadas.html', grupos=grupos)
     assert 'data-cor=""' in html
-    assert HOSTIL not in html and '&lt;script&gt;' in html
+    assert HOSTIL not in html
+    assert '&lt;script&gt;' in html
     assert 'type="range"' not in html  # ausente não ganha controle de opacidade
     assert 'class="ag-camada"' not in _renderizar('componentes/painel_camadas.html', grupos=[])
 
@@ -610,10 +627,14 @@ def test_filtros_iniciais_e_na_posicao_tratam_ausente_e_fora_da_lista():
     from projeto.templatetags.componentes import iniciais, na_posicao
 
     assert iniciais('ana maria souza') == 'AM'
-    assert iniciais('  ') == '' and iniciais(None) == '' and iniciais(12) == ''
+    assert iniciais('  ') == ''
+    assert iniciais(None) == ''
+    assert iniciais(12) == ''
     assert na_posicao(['a', None], 0) == 'a'
     assert na_posicao(['a', None], 1) is None
-    assert na_posicao(['a'], 3) == '' and na_posicao(None, 0) == '' and na_posicao(['a'], '0') == ''
+    assert na_posicao(['a'], 3) == ''
+    assert na_posicao(None, 0) == ''
+    assert na_posicao(['a'], '0') == ''
 
 
 
@@ -648,7 +669,7 @@ def test_botao_carregando_tem_giro_aria_busy_e_desabilitado():
 def test_botao_so_icone_marca_data_icone_e_rotulo():
     html = _renderizar('componentes/botao.html', so_icone=True, icone='x', rotulo='Fechar')
     assert 'data-icone=""' in html
-    assert 'aria-label="Fechar"' in html
+    assert '<span class="so-leitor">Fechar</span>' in html
     assert _icone('x', 16) in html
 
 
@@ -730,7 +751,7 @@ def test_aviso_sucesso_anuncia_como_status():
 def test_aviso_fechavel_nasce_escondido_com_rotulo():
     html = _renderizar('componentes/aviso.html', tipo='aviso', texto='x', fechavel=True)
     assert 'class="ag-botao ag-aviso-fechar"' in html
-    assert 'aria-label="Fechar aviso" hidden>' in html
+    assert 'hidden><span class="so-leitor">Fechar aviso</span>' in html
 
 
 def test_aviso_sem_fechavel_nao_tem_botao():
@@ -800,7 +821,8 @@ OPCOES_DO_SEGMENTADO = [{'valor': 'satelite', 'rotulo': 'Satélite', 'icone': 's
 
 def test_segmentado_marca_a_opcao_ativa_e_o_grupo():
     html = _renderizar('componentes/segmentado.html', opcoes=OPCOES_DO_SEGMENTADO, valor='ruas', rotulo='Fundo do mapa')
-    assert 'role="group" aria-label="Fundo do mapa"' in html
+    assert '<fieldset class="ag-segmentado">' in html
+    assert '<legend class="so-leitor">Fundo do mapa</legend>' in html
     assert 'aria-pressed="true"' in html
     assert 'aria-pressed="false"' in html
 
@@ -828,10 +850,11 @@ def test_esqueleto_linhas_invalidas_nao_geram_nada(linhas):
     assert 'ag-esqueleto-curto' not in html
 
 
-def test_envio_arquivo_tem_papel_de_botao_e_entrada_escondida():
+def test_envio_arquivo_e_label_com_entrada_escondida():
     html = _renderizar('componentes/envio_arquivo.html', aceita='.zip,.kml', ajuda='Até 50 MB', id='arq', nome='arquivo')
-    assert 'class="ag-envio" role="button" tabindex="0"' in html
-    assert '<input type="file" hidden id="arq" name="arquivo" accept=".zip,.kml">' in html
+    assert '<label class="ag-envio">' in html
+    assert 'role="button"' not in html
+    assert '<input type="file" class="so-leitor" id="arq" name="arquivo" accept=".zip,.kml">' in html
     assert 'Até 50 MB' in html
 
 
@@ -864,3 +887,41 @@ def test_dialogo_sem_corpo_fica_vazio_e_titulo_hostil_e_escapado():
     html = _renderizar('componentes/dialogo.html', id='d', titulo=HOSTIL)
     assert '<div class="ag-dialogo-corpo"></div>' in html
     assert HOSTIL not in html
+
+
+
+def test_dentre_devolve_a_variante_conhecida():
+    assert dentre('secundario', 'primario secundario fantasma perigo') == 'secundario'
+
+
+def test_dentre_devolve_vazio_para_variante_desconhecida_e_para_valor_ausente():
+    assert dentre('inventada', 'primario secundario') == ''
+    assert dentre(None, 'primario secundario') == ''
+    assert dentre(1, 'primario secundario') == ''  # não-texto nunca casa com a lista
+    assert dentre('', 'primario secundario') == ''
+
+
+def test_dentre_nao_casa_parte_de_palavra():
+    # `in` sobre a string casaria "ai" dentro de "aviso"; a lista é por palavra.
+    assert dentre('ai', 'erro aviso info sucesso') == ''
+
+
+def test_selo_tom_e_rotulo_seguem_o_mapeamento_de_governanca():
+    assert (selo_tom('em_analise'), selo_rotulo('em_analise')) == ('aviso', 'Em análise')
+    assert (selo_tom('vigente'), selo_rotulo('vigente')) == ('sucesso', 'Vigente')
+    assert (selo_tom('arquivada'), selo_rotulo('arquivada')) == ('neutro', 'Arquivada')
+
+
+@pytest.mark.parametrize('situacao', ['desconhecida', '', None, 3])
+def test_selo_situacao_desconhecida_ou_ausente_nao_inventa_tom(situacao):
+    assert selo_tom(situacao) == ''
+    assert selo_rotulo(situacao) == ''
+
+
+def test_repetir_gera_as_linhas_do_esqueleto():
+    assert list(repetir(3)) == [0, 1, 2]
+
+
+@pytest.mark.parametrize('quantidade', [0, -1, 21, 10**9, '3', None, True, 2.0])
+def test_repetir_recusa_quantidade_invalida_ou_hostil(quantidade):
+    assert list(repetir(quantidade)) == []
