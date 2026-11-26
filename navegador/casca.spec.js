@@ -199,6 +199,38 @@ test('escolher empresa B estando em uma tela da empresa A leva a / com B escolhi
   await expect(page.locator('.ag-escopo-texto b')).toHaveText('Empresa Inventada B');
 });
 
+test('lista do seletor com muitos itens rola dentro da janela e o último item alcança (R11, R15, regressão)', async ({ page }) => {
+  await entrar(page, dados.administradora_a.cpf);
+  await page.goto('/');
+  if (estreita(page)) await abrirGaveta(page);
+  const lista = page.locator('#escopo-lista');
+  // Itens sintéticos entram antes do link fixo Empresas: o último da lista é o fixo, como no caso de 15 fazendas.
+  await lista.evaluate((l) => {
+    const fixo = l.querySelector('a[href="/empresas/"]');
+    for (let i = 1; i <= 15; i += 1) {
+      const item = document.createElement('a');
+      item.className = 'ag-botao';
+      item.dataset.variante = 'fantasma';
+      item.dataset.tamanho = 'sm';
+      item.href = '#';
+      item.textContent = `Fazenda Inventada ${i}`;
+      l.insertBefore(item, fixo);
+    }
+  });
+  await page.locator('[data-escopo-abrir]').click();
+  await expect(lista).toBeVisible();
+  const ultimo = lista.locator('a').last();
+  await ultimo.evaluate((a) => a.scrollIntoView({ block: 'end' }));
+  const rolagem = await lista.evaluate((l) => ({ rolavel: l.scrollHeight > l.clientHeight, rolou: l.scrollTop > 0 }));
+  expect(rolagem.rolavel, 'lista do seletor sem altura útil menor que o conteúdo').toBe(true);
+  expect(rolagem.rolou, 'a própria lista não rolou até o último item').toBe(true);
+  const janela = await page.evaluate(() => window.innerHeight);
+  const caixaLista = await lista.boundingBox();
+  const caixaUltimo = await ultimo.boundingBox();
+  expect(caixaLista.y + caixaLista.height, 'lista do seletor passa da janela').toBeLessThanOrEqual(janela);
+  expect(caixaUltimo.y + caixaUltimo.height, 'último item do seletor fica abaixo da janela').toBeLessThanOrEqual(janela);
+});
+
 test('escolher empresa sem acesso é recusada com 404 e não vira escolhida (R17, R16, caminho infeliz)', async ({ page }) => {
   await entrar(page, dados.administradora_a.cpf);
   await page.goto('/');

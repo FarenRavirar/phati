@@ -11,6 +11,10 @@
   position: absolute; top: 100%; left: 0; right: 0; z-index: var(--z-sidebar); display: grid; gap: var(--espaco-1);
   padding: var(--espaco-2); margin-top: var(--espaco-1); border: 1px solid var(--borda-padrao); border-radius: var(--raio-md);
   background: var(--bg-superficie); box-shadow: var(--sombra-xs);
+  /* Limitada ao espaço da janela abaixo do seletor (marca, seletor e pé somam ~144 px): com muitas fazendas, a lista rola por dentro e o último item segue alcançável. */
+  max-height: calc(100vh - var(--espaco-16) - var(--espaco-10) - var(--espaco-10));
+  max-height: calc(100dvh - var(--espaco-16) - var(--espaco-10) - var(--espaco-10));
+  overflow-y: auto; overscroll-behavior: contain;
 }
 .ag-escopo-lista form { margin: 0; }
 .ag-escopo-lista .ag-botao { width: 100%; justify-content: flex-start; }

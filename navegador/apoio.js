@@ -44,7 +44,7 @@ async function caberNoBotao(botao) {
     rolagem: b.scrollWidth,
     largura: b.clientWidth,
     altura: b.getBoundingClientRect().height,
-    minimo: parseFloat(getComputedStyle(b).minHeight),
+    minimo: Number.parseFloat(getComputedStyle(b).minHeight),
   }));
   expect(medida.rolagem, 'texto do botão estoura a largura').toBeLessThanOrEqual(medida.largura);
   return medida;
