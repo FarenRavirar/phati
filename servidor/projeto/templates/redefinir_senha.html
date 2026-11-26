@@ -4,7 +4,7 @@
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Escolher uma senha nova" %}
 {% include "componentes/aviso.html" with tipo="erro" texto="" id="mensagem" oculto=True only %}{% include "componentes/aviso.html" with tipo="sucesso" texto="" id="mensagem-sucesso" oculto=True only %}
-<form id="formulario" hidden>
+<form id="formulario" class="ag-publica-formulario" hidden>
 {% include "componentes/campo.html" with id="senha_nova" nome="senha_nova" rotulo="Senha nova" tipo="password" autocomplete="new-password" obrigatorio=True only %}
 {% include "componentes/campo.html" with id="repeticao" nome="repeticao" rotulo="Repita a senha" tipo="password" autocomplete="new-password" obrigatorio=True only %}
 <button class="ag-botao" data-variante="primario" data-tamanho="md" id="salvar" type="submit">Salvar senha</button>

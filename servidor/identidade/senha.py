@@ -13,7 +13,7 @@ from django.utils import timezone
 from identidade import cpf, email, sessao
 from identidade.models import PedidoRedefinicao, Pessoa
 
-NOME_DO_PRODUTO = 'phati'
+NOMES_DO_PRODUTO: tuple[str, ...] = ('agrion', 'phati')  # marca atual e nome anterior do produto (spec 012, R5)
 COMPRIMENTO_MINIMO = 15
 COMPRIMENTO_MAXIMO = 128
 VALIDADE_TEMPORARIA = timedelta(hours=72)
@@ -45,7 +45,7 @@ def validar_senha(senha, pessoa=None, cpf_da_pessoa=None):
     except ValidationError:
         raise ValidationError('Senha comum demais.', code='senha_comum') from None
     minuscula = senha.casefold()
-    palavras = {NOME_DO_PRODUTO}
+    palavras = set(NOMES_DO_PRODUTO)
     if cpf_da_pessoa:
         c = cpf_da_pessoa
         palavras.update({c, f'{c[:3]}.{c[3:6]}.{c[6:9]}-{c[9:]}'})

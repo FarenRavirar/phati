@@ -1,13 +1,16 @@
 {% extends "publica.html" %}
+{% load static %}
 {% block titulo %}Entrar{% endblock %}
 {% block conteudo %}
-{% include "componentes/cabecalho_pagina.html" with titulo="Entrar" %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Entrar" subtitulo="Use seu CPF e a senha da sua conta AgriOn." only %}
 {% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro only %}{% elif expirou %}{% include "componentes/aviso.html" with tipo="aviso" texto="Sua sessão expirou." only %}{% elif trocada %}{% include "componentes/aviso.html" with tipo="sucesso" texto="Senha alterada. Entre de novo com a senha nova." only %}{% endif %}
-<form method="post" action="/entrar">{% csrf_token %}
+{% include "componentes/aviso.html" with id="aviso-campos" tipo="erro" texto="" oculto=True only %}
+<form method="post" action="/entrar" id="entrar" class="ag-publica-formulario">{% csrf_token %}
 <input type="hidden" name="proximo" value="{{ proximo }}">
-{% include "componentes/campo.html" with id="cpf" nome="cpf" rotulo="CPF" valor=cpf autocomplete="username" teclado="numeric" obrigatorio=True only %}
-{% include "componentes/campo.html" with id="senha" nome="senha" rotulo="Senha" tipo="password" autocomplete="current-password" obrigatorio=True only %}
-{% include "componentes/botao.html" with texto="Entrar" tipo="submit" only %}
+{% include "componentes/campo.html" with id="cpf" nome="cpf" rotulo="CPF" valor=cpf autocomplete="username" teclado="numeric" placeholder="000.000.000-00" tamanho="lg" obrigatorio=True only %}
+{% include "componentes/campo.html" with id="senha" nome="senha" rotulo="Senha" tipo="password" autocomplete="current-password" tamanho="lg" obrigatorio=True only %}
+<p class="ag-publica-esqueci"><a href="/esqueci-senha">Esqueci a senha</a></p>
+{% include "componentes/botao.html" with texto="Entrar" tipo="submit" tamanho="lg" bloco=True id="entrar-enviar" only %}
 </form>
-<p class="publica-links"><a href="/esqueci-senha">Esqueci a senha</a></p>
 {% endblock %}
+{% block scripts %}<script src="{% static 'projeto/entrar.js' %}" defer {% csp_nonce_attr %}></script>{% endblock %}

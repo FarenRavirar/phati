@@ -48,6 +48,15 @@ def test_rodape_linka_as_duas_paginas_deslogado_e_logado(arquivo, cliente_logado
         assert 'href="/privacidade"' in html
 
 
+def test_rodape_usa_rotulos_curtos_e_a_pagina_de_privacidade_mantem_o_titulo(arquivo):
+    # Spec 012, telas.md §1: o rodapé diz "Termos de uso" e "Privacidade"; o título da página segue o nome longo.
+    html = Client().get('/entrar').content.decode()
+    assert '<a href="/termos">Termos de uso</a>' in html
+    assert '<a href="/privacidade">Privacidade</a>' in html
+    assert '<a href="/privacidade">Política de privacidade</a>' not in html
+    assert '<title>Política de privacidade · AgriOn</title>' in Client().get('/privacidade').content.decode()
+
+
 @pytest.mark.parametrize('ambiente', ['producao', 'homologacao', 'teste'])
 def test_sem_texto_fora_do_local_da_404_e_o_rodape_nao_linka(settings, ambiente):
     settings.AMBIENTE = ambiente

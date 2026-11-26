@@ -61,7 +61,7 @@ def enviar_senha_temporaria(pessoa, senha):
     _enviar(
         pessoa,
         'senha_temporaria',
-        'Seu acesso ao phati',
+        'Seu acesso ao AgriOn',
         f'Olá, {pessoa.nome}.\n\nSua senha temporária é: {senha}\n\n'
         'Ela vale por 72 horas e só pode ser usada uma vez. No primeiro acesso o sistema pede que você escolha uma senha nova.',
     )
@@ -72,7 +72,7 @@ def enviar_link_de_redefinicao(pessoa, segredo):
     _enviar(
         pessoa,
         'redefinicao',
-        'Redefinição de senha do phati',
+        'Redefinição de senha do AgriOn',
         f'Olá, {pessoa.nome}.\n\nPara escolher uma senha nova, abra o link abaixo em até 10 minutos. Ele só funciona uma vez.\n\n{link}\n\n'
         'Se você pediu mais de um link, use o mais recente. Se você não pediu isso, ignore esta mensagem; sua senha atual continua valendo.',
     )
@@ -82,7 +82,7 @@ def enviar_aviso_de_troca(pessoa):
     _enviar(
         pessoa,
         'aviso_de_troca',
-        'Sua senha do phati foi alterada',
+        'Sua senha do AgriOn foi alterada',
         f'Olá, {pessoa.nome}.\n\nA senha da sua conta foi alterada. Se não foi você, avise o administrador da sua empresa.',
     )
 
@@ -93,8 +93,8 @@ def enviar_aviso_de_convite(pessoa, empresa_nome, cargo_nome, expira_em):
     _enviar(
         pessoa,
         'convite',
-        'Você recebeu um convite no phati',
+        'Você recebeu um convite no AgriOn',
         f'Olá, {pessoa.nome}.\n\nA empresa {empresa_nome} convidou você para participar com o cargo {cargo_nome}. '
-        f'Entre no phati em {settings.URL_BASE} para aceitar ou recusar. O convite vale até {timezone.localtime(expira_em):%d/%m/%Y}. '
+        f'Entre no AgriOn em {settings.URL_BASE} para aceitar ou recusar. O convite vale até {timezone.localtime(expira_em):%d/%m/%Y}. '
         'Se você não conhece essa empresa, recuse o convite.',
     )

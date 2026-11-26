@@ -39,5 +39,5 @@ test('sem o texto do mantenedor, termos e privacidade dão 404 e o rodapé não 
   for (const caminho of ['/termos', '/privacidade']) expect((await page.goto(caminho)).status(), caminho).toBe(404);
   await page.goto('/entrar');
   await expect(page.getByRole('link', { name: 'Termos de uso' })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Política de privacidade' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Privacidade' })).toHaveCount(0);
 });
