@@ -1,4 +1,4 @@
-/* Cor e simbologia das camadas do mapa (003 R23). Arquivo próprio: nunca em tokens.css, que guarda só a interface.
+/* Cor e simbologia das camadas do mapa (003 R23). Arquivo próprio: nunca em agrion/tokens/*.css, que guarda só a interface.
    PROVISÓRIO: a paleta e a simbologia vêm da Tatiane; estes valores só mantêm a legenda legível até a entrega. A 004 e a
    spec de camadas leem estas variáveis; trocar a paleta é trocar este arquivo. */
 :root {
@@ -18,18 +18,18 @@
 /* Camadas, legenda e consulta (004 R7 a R12): seletores simples nas regras com `display` (test_componentes). */
 .mapa-ferramentas { margin: 0 0 var(--espaco-3); }
 .lista-camadas, .legenda, .lista-consulta { margin: 0; padding: 0; list-style: none; }
-.camada { display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-2); padding: var(--espaco-2) 0; border-bottom: 1px solid var(--cor-borda); }
+.camada { display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-2); padding: var(--espaco-2) 0; border-bottom: 1px solid var(--borda-padrao); }
 .camada-nome { flex: 1 1 100%; }
 .camada input[type="range"] { flex: 1 1 100%; min-width: 0; }
 .botao-camada, .consulta-botao { min-width: 44px; min-height: 44px; }
 .consulta-botao { width: 100%; text-align: left; }
 .consulta-item { margin-bottom: var(--espaco-2); }
-.legenda-titulo { margin: var(--espaco-3) 0 var(--espaco-2); font-size: var(--fonte-base); }
+.legenda-titulo { margin: var(--espaco-3) 0 var(--espaco-2); font-size: var(--texto-base); }
 .legenda-item { display: flex; align-items: center; gap: var(--espaco-2); }
-.legenda-amostra { flex: none; width: 1rem; height: 1rem; border: 1px solid var(--cor-borda); }
+.legenda-amostra { flex: none; width: 1rem; height: 1rem; border: 1px solid var(--borda-padrao); }
 
 /* Atribuição do fundo online (004 R19): abaixo do mapa, em fluxo normal, para nenhum controle ou camada cobri-la. */
 /* Atribuição do Google (política da Map Tiles API): logo oficial sem modificar, 16 a 19 dp de altura (o arquivo tem 18) e área livre de
    10 à esquerda, à direita e em cima e 5 embaixo; o texto "Google Maps" e os provedores de dado seguem ao lado (crédito do viewport). */
-.mapa-atribuicao { display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-2); margin: var(--espaco-2) 0 0; padding: 10px 10px 5px; font-size: 0.875rem; color: var(--cor-texto-suave); }
+.mapa-atribuicao { display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-2); margin: var(--espaco-2) 0 0; padding: 10px 10px 5px; font-size: 0.875rem; color: var(--texto-secundario); }
 .mapa-logo-google { height: 18px; width: auto; }

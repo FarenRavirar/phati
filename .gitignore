@@ -17,6 +17,7 @@ definicao*.md
 /sessoes
 /specs
 /.specify
+exemplo_front
 
 # --- Segredos e credenciais ---
 .env

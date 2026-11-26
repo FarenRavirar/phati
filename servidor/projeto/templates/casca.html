@@ -6,11 +6,20 @@
 <meta name="theme-color" content="{{ cor_do_tema }}">
 <title>{% block titulo %}Phati{% endblock %} · phati</title>
 <link rel="icon" href="{% static 'projeto/favicon.svg' %}" type="image/svg+xml" {% csp_nonce_attr %}>
-<link rel="stylesheet" href="{% static 'projeto/tokens.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/tokens/colors.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/tokens/spacing.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/tokens/typography.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/styles/base.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/styles/componentes.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/styles/casca.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/styles/mapa.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion/ui_kits/web/kit.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/fontes.css' %}" {% csp_nonce_attr %}>
 <link rel="stylesheet" href="{% static 'projeto/base.css' %}" {% csp_nonce_attr %}>
 <link rel="stylesheet" href="{% static 'projeto/componentes.css' %}" {% csp_nonce_attr %}>
 <link rel="stylesheet" href="{% static 'projeto/casca.css' %}" {% csp_nonce_attr %}>
 <link rel="stylesheet" href="{% static 'projeto/camadas.css' %}" {% csp_nonce_attr %}>
+<link rel="stylesheet" href="{% static 'projeto/agrion-proprio.css' %}" {% csp_nonce_attr %}>
 </head>
 <body>
 <div class="casca">

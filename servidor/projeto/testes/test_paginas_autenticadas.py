@@ -34,8 +34,8 @@ def test_casca_leva_theme_color_igual_a_cor_primaria_do_css_e_o_favicon(db, fabr
 
     import projeto
 
-    variaveis = (Path(projeto.__file__).parent / 'static' / 'projeto' / 'tokens.css').read_text(encoding='utf-8')
-    primaria = re.findall(r'--cor-primaria:\s*(#[0-9A-Fa-f]{6})', variaveis)[0]
+    variaveis = (Path(projeto.__file__).parent / 'static' / 'projeto' / 'agrion' / 'tokens' / 'colors.css').read_text(encoding='utf-8')
+    primaria = re.findall(r'--marca-verde:\s*(#[0-9A-Fa-f]{6})', variaveis)[0]
     html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'inicio.html').content.decode()
     assert f'<meta name="theme-color" content="{primaria}">' in html
     assert '<link rel="icon" href="/static/projeto/favicon.svg"' in html

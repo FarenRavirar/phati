@@ -217,7 +217,8 @@ def test_middleware_e_processador_da_politica_estao_ligados_e_na_ordem():
 def test_estaticos_do_projeto_sao_achados_sem_ser_app_instalado():
     from django.contrib.staticfiles import finders
 
-    assert finders.find('projeto/tokens.css')
+    assert finders.find('projeto/agrion/tokens/colors.css')
+    assert finders.find('projeto/agrion-proprio.css')
 
 
 def test_collectstatic_nao_publica_testes_de_js():

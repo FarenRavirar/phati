@@ -1,0 +1,26 @@
+/* Tipografia — Geist (interface) e Geist Mono (coordenadas, IDs, código). Base 14px para densidade de SaaS; texto em rem. */
+:root {
+  --fonte-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif; /* @kind font */
+  --fonte-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, monospace; /* @kind font */
+
+  --texto-xs: 0.75rem;     /* 12 — rótulos de eixo, contadores */
+  --texto-sm: 0.8125rem;   /* 13 — metadado, célula secundária, ajuda */
+  --texto-base: 0.875rem;  /* 14 — corpo da interface, controles */
+  --texto-md: 1rem;        /* 16 — corpo de leitura, mobile */
+  --texto-lg: 1.125rem;    /* 18 — título de painel */
+  --texto-xl: 1.25rem;     /* 20 — título de seção */
+  --texto-2xl: 1.5rem;     /* 24 — título de página */
+  --texto-3xl: 1.875rem;   /* 30 — número de indicador */
+  --texto-4xl: 2.25rem;    /* 36 — título de tela pública */
+
+  --peso-regular: 400; /* @kind font */
+  --peso-medio: 500; /* @kind font */
+  --peso-semi: 600; /* @kind font */
+  --peso-forte: 700; /* @kind font */
+
+  --altura-linha-justa: 1.2; /* @kind font */
+  --altura-linha-titulo: 1.3; /* @kind font */
+  --altura-linha-texto: 1.5; /* @kind font */
+  --tracking-titulo: -0.015em; /* @kind font */
+  --tracking-rotulo: 0.04em; /* @kind font */
+}

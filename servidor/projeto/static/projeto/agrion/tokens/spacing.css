@@ -1,0 +1,47 @@
+/* Espaço (grade de 4px), forma, elevação, movimento e layout. */
+:root {
+  --espaco-0-5: 2px;
+  --espaco-1: 4px;
+  --espaco-1-5: 6px;
+  --espaco-2: 8px;
+  --espaco-3: 12px;
+  --espaco-4: 16px;
+  --espaco-5: 20px;
+  --espaco-6: 24px;
+  --espaco-8: 32px;
+  --espaco-10: 40px;
+  --espaco-12: 48px;
+  --espaco-16: 64px;
+
+  --raio-xs: 4px;
+  --raio-sm: 6px;
+  --raio-md: 8px;
+  --raio-lg: 12px;
+  --raio-xl: 16px;
+  --raio-total: 999px;
+
+  --sombra-xs: 0 1px 2px rgba(23, 26, 24, 0.05);
+  --sombra-sm: 0 1px 3px rgba(23, 26, 24, 0.08), 0 1px 2px rgba(23, 26, 24, 0.04);
+  --sombra-md: 0 4px 12px -2px rgba(23, 26, 24, 0.08), 0 2px 4px -2px rgba(23, 26, 24, 0.05);
+  --sombra-lg: 0 16px 32px -8px rgba(23, 26, 24, 0.16), 0 4px 8px -4px rgba(23, 26, 24, 0.06);
+  --sombra-xl: 0 24px 56px -12px rgba(23, 26, 24, 0.24);
+
+  --duracao-rapida: 120ms; /* @kind other */
+  --duracao-media: 200ms; /* @kind other */
+  --duracao-lenta: 320ms; /* @kind other */
+  --curva-padrao: cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+
+  --controle-sm: 32px;
+  --controle-md: 36px;
+  --controle-lg: 44px;
+
+  --largura-sidebar: 248px;
+  --altura-topo: 56px;
+  --largura-conteudo: 1200px;
+  --largura-painel: 360px;
+
+  --z-mapa-controle: 10; /* @kind other */
+  --z-sidebar: 30; /* @kind other */
+  --z-dropdown: 40; /* @kind other */
+  --z-dialogo: 50; /* @kind other */
+}

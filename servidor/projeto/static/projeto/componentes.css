@@ -2,98 +2,98 @@
 
 .botao {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--espaco-2);
-  min-height: var(--altura-controle); padding: 0 var(--espaco-4);
-  border: 1px solid var(--cor-primaria); border-radius: var(--raio-1);
-  background: var(--cor-primaria); color: var(--cor-sobre-primaria);
+  min-height: var(--controle-lg); padding: 0 var(--espaco-4);
+  border: 1px solid var(--acao-primaria); border-radius: var(--raio-xs);
+  background: var(--acao-primaria); color: var(--sobre-primaria);
   font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
 }
-.botao:hover { background: var(--cor-primaria-forte); color: var(--cor-sobre-primaria); }
+.botao:hover { background: var(--acao-primaria-hover); color: var(--sobre-primaria); }
 .botao[disabled] { opacity: 0.6; cursor: not-allowed; }
-.botao-secundario { background: var(--cor-superficie); color: var(--cor-primaria); }
-.botao-secundario:hover { background: var(--cor-item-ativo); color: var(--cor-primaria); }
+.botao-secundario { background: var(--bg-superficie); color: var(--acao-primaria); }
+.botao-secundario:hover { background: var(--bg-selecionado); color: var(--acao-primaria); }
 
 .campo { display: block; margin-bottom: var(--espaco-4); }
 .campo-rotulo { display: block; margin-bottom: var(--espaco-1); font-weight: 600; }
 .campo-controle {
-  display: block; width: 100%; min-height: var(--altura-controle); padding: 0 var(--espaco-3);
-  border: 1px solid var(--cor-borda-campo); border-radius: var(--raio-1);
-  background: var(--cor-superficie); color: var(--cor-texto); font: inherit;
+  display: block; width: 100%; min-height: var(--controle-lg); padding: 0 var(--espaco-3);
+  border: 1px solid var(--borda-campo); border-radius: var(--raio-xs);
+  background: var(--bg-superficie); color: var(--texto-primario); font: inherit;
 }
-.campo-ajuda { margin: var(--espaco-1) 0 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
-.campo-erro { margin: var(--espaco-1) 0 0; color: var(--cor-erro); font-size: var(--fonte-pequena); font-weight: 600; }
-.campo-invalido .campo-controle { border-color: var(--cor-erro); }
+.campo-ajuda { margin: var(--espaco-1) 0 0; color: var(--texto-secundario); font-size: var(--texto-sm); }
+.campo-erro { margin: var(--espaco-1) 0 0; color: var(--erro-texto); font-size: var(--texto-sm); font-weight: 600; }
+.campo-invalido .campo-controle { border-color: var(--erro-texto); }
 .campo-caixas { border: 0; padding: 0; min-width: 0; }
 .campo-caixa { display: block; margin-bottom: var(--espaco-2); }
 
 /* Aviso: cor, ícone e texto juntos; a cor nunca é o único sinal (R15). */
 .aviso {
   display: flex; gap: var(--espaco-3); align-items: flex-start; margin-bottom: var(--espaco-4);
-  padding: var(--espaco-3) var(--espaco-4); border: 1px solid currentColor; border-radius: var(--raio-1);
+  padding: var(--espaco-3) var(--espaco-4); border: 1px solid currentColor; border-radius: var(--raio-xs);
 }
 .aviso-icone { flex: none; width: 1.25rem; height: 1.25rem; margin-top: 0.125rem; }
-.aviso-texto { margin: 0; color: var(--cor-texto); }
-.aviso-erro { background: var(--cor-erro-fundo); color: var(--cor-erro); }
-.aviso-aviso { background: var(--cor-aviso-fundo); color: var(--cor-aviso); }
-.aviso-info { background: var(--cor-info-fundo); color: var(--cor-info); }
-.aviso-sucesso { background: var(--cor-sucesso-fundo); color: var(--cor-sucesso); }
+.aviso-texto { margin: 0; color: var(--texto-primario); }
+.aviso-erro { background: var(--erro-fundo); color: var(--erro-texto); }
+.aviso-aviso { background: var(--aviso-fundo); color: var(--aviso-texto); }
+.aviso-info { background: var(--info-fundo); color: var(--info-texto); }
+.aviso-sucesso { background: var(--sucesso-fundo); color: var(--sucesso-texto); }
 
 .vazio {
-  padding: var(--espaco-6) var(--espaco-4); border: 1px dashed var(--cor-borda-campo); border-radius: var(--raio-2);
-  background: var(--cor-superficie); color: var(--cor-texto-suave); text-align: center;
+  padding: var(--espaco-8) var(--espaco-4); border: 1px dashed var(--borda-campo); border-radius: var(--raio-md);
+  background: var(--bg-superficie); color: var(--texto-secundario); text-align: center;
 }
 .vazio-texto { margin: 0; }
 .vazio-acao { margin-top: var(--espaco-3); }
 
 .cabecalho-pagina { margin-bottom: var(--espaco-4); }
-.cabecalho-pagina p { margin: 0; color: var(--cor-texto-suave); }
+.cabecalho-pagina p { margin: 0; color: var(--texto-secundario); }
 
 /* Tabela dentro de contêiner com rolagem própria: a página não rola na horizontal (R17). */
-.tabela-rolavel { overflow-x: auto; border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.tabela-rolavel { overflow-x: auto; border: 1px solid var(--borda-padrao); border-radius: var(--raio-md); background: var(--bg-superficie); }
 .tabela { width: 100%; border-collapse: collapse; }
 .tabela caption { padding: var(--espaco-3) var(--espaco-4); text-align: left; font-weight: 600; }
 .tabela td { font-variant-numeric: tabular-nums; }
-.tabela th, .tabela td { padding: var(--espaco-3) var(--espaco-4); border-top: 1px solid var(--cor-borda); text-align: left; }
-.tabela th { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); font-weight: 600; }
+.tabela th, .tabela td { padding: var(--espaco-3) var(--espaco-4); border-top: 1px solid var(--borda-padrao); text-align: left; }
+.tabela th { color: var(--texto-secundario); font-size: var(--texto-sm); font-weight: 600; }
 
 .lista-convites { display: grid; gap: var(--espaco-3); }
 .convite {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--espaco-3);
-  padding: var(--espaco-4); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie);
+  padding: var(--espaco-4); border: 1px solid var(--borda-padrao); border-radius: var(--raio-md); background: var(--bg-superficie);
 }
 .convite-titulo { margin: 0; font-weight: 600; }
-.convite-detalhe { margin: 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.convite-detalhe { margin: 0; color: var(--texto-secundario); font-size: var(--texto-sm); }
 .convite-acoes { display: flex; flex-wrap: wrap; gap: var(--espaco-2); }
 
 /* Seletor de fazenda e árvore de sub-áreas (R10, R11). */
 .lista-fazendas, .lista-atalhos, .arvore { display: grid; gap: var(--espaco-2); }
-.arvore .arvore { margin: var(--espaco-2) 0 0 var(--espaco-4); padding-left: var(--espaco-3); border-left: 1px solid var(--cor-borda); }
+.arvore .arvore { margin: var(--espaco-2) 0 0 var(--espaco-4); padding-left: var(--espaco-3); border-left: 1px solid var(--borda-padrao); }
 .grupo-empresa { margin-top: var(--espaco-4); }
-.busca-vazia { color: var(--cor-texto-suave); }
+.busca-vazia { color: var(--texto-secundario); }
 
 /* Ações de gestão da página e telas de confirmação (003 R9, R11). */
 .acoes-pagina { display: flex; flex-wrap: wrap; gap: var(--espaco-2); margin: var(--espaco-4) 0; }
 .efeitos { display: grid; gap: var(--espaco-2); margin: var(--espaco-3) 0; padding-left: var(--espaco-4); }
 .lista-arquivadas { display: grid; gap: var(--espaco-3); }
-.tipo-arquivada { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.tipo-arquivada { color: var(--texto-secundario); font-size: var(--texto-sm); }
 
 /* Pessoas (003 R13 a R16). */
 .lista-pessoas { display: grid; gap: var(--espaco-3); }
 .pessoa-nome { margin: 0; font-weight: 600; }
-.pessoa-detalhe { margin: 0; color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.pessoa-detalhe { margin: 0; color: var(--texto-secundario); font-size: var(--texto-sm); }
 .pessoa-concessoes { display: grid; gap: var(--espaco-1); margin: var(--espaco-2) 0; padding-left: var(--espaco-4); }
 
 /* Escolher o lugar do convite: lista com a trilha de cada sub-área (003 R13). */
 .lista-lugares { display: grid; gap: var(--espaco-2); }
 
 /* Regiões do mapa na página da fazenda (003 R22): o mapa é o foco; os painéis ficam ao lado no desktop e abaixo no celular. */
-.regioes { display: grid; gap: var(--espaco-4); grid-template-columns: minmax(0, 1fr); margin-top: var(--espaco-5); }
-.regiao { min-width: 0; padding: var(--espaco-4); border: 1px solid var(--cor-borda); border-radius: var(--raio-2); background: var(--cor-superficie); }
+.regioes { display: grid; gap: var(--espaco-4); grid-template-columns: minmax(0, 1fr); margin-top: var(--espaco-6); }
+.regiao { min-width: 0; padding: var(--espaco-4); border: 1px solid var(--borda-padrao); border-radius: var(--raio-md); background: var(--bg-superficie); }
 .regiao-mapa { min-height: 16rem; }
-.regiao-titulo { margin: 0 0 var(--espaco-3); font-size: var(--fonte-titulo-2); }
+.regiao-titulo { margin: 0 0 var(--espaco-3); font-size: var(--texto-lg); }
 .regiao-recolhivel > summary { cursor: pointer; }
-.regiao-carregando { margin: 0; color: var(--cor-texto-suave); }
+.regiao-carregando { margin: 0; color: var(--texto-secundario); }
 .ficha { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--espaco-1) var(--espaco-3); margin: 0; }
-.ficha dt { color: var(--cor-texto-suave); font-size: var(--fonte-pequena); }
+.ficha dt { color: var(--texto-secundario); font-size: var(--texto-sm); }
 .ficha dd { margin: 0; overflow-wrap: anywhere; }
 /* 64rem, não 48rem: acima de 48rem o menu lateral (15rem) ainda ocupa a tela e o mapa ficaria numa faixa estreita. */
 @media (min-width: 64rem) {

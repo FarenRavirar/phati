@@ -1,0 +1,5 @@
+.kit-grade-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kit-grade-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.kit-grade-2-1 { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 72rem) { .kit-grade-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kit-grade-2-1 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 40rem) { .kit-grade-4, .kit-grade-2 { grid-template-columns: minmax(0, 1fr); } }
