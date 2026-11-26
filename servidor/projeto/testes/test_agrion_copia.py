@@ -107,7 +107,7 @@ def test_arquivo_sobrando_falha(tmp_path):
 
 
 URL_EM_CSS = re.compile(r'@import|url\(\s*[\'"]?\s*(https?:)?//|url\(\s*[\'"]?https?:', re.IGNORECASE)
-URL_EM_SVG = re.compile(r'\b(href|src)\s*=\s*["\']\s*(https?:)?//|url\(\s*[\'"]?https?:', re.IGNORECASE)
+URL_EM_SVG = re.compile(r'\b(href|src)\s*=\s*["\']\s*(https?:)?//|url\(\s*[\'"]?(https?:)?//|url\(\s*[\'"]?https?:', re.IGNORECASE)
 URL_EM_HTML = re.compile(r'<(link|script|img|iframe|source)\b[^>]*\b(href|src)\s*=\s*["\']\s*(https?:)?//', re.IGNORECASE)
 
 
@@ -124,6 +124,16 @@ def test_nenhuma_url_externa_de_fonte_ou_cdn():
     # xmlns de SVG (namespace, não requisição) fica de fora; só href, src e url() contam.
     assert [p.name for p in svg if URL_EM_SVG.search(p.read_text(encoding='utf-8'))] == []
     assert [p.name for p in html if URL_EM_HTML.search(p.read_text(encoding='utf-8'))] == []
+
+
+def test_detector_de_url_svg_pega_protocolo_relativo_e_aceita_local():
+    # `url(//...)` é requisição externa com o protocolo herdado da página (sem `https:` escrito).
+    assert URL_EM_SVG.search('<rect fill="url(//cdn.exemplo.org/a.svg#g)"/>')
+    assert URL_EM_SVG.search("<rect style=\"fill: url('//cdn.exemplo.org/a.svg#g')\"/>")
+    # Caso negativo: referência local e namespace continuam aceitos.
+    assert not URL_EM_SVG.search('<rect fill="url(#gradiente)"/>')
+    assert not URL_EM_SVG.search('<use href="#icone"/>')
+    assert not URL_EM_SVG.search('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
 
 
 def test_detector_de_url_externa_pega_fonte_de_cdn_e_nao_pega_xmlns():

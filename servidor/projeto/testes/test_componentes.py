@@ -219,19 +219,22 @@ def _ofensores_de_especificidade(texto):
 
 
 def _seletores_hidden(texto):
-    """Seletores `html <algo>[hidden]` do CSS: a regra que devolve o `hidden` ao ofensor de cópia íntegra."""
-    return {
-        parte.strip()
-        for seletor, _ in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', texto, flags=re.S))
-        for parte in seletor.split(',')
-        if re.fullmatch(r'html .+\[hidden\]', parte.strip())
-    }
+    """Seletores `html <algo>[hidden]` do CSS com o corpo de cada um: a regra que devolve o `hidden` ao ofensor."""
+    achados = {}
+    for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', texto, flags=re.S)):
+        for parte in seletor.split(','):
+            if re.fullmatch(r'html .+\[hidden\]', parte.strip()):
+                achados[parte.strip()] = corpo
+    return achados
 
 
 def _sem_regra_hidden(ofensores, texto_proprio):
-    """Ofensores de cópia íntegra que não têm `html <ofensor>[hidden]` correspondente no CSS próprio."""
+    """Ofensores de cópia íntegra sem `html <ofensor>[hidden]` que declare `display: none` no CSS próprio."""
     existentes = _seletores_hidden(texto_proprio)
-    return [ofensor for ofensor in ofensores if f'html {ofensor}[hidden]' not in existentes]
+    return [
+        ofensor for ofensor in ofensores
+        if not re.search(r'(^|;|\s)display\s*:\s*none\b', existentes.get(f'html {ofensor}[hidden]', ''))
+    ]
 
 
 def test_nenhum_componente_tem_especificidade_maior_que_a_regra_de_hidden():
@@ -252,6 +255,9 @@ def test_o_teste_de_especificidade_reprova_seletor_sem_regra_hidden():
     assert _ofensores_de_especificidade('html .a .b[hidden] { display: none; }') == []
     assert _sem_regra_hidden(['.a .b'], '') == ['.a .b']
     assert _sem_regra_hidden(['.a .b'], 'html .a .b[hidden] { display: none; }') == []
+    # Compensação sem `display: none` no corpo não cobre o ofensor (o `hidden` continuaria perdendo para o `display`).
+    assert _sem_regra_hidden(['.a .b'], 'html .a .b[hidden] { display: grid; }') == ['.a .b']
+    assert _sem_regra_hidden(['.a .b'], 'html .a .b[hidden] { color: red; }') == ['.a .b']
 
 
 def test_campo_com_teclado_leva_inputmode_e_sem_corretor():

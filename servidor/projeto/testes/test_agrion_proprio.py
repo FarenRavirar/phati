@@ -175,6 +175,31 @@ def test_alvo_de_44_px_abaixo_de_64rem_e_nas_telas_publicas():
     assert not _alvo_de_44('@media (max-width: 64rem) { .ag-botao { --h: 36px; } .ag-controle { height: 36px; } }')
 
 
+def _sm_em_44_abaixo_de_64rem(texto):
+    """`.ag-botao[data-tamanho="sm"]` com `--controle-lg` no @media: sem regra própria, a especificidade 0,2,0 do sm vence o 0,1,0 do botão."""
+    media = _bloco(texto, '(max-width: 64rem)') or ''
+    return 'var(--controle-lg)' in (_corpo(media, '.ag-botao[data-tamanho="sm"]') or '')
+
+
+def _sidebar_rola_na_estreita(texto):
+    """`.ag-sidebar` com `overflow-y: auto` no @media de 64rem, sem mexer na altura (100vh vem do casca.css)."""
+    corpo = _corpo(_bloco(texto, '(max-width: 64rem)') or '', '.ag-sidebar') or ''
+    return 'overflow-y: auto' in corpo and 'height' not in corpo
+
+
+def test_botao_sm_tambem_tem_44_px_abaixo_de_64rem():
+    assert _sm_em_44_abaixo_de_64rem(PROPRIO.read_text(encoding='utf-8'))
+    # Caso negativo: o botão comum com 44 px não cobre a variante sm.
+    assert not _sm_em_44_abaixo_de_64rem('@media (max-width: 64rem) { .ag-botao { --h: var(--controle-lg); } }')
+
+
+def test_sidebar_rola_na_tela_estreita_sem_alterar_a_altura():
+    assert _sidebar_rola_na_estreita(PROPRIO.read_text(encoding='utf-8'))
+    # Caso negativo: gaveta sem rolagem (conteúdo cortado em tela baixa) reprova.
+    assert not _sidebar_rola_na_estreita('@media (max-width: 64rem) { .ag-sidebar { width: 280px; } }')
+    assert not _sidebar_rola_na_estreita('@media (max-width: 64rem) { .ag-sidebar { overflow-y: auto; height: 50vh; } }')
+
+
 def test_link_de_atalho_e_alvo_de_24_px_e_44_abaixo_de_64rem():
     # Link inline não tem altura de alvo: com 14 px de corpo a medição deu 113x18 e axe reprovou (target-size).
     texto = PROPRIO.read_text(encoding='utf-8')

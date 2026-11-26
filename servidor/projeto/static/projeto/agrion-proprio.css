@@ -19,9 +19,11 @@ a { text-decoration: underline; text-underline-offset: 0.2em; }
 
 /* R11: alvo de 44 px abaixo de 64rem; nas telas públicas, botão e campo sempre. Acima disso o pacote usa 36 px (controle-md). */
 @media (max-width: 64rem) {
-  .ag-botao { --h: var(--controle-lg); }
+  /* `[data-tamanho="sm"]` (0,2,0) vence `.ag-botao` (0,1,0) do pacote: precisa da mesma regra. */
+  .ag-botao, .ag-botao[data-tamanho="sm"] { --h: var(--controle-lg); }
   .ag-controle { height: var(--controle-lg); }
   .lista-atalhos a { min-height: var(--controle-lg); }
+  .ag-sidebar { overflow-y: auto; }
 }
 .ag-publica .ag-botao { --h: var(--controle-lg); }
 .ag-publica .ag-controle { height: var(--controle-lg); }
