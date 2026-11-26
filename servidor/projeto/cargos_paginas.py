@@ -14,8 +14,9 @@ from django.shortcuts import redirect
 from permissao import cargo as servico
 from permissao.cargos_base import NOMES
 from permissao.models import Cargo, Permissao
-from permissao.pode import ACOES_DA_PLATAFORMA, com_permissao, unir_escopos
+from permissao.pode import ACOES_DA_PLATAFORMA, com_permissao
 from permissao.uso import registrar_uso
+from projeto.escopo import alcance_na_empresa
 from projeto.paginas_autenticadas import campo, formulario, pagina, renderizar_na_casca, texto_do_erro
 from projeto.pessoas_paginas import ESCOLHA_VAZIA, _aviso_do_endereco, _caminho, _empresa
 
@@ -48,8 +49,7 @@ def _contexto(requisicao):
 def _com_alcance(requisicao, empresa):
     """Cargo é da empresa: `gerenciar_cargo` só vale com a empresa inteira. Quem o tem só numa fazenda ou sub-área recebe 403
     em vez de um formulário que o serviço recusaria no envio (Qodo, PR #31)."""
-    escopos = unir_escopos(requisicao.user, 'gerenciar_cargo')
-    if not (escopos.plataforma or empresa.pk in escopos.empresas):
+    if not alcance_na_empresa(requisicao.user, empresa, ('gerenciar_cargo',), inteira=True):
         raise PermissionDenied
 
 

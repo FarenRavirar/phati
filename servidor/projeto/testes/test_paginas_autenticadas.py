@@ -38,7 +38,7 @@ def test_casca_leva_theme_color_igual_a_cor_primaria_do_css_e_o_favicon(db, fabr
     primaria = re.findall(r'--marca-verde:\s*(#[0-9A-Fa-f]{6})', variaveis)[0]
     html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'inicio.html').content.decode()
     assert f'<meta name="theme-color" content="{primaria}">' in html
-    assert '<link rel="icon" href="/static/projeto/favicon.svg"' in html
+    assert '<link rel="icon" href="/static/projeto/agrion/logo/agrion-simbolo.svg"' in html
 
 
 def test_deslogado_vai_a_entrada_com_a_pagina_pedida(db):
@@ -92,11 +92,12 @@ def test_casca_tem_faixa_menu_conteudo_e_escopo(cenario, fabrica_pessoa, concede
     conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.f1)
     html = renderizar_na_casca(_requisicao(pessoa, '/empresas/'), 'casca.html', empresa=cenario.x, fazenda=cenario.f1).content.decode()
     assert '<html lang="pt-BR">' in html
-    assert '<header class="faixa">' in html
-    assert '<nav class="menu"' in html
-    assert '<main class="conteudo">' in html
-    assert '>Empresa X</a> › <a href=' in html  # faixa com o escopo atual, em links
-    assert '>F1</a>' in html
+    assert '<header class="ag-topo">' in html
+    assert '<nav class="ag-nav-principal"' in html
+    assert '<main class="ag-conteudo">' in html
+    assert '<b>Empresa X</b>' in html  # escopo atual no seletor da sidebar
+    assert '<span>F1</span>' in html
+    assert 'style=' not in html  # CSP: nada de estilo na linha (R12)
     assert 'Fulana Sintetica' in html
     assert 'action="/sair"' in html
     assert 'csrfmiddlewaretoken' in html
@@ -112,12 +113,12 @@ def test_menu_marca_page_na_propria_pagina_e_true_na_pagina_filha(cenario, fabri
     filha = renderizar_na_casca(_requisicao(pessoa, f'/empresa/{cenario.x.pk}/'), 'casca.html', empresa=cenario.x).content.decode()
     assert 'href="/empresas/" aria-current="page"' in propria
     assert 'href="/empresas/" aria-current="true"' in filha
-    assert 'aria-current="page"' not in filha.split('<nav class="menu"')[1]  # a trilha da faixa marca a empresa, o menu não
+    assert 'aria-current="page"' not in filha.split('<nav class="ag-nav-principal"')[1].split('</nav>')[0]  # o menu não marca página própria
 
 
 def test_casca_sem_escopo_deixa_a_faixa_vazia(cenario, fabrica_pessoa):
     html = renderizar_na_casca(_requisicao(fabrica_pessoa('Pessoa'), '/'), 'casca.html').content.decode()
-    assert '<nav class="faixa-escopo" aria-label="Escopo atual"></nav>' in html
+    assert 'Escolher empresa' in html  # sem escolha, o seletor pede a empresa; nenhum escopo aparece
 
 
 def test_post_sem_sessao_nao_leva_proximo_porque_o_endereco_so_aceita_post(db):

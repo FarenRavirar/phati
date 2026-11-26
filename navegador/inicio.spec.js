@@ -19,7 +19,7 @@ test('convites e fazendas aparecem; aceitar libera a fazenda e recusar não', as
   await semRolagemHorizontal(page);
   await acessivel(page);
 
-  const convites = page.locator('.convite');
+  const convites = page.locator('.ag-convite');
   const deB = convites.filter({ hasText: 'Empresa Inventada B' });
   const deA2 = convites.filter({ hasText: 'Empresa Inventada A' });
   await deB.getByRole('button', { name: 'Aceitar' }).click();

@@ -35,3 +35,43 @@ a { text-decoration: underline; text-underline-offset: 0.2em; }
   .ag-ficha-flutuante { top: calc(var(--espaco-12) + var(--espaco-3)); right: var(--espaco-3); left: var(--espaco-3); width: auto; max-height: 30%; }
   .ag-mapa-zoom { right: var(--espaco-3); bottom: calc(40% + var(--espaco-3)); }
 }
+
+/* Estilos inline do protótipo que viram classe (spec 012, R12). */
+.ag-aviso-fechar { margin: -4px -8px -4px 0; }
+.ag-envio-titulo { font-weight: var(--peso-medio); }
+.ag-esqueleto-linhas { display: grid; gap: var(--espaco-2); }
+.ag-esqueleto-curto { width: 60%; }
+
+/* Diálogo nativo (spec 012, R37): a caixa é o <dialog>, sem a margem nem o padding do navegador; o fundo é ::backdrop. */
+dialog.ag-dialogo { margin: auto; padding: 0; border: 0; color: var(--texto-primario); }
+dialog.ag-dialogo::backdrop { background: color-mix(in srgb, var(--texto-primario) 44%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  dialog.ag-dialogo::backdrop { animation: ag-surgir var(--duracao-media) var(--curva-padrao); }
+}
+
+/* Estilos inline do protótipo que viram classe, componentes da fase 2 (spec 012, R12). */
+.ag-cabecalho-titulo { display: flex; flex-wrap: wrap; align-items: center; gap: var(--espaco-2); }
+.ag-painel-acoes { display: flex; flex-wrap: wrap; gap: var(--espaco-2); }
+.ag-camadas-acoes { display: flex; gap: var(--espaco-1); }
+.ag-legenda-titulo { padding: 0; }
+.ag-camada-opacidade-valor { width: 2rem; text-align: right; }
+.ag-tabela caption { padding: var(--espaco-3) var(--espaco-4); text-align: left; font-weight: var(--peso-medio); }
+
+/* O base.css próprio (carregado depois do pacote) põe margem embaixo em todo `p`; o título do grupo do menu é `p` e no pacote não tem margem. */
+.ag-nav-titulo { margin: 0; }
+
+/* O pacote só estiliza button[aria-*]; a versão para link (a[aria-current]) fica aqui. Link não sublinha no nó da árvore nem na aba. */
+.ag-arvore-no, .ag-aba { text-decoration: none; }
+.ag-arvore-seta[data-sem-filhos] { visibility: hidden; }
+.ag-aba[aria-current="page"] { color: var(--texto-primario); box-shadow: inset 0 -2px 0 var(--acao-primaria); }
+
+/* Cor de camada por atributo (`data-cor` de "1" a "6"): paleta `--camada-*` do pacote, sem estilo inline (R12). */
+[data-cor="1"] { --c: var(--camada-1); }
+[data-cor="2"] { --c: var(--camada-2); }
+[data-cor="3"] { --c: var(--camada-3); }
+[data-cor="4"] { --c: var(--camada-4); }
+[data-cor="5"] { --c: var(--camada-5); }
+[data-cor="6"] { --c: var(--camada-6); }
+
+/* Link de apoio na tela de login: alvo de 24 px no mínimo (WCAG 2.5.8, axe target-size). */
+.publica-links a { display: inline-block; min-height: 24px; padding-block: 4px; }

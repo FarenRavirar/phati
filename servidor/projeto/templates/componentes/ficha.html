@@ -1,4 +1,4 @@
-{% comment %}Parâmetros: ficha (saída de `projeto.ficha.montar_ficha`). Tudo em texto visível, nunca em tooltip (R22).{% endcomment %}<dl class="ficha">
+{% comment %}Ficha (conteudo/Ficha.jsx, contrato da 003 R23). Parâmetros: ficha (saída de `projeto.ficha.montar_ficha`; None no modelo do mapa, que o JavaScript preenche pelos `data-campo`). Os nomes `data-campo` são os que `mapa.js` usa: não trocar. Tudo em texto visível, nunca em tooltip (R22). Campo ausente já sai como "Sem informação" de `montar_ficha`.{% endcomment %}<dl class="ag-ficha">
 <dt>Camada</dt><dd data-campo="camada">{{ ficha.camada }}</dd>
 <dt>Atributo</dt><dd data-campo="atributo">{{ ficha.atributo }}</dd>
 <dt>Valor</dt><dd data-campo="valor">{{ ficha.valor }}</dd>

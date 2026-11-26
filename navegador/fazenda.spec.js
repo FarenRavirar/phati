@@ -9,7 +9,9 @@ test('mostra nome, empresa, árvore de três níveis e a região de camadas', as
   await entrar(page, dados.administradora_a.cpf);
   await page.goto(url(dados.empresa_a, dados.fazendas_a[0]));
   await expect(page.getByRole('heading', { name: 'Fazenda Inventada A1', level: 1 })).toBeVisible();
-  await expect(page.getByText('Empresa Inventada A').first()).toBeVisible();
+  // O nome da empresa fica no seletor de escopo da sidebar (fora de <main>); em 320 a sidebar é a gaveta, então abre antes.
+  await abrirMenu(page);
+  await expect(page.locator('.ag-escopo').getByText('Empresa Inventada A')).toBeVisible();
   for (const nome of ['Talhao 1', 'Gleba 1', 'Lote 1']) await expect(page.getByText(nome)).toBeVisible();
   // Com a flag do mapa ligada (job `navegador`) as camadas chegam e o "Sem camadas ainda." some; sem a flag ele fica (test_mapa.py).
   await expect(page.getByRole('heading', { name: 'Camadas', level: 2 })).toBeVisible();

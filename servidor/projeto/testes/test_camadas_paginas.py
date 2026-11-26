@@ -4,6 +4,7 @@ Sem `publicar_camada` na fazenda, a página responde 404 por URL direta, igual a
 a publicação em si são da API (`catalogo/testes/test_api.py`); aqui se confere a página e o molde que a `camadas.js` usa.
 """
 
+import re
 import uuid
 from datetime import timedelta
 
@@ -94,7 +95,7 @@ def test_publicacao_lista_estudo_e_leva_a_api_de_publicar(cliente_logado, public
     # Texto fiel ao comportamento: sugestão pré-selecionada, fora de nó fica na fazenda, e 'Própria fazenda' é a escolha explícita.
     for trecho in ('já vêm com o nó de maior área escolhido', 'Feições fora de todos os nós ficam na própria fazenda', "escolha 'Própria fazenda'", 'precisam de escolha'):
         assert trecho in html, trecho
-    assert '<output class="aviso aviso-sucesso" id="publicacao-sucesso" hidden>' in html
+    assert '<div class="ag-aviso" data-tipo="sucesso" role="status" id="publicacao-sucesso" hidden>' in html
 
 
 def test_previa_com_mapa_ligado_leva_o_mapa_a_geometria_do_envio(cliente_logado, publicador, cenario, envio, settings):
@@ -180,6 +181,14 @@ def test_previa_com_mapa_desligado_segue_sem_mapa_e_diz_isso(cliente_logado, pub
 @pytest.mark.parametrize('nome', PAGINAS)
 def test_metodo_errado_e_405(cliente_logado, publicador, cenario, envio, nome):
     assert cliente_logado.post(_url(nome, cenario, envio.publico_id)).status_code == 405
+
+
+@pytest.mark.parametrize('nome', PAGINAS)
+def test_trilha_das_telas_de_envio_leva_a_etapa_enviar_camada(cliente_logado, publicador, cenario, envio, nome):
+    resposta = cliente_logado.get(_url(nome, cenario, envio.publico_id))
+    assert resposta.status_code == 200
+    trilha = resposta.content.decode().split('<ol class="ag-trilha"')[1].split('</ol>')[0]
+    assert re.findall(r'<li(?: aria-current="page")?>([^<]+)</li>', trilha) == ['Fazendas', 'F1', 'Enviar camada']
 
 
 def test_deslogado_vai_para_a_entrada(cenario):

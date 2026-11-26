@@ -2,8 +2,8 @@
 {% block titulo %}Convites enviados{% endblock %}
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Convites enviados" subtitulo=empresa.nome %}
-{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso %}{% endif %}
-{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+{% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso only %}{% endif %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro only %}{% endif %}
 {% include "componentes/acoes.html" with acoes=acoes %}
 {% if itens %}<ul class="lista-convites">
 {% for convite in itens %}<li class="convite">
@@ -12,15 +12,15 @@
 <p class="convite-detalhe">Enviado em {{ convite.criado_em|date:'d/m/Y' }} · {% if convite.vencido %}venceu em{% else %}vale até{% endif %} {{ convite.expira_em|date:'d/m/Y' }}</p>
 </div>
 <div class="convite-acoes">
-<form method="post" action="{{ convite.reenviar }}">{% csrf_token %}<button class="botao" type="submit" aria-label="Reenviar o convite de {{ convite.cargo_nome }}">Reenviar</button></form>
-<form method="post" action="{{ convite.cancelar }}">{% csrf_token %}<button class="botao botao-secundario" type="submit" aria-label="Cancelar o convite de {{ convite.cargo_nome }}">Cancelar</button></form>
+<form method="post" action="{{ convite.reenviar }}">{% csrf_token %}<button class="ag-botao" data-variante="primario" data-tamanho="md" type="submit" aria-label="Reenviar o convite de {{ convite.cargo_nome }}">Reenviar</button></form>
+<form method="post" action="{{ convite.cancelar }}">{% csrf_token %}<button class="ag-botao" data-variante="secundario" data-tamanho="md" type="submit" aria-label="Cancelar o convite de {{ convite.cargo_nome }}">Cancelar</button></form>
 </div>
 </li>
 {% endfor %}</ul>
 {% if pagina.has_other_pages %}<nav class="paginacao" aria-label="Páginas de convites"><p class="acoes-pagina">
-{% if pagina.has_previous %}<a class="botao botao-secundario" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+{% if pagina.has_previous %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
 <span class="tipo-arquivada">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
-{% if pagina.has_next %}<a class="botao botao-secundario" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
+{% if pagina.has_next %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
 </p></nav>{% endif %}
-{% else %}{% include "componentes/vazio.html" with texto="Nenhum convite sem resposta." acao_rotulo=vazio_rotulo acao_destino=vazio_destino %}{% endif %}
+{% else %}{% include "componentes/vazio.html" with texto="Nenhum convite sem resposta." acao_rotulo=vazio_rotulo acao_destino=vazio_destino only %}{% endif %}
 {% endblock %}

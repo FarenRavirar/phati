@@ -290,7 +290,7 @@ def test_todo_codigo_do_catalogo_tem_grupo_na_matriz(db):
 
 def test_matriz_mostra_grupos_na_ordem_com_cada_acao_uma_vez_e_o_aviso_no_ultimo(cliente_logado, administradora, cenario):
     html = _html(cliente_logado.get(_casa(cenario) + 'cargos/novo'))
-    titulos = re.findall(r'<legend class="campo-rotulo">([^<]+)</legend>', html)
+    titulos = re.findall(r'<legend class="ag-rotulo">([^<]+)</legend>', html)
     assert titulos == ['Consulta', 'Trabalho de campo', 'Documentos', 'Validação e aprovação', 'Território', 'Configurações', 'Pessoas e cargos']
     from permissao.models import Permissao
     from permissao.pode import ACOES_DA_PLATAFORMA

@@ -2,14 +2,14 @@
 {% block titulo %}Auditoria{% endblock %}
 {% block conteudo %}
 {% include "componentes/cabecalho_pagina.html" with titulo="Auditoria" subtitulo="Quem fez o quê, do mais recente ao mais antigo. Sem data, mostra os últimos 90 dias." %}
-{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro %}{% endif %}
+{% if erro %}{% include "componentes/aviso.html" with tipo="erro" texto=erro only %}{% endif %}
 <form method="get" action="{% url 'auditoria' %}" aria-label="Filtrar a auditoria">
-{% for c in campos %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo opcoes=c.opcoes %}
-{% endfor %}<p class="acoes-pagina">{% include "componentes/botao.html" with texto="Filtrar" tipo="submit" %}<a class="botao botao-secundario" href="{% url 'auditoria' %}">Limpar filtros</a></p>
+{% for c in campos %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo opcoes=c.opcoes only %}
+{% endfor %}<p class="acoes-pagina">{% include "componentes/botao.html" with texto="Filtrar" tipo="submit" only %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="{% url 'auditoria' %}">Limpar filtros</a></p>
 </form>
 {% if not erro %}{% if linhas %}
 {% include "componentes/tabela.html" with legenda="Eventos da auditoria" colunas=colunas linhas=linhas %}
-{% if mais_antigos %}<nav class="paginacao" aria-label="Páginas da auditoria"><p class="acoes-pagina"><a class="botao botao-secundario" href="{{ mais_antigos }}">Mais antigos</a></p></nav>{% endif %}
-{% else %}{% include "componentes/vazio.html" with texto="Nenhum evento neste período." %}{% endif %}
+{% if mais_antigos %}<nav class="paginacao" aria-label="Páginas da auditoria"><p class="acoes-pagina"><a class="ag-botao" data-variante="secundario" data-tamanho="md" href="{{ mais_antigos }}">Mais antigos</a></p></nav>{% endif %}
+{% else %}{% include "componentes/vazio.html" with texto="Nenhum evento neste período." only %}{% endif %}
 {% endif %}
 {% endblock %}

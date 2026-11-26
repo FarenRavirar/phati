@@ -1,4 +1,1 @@
-{% comment %}Parâmetros: titulo, subtitulo (opcional).{% endcomment %}<div class="cabecalho-pagina">
-<h1>{{ titulo }}</h1>
-{% if subtitulo %}<p>{{ subtitulo }}</p>{% endif %}
-</div>
+{% comment %}Cabeçalho de página (conteudo/CabecalhoPagina.jsx). Parâmetros: titulo, subtitulo (descrição, opcional), trilha (lista de {nome, href}; o último item é a página atual, sem link, com `aria-current="page"`). Ações da página ficam em componentes/acoes.html, fora deste include.{% endcomment %}<div class="ag-cabecalho"><div class="ag-cabecalho-texto">{% if trilha %}<nav class="ag-trilha" aria-label="Trilha">{% for item in trilha %}{% if not forloop.first %}<span aria-hidden="true">/</span>{% endif %}{% if forloop.last %}<span aria-current="page">{{ item.nome }}</span>{% elif item.href %}<a href="{{ item.href }}">{{ item.nome }}</a>{% else %}<span>{{ item.nome }}</span>{% endif %}{% endfor %}</nav>{% endif %}<div class="ag-cabecalho-titulo"><h1>{{ titulo }}</h1></div>{% if subtitulo %}<p class="ag-cabecalho-descricao">{{ subtitulo }}</p>{% endif %}</div></div>
