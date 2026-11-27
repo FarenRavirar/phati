@@ -151,10 +151,11 @@ def test_acao_sem_linha_ou_linha_sem_acao_ou_sem_texto_e_detectada():
 
 
 def test_rota_de_dados_da_web_marcada_exige_linha_na_matriz():
-    assert _rotas_de_dados_da_web() == {'mapa_camadas', 'saude', 'pacote_manifesto', 'pacote_camadas', 'pacote_arquivo'}
+    dados = {'mapa_camadas', 'saude', 'pacote_manifesto', 'pacote_camadas', 'pacote_arquivo', 'fazendas_csv'}
+    assert _rotas_de_dados_da_web() == dados
     rotas = _matriz()['rotas']
-    sem_linha = {nome: texto for nome, texto in rotas.items() if nome not in {'mapa_camadas', 'saude', 'pacote_manifesto', 'pacote_camadas', 'pacote_arquivo'}}
-    assert _problemas_das_rotas(sem_linha) == ['rota sem linha: mapa_camadas', 'rota sem linha: pacote_arquivo', 'rota sem linha: pacote_camadas', 'rota sem linha: pacote_manifesto', 'rota sem linha: saude']
+    sem_linha = {nome: texto for nome, texto in rotas.items() if nome not in dados}
+    assert _problemas_das_rotas(sem_linha) == sorted(f'rota sem linha: {nome}' for nome in dados)
 
 
 # `JsonResponse`, qualquer `content_type=` (aspas simples ou duplas) ou literal `application/`: sinais de view que entrega dado.

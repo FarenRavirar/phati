@@ -58,8 +58,9 @@ def test_rotas_da_propria_pessoa_nao_carregam_alvo_de_terceiro():
 def test_acao_exigida_existe_no_catalogo():
     catalogo = {
         codigo
-        for migracao in ('0001_initial', '0007_acoes_territorio', '0011_ver_auditoria')
-        for codigo, _, _ in import_module(f'permissao.migrations.{migracao}').ACOES
+        for migracao in ('permissao.migrations.0001_initial', 'permissao.migrations.0007_acoes_territorio',
+                         'permissao.migrations.0011_ver_auditoria', 'permissao.migrations.0012_cargo_de_base')
+        for codigo, _, _ in import_module(migracao).ACOES
     }
     usadas = {getattr(operacao.view_func, 'acao_exigida', None) for operacao, _ in _operacoes()} - {None}
     assert usadas <= catalogo

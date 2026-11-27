@@ -36,7 +36,7 @@ class ItemDoMenu:
 
 ITENS = (
     ItemDoMenu('Início', '/', icone='house'),
-    ItemDoMenu('Fazendas', '/empresas/', icone='map', prefixos=('/empresa/',)),
+    ItemDoMenu('Fazendas', '/empresas/', icone='map', prefixos=('/empresa/', '/fazendas/')),
     ItemDoMenu(
         'Pessoas', CAMINHO_PESSOAS, icone='users', grupo=GRUPO_GESTAO, acoes=ACOES_DE_PESSOAS, na_empresa='alcance',
         prefixos=(CAMINHO_PESSOAS, '/empresa/{empresa_id}/pessoa/', '/empresa/{empresa_id}/titularidade'),

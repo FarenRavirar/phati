@@ -1,10 +1,28 @@
-// Comportamento dos componentes AgriOn que precisam de JS (spec 012, R37): fechar aviso, arrastar e soltar na zona de envio e diálogo nativo.
-// Sem este script: o botão Fechar aviso segue escondido, arrastar e soltar não funciona e o link de diálogo vai para a página de formulário.
+// Comportamento dos componentes AgriOn que precisam de JS (spec 012, R37): fechar aviso, arrastar e soltar na zona de envio, diálogo nativo e linha de tabela clicável.
+// Sem este script: o botão Fechar aviso segue escondido, arrastar e soltar não funciona, o link de diálogo vai para a página de formulário e a linha só vale pelo link da primeira célula.
 // A zona de envio é um <label> ligado ao input de arquivo: clique e teclado são do navegador, sem código aqui.
 function fecharAviso(botao) {
   const aviso = botao.closest('.ag-aviso');
   if (aviso) aviso.hidden = true;
   return aviso !== null;
+}
+
+// Controles e rótulos cuidam do próprio clique; o resto da linha é do link da primeira célula.
+const INTERATIVOS = ['a', 'button', 'input', 'label', 'summary', 'select', 'textarea'];
+
+// Linha clicável (R37, telas.md §3): clique no corpo da linha vai ao link da primeira célula. Ctrl, meta e shift abrem em
+// nova aba, como o link; botão não primário e texto selecionado seguem o navegador.
+function aoClicarLinha(documento, evento) {
+  if (evento.button) return false;
+  const alvo = evento.target;
+  if (INTERATIVOS.some((tag) => alvo.closest(tag))) return false;
+  const linha = alvo.closest('[data-clicavel]');
+  if (!linha || documento.getSelection?.()?.toString()) return false;
+  const link = linha.querySelector('td:first-child a');
+  if (!link) return false;
+  if (evento.ctrlKey || evento.metaKey || evento.shiftKey) documento.defaultView.open(link.href, '_blank', 'noopener');
+  else link.click();
+  return true;
 }
 
 function aoClicar(documento, evento) {
@@ -31,7 +49,7 @@ function aoClicar(documento, evento) {
     alvo.close();
     return true;
   }
-  return false;
+  return aoClicarLinha(documento, evento);
 }
 
 function aoArrastar(evento, entrando) {
@@ -67,7 +85,7 @@ function iniciar(documento) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { fecharAviso, aoClicar, aoArrastar, aoSoltar, iniciar };
+  module.exports = { fecharAviso, aoClicar, aoClicarLinha, aoArrastar, aoSoltar, iniciar };
 } else {
   iniciar(document);
 }

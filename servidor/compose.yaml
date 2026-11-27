@@ -56,7 +56,7 @@ x-app: &app
 
 services:
   banco:
-    build: ./banco  # PostgreSQL 18 fixado por digest + PostGIS 3.6.4 (D114); imagem própria, não de terceiro
+    build: ./banco  # PostgreSQL 18 fixado por digest + PostGIS por POSTGIS_VERSAO (D114, Dockerfile do banco); imagem própria, não de terceiro
     environment:
       POSTGRES_PASSWORD: ${PHATI_BANCO_SUPER_SENHA:?}
       PHATI_BANCO_NOME: ${PHATI_BANCO_NOME:-phati}

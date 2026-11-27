@@ -23,6 +23,7 @@ COMPOSICAO = {
         'definir_validade_documento',
         'convidar_pessoa',
         'revogar_acesso',
+        'exportar_dados',  # não delegável: o Curador a exerce pelo próprio cargo, não a repassa (Q20; delegação barra)
     ),
     'tecnico': _TECNICO,
     'usuario': _LEITURA,
@@ -33,7 +34,7 @@ def criar_cargos_base(empresa):
     """Cria os quatro cargos da empresa e devolve `{base: Cargo}`. Chamar dentro da transação de quem cria a empresa."""
     cargos = {}
     for base, nome in NOMES.items():
-        cargo = Cargo.objects.create(empresa=empresa, nome=nome, base=base)
+        cargo = Cargo.objects.create(empresa=empresa, nome=nome, base=base, de_base=True)
         if base == 'administrador':
             codigos = Permissao.objects.exclude(codigo__in=ACOES_DA_PLATAFORMA).values_list('codigo', flat=True)
         else:

@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { expect } = require('@playwright/test');
-const { violacoes } = require('./axe.js');
+const { violacoes, TAMANHO_DO_ALVO } = require('./axe.js');
 
 // Leitura preguiçosa: o teste do próprio auxiliar (`apoio.test.js`) roda no job de testes, que não tem `dados.json`.
 let memoria;
@@ -52,6 +52,13 @@ async function caberNoBotao(botao) {
 
 async function acessivel(pagina) {
   expect(await violacoes(pagina), 'violações do axe (WCAG 2.2 AA)').toEqual([]);
+}
+
+// Menu "Mais ações" aberto cobre alvos da página (ver axe.js, TAMANHO_DO_ALVO): a página passa com todas as regras
+// menos target-size; o próprio menu passa com todas as regras, inclusive target-size dos seus itens.
+async function acessivelComMenuAberto(pagina) {
+  expect(await violacoes(pagina, { desligar: [TAMANHO_DO_ALVO] }), 'violações do axe com o menu aberto, sem target-size da página').toEqual([]);
+  expect(await violacoes(pagina, { dentroDe: '.ag-mais-acoes' }), 'violações do axe nos itens do menu aberto (target-size incluso)').toEqual([]);
 }
 
 // CPF com dígitos verificadores corretos, a partir de um número base inventado (o cadastro recusa CPF inválido).
@@ -128,6 +135,7 @@ module.exports = {
   entrar,
   semRolagemHorizontal,
   acessivel,
+  acessivelComMenuAberto,
   caberNoBotao,
   TEXTO_LONGO,
   abrirMenu,

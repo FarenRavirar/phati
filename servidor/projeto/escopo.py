@@ -10,7 +10,7 @@ Sem acesso, é descartada da sessão. Empresa na URL prevalece sobre ela (D063).
 from django.http import Http404
 
 from permissao.models import Concessao
-from permissao.pode import com_permissao, memoria_de, unir_escopos
+from permissao.pode import com_permissao, memoria_de, permissoes_efetivas, unir_escopos
 from territorio.listagem import empresas_autorizadas, fazendas_autorizadas
 
 CHAVE_EMPRESA = 'empresa_escolhida'
@@ -61,13 +61,14 @@ def empresa_lembrada(requisicao):
 
 
 def seletor_da_pessoa(pessoa):
-    """Conteúdo do seletor de escopo (R17): empresas e fazendas autorizadas; os links de Empresas e de Arquivadas só
-    aparecem a quem alcança essas telas (as mesmas condições da própria tela de empresas)."""
+    """Conteúdo do seletor de escopo (R17, Q24): empresas e fazendas autorizadas; "Cadastrar empresa" só com `criar_empresa`
+    na plataforma e "Arquivadas" só a quem alcança essa tela (as mesmas condições das telas)."""
     empresas = list(empresas_autorizadas(pessoa))
     por_id = {empresa.pk: empresa for empresa in empresas}
     fazendas = [(por_id[f.empresa_id], f) for f in fazendas_autorizadas(pessoa) if f.empresa_id in por_id]
     arquivadas = bool(empresas_autorizadas(pessoa, arquivadas=True) or fazendas_autorizadas(pessoa, arquivadas=True))
-    return {'empresas': empresas, 'fazendas': fazendas, 'arquivadas': arquivadas}
+    cadastrar = 'criar_empresa' in permissoes_efetivas(pessoa)
+    return {'empresas': empresas, 'fazendas': fazendas, 'arquivadas': arquivadas, 'cadastrar': cadastrar}
 
 
 def cargos_na_empresa(pessoa, empresa):

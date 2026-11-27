@@ -209,11 +209,15 @@ def test_arquivar_pede_confirmacao_que_diz_o_que_atinge_e_so_o_post_arquiva(clie
     assert Convite.objects.get(pessoa=convidada).cancelado_em is not None
 
 
-def test_fazenda_arquivada_segue_consultavel_sai_do_seletor_e_nega_escrita(cliente_logado, administradora, cenario):
+def test_fazenda_arquivada_segue_consultavel_aparece_em_todas_sai_das_ativas_e_nega_escrita(cliente_logado, administradora, cenario):
+    # telas.md §3: o filtro padrão é Todas, então a arquivada aparece com o selo "Arquivada"; "Ativas" a deixa de fora.
     arquivar(administradora, cenario.f1)
     assert cliente_logado.get(_fazenda(cenario)).status_code == 200
-    seletor = cliente_logado.get('/empresas/').content.decode()
-    assert f'/fazenda/{cenario.f1.pk}/' not in seletor
+    todas = cliente_logado.get('/empresas/').content.decode()
+    assert f'/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/">F1</a>' in todas
+    assert '>Arquivada<' in todas
+    ativas = cliente_logado.get('/empresas/', {'situacao': 'ativas'}).content.decode()
+    assert f'/empresa/{cenario.x.pk}/fazenda/{cenario.f1.pk}/">F1</a>' not in ativas
     for caminho in ('editar', 'arquivar', 'sub-area/nova'):
         assert (caminho, cliente_logado.get(_fazenda(cenario) + caminho).status_code) == (caminho, 403)
         assert (caminho, cliente_logado.post(_fazenda(cenario) + caminho, {'nome': 'Tarde'}).status_code) == (caminho, 403)
@@ -471,3 +475,148 @@ def test_cadastrar_fazenda_conta_um_uso_e_nome_invalido_nao_conta(cliente_logado
     assert UsoAcao.objects.get(pessoa=administradora, acao='criar_fazenda').contagem == 1
     assert cliente_logado.post(_casa(cenario) + 'fazenda/nova', {'nome': '  '}).status_code == 400
     assert UsoAcao.objects.get(pessoa=administradora, acao='criar_fazenda').contagem == 1
+
+
+def test_formulario_de_fazenda_tem_campo_municipio_e_cadastra_com_ele(cliente_logado, administradora, cenario):
+    assert 'name="municipio"' in cliente_logado.get(_casa(cenario) + 'fazenda/nova').content.decode()
+    assert cliente_logado.post(_casa(cenario) + 'fazenda/nova', {'nome': 'Com Municipio', 'municipio': 'Sorriso'}).status_code == 302
+    assert Fazenda.objects.get(nome='Com Municipio').municipio == 'Sorriso'
+
+
+def test_municipio_longo_no_cadastro_volta_400_no_campo_de_municipio_e_nada_grava(cliente_logado, administradora, cenario):
+    resposta = cliente_logado.post(_casa(cenario) + 'fazenda/nova', {'nome': 'Longa', 'municipio': 'm' * 201})
+    html = resposta.content.decode()
+    assert resposta.status_code == 400
+    assert 'Informe um município de até 200 caracteres.' in html
+    assert 'Informe um nome' not in html
+    assert not Fazenda.objects.filter(nome='Longa').exists()
+
+
+def test_municipio_longo_na_edicao_volta_400_e_nao_renomeia_nem_grava_evento(cliente_logado, administradora, cenario):
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1 Outra', 'municipio': 'm' * 201})
+    assert resposta.status_code == 400
+    assert 'Informe um município de até 200 caracteres.' in resposta.content.decode()
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert (fazenda.nome, fazenda.municipio) == ('F1', '')
+    assert not EventoAuditoria.objects.filter(acao='fazenda_renomeada', detalhes__nome_novo='F1 Outra').exists()
+
+
+def test_nome_invalido_sem_municipio_no_post_reexibe_o_municipio_atual(cliente_logado, administradora, cenario):
+    # Sem o campo no POST o serviço não mexe no município; o 400 tem de mostrar o valor atual, não o campo vazio.
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': ''})
+    assert resposta.status_code == 400
+    assert 'value="Sorriso"' in resposta.content.decode()
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == 'Sorriso'
+
+
+def test_editar_so_o_municipio_grava_e_audita_antigo_e_novo(cliente_logado, administradora, cenario):
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1', 'municipio': 'Sorriso'})
+    assert resposta.status_code == 302
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == 'Sorriso'
+    assert EventoAuditoria.objects.filter(
+        acao='fazenda_renomeada', detalhes={'nome_antigo': 'F1', 'nome_novo': 'F1', 'municipio_antigo': '', 'municipio_novo': 'Sorriso'},
+    ).exists()
+
+
+def test_editar_fazenda_sem_permissao_de_renomear_e_negado_por_url_direta(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['usuario'], cenario.x)
+    assert cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'X', 'municipio': 'Sorriso'}).status_code == 403
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == ''
+
+
+def test_editar_sem_o_campo_municipio_preserva_o_municipio(cliente_logado, administradora, cenario):
+    # POST sem o campo `municipio` (ausente, não vazio) não pode apagar o município gravado.
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1 Nova'})
+    assert resposta.status_code == 302
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert (fazenda.nome, fazenda.municipio) == ('F1 Nova', 'Sorriso')
+
+
+def test_editar_com_municipio_vazio_enviado_limpa_o_municipio(cliente_logado, administradora, cenario):
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1 Nova', 'municipio': ''})
+    assert resposta.status_code == 302
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == ''
+
+
+# --- exportação CSV (012 R30): GET /fazendas.csv ---
+
+
+def _linhas_do_csv(resposta):
+    import csv
+    import io
+
+    return list(csv.reader(io.StringIO(resposta.content.decode('utf-8')[1:]), delimiter=';'))
+
+
+def test_csv_feliz_administrador_recebe_as_fazendas_da_empresa_em_csv_anexo(administradora, cliente_logado, cenario):
+    resposta = cliente_logado.get('/fazendas.csv')
+    assert resposta.status_code == 200
+    assert resposta['Content-Type'] == 'text/csv; charset=utf-8'
+    assert resposta['Content-Disposition'] == 'attachment; filename="fazendas.csv"'
+    nomes = [linha[0] for linha in _linhas_do_csv(resposta)[1:]]
+    assert nomes == ['F1', 'F2']  # FY é de outra empresa e não aparece
+
+
+@pytest.mark.parametrize('base', ['curador'])
+def test_csv_curador_de_base_exporta_e_aplica_o_filtro_da_busca(base, conta, cliente_logado, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x[base], cenario.x)
+    resposta = cliente_logado.get('/fazendas.csv', {'busca': 'F2'})
+    assert resposta.status_code == 200
+    assert [linha[0] for linha in _linhas_do_csv(resposta)[1:]] == ['F2']
+
+
+@pytest.mark.parametrize('base', ['tecnico', 'usuario'])
+def test_csv_tecnico_e_usuario_negados_por_url_direta(base, conta, cliente_logado, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x[base], cenario.x)
+    assert cliente_logado.get('/fazendas.csv').status_code == 403
+
+
+def test_csv_curador_so_de_sub_area_negado(conta, cliente_logado, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.g1)
+    assert cliente_logado.get('/fazendas.csv').status_code == 403
+
+
+def test_csv_anonimo_vai_ao_login_e_nao_recebe_dado(cenario):
+    resposta = Client().get('/fazendas.csv')
+    assert resposta.status_code == 302
+    assert resposta['Location'].startswith('/entrar')
+
+
+def test_csv_metodo_errado_e_recusado(administradora, cliente_logado):
+    assert cliente_logado.post('/fazendas.csv').status_code == 405
+
+
+def test_csv_empresa_alheia_por_url_direta_nao_traz_linha_de_outra_empresa(conta, cliente_logado, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
+    resposta = cliente_logado.get('/fazendas.csv', {'empresa': cenario.y.pk})
+    assert resposta.status_code == 403  # sem exportar na Y a rota nega, como o botão some (R30); a FY não sai
+
+
+@pytest.mark.parametrize('valor', ['abc', '-1', '²', '1 2', '9' * 19, '9' * 4301])  # acima de 18 dígitos não é id; 4301 estoura o int()
+def test_csv_empresa_com_valor_invalido_e_400(valor, administradora, cliente_logado):
+    assert cliente_logado.get('/fazendas.csv', {'empresa': valor}).status_code == 400
+
+
+def test_csv_injecao_de_formula_no_nome_chega_neutralizada(administradora, cliente_logado, cenario):
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(nome='=HYPERLINK("http://x")')
+    linhas = _linhas_do_csv(cliente_logado.get('/fazendas.csv'))
+    # A ordem por nome depende da collation do banco (pontuação pode ser ignorada): a linha procura-se pelo conteúdo.
+    assert "'=HYPERLINK(\"http://x\")" in [linha[0] for linha in linhas[1:]]
+    assert not any(linha[0].startswith('=') for linha in linhas)
+
+
+def test_csv_sem_linha_nao_registra_evento_de_exportacao(administradora, cliente_logado, cenario):
+    resposta = cliente_logado.get('/fazendas.csv', {'busca': 'segredo-de-busca'})
+    assert resposta.status_code == 200
+    assert _linhas_do_csv(resposta)[1:] == []
+    assert not EventoAuditoria.objects.filter(acao='dados_exportados').exists()
+
+
+def test_csv_registra_quantidade_e_nao_a_busca_quando_ha_linhas(administradora, cliente_logado, cenario):
+    cliente_logado.get('/fazendas.csv', {'busca': 'F'})
+    eventos = list(EventoAuditoria.objects.filter(acao='dados_exportados').values_list('empresa_id', 'detalhes'))
+    assert eventos == [(cenario.x.pk, {'quantidade': 2})]
+    assert 'busca' not in str(eventos)

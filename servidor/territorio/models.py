@@ -69,6 +69,8 @@ class NivelDivisao(models.Model):
 class Fazenda(Arquivavel):
     empresa = models.ForeignKey(Empresa, on_delete=models.PROTECT)
     nome = models.CharField(max_length=200)
+    # Vazio = "Sem dados" na tela (spec 012, telas.md §3). `db_default` para o INSERT da versão anterior seguir válido.
+    municipio = models.CharField(max_length=200, blank=True, default='', db_default='')
     criada_em = models.DateTimeField(auto_now_add=True)
     empresa_id: int  # anotação só para o pyright: o Django cria a coluna `empresa_id`
 

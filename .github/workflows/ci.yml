@@ -46,7 +46,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # Banco com a imagem do repositório (D114: PostgreSQL 18 por digest + PostGIS 3.6.4). `services:` não builda imagem, então sobe-se o contêiner aqui.
+      # Banco com a imagem do repositório (D114: PostgreSQL 18 por digest + PostGIS por POSTGIS_VERSAO no Dockerfile do banco).`services:` não builda imagem, então sobe-se o contêiner aqui.
       - name: Banco
         if: ${{ needs.escopo.outputs.python != 'false' }}
         run: |

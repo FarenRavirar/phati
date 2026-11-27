@@ -37,9 +37,10 @@
 {% endfor %}
 {% for empresa_da_lista, fazenda_da_lista in seletor.fazendas %}{% url 'fazenda' empresa_da_lista.pk fazenda_da_lista.pk as url_da_fazenda %}{% include "componentes/botao.html" with texto=fazenda_da_lista.nome href=url_da_fazenda variante="fantasma" tamanho="sm" only %}
 {% endfor %}
-{% include "componentes/botao.html" with texto="Empresas" href="/empresas/" variante="fantasma" tamanho="sm" only %}
-{% if seletor.arquivadas %}{% include "componentes/botao.html" with texto="Arquivadas" href="/arquivadas/" variante="fantasma" tamanho="sm" only %}{% endif %}
+{% if empresa_escolhida %}{% url 'empresa' empresa_escolhida.pk as url_da_empresa %}{% include "componentes/botao.html" with texto="Abrir empresa" href=url_da_empresa variante="fantasma" tamanho="sm" only %}{% endif %}
+{% include "componentes/atalhos_seletor.html" %}
 </div>
+<noscript>{% include "componentes/atalhos_seletor.html" %}</noscript>
 </div>
 <details class="ag-sidebar-detalhes" open>
 <summary class="ag-sidebar-resumo">Menu</summary>

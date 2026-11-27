@@ -28,6 +28,22 @@ def _renomeado(detalhes):
     return f'De "{_valor(detalhes, "nome_antigo")}" para "{_valor(detalhes, "nome_novo")}".'
 
 
+def _municipio(valor):
+    """Município entre aspas; vazio é dado ausente, então 'Sem dados' sem aspas (não é um nome)."""
+    return f'"{valor}"' if valor else 'Sem dados'
+
+
+def _fazenda_editada(detalhes):
+    """Evento da edição da fazenda (`fazenda_renomeada`): nome e município só aparecem se mudaram; sem mudança, 'Sem alteração.'."""
+    partes = []
+    if _valor(detalhes, 'nome_antigo') != _valor(detalhes, 'nome_novo'):
+        partes.append(_renomeado(detalhes))
+    antigo, novo = _valor(detalhes, 'municipio_antigo'), _valor(detalhes, 'municipio_novo')
+    if 'municipio_novo' in detalhes and antigo != novo:
+        partes.append(f'Município de {_municipio(antigo)} para {_municipio(novo)}.')
+    return ' '.join(partes) or 'Sem alteração.'
+
+
 def _nivel(detalhes):
     nivel, antigo, novo = _valor(detalhes, 'nivel'), _valor(detalhes, 'nome_antigo'), _valor(detalhes, 'nome_novo')
     if antigo and novo:
@@ -109,6 +125,11 @@ def _consulta(detalhes):
     return 'Filtros: ' + ', '.join(partes) + '.' if partes else 'Sem filtros.'
 
 
+def _exportacao(detalhes):
+    quantidade = detalhes.get('quantidade')
+    return f'{quantidade} fazendas exportadas em CSV.' if quantidade is not None else _SEM_RESUMO
+
+
 def _titularidade(detalhes):
     return 'Titularidade da empresa transferida.' if detalhes.get('para') is not None else _SEM_RESUMO
 
@@ -136,13 +157,14 @@ ROTULOS = {
     'convite_recusado': ('Convite recusado', _vazio),
     'convite_cancelado': ('Convite cancelado', _cancelado),
     'empresa_renomeada': ('Empresa renomeada', _renomeado),
-    'fazenda_renomeada': ('Fazenda renomeada', _renomeado),
+    'fazenda_renomeada': ('Fazenda editada', _fazenda_editada),
     'sub_area_renomeada': ('Sub-área renomeada', _renomeado),
     'territorio_arquivado': ('Arquivado', _arquivamento),
     'territorio_desarquivado': ('Desarquivado', _vazio),
     'nivel_definido': ('Nível da divisão definido', _nivel),
     'pacote_gerado': ('Pacote offline gerado', _pacote),
     'auditoria_consultada': ('Auditoria consultada', _consulta),
+    'dados_exportados': ('Dados exportados', _exportacao),
 }
 
 

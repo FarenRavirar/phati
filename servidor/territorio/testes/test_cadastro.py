@@ -21,7 +21,7 @@ from permissao.delegacao import conceder
 from permissao.pode import pode
 from territorio.cadastro import (
     arquivar, criar_empresa, criar_fazenda, criar_sub_area, desarquivar, efeitos_do_arquivamento, renomear_empresa,
-    renomear_fazenda, renomear_sub_area,
+    municipio_valido, renomear_fazenda, renomear_sub_area,
 )
 from territorio.models import Empresa, Fazenda, NivelDivisao, SubArea
 from territorio.niveis import definir_nivel
@@ -652,9 +652,123 @@ def test_renomear_recusado_devolve_o_nome_antigo_a_instancia_do_chamador(cenario
     assert fazenda.nome == 'F1'
 
 
+def test_renomear_para_nome_repetido_com_municipio_novo_recusa_e_mantem_nome_e_municipio(cenario, admin_x):
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    with pytest.raises(ValidationError) as erro:
+        renomear_fazenda(admin_x, fazenda, 'f2', 'Sorriso')
+    assert erro.value.code == 'nome_duplicado'
+    assert (fazenda.nome, fazenda.municipio) == ('F1', '')  # a instância do chamador volta ao antigo
+    gravada = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert (gravada.nome, gravada.municipio) == ('F1', '')  # e o banco nunca mudou
+    assert _eventos('fazenda_renomeada') == []  # sem evento de auditoria
+
+
 def test_gerenciar_cargo_de_empresa_que_nao_existe_para_quem_ve_e_negado_e_nada_grava(catalogo_da_corrida, cenario, plataforma):
     fantasma = Empresa(pk=999999, nome='Fantasma')
     antes = Cargo.objects.count()
     with pytest.raises(PermissionDenied):
         gerenciar_cargo(plataforma, fantasma, 'Cargo fantasma', ['ver'], base='usuario')
     assert Cargo.objects.count() == antes
+
+
+@pytest.mark.parametrize('municipio', ['', '   ', 'Sorriso'])
+def test_municipio_valido_aceita_vazio_e_remove_espacos(municipio):
+    assert municipio_valido(municipio) == municipio.strip()
+
+
+def test_municipio_valido_trata_none_como_vazio():
+    assert municipio_valido(None) == ''
+
+
+def test_municipio_com_mais_de_200_caracteres_e_recusado():
+    with pytest.raises(ValidationError) as erro:
+        municipio_valido('m' * 201)
+    assert erro.value.code == 'municipio_invalido'
+
+
+def test_criar_fazenda_com_municipio_grava_o_municipio(cenario, admin_x):
+    assert criar_fazenda(admin_x, cenario.x, 'Nova', ' Sorriso ').municipio == 'Sorriso'
+    assert Fazenda.objects.get(nome='Nova').municipio == 'Sorriso'
+
+
+def test_criar_fazenda_sem_municipio_fica_vazia_e_valida(cenario, admin_x):
+    assert criar_fazenda(admin_x, cenario.x, 'Sem Municipio').municipio == ''
+
+
+def test_criar_fazenda_com_municipio_longo_e_recusada_sem_gravar(cenario, admin_x):
+    with pytest.raises(ValidationError) as erro:
+        criar_fazenda(admin_x, cenario.x, 'Longa', 'm' * 201)
+    assert erro.value.code == 'municipio_invalido'
+    assert not Fazenda.objects.filter(nome='Longa').exists()
+
+
+def test_criar_fazenda_com_municipio_sem_permissao_e_negada(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Usuario X')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.x)
+    with pytest.raises(PermissionDenied):
+        criar_fazenda(pessoa, cenario.x, 'Proibida', 'Sorriso')
+    assert not Fazenda.objects.filter(nome='Proibida').exists()
+
+
+def test_renomear_fazenda_so_o_municipio_gera_evento_com_antigo_e_novo(cenario, admin_x):
+    renomear_fazenda(admin_x, cenario.f1, 'F1', 'Sorriso')
+    (evento,) = _eventos('fazenda_renomeada')
+    assert evento.detalhes['municipio_antigo'] == ''
+    assert evento.detalhes['municipio_novo'] == 'Sorriso'
+    assert evento.detalhes['nome_antigo'] == evento.detalhes['nome_novo'] == 'F1'
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == 'Sorriso'
+
+
+def test_renomear_fazenda_sem_mudar_o_municipio_nao_grava_campo_de_municipio_no_evento(cenario, admin_x):
+    renomear_fazenda(admin_x, cenario.f1, 'F1 Nova', None)
+    (evento,) = _eventos('fazenda_renomeada')
+    assert 'municipio_novo' not in evento.detalhes
+
+
+def test_renomear_fazenda_com_municipio_longo_e_recusado_sem_gravar(cenario, admin_x):
+    with pytest.raises(ValidationError) as erro:
+        renomear_fazenda(admin_x, cenario.f1, 'F1 Nova', 'm' * 201)
+    assert erro.value.code == 'municipio_invalido'
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert (fazenda.nome, fazenda.municipio) == ('F1', '')
+    assert _eventos('fazenda_renomeada') == []
+
+
+def test_renomear_fazenda_com_municipio_sem_permissao_e_negado(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Usuario X')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.x)
+    with pytest.raises(PermissionDenied):
+        renomear_fazenda(pessoa, cenario.f1, 'Nova', 'Sorriso')
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == ''
+
+
+@pytest.mark.parametrize('nome', ['a\x00b', '\x00', '  \x00  '])
+def test_nome_com_nul_e_recusado_com_validation_error_e_nao_500(cenario, plataforma, admin_x, cpf_novo, nome):
+    # Postgres não grava NUL em texto: sem a checagem na função, o INSERT/UPDATE levanta ValueError (500).
+    for chamada in (
+        lambda: criar_empresa(plataforma, nome, 'Ana', 'ana@exemplo.test', cpf_novo()),
+        lambda: criar_fazenda(admin_x, cenario.x, nome),
+        lambda: renomear_empresa(admin_x, cenario.x, nome),
+        lambda: renomear_fazenda(admin_x, cenario.f1, nome),
+    ):
+        with pytest.raises(ValidationError) as erro:
+            chamada()
+        assert erro.value.code == 'nome_invalido'
+    assert Empresa.objects.get(pk=cenario.x.pk).nome == 'Empresa X'
+
+
+@pytest.mark.parametrize('municipio', ['Sertão\x00', '\x00'])
+def test_municipio_com_nul_e_recusado_com_validation_error_na_criacao_e_na_edicao(cenario, admin_x, municipio):
+    with pytest.raises(ValidationError) as erro:
+        criar_fazenda(admin_x, cenario.x, 'Fazenda nova', municipio)
+    assert erro.value.code == 'municipio_invalido'
+    with pytest.raises(ValidationError) as erro:
+        renomear_fazenda(admin_x, cenario.f1, 'Fazenda X', municipio=municipio)
+    assert erro.value.code == 'municipio_invalido'
+    assert not Fazenda.objects.filter(empresa=cenario.x, nome='Fazenda nova').exists()
+
+
+def test_municipio_e_nome_sem_nul_continuam_validos():
+    # Caminho feliz junto do negativo: o NUL é recusado, texto comum e vazio não.
+    assert municipio_valido('  Sertão  ') == 'Sertão'
+    assert municipio_valido('') == ''

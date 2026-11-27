@@ -8,6 +8,7 @@
     "redefinir_senha_confirmar": "Página de redefinição — 002 R6",
     "acesso_renovar": "Sem tela: renova o token do aplicativo Android; a web usa cookie",
     "auditoria_listar": "Lista da auditoria — 005 R6 (tela /auditoria/)",
+    "fazendas_csv": "Exportar fazendas em CSV — 012 R30 (GET /fazendas.csv, com o filtro da listagem; botão Exportar em /empresas/ e na página da empresa /empresa/<id>/)",
     "pessoas_listar": "Lista de pessoas — 003 R13 (tela /empresa/<id>/pessoas/)",
     "pessoas_convidar": "Convidar pessoa — 003 R13 (tela /empresa/<id>/pessoas/convidar)",
     "concessoes_criar": "Conceder cargo — 003 R19 (tela /empresa/<id>/pessoa/<id>/conceder)",
@@ -81,6 +82,14 @@
     "territorio.listagem.fazendas_autorizadas": "Seletor e Início — 002 R9, R10",
     "territorio.listagem.empresas_autorizadas": "Lista de empresas (/empresas/) e seletor — 002 R3, R10; sem rota na API (o aplicativo não precisa de empresas nesta fase)",
     "territorio.listagem.sub_areas_da_fazenda": "Página da fazenda — 002 R11; sem rota na API (o aplicativo recebe sub-áreas no pacote offline, spec futura)",
+    "territorio.listagem.listar_fazendas": "Fazendas (012 R20, R30): tela /empresas/ e página da empresa /empresa/<id>/ (Q24), com busca, situação e páginas; a API depois",
+    "territorio.listagem.exportar_fazendas": "Exportar fazendas em CSV — 012 R30 (rota GET /fazendas.csv; sem paginação, uma decisão de exportar por fazenda)",
+    "territorio.listagem.pode_exportar_fazendas": "Botão Exportar da tela Fazendas — 012 R30; sem rota própria (a rota é GET /fazendas.csv, já listada)",
+    "territorio.listagem.empresas_com_nova_fazenda": "Botão Nova fazenda e escolha de empresa da tela Fazendas — 012 R20 (Q17); sem rota própria (o formulário é fazenda_nova, por empresa)",
+    "territorio.exportacao.neutralizar": "Sem tela: neutraliza célula que começa com fórmula no CSV — 012 R30",
+    "territorio.exportacao.csv_das_fazendas": "Sem tela: texto do CSV de fazendas (Excel pt-BR, BOM, Sem dados) — 012 R30 (rota GET /fazendas.csv)",
+    "territorio.exportacao.registrar_exportacao": "Sem tela: um evento de auditoria por empresa exportada, sem a busca — 012 R30 (rota GET /fazendas.csv)",
+    "territorio.listagem.area_da_fazenda": "Área (ha) da linha de Fazendas (012 R20, R7): sempre None até a vigência, nunca 0; sem rota própria",
     "permissao.pode.permissoes_efetivas": "Menu — 002 R2; sem rota na API (o aplicativo não monta menu por permissão)",
     "permissao.pode.com_permissao": "Todas as views autenticadas e a ponte para o painel — 002 R3, R24",
     "permissao.pode.escopos_da_acao": "Todas as views autenticadas — 002 R3",
@@ -117,6 +126,7 @@
     "identidade.login.registrar_falha": "Sem tela: contagem de falha de login chamada por autenticar — 002 R4",
     "territorio.cadastro.criar_empresa": "Criar empresa — 003 R9 (tela e API)",
     "territorio.cadastro.criar_fazenda": "Criar fazenda — 003 R9 (tela e API)",
+    "territorio.cadastro.municipio_valido": "Município da fazenda (campo na criação e na edição; vazio = Sem dados) — spec 012 R29 (tela e API)",
     "territorio.cadastro.criar_sub_area": "Criar sub-área — 003 R9, R10 (tela e API)",
     "identidade.cpf.normalizar_cpf": "Sem tela: valida e normaliza o CPF digitado no login, no esqueci a senha e no convite — 002 R4, R6",
     "identidade.cpf.chave_de_busca": "Sem tela: índice de busca do CPF (login, convite, redefinição)",
@@ -184,7 +194,8 @@
     "renomear": "003 R9 (telas de renomear e API); só a base Administrador",
     "arquivar": "003 R11 (tela de confirmação e API); só a base Administrador",
     "desarquivar": "003 R11 (tela de confirmação, seção Arquivadas e API); só a base Administrador",
-    "ver_auditoria": "005 R6 (tela /auditoria/ e GET /api/v1/auditoria; só o Administrador)"
+    "ver_auditoria": "005 R6 (tela /auditoria/ e GET /api/v1/auditoria; só o Administrador)",
+    "exportar_dados": "012 R30 e R34: rota GET /fazendas.csv (botão Exportar na tela Fazendas, em /empresas/ e /empresa/<id>/); não delegável (Q20); cargo Administrador e Curador de base"
   },
   "sem_acao": {}
 }

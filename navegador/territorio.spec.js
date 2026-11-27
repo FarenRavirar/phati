@@ -30,13 +30,15 @@ test('plataforma cria empresa; o Administrador cadastra, nomeia níveis, renomei
   await conferirTela(page);
   await page.getByRole('link', { name: 'Abrir a empresa' }).click();
 
-  await page.getByRole('link', { name: 'Nomes dos níveis da divisão' }).click();
+  await page.locator('summary[aria-label="Mais ações"]').click();
+  await page.locator('.ag-mais-acoes-lista').getByRole('link', { name: 'Nomes dos níveis da divisão' }).click();
   await expect(page.getByRole('heading', { name: 'Nomes dos níveis da divisão', level: 1 })).toBeVisible();
   await conferirTela(page);
   await page.getByLabel('Nome do nível 1').fill('Quadra');
   await page.getByRole('button', { name: 'Salvar nomes' }).click();
 
-  await page.getByRole('link', { name: 'Cadastrar fazenda' }).click();
+  await page.locator('summary[aria-label="Mais ações"]').click();
+  await page.locator('.ag-mais-acoes-lista').getByRole('link', { name: 'Cadastrar fazenda' }).click();
   await expect(page.getByRole('heading', { name: 'Nova fazenda', level: 1 })).toBeVisible();
   await conferirTela(page);
   await page.getByLabel('Nome da fazenda').fill('   ');
