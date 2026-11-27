@@ -35,7 +35,8 @@ def admin_de_x(cliente_logado, conta, cenario, conceder_direto):
 def test_feliz_lista_as_fazendas_visiveis_e_nao_as_de_outra_empresa(admin_de_x):
     html = _conteudo(admin_de_x.get('/empresas/').content.decode())
     assert html.count('class="ag-celula-principal"') == 15
-    assert 'Fazenda Teste 00' in html and 'Fazenda Teste 12' in html
+    assert 'Fazenda Teste 00' in html
+    assert 'Fazenda Teste 12' in html
     assert 'Fazenda Alheia' not in html
     assert 'Empresa Y' not in html
     assert '15 de 15 fazendas' in html
@@ -74,7 +75,8 @@ def test_busca_sem_resultado_mostra_vazio_com_limpar_filtros(admin_de_x):
 def test_situacao_arquivadas_filtra_e_marca_a_opcao_ativa(admin_de_x, conta, cenario):
     Fazenda.objects.create(empresa=cenario.x, nome='Velha', arquivada_em=timezone.now(), arquivada_por=conta.pessoa, arquivamento=uuid4())
     html = _conteudo(admin_de_x.get('/empresas/', {'situacao': 'arquivadas'}).content.decode())
-    assert 'Velha' in html and 'Fazenda Teste 00' not in html
+    assert 'Velha' in html
+    assert 'Fazenda Teste 00' not in html
     assert '>Arquivada<' in html
     assert 'data-valor="arquivadas" aria-current="true"' in html
     assert 'data-valor="todas" aria-current="true"' not in html
@@ -167,7 +169,8 @@ def test_duas_empresas_com_nova_fazenda_leva_a_escolha(cliente_logado, conta, ce
     html = cliente_logado.get('/empresas/').content.decode()
     assert 'href="/fazendas/nova/"' in html
     escolha = cliente_logado.get('/fazendas/nova/').content.decode()
-    assert 'Empresa X' in escolha and 'Empresa Y' in escolha
+    assert 'Empresa X' in escolha
+    assert 'Empresa Y' in escolha
     assert f'href="/empresa/{cenario.x.pk}/fazenda/nova"' in escolha
 
 
@@ -201,7 +204,8 @@ def test_lista_de_empresas_nao_tem_arquivadas_nem_botoes_de_acao(admin_de_x):
     # Arquivadas saiu da lista (Q24): o link fica no seletor, e a lista não repete botão de ação.
     html = _conteudo(admin_de_x.get('/empresas/').content.decode())
     assert 'href="/arquivadas/"' not in html
-    assert 'class="acoes-pagina"' not in html and 'ag-mais-acoes' not in html
+    assert 'class="acoes-pagina"' not in html
+    assert 'ag-mais-acoes' not in html
 
 
 def test_acoes_da_lista_ficam_no_cabecalho_a_direita_e_nao_abaixo_do_titulo(admin_de_x):
@@ -209,7 +213,8 @@ def test_acoes_da_lista_ficam_no_cabecalho_a_direita_e_nao_abaixo_do_titulo(admi
     html = admin_de_x.get('/empresas/').content.decode()
     assert html.index('<h1>Fazendas</h1>') < html.index('class="ag-cabecalho-acoes"') < html.index('class="ag-barra-fazendas"')
     bloco = html.split('class="ag-cabecalho-acoes"')[1].split('class="ag-barra-fazendas"')[0]
-    assert 'Exportar' in bloco and 'Nova fazenda' in bloco
+    assert 'Exportar' in bloco
+    assert 'Nova fazenda' in bloco
 
 
 def test_menu_mais_acoes_da_empresa_fica_no_bloco_de_acoes_do_cabecalho(admin_de_x, cenario):
@@ -222,7 +227,8 @@ def test_lista_sem_permissao_de_acao_deixa_o_bloco_de_acoes_vazio(cliente_logado
     # Negativo: técnico não exporta nem cadastra; o bloco do cabeçalho sai sem botão nenhum.
     conceder_direto(conta.pessoa, cenario.cargos_x['tecnico'], cenario.x)
     bloco = cliente_logado.get('/empresas/').content.decode().split('class="ag-cabecalho-acoes"')[1].split('class="ag-barra-fazendas"')[0]
-    assert '<a ' not in bloco and 'ag-mais-acoes' not in bloco
+    assert '<a ' not in bloco
+    assert 'ag-mais-acoes' not in bloco
 
 
 def test_municipio_vazio_mostra_sem_dados_e_nao_sem_informacao(admin_de_x):
@@ -311,7 +317,8 @@ def test_administrador_ve_mais_acoes_da_empresa_com_os_seis_itens(admin_de_x, ce
 def test_tecnico_na_empresa_nao_ve_renomear_nem_arquivar(cliente_logado, conta, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['tecnico'], cenario.x)
     menu = _mais_acoes(cliente_logado.get(f'/empresa/{cenario.x.pk}/').content.decode())
-    assert 'Renomear empresa' not in menu and 'Arquivar empresa' not in menu
+    assert 'Renomear empresa' not in menu
+    assert 'Arquivar empresa' not in menu
     assert 'Cadastrar fazenda' not in menu
 
 
@@ -330,7 +337,8 @@ def test_empresa_arquivada_mostra_aviso_e_so_desarquivar(admin_de_x, cenario, co
     menu = _mais_acoes(html)
     assert menu.count('<a href=') == 1
     assert f'<a href="{reverse("empresa_desarquivar", kwargs={"empresa_id": cenario.x.pk})}">Desarquivar</a>' in menu
-    assert 'Nova fazenda' not in html and html.count('class="ag-celula-principal"') == 15
+    assert 'Nova fazenda' not in html
+    assert html.count('class="ag-celula-principal"') == 15
 
 
 def test_empresa_arquivada_sem_permissao_de_desarquivar_nao_mostra_menu(cliente_logado, conta, cenario, conceder_direto):
@@ -338,13 +346,15 @@ def test_empresa_arquivada_sem_permissao_de_desarquivar_nao_mostra_menu(cliente_
     conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
     html = cliente_logado.get(f'/empresa/{cenario.x.pk}/').content.decode()
     assert 'Esta empresa está arquivada' in html
-    assert 'class="ag-mais-acoes"' not in html and 'Desarquivar' not in html
+    assert 'class="ag-mais-acoes"' not in html
+    assert 'Desarquivar' not in html
 
 
 def test_empresa_arquivada_mantem_as_fazendas_e_o_filtro_de_arquivadas(admin_de_x, cenario, conta):
     Fazenda.objects.create(empresa=cenario.x, nome='Velha', arquivada_em=timezone.now(), arquivada_por=conta.pessoa, arquivamento=uuid4())
     html = _conteudo(admin_de_x.get(f'/empresa/{cenario.x.pk}/', {'situacao': 'arquivadas'}).content.decode())
-    assert '>Velha<' in html and 'Fazenda Teste 00' not in html
+    assert '>Velha<' in html
+    assert 'Fazenda Teste 00' not in html
 
 
 def test_nome_hostil_da_empresa_sai_escapado_na_pagina_dela(admin_de_x, cenario):
@@ -397,7 +407,8 @@ def test_abrir_empresa_leva_a_empresa_escolhida_no_seletor(cliente_logado, conta
     conta.pessoa.save(update_fields=['administrador_plataforma'])
     _escolher_empresa(cliente_logado, cenario.y)
     trecho = _abrir_empresa_do_seletor(cliente_logado)
-    assert f'href="/empresa/{cenario.y.pk}/"' in trecho and f'/empresa/{cenario.x.pk}/' not in trecho
+    assert f'href="/empresa/{cenario.y.pk}/"' in trecho
+    assert f'/empresa/{cenario.x.pk}/' not in trecho
 
 
 def test_abrir_empresa_some_sem_empresa_escolhida(cliente_logado, conta, cenario):
@@ -412,7 +423,8 @@ def test_abrir_empresa_descarta_escolha_sem_acesso(admin_de_x, cenario):
     # Negativo: a empresa escolhida na sessão não é alcançada por esta pessoa; sai da sessão e o item vai à que ela alcança.
     _escolher_empresa(admin_de_x, cenario.y)
     trecho = _abrir_empresa_do_seletor(admin_de_x)
-    assert f'href="/empresa/{cenario.x.pk}/"' in trecho and f'/empresa/{cenario.y.pk}/' not in trecho
+    assert f'href="/empresa/{cenario.x.pk}/"' in trecho
+    assert f'/empresa/{cenario.y.pk}/' not in trecho
 
 
 def test_seletor_leva_arquivadas_so_a_quem_alcanca_arquivada(admin_de_x, cenario, conta):
@@ -426,13 +438,15 @@ def test_seletor_leva_cadastrar_empresa_so_a_plataforma(cliente_logado, conta, c
     conta.pessoa.administrador_plataforma = True
     conta.pessoa.save(update_fields=['administrador_plataforma'])
     cabecalho = cliente_logado.get('/empresas/').content.decode().split('<main')[0]
-    assert 'Cadastrar empresa' in cabecalho and 'href="/empresas/nova"' in cabecalho
+    assert 'Cadastrar empresa' in cabecalho
+    assert 'href="/empresas/nova"' in cabecalho
 
 
 def test_empresa_sem_acesso_nao_mostra_mais_acoes_nem_aviso(cliente_logado, cenario):
     resposta = cliente_logado.get(f'/empresa/{cenario.y.pk}/')
     assert resposta.status_code == 404
-    assert b'Mais a' not in resposta.content and b'arquivada' not in resposta.content
+    assert b'Mais a' not in resposta.content
+    assert b'arquivada' not in resposta.content
 
 
 # --- botão Exportar na página da empresa (R30): só onde a pessoa exporta ---

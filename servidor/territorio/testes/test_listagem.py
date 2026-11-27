@@ -385,7 +385,8 @@ def test_fazenda_de_outra_empresa_nunca_aparece_nem_buscando_o_nome(cenario, fab
     conceder_direto(admin_x, cenario.cargos_x['administrador'], cenario.x)
     assert _nomes_da_pagina(listar_fazendas(admin_x)) == ['F1', 'F2']
     pagina = listar_fazendas(admin_x, busca='FY')
-    assert pagina.linhas == [] and (pagina.total_filtrado, pagina.total) == (0, 2)
+    assert pagina.linhas == []
+    assert (pagina.total_filtrado, pagina.total) == (0, 2)
     assert listar_fazendas(admin_x, busca='Empresa Y').linhas == []
     assert listar_fazendas(admin_x, empresa_id=cenario.y.pk).linhas == []
 
@@ -527,8 +528,9 @@ def test_exportar_curador_so_de_sub_area_e_negado(cenario, conceder_direto, fabr
 
 
 def test_exportar_sem_nenhuma_concessao_e_negado(cenario, fabrica_pessoa):
+    sem_acesso = fabrica_pessoa('Sem acesso')
     with pytest.raises(PermissionDenied):
-        exportar_fazendas(fabrica_pessoa('Sem acesso'))
+        exportar_fazendas(sem_acesso)
 
 
 def test_exportar_so_leva_fazenda_que_a_pessoa_pode_exportar_mesmo_com_ver_nas_duas(cenario, conceder_direto, fabrica_pessoa):

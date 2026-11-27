@@ -18,8 +18,10 @@ def test_noscript_leva_cadastrar_e_arquivadas_a_quem_tem_as_duas(cliente_logado,
     conta.pessoa.save(update_fields=['administrador_plataforma'])
     Fazenda.objects.create(empresa=cenario.x, nome='Velha', arquivada_em=timezone.now(), arquivada_por=conta.pessoa, arquivamento=uuid4())
     html = cliente_logado.get('/empresas/').content.decode()
-    assert 'href="/empresas/nova"' in _noscript(html) and 'Cadastrar empresa' in _noscript(html)
-    assert 'href="/arquivadas/"' in _noscript(html) and 'Arquivadas' in _noscript(html)
+    assert 'href="/empresas/nova"' in _noscript(html)
+    assert 'Cadastrar empresa' in _noscript(html)
+    assert 'href="/arquivadas/"' in _noscript(html)
+    assert 'Arquivadas' in _noscript(html)
 
 
 def test_noscript_sem_permissao_nao_leva_a_cadastrar_nem_a_arquivadas(cliente_logado, cenario):

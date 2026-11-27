@@ -501,6 +501,15 @@ def test_municipio_longo_na_edicao_volta_400_e_nao_renomeia_nem_grava_evento(cli
     assert not EventoAuditoria.objects.filter(acao='fazenda_renomeada', detalhes__nome_novo='F1 Outra').exists()
 
 
+def test_nome_invalido_sem_municipio_no_post_reexibe_o_municipio_atual(cliente_logado, administradora, cenario):
+    # Sem o campo no POST o serviço não mexe no município; o 400 tem de mostrar o valor atual, não o campo vazio.
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': ''})
+    assert resposta.status_code == 400
+    assert 'value="Sorriso"' in resposta.content.decode()
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == 'Sorriso'
+
+
 def test_editar_so_o_municipio_grava_e_audita_antigo_e_novo(cliente_logado, administradora, cenario):
     resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1', 'municipio': 'Sorriso'})
     assert resposta.status_code == 302

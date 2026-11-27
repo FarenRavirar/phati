@@ -23,9 +23,22 @@ class ExtensaoUnaccentSemVolta(UnaccentExtension):
 
 # Cópia congelada (como nas migrações de permissao). Não delegável: só o Administrador a põe num cargo (Q20).
 ACOES = [('exportar_dados', 'Exportar a lista de fazendas em CSV (só o Administrador e o Curador de base)', False)]
-# Base administrador leva a ação toda; base curador só o cargo-base de nome 'Curador' (NOMES em permissao/cargos_base.py).
-# Cargo personalizado de base curador não ganha a ação (spec 012, Q20). Literal aqui: a migração é cópia congelada.
-NOME_CARGO_BASE_CURADOR = 'Curador'
+
+
+def cargos_que_levam_a_acao(Cargo):
+    # Base administrador leva a ação toda. Base curador só o cargo-base Curador de cada empresa (spec 012, Q20): o de
+    # base curador de menor pk maior que o pk do administrador da mesma empresa. `criar_cargos_base` cria administrador
+    # antes de curador, e `gerenciar_cargo` recusa criar cargo de base administrador, então esse critério acha o cargo-base
+    # mesmo renomeado, e um personalizado de base curador (criado depois) fica de fora. Empresa sem administrador: nenhum.
+    # Não se usa o nome: o cargo-base pode ser renomeado e um personalizado pode levar o nome 'Curador'.
+    admin_de = {}
+    for empresa_id, pk in Cargo.objects.filter(base='administrador').order_by('pk').values_list('empresa_id', 'pk'):
+        admin_de.setdefault(empresa_id, pk)
+    curadores = [
+        Cargo.objects.filter(empresa_id=empresa_id, base='curador', pk__gt=pk_admin).order_by('pk').first()
+        for empresa_id, pk_admin in admin_de.items()
+    ]
+    return Cargo.objects.filter(Q(base='administrador') | Q(pk__in=[c.pk for c in curadores if c is not None]))
 
 
 def carregar(apps, schema_editor):
@@ -34,9 +47,7 @@ def carregar(apps, schema_editor):
         (permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES), ignore_conflicts=True,
     )
     cargo_permissao = apps.get_model('permissao', 'CargoPermissao')
-    cargos = apps.get_model('permissao', 'Cargo').objects.filter(
-        Q(base='administrador') | Q(base='curador', nome=NOME_CARGO_BASE_CURADOR),
-    )
+    cargos = cargos_que_levam_a_acao(apps.get_model('permissao', 'Cargo'))
     cargo_permissao.objects.bulk_create(
         (cargo_permissao(cargo=cargo, permissao_id=codigo) for cargo in cargos for codigo, _, _ in ACOES),
         ignore_conflicts=True,

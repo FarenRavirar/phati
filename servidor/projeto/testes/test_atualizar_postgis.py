@@ -36,7 +36,8 @@ def test_cria_postgis_em_template1_e_no_banco_da_aplicacao(tmp_path, monkeypatch
     assert resultado.returncode == 0, resultado.stderr
     assert len(chamadas) == 4
     assert [c for c in chamadas if '-d template1' in c] == [c for c in chamadas[:2]]
-    assert '-d phati_x' in chamadas[2] and '-d phati_x' in chamadas[3]
+    assert '-d phati_x' in chamadas[2]
+    assert '-d phati_x' in chamadas[3]
     assert all('ON_ERROR_STOP=1' in c for c in chamadas)
     assert sum('CREATE EXTENSION IF NOT EXISTS postgis;' in c for c in chamadas) == 2
     assert sum('CREATE EXTENSION IF NOT EXISTS unaccent;' in c for c in chamadas) == 2

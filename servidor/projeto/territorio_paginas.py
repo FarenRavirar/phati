@@ -236,9 +236,10 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         # Município só existe na fazenda: a edição dela leva o campo, e o serviço grava os dois no mesmo evento.
         extra = {}
         if isinstance(alvo, Fazenda):
-            # Campo ausente no POST é None: o serviço não mexe no município; '' enviado limpa.
+            # Campo ausente no POST é None: o serviço não mexe no município; '' enviado limpa. Na reexibição do 400 sem o
+            # campo, mostra o município atual do alvo (o serviço não o altera quando é None, então o objeto segue íntegro).
             municipio = requisicao.POST.get('municipio') if requisicao.method == 'POST' else alvo.municipio
-            campos.append(campo('municipio', 'Município', municipio or ''))
+            campos.append(campo('municipio', 'Município', (alvo.municipio if municipio is None else municipio) or ''))
             extra = {'municipio': municipio}
         sub_area = alvo if isinstance(alvo, SubArea) else None  # trilha: Fazendas / fazenda / sub-área
         acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',), pessoa=requisicao.user)

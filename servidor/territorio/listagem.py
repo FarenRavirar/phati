@@ -99,7 +99,7 @@ def sub_areas_da_fazenda(pessoa, fazenda, arquivadas: bool | None = False):
         return list(consulta.filter(_alcance_sub_areas(escopos, [fazenda])).order_by('nivel', 'nome', 'pk'))
 
 
-def area_da_fazenda(fazenda):
+def area_da_fazenda(_fazenda):
     """Área (ha) da fazenda. Sem vigência ainda: `None` = "Sem dados", nunca 0.
     shortcut: área vem da revisão vigente quando a spec de vigência existir (spec 012, plan.md, Dados novos)."""
     return None
