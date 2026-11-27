@@ -37,6 +37,19 @@ function resumirViolacao(violacao) {
   };
 }
 
+// Espera o fim das animações finitas em curso (CSS ou Web Animations; transição CSS aparece como CSSTransition).
+// Sem a espera, o axe lê a cor no meio do fade-in e reprova texto certo (CI, pessoas.spec.js:64, diálogo agrion).
+// Infinita não termina e pausada não tem `finished` que dispare: ficam de fora, e a página é julgada como está.
+// Repete até não sobrar animação finita, para cobrir a que começa logo depois da primeira rodada.
+async function esperarAnimacoesFinitas(pagina) {
+  await pagina.evaluate(async () => {
+    const emCurso = () => document.getAnimations().filter((animacao) => ['running', 'pending'].includes(animacao.playState) && animacao.effect?.getComputedTiming().iterations !== Infinity);
+    for (let animacoes = emCurso(); animacoes.length; animacoes = emCurso()) {
+      await Promise.allSettled(animacoes.map((animacao) => animacao.finished));
+    }
+  });
+}
+
 // Devolve as violações da página aberta; lista vazia é aprovação. `desligar`: regras extras desligadas nesta chamada.
 // `dentroDe`: seletor CSS; audita só esse trecho (com todas as regras, inclusive target-size).
 async function violacoes(pagina, { desligar = [], dentroDe } = {}) {
@@ -44,6 +57,7 @@ async function violacoes(pagina, { desligar = [], dentroDe } = {}) {
     .withTags(ETIQUETAS)
     .disableRules([...REGRAS_DE_TECLADO_DESLIGADAS, ...desligar]);
   if (dentroDe) auditoria = auditoria.include(dentroDe);
+  await esperarAnimacoesFinitas(pagina);
   const resultado = await auditoria.analyze();
   return resultado.violations.map(resumirViolacao);
 }
