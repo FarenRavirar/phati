@@ -1,0 +1,1 @@
+{% comment %}Prazo de uma concessão: "começa em" e "até", com o dia. Parâmetro: c (concessão com `comeca` e `fim`). Chamar com `only`. A linha da tabela e o "mais N" usam o mesmo texto, sem duplicar o markup.{% endcomment %}{% if c.comeca %}começa em {{ c.comeca|date:'d/m/Y' }}{% endif %}{% if c.fim %}{% if c.comeca %} · {% endif %}até {{ c.fim|date:'d/m/Y' }}{% endif %}

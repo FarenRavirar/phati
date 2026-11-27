@@ -4,7 +4,10 @@ Os componentes são includes, não tags: estes filtros só validam variante e ma
 `if` em cascata repetido em cada template. Registrados em `TEMPLATES[...]['OPTIONS']['builtins']` (settings.py).
 """
 
+from datetime import datetime
+
 from django import template
+from django.utils import timezone
 
 register = template.Library()
 
@@ -68,3 +71,25 @@ def na_posicao(valores, posicao):
     if not isinstance(valores, (list, tuple)) or type(posicao) is not int or not 0 <= posicao < len(valores):
         return ''
     return valores[posicao]
+
+
+@register.filter
+def hora_relativa(instante):
+    """Hora relativa de `instante` (telas.md §0): "agora", "há N min", "há N h", "ontem", dd/mm no ano corrente, dd/mm/aaaa antes.
+    Valor que não é data vira `''`, e a página mostra "Nunca entrou" antes de chegar aqui."""
+    if not isinstance(instante, datetime):
+        return ''
+    return _relativa(timezone.localtime(instante), timezone.localtime())
+
+
+def _relativa(local, agora):
+    segundos = (agora - local).total_seconds()
+    if segundos < 60:
+        return 'agora'
+    if segundos < 3600:
+        return f'há {int(segundos // 60)} min'
+    if local.date() == agora.date():
+        return f'há {int(segundos // 3600)} h'
+    if (agora.date() - local.date()).days == 1:
+        return 'ontem'
+    return local.strftime('%d/%m' if local.year == agora.year else '%d/%m/%Y')

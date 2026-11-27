@@ -3,7 +3,7 @@
 // revogar pelas telas, nos dois tamanhos, com axe e sem rolagem horizontal; e o acesso negado por URL direta. A plataforma
 // cria uma empresa própria de cada projeto e muda só ela (como em `territorio.spec.js`): as outras empresas ficam como estão.
 const { test, expect } = require('@playwright/test');
-const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel, cpfSintetico, abrirMenu } = require('./apoio.js');
+const { dados, turmaDe, entrar, semRolagemHorizontal, acessivel, acessivelComMenuAberto, cpfSintetico, abrirMenu } = require('./apoio.js');
 
 async function conferirTela(pagina) {
   await semRolagemHorizontal(pagina);
@@ -35,9 +35,32 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   await expect(page.getByText('Administrador Pessoas', { exact: true })).toBeVisible();
   await conferirTela(page);
 
+  // Diálogo (telas.md §6): abre com o clique e fecha com o x, Esc e Cancelar. Nada é enviado nesses caminhos.
+  const dialogo = page.getByRole('dialog', { name: 'Convidar pessoa' });
+  await page.getByRole('link', { name: 'Convidar pessoa' }).first().click();
+  await expect(dialogo).toBeVisible();
+  await conferirTela(page);
+  // telas.md §6: o corpo rola dentro do diálogo e o rodapé fica à vista; Cancelar e Enviar convite cabem na janela.
+  const janela = page.viewportSize();
+  for (const nome of ['Cancelar', 'Enviar convite']) {
+    const caixa = await dialogo.getByRole('button', { name: nome, exact: true }).boundingBox();
+    expect(caixa, nome).not.toBeNull();
+    expect(caixa.y + caixa.height, nome).toBeLessThanOrEqual(janela.height);
+    expect(caixa.x + caixa.width, nome).toBeLessThanOrEqual(janela.width);
+  }
+  await expect(dialogo.getByText('O cargo vale só neste lugar e nas áreas abaixo dele.')).toBeVisible();
+  await dialogo.getByRole('button', { name: 'Fechar' }).click();
+  await expect(dialogo).toBeHidden();
+  await page.getByRole('link', { name: 'Convidar pessoa' }).first().click();
+  await page.keyboard.press('Escape');
+  await expect(dialogo).toBeHidden();
+  await page.getByRole('link', { name: 'Convidar pessoa' }).first().click();
+  await dialogo.getByRole('button', { name: 'Cancelar' }).click();
+  await expect(dialogo).toBeHidden();
+  await expect(page.getByText('Convidada Pessoas', { exact: true })).toHaveCount(0);
   // CPF inválido: a recusa do serviço volta ao formulário, em aviso anunciado.
   await page.getByRole('link', { name: 'Convidar pessoa' }).first().click();
-  await expect(page.getByRole('heading', { name: 'Convidar pessoa', level: 1 })).toBeVisible();
+  await expect(dialogo).toBeVisible();
   await conferirTela(page);
   await page.getByLabel('Nome', { exact: true }).fill('Convidada Pessoas');
   await page.getByLabel('E-mail').fill(`convidada-${projeto}@exemplo.test`);
@@ -66,13 +89,18 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   await page.getByLabel('Cargo').selectOption({ label: 'Usuário' });
   await page.getByLabel('Onde vale').selectOption({ label: 'Empresa inteira' });
   await page.getByRole('button', { name: 'Enviar convite' }).click();
-  await expect(page.getByText('O convite foi enviado.')).toBeVisible();
+  await expect(page.getByText('Convite enviado. Ele vale por 7 dias.')).toBeVisible();
   await expect(page.getByText('Anote a senha temporária agora')).toHaveCount(0);
   await page.getByRole('link', { name: 'Voltar às pessoas' }).click();
 
-  await page.getByRole('link', { name: 'Convites enviados' }).click();
-  await expect(page.getByRole('heading', { name: 'Convites enviados', level: 1 })).toBeVisible();
+  await page.getByRole('link', { name: /Convites pendentes/ }).click();
+  await expect(page.getByRole('heading', { name: 'Pessoas', level: 1 })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Convites pendentes/ })).toHaveAttribute('aria-current', 'page');
   await conferirTela(page);
+  // Convite de CPF que já existe vale 7 dias (D053, permissao/convite.py VALIDADE): "vale até" cai 7 dias depois de "Enviado em".
+  const [, enviado, valeAte] = (await page.locator('.ag-convite-detalhe').first().innerText()).match(/Enviado em (\d{2}\/\d{2}\/\d{4}) · vale até (\d{2}\/\d{2}\/\d{4})/);
+  const diaDe = (data) => { const [dia, mes, ano] = data.split('/').map(Number); return Date.UTC(ano, mes - 1, dia); };
+  expect((diaDe(valeAte) - diaDe(enviado)) / 86400000).toBe(7);
   await page.getByRole('button', { name: /^Reenviar/ }).click(); // logo depois do envio: o intervalo recusa
   await expect(page.getByText('Aguarde antes de reenviar.')).toBeVisible();
   await conferirTela(page);
@@ -82,8 +110,11 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   await conferirTela(page);
 
   // Redefinir a senha: só o link por e-mail, nenhuma senha na tela.
-  await page.getByRole('link', { name: 'Voltar às pessoas' }).click();
-  await page.getByRole('link', { name: 'Redefinir senha de Administrador Pessoas' }).click();
+  // A lista de convites vazia não tem "Voltar às pessoas" (só o link de cada tela de resultado): a aba "Todas" volta.
+  await page.getByRole('link', { name: /^Todas/ }).click();
+  await expect(page.getByRole('heading', { name: 'Pessoas', level: 1 })).toBeVisible();
+  await page.locator('summary[aria-label="Ações para Administrador Pessoas"]').click();
+  await page.getByRole('link', { name: 'Redefinir senha', exact: true }).click();
   await expect(page.getByText('Você não vê a senha nova.')).toBeVisible();
   await conferirTela(page);
   await page.getByRole('button', { name: 'Enviar link' }).click();
@@ -91,6 +122,20 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   await expect(page.getByText(/senha temporária/i)).toHaveCount(0);
   await conferirTela(page);
   await page.getByRole('link', { name: 'Voltar às pessoas' }).click();
+
+  // "mais N": a linha mostra 3 concessões e o resto abre no "mais N". Administrador Pessoas já tem 1 (criada com a empresa):
+  // mais 3 pelo fluxo de conceder dão 4, e a 4ª fica atrás do "mais 1".
+  for (const cargo of ['Curador', 'Técnico', 'Usuário']) {
+    await page.locator('summary[aria-label="Ações para Administrador Pessoas"]').click();
+    await page.getByRole('link', { name: 'Conceder cargo' }).first().click();
+    await page.getByLabel('Cargo').selectOption({ label: cargo });
+    await page.getByLabel('Onde vale').selectOption({ label: 'Empresa inteira' });
+    await page.getByRole('button', { name: 'Conceder', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Pessoas', level: 1 })).toBeVisible();
+  }
+  await page.getByText('mais 1', { exact: true }).click();
+  await expect(page.getByText(/^Usuário · /)).toBeVisible();
+  await conferirTela(page);
 
   // Titularidade em duas etapas: só a segunda tem efeito.
   await page.getByRole('link', { name: 'Transferir a titularidade' }).click();
@@ -110,13 +155,51 @@ test('plataforma convida, reenvia, cancela, redefine senha, transfere a titulari
   await expect(page.getByText('Titularidade transferida.')).toBeVisible();
 
   // Revogar: a confirmação diz que a linha fica.
-  await page.getByRole('link', { name: 'Revogar Administrador de Administrador Pessoas' }).click();
+  await page.locator('summary[aria-label="Ações para Administrador Pessoas"]').click();
+  await page.getByRole('link', { name: 'Revogar Administrador · Empresa inteira', exact: true }).click();
   await expect(page.getByText(/não é apagada/)).toBeVisible();
   await conferirTela(page);
   await page.getByRole('button', { name: 'Revogar acesso' }).click();
   await expect(page.getByText('Acesso revogado.')).toBeVisible();
   await expect(page.getByText('Administrador Pessoas', { exact: true })).toBeVisible(); // segue na lista, sem acesso ativo
   await conferirTela(page);
+});
+
+test('menu "..." existe só onde há ação e abre com as ações', async ({ page }) => {
+  await entrar(page, dados.plataforma.cpf);
+  await page.goto(`/empresa/${dados.empresa_a}/pessoas/`);
+  // Administrador da plataforma tem ação em cada linha: o menu abre e mostra Redefinir senha.
+  const menu = page.locator('summary[aria-label^="Ações para"]').first();
+  await menu.click();
+  await expect(page.getByRole('link', { name: 'Redefinir senha', exact: true }).first()).toBeVisible();
+  // Com o menu aberto ele cobre alvos da página: o helper conta isso (ver apoio.js, acessivelComMenuAberto).
+  await semRolagemHorizontal(page);
+  await acessivelComMenuAberto(page);
+});
+
+// O menu "..." da última linha tem de abrir inteiro: a tabela tem `overflow-x: auto`, que recortava a lista absoluta e criava
+// rolagem vertical no contêiner (medido: a lista ficava presa na caixa da tabela, sem a última ação visível).
+test('menu "..." da última linha abre inteiro, sem recorte na tabela', async ({ page }) => {
+  await entrar(page, dados.plataforma.cpf);
+  await page.goto(`/empresa/${dados.empresa_a}/pessoas/`);
+  const ultimaLinha = page.locator('.ag-tabela tbody tr').last();
+  await ultimaLinha.locator('summary[aria-label^="Ações para"]').click();
+  const ultimoLink = ultimaLinha.locator('.ag-mais-acoes-lista a').last();
+  await expect(ultimoLink).toBeVisible();
+  const tabela = await page.locator('.ag-tabela-wrap').evaluate((caixa) => ({ rolagem: caixa.scrollHeight, altura: caixa.clientHeight }));
+  expect(tabela.rolagem, 'a tabela rola na vertical e recorta o menu da última linha').toBeLessThanOrEqual(tabela.altura + 1);
+  await ultimoLink.click({ trial: true }); // sem clicar: a checagem de alvo diz se algo cobre o link
+});
+
+test.describe('sem JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
+  test('o link Convidar pessoa leva à página do convite', async ({ page }) => {
+    await entrar(page, dados.plataforma.cpf);
+    await page.goto(`/empresa/${dados.empresa_a}/pessoas/`);
+    await page.getByRole('link', { name: 'Convidar pessoa' }).first().click();
+    await expect(page).toHaveURL(/\/pessoas\/convidar$/);
+    await expect(page.getByRole('heading', { name: 'Convidar pessoa', level: 1 })).toBeVisible();
+  });
 });
 
 test('pessoa só de leitura recebe 403 por URL direta; sem acesso recebe 404', async ({ page }, informacoes) => {

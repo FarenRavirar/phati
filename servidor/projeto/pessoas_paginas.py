@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.core.validators import validate_email
-from django.db.models import Q
+from django.db.models import F, Q
 from django.http import Http404
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -27,7 +27,7 @@ from permissao import convite as convites
 from permissao import delegacao
 from permissao.api import pessoas_do_escopo
 from permissao.models import Cargo, CategoriaDado, Concessao, Convite, concessoes_ativas, concessoes_vigentes_ou_futuras
-from permissao.pode import com_permissao, escopo_de, filtro_do_escopo, permissoes_efetivas, unir_escopos
+from permissao.pode import administrador_da_empresa, com_permissao, escopo_de, filtro_do_escopo, permissoes_efetivas, unir_escopos
 from permissao.uso import registrar_uso
 from projeto.escopo import alcance_na_empresa, resolver_escopo
 from projeto.painel import ACOES_DE_PESSOAS
@@ -105,6 +105,16 @@ def _onde(linha, nomes_de_fazenda, nomes_de_sub_area):
     return fazenda if linha.sub_area_id is None else f'{fazenda} › {nomes_de_sub_area.get(linha.sub_area_id, "Sub-área")}'
 
 
+def _situacao(concessoes):
+    """Situação na empresa, pelas concessões que quem olha vê: "Ativo" se alguma já começou, senão "Começa em" a
+    primeira data que chega; sem concessão visível, "Sem acesso ativo"."""
+    if not concessoes:
+        return 'Sem acesso ativo'
+    if any(concessao['comeca'] is None for concessao in concessoes):
+        return 'Ativo'
+    return f"Começa em {timezone.localtime(min(c['comeca'] for c in concessoes)).strftime('%d/%m/%Y')}"
+
+
 def _caminho(nome, empresa, **resto):
     return reverse(nome, kwargs={'empresa_id': empresa.pk, **resto})
 
@@ -113,7 +123,83 @@ def _aviso_do_endereco(requisicao):
     return AVISOS.get(requisicao.GET.get('feito', ''))
 
 
+def _cabecalho_da_lista(empresa, pode_convidar):
+    """Descrição, trilha e destinos de convidar que o cabeçalho e as abas de Pessoas usam (telas.md §6)."""
+    return {
+        'descricao': f'Quem acessa a {empresa.nome}, com qual cargo e onde.', 'trilha': [{'nome': 'Gestão'}, {'nome': 'Pessoas'}],
+        'pode_convidar': pode_convidar, 'url_convidar': _caminho('pessoas_convidar', empresa), 'url_sub_area': _caminho('convidar_sub_area', empresa),
+    }
+
+
+def _abas(empresa, total_pessoas, total_convites):
+    """Abas "Todas (n)" e "Convites pendentes (n)" (a segunda só quando quem olha convida: `total_convites` é None sem convite)."""
+    abas = [{'valor': 'todas', 'rotulo': 'Todas', 'contador': total_pessoas, 'destino': _caminho('pessoas', empresa)}]
+    if total_convites is not None:
+        abas.append({'valor': 'convites', 'rotulo': 'Convites pendentes', 'contador': total_convites, 'destino': _caminho('pessoas_convites', empresa)})
+    return abas
+
+
+def _paginacao(pagina):
+    """`?pagina=` de Anterior e Próxima; None nas pontas, e o rodapé desabilita o que não existe (como Fazendas)."""
+    anterior = f'?{urlencode({"pagina": pagina.previous_page_number()})}' if pagina.has_previous() else None
+    proxima = f'?{urlencode({"pagina": pagina.next_page_number()})}' if pagina.has_next() else None
+    return {'url_anterior': anterior, 'url_proxima': proxima}
+
+
+def _campos_convite_da_lista(empresa, lugares):
+    """Campos do diálogo "Convidar pessoa": os da tela de convite (`_campos_do_convite`), sem erro, para o mesmo formulário."""
+    cargos = list(Cargo.objects.filter(empresa_id=empresa.pk).order_by('nome'))
+    categorias = list(CategoriaDado.objects.filter(empresa_id=empresa.pk).order_by('nome'))
+    return _campos_do_convite({}, cargos, lugares, categorias, {})
+
+
 # --- lista ---
+
+
+def _concessoes_visiveis(requisicao, empresa, pessoas_ids):
+    """Concessões vigentes ou futuras das pessoas da página que quem olha alcança, agrupadas por pessoa."""
+    por_pessoa = defaultdict(list)
+    nomes = {f.pk: f.nome for f in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk, arquivadas=None)}
+    agora = timezone.now()
+    vigentes = concessoes_vigentes_ou_futuras().filter(empresa_id=empresa.pk, pessoa_id__in=pessoas_ids)
+    # A pessoa pode ter acesso em lugares que quem olha não alcança: cargo, lugar e prazo de lá não aparecem (Codex e Qodo, PR #30).
+    alcance = unir_escopos(requisicao.user, *ACOES_DE_PESSOAS)
+    if not alcance.plataforma:
+        vigentes = vigentes.filter(filtro_do_escopo(alcance))
+    # Lugar mais amplo primeiro: empresa inteira, depois fazenda inteira, depois sub-área (NULL vem antes).
+    concessoes = list(vigentes.select_related('cargo', 'fazenda', 'sub_area').order_by(F('fazenda_id').asc(nulls_first=True), F('sub_area_id').asc(nulls_first=True), 'pk'))
+    nomes_de_sub_area = _nomes_de_sub_areas(concessoes)
+    for concessao in concessoes:
+        por_pessoa[concessao.pessoa_id].append({
+            'cargo': concessao.cargo.nome, 'tom': 'marca' if concessao.cargo.base == 'administrador' else 'neutro', 'onde': _onde(concessao, nomes, nomes_de_sub_area),
+            'comeca': concessao.inicio if concessao.inicio > agora else None,
+            # O `fim` gravado é exclusivo (o formulário soma um dia): a tela diz o último dia de acesso (Sourcery, PR #30).
+            'fim': concessao.fim - timedelta(microseconds=1) if concessao.fim else None,
+            'revogar': _caminho('pessoa_revogar', empresa, pessoa_id=concessao.pessoa_id, concessao_id=concessao.pk) if delegacao.pode_revogar(requisicao.user, concessao) else None,
+        })
+    return por_pessoa
+
+
+def _itens_da_pagina(requisicao, empresa, pagina_de_pessoas, por_pessoa, pode_convidar, ver_ultimo):
+    """Um item por pessoa da página: ações conforme o alcance de quem olha, e o último acesso só quando `ver_ultimo`."""
+    redefinir = 'redefinir_senha' in permissoes_efetivas(requisicao.user, empresa)
+    # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
+    concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if pode_convidar else set()
+    itens = []
+    for p in pagina_de_pessoas:
+        item = {
+            'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
+            'situacao': _situacao(por_pessoa[p.pk]),
+            'redefinir': _caminho('pessoa_redefinir_senha', empresa, pessoa_id=p.pk) if redefinir else None,
+            'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if p.pk in concediveis else None,
+        }
+        # Menu "Ações para <nome>" só existe com alguma ação: sem item, sem botão (telas.md §6).
+        item['tem_menu'] = bool(item['conceder'] or item['redefinir'] or any(c['revogar'] for c in item['concessoes']))
+        # `None` é "Nunca entrou", e a ausência da chave é o "não pode ver" (Q19).
+        if ver_ultimo:
+            item['ultimo_acesso'] = p.last_login
+        itens.append(item)
+    return itens
 
 
 @pagina('convidar_pessoa')
@@ -121,50 +207,24 @@ def pessoas(requisicao, empresa_id):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
         _com_alcance(requisicao, empresa, *ACOES_DE_PESSOAS)
-        efetivas = permissoes_efetivas(requisicao.user, empresa)
         lugares = _escopos_do_convite(requisicao, empresa)
         pode_convidar = bool(lugares) or bool(_fazendas_com_sub_areas(requisicao, empresa))  # em algum lugar da empresa, não só nela inteira
         pagina_de_pessoas = Paginator(_da_empresa(requisicao.user, empresa), ITENS_POR_PAGINA).get_page(requisicao.GET.get('pagina'))
-        por_pessoa = defaultdict(list)
-        nomes = {f.pk: f.nome for f in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk, arquivadas=None)}
-        agora = timezone.now()
-        vigentes = concessoes_vigentes_ou_futuras().filter(empresa_id=empresa.pk, pessoa_id__in=[p.pk for p in pagina_de_pessoas])
-        # A pessoa pode ter acesso em lugares que quem olha não alcança: cargo, lugar e prazo de lá não aparecem (Codex e Qodo, PR #30).
-        alcance = unir_escopos(requisicao.user, *ACOES_DE_PESSOAS)
-        if not alcance.plataforma:
-            vigentes = vigentes.filter(filtro_do_escopo(alcance))
-        concessoes = list(vigentes.select_related('cargo', 'fazenda', 'sub_area').order_by('pk'))
-        nomes_de_sub_area = _nomes_de_sub_areas(concessoes)
-        for concessao in concessoes:
-            por_pessoa[concessao.pessoa_id].append({
-                'cargo': concessao.cargo.nome, 'onde': _onde(concessao, nomes, nomes_de_sub_area),
-                'comeca': concessao.inicio if concessao.inicio > agora else None,
-                # O `fim` gravado é exclusivo (o formulário soma um dia): a tela diz o último dia de acesso (Sourcery, PR #30).
-                'fim': concessao.fim - timedelta(microseconds=1) if concessao.fim else None,
-                'revogar': _caminho('pessoa_revogar', empresa, pessoa_id=concessao.pessoa_id, concessao_id=concessao.pk) if delegacao.pode_revogar(requisicao.user, concessao) else None,
-            })
-        redefinir = 'redefinir_senha' in efetivas
-        # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
-        concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if pode_convidar else set()
-        itens = [
-            {
-                'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
-                'redefinir': _caminho('pessoa_redefinir_senha', empresa, pessoa_id=p.pk) if redefinir else None,
-                'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if p.pk in concediveis else None,
-            }
-            for p in pagina_de_pessoas
-        ]
+        por_pessoa = _concessoes_visiveis(requisicao, empresa, [p.pk for p in pagina_de_pessoas])
+        # Último acesso (Q19) só para Administrador da plataforma ou da empresa. Quem não pode ver não tem a chave no dado.
+        ver_ultimo = requisicao.user.administrador_plataforma or administrador_da_empresa(requisicao.user, empresa.pk)
+        itens = _itens_da_pagina(requisicao, empresa, pagina_de_pessoas, por_pessoa, pode_convidar, ver_ultimo)
         acoes = []
-        if pode_convidar:
-            acoes += [
-                {'rotulo': TITULO_CONVIDAR, 'destino': _caminho('pessoas_convidar', empresa)},
-                {'rotulo': 'Convites enviados', 'destino': _caminho('pessoas_convites', empresa)},
-            ]
         if delegacao.pode_transferir_titularidade(requisicao.user, empresa):
             acoes.append({'rotulo': TITULO_TITULARIDADE, 'destino': _caminho('titularidade', empresa)})
+        total_convites = len(convites.convites_enviados(requisicao.user, empresa.pk)) if pode_convidar else None
+        campos = _campos_convite_da_lista(empresa, lugares) if pode_convidar else []
     contexto = {
         'itens': itens, 'pagina': pagina_de_pessoas, 'acoes': acoes, 'aviso': _aviso_do_endereco(requisicao),
+        'abas': _abas(empresa, pagina_de_pessoas.paginator.count, total_convites), 'aba': 'todas',
+        'campos_do_convite': campos, 'dialogo': True, 'mostrar_ultimo_acesso': ver_ultimo,
         'vazio_rotulo': TITULO_CONVIDAR if pode_convidar else None, 'vazio_destino': _caminho('pessoas_convidar', empresa),
+        **_cabecalho_da_lista(empresa, pode_convidar), **_paginacao(pagina_de_pessoas),
     }
     return renderizar_na_casca(requisicao, 'pessoas.html', contexto, empresa=empresa)
 
@@ -262,8 +322,9 @@ def _campos_de_acesso(dados, cargos, escopos, categorias, erros):
         campo('cargo', 'Cargo', dados.get('cargo', ''), erros.get('cargo'), tipo='select', obrigatorio=True,
               opcoes=[ESCOLHA_VAZIA, *({'valor': c.pk, 'rotulo': c.nome} for c in cargos)]),
         campo('escopo', 'Onde vale', dados.get('escopo', ''), erros.get('escopo'), tipo='select', obrigatorio=True,
+              ajuda='O cargo vale só neste lugar e nas áreas abaixo dele.',
               opcoes=[ESCOLHA_VAZIA, *({'valor': valor, 'rotulo': rotulo} for valor, (rotulo, _) in escopos.items())]),
-        *([campo('categorias', 'Categorias de dado', tipo='caixas', erro=erros.get('categorias'),
+        *([campo('categorias', 'Categorias', tipo='caixas', erro=erros.get('categorias'),
                  ajuda='Só vale para Técnico e Usuário. Sem marcar, a pessoa não vê nenhuma categoria.',
                  opcoes=[{'valor': c.pk, 'rotulo': c.nome, 'marcada': str(c.pk) in marcadas} for c in categorias])] if categorias else []),
         campo('inicio', 'Início do acesso', dados.get('inicio', ''), erros.get('inicio'), tipo='date', ajuda='Em branco, começa agora.'),
@@ -366,6 +427,7 @@ def convidar(requisicao, empresa_id):
     registrar_uso(requisicao.user, 'convidar_pessoa')
     resposta = renderizar_na_casca(requisicao, 'convite_criado.html', {
         'senha_temporaria': temporaria if pessoa is not None else None, 'destino': cancelar,
+        'dias_de_validade': convites.VALIDADE.days,
     }, empresa=empresa)
     resposta['Cache-Control'] = 'no-store'
     return resposta
@@ -520,10 +582,12 @@ def _tela_de_convites(requisicao, empresa, erro=None, codigo_http=200):
             for c in enviados
         ]
         pode_convidar = _pode_convidar(requisicao, empresa)
+        total_pessoas = _da_empresa(requisicao.user, empresa).count()
     contexto = {
         'itens': itens, 'pagina': pagina_de_convites, 'erro': erro, 'aviso': None if erro else _aviso_do_endereco(requisicao),
-        'acoes': [{'rotulo': 'Voltar às pessoas', 'destino': _caminho('pessoas', empresa)}],
+        'acoes': [], 'abas': _abas(empresa, total_pessoas, pagina_de_convites.paginator.count), 'aba': 'convites', 'dialogo': False,
         'vazio_rotulo': TITULO_CONVIDAR if pode_convidar else None, 'vazio_destino': _caminho('pessoas_convidar', empresa),
+        **_cabecalho_da_lista(empresa, pode_convidar), **_paginacao(pagina_de_convites),
     }
     resposta = renderizar_na_casca(requisicao, 'convites_enviados.html', contexto, empresa=empresa)
     resposta.status_code = codigo_http

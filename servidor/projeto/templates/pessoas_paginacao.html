@@ -1,0 +1,5 @@
+{% comment %}Rodapé de paginação das listas de Pessoas (igual ao de Fazendas, telas.md §6). Parâmetros: pagina (Page do Django), rotulo (o que se conta), url_anterior e url_proxima (None nas pontas: o botão fica desabilitado). Chamar com `only`.{% endcomment %}<div class="ag-fazendas-rodape"><span>{{ pagina.paginator.count }} {{ rotulo }}</span>
+<span class="ag-fazendas-paginas">
+{% if url_anterior %}{% include "componentes/botao.html" with texto="Anterior" href=url_anterior secundario=True tamanho="sm" only %}{% else %}{% include "componentes/botao.html" with texto="Anterior" secundario=True tamanho="sm" desabilitado=True only %}{% endif %}
+{% if url_proxima %}{% include "componentes/botao.html" with texto="Próxima" href=url_proxima secundario=True tamanho="sm" only %}{% else %}{% include "componentes/botao.html" with texto="Próxima" secundario=True tamanho="sm" desabilitado=True only %}{% endif %}
+</span></div>

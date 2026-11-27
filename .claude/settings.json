@@ -86,7 +86,6 @@
   "hooks": {
     "Stop": [
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/caveman-resposta-final.js\"" }] },
-      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/sync-p.js\"" }] },
       { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/recursos-locais-gate.js\"" }] }
     ],
     "PreToolUse": [

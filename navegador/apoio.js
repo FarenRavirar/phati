@@ -55,10 +55,11 @@ async function acessivel(pagina) {
 }
 
 // Menu "Mais ações" aberto cobre alvos da página (ver axe.js, TAMANHO_DO_ALVO): a página passa com todas as regras
-// menos target-size; o próprio menu passa com todas as regras, inclusive target-size dos seus itens.
+// menos target-size; o próprio menu aberto (só a lista, não os "..." das outras linhas) passa com todas as regras,
+// inclusive target-size dos seus itens. Medido (2026-11-27, 320 px): o "..." da linha 2 saía coberto pela lista da linha 1.
 async function acessivelComMenuAberto(pagina) {
   expect(await violacoes(pagina, { desligar: [TAMANHO_DO_ALVO] }), 'violações do axe com o menu aberto, sem target-size da página').toEqual([]);
-  expect(await violacoes(pagina, { dentroDe: '.ag-mais-acoes' }), 'violações do axe nos itens do menu aberto (target-size incluso)').toEqual([]);
+  expect(await violacoes(pagina, { dentroDe: '.ag-mais-acoes[open] > .ag-mais-acoes-lista' }), 'violações do axe nos itens do menu aberto (target-size incluso)').toEqual([]);
 }
 
 // CPF com dígitos verificadores corretos, a partir de um número base inventado (o cadastro recusa CPF inválido).

@@ -73,6 +73,10 @@ def emitir_acesso(pessoa, dispositivo):
     with transaction.atomic():
         # Trava a pessoa: emitir acesso e trocar a senha se serializam, e a troca revoga o que acabou de nascer.
         Pessoa.objects.select_for_update().get(pk=pessoa.pk)
+        # Entrada no aplicativo é último acesso (Q26), como a entrada web que o `login()` do Django grava. Dentro da
+        # transação: se a emissão falhar, a data volta junto com o acesso que não nasceu.
+        pessoa.last_login = agora
+        pessoa.save(update_fields=['last_login'])
         return _emitir(pessoa, dispositivo, agora, agora)
 
 

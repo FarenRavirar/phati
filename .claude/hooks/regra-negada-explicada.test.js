@@ -277,3 +277,120 @@ describe('hook (processo, contrato de stdin/stdout)', () => {
     assert.equal(h.permissionDecision, 'deny');
   });
 });
+
+// Push ao phati-specs e ao phati-dev. Repositórios git de verdade no fixture: o alvo é lido com
+// `git rev-parse`, e mock aqui reproduziria a lógica testada. `specs` é o symlink do projeto
+// para o repositório irmão, como na máquina do mantenedor.
+describe('push: alvo phati-specs x phati-dev (E031/E038)', () => {
+  const DENY_PUSH = ['Bash(git push origin main*)', 'Bash(rtk git push origin main*)', 'Bash(rtk bypass git push origin main*)'];
+  const PUSH_MAIN = 'git push origin main';
+
+  function gitInit(dir) {
+    const r = spawnSync('git', ['init', '-q', dir], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  }
+
+  // Projeto (repo git) com `specs` apontando para um repo git irmão. `specs: false` omite o symlink.
+  function montarRepos({ specs = true } = {}) {
+    const amb = montar({ projeto: { 'settings.json': negar(DENY_PUSH) } });
+    const dirSpecs = path.join(path.dirname(amb.projeto), 'phati-specs');
+    fs.mkdirSync(dirSpecs, { recursive: true });
+    gitInit(amb.projeto);
+    gitInit(dirSpecs);
+    if (specs) fs.symlinkSync(dirSpecs, path.join(amb.projeto, 'specs'));
+    return { ...amb, specs: fs.realpathSync(dirSpecs) };
+  }
+
+  // Roda o hook com `cwd` no payload (o Bash do Claude Code manda o cwd).
+  function push(command, amb, cwd = amb.projeto) {
+    const r = rodar({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd }, amb);
+    assert.equal(r.rc, 0, 'hook deve sair com 0 sempre');
+    return r.saida.trim() ? JSON.parse(r.saida).hookSpecificOutput : null;
+  }
+
+  describe('feliz: forma certa e push de branch no phati-dev não são barrados', () => {
+    test('rtk git -C <phati-specs> push origin main passa, mesmo com o deny nativo de origin main', () => {
+      const amb = montarRepos();
+      assert.equal(push(`rtk git -C '${amb.specs}' push origin main`, amb), null);
+    });
+    test('push de branch no phati-dev (feat/x) passa', () => {
+      const amb = montarRepos();
+      assert.equal(push('git push -u origin feat/x', amb), null);
+    });
+  });
+
+  describe('deny nativo de origin main: mensagem pelo alvo', () => {
+    test('alvo phati-dev: cita a regra, manda usar promover-dev-para-main e não sugere contorno', () => {
+      const amb = montarRepos();
+      const h = push(PUSH_MAIN, amb);
+      assert.equal(h.permissionDecision, 'deny');
+      assert.match(h.permissionDecisionReason, /Bash\(git push origin main\*\)/);
+      assert.match(h.permissionDecisionReason, /promover-dev-para-main/);
+      assert.doesNotMatch(h.permissionDecisionReason, /rtk git -C/);
+      assert.doesNotMatch(h.permissionDecisionReason, /bypass/);
+      assert.doesNotMatch(h.permissionDecisionReason, /Comando certo/);
+    });
+    test('alvo indeterminado (cd por variável): não sugere contorno, manda o caminho oficial', () => {
+      const amb = montarRepos();
+      const h = push(`cd $DESTINO && ${PUSH_MAIN}`, amb);
+      assert.equal(h.permissionDecision, 'deny');
+      assert.match(h.permissionDecisionReason, /promover-dev-para-main/);
+      assert.doesNotMatch(h.permissionDecisionReason, /rtk git -C/);
+    });
+    test('alvo phati-specs por cd: mostra o comando pronto com caminho absoluto entre aspas', () => {
+      const amb = montarRepos();
+      const h = push(`cd '${amb.specs}' && ${PUSH_MAIN}`, amb);
+      assert.equal(h.permissionDecision, 'deny');
+      assert.match(h.permissionDecisionReason, /Bash\(git push origin main\*\)/);
+      assert.ok(h.permissionDecisionReason.includes(`rtk git -C '${amb.specs}' push origin main`), h.permissionDecisionReason);
+      assert.match(h.permissionDecisionReason, /Exige autorização do mantenedor/);
+      assert.doesNotMatch(h.permissionDecisionReason, /promover-dev-para-main/);
+    });
+    test('alvo phati-specs pelo cwd do payload (push origin main dentro do repo irmão)', () => {
+      const amb = montarRepos();
+      const h = push(PUSH_MAIN, amb, amb.specs);
+      assert.ok(h.permissionDecisionReason.includes(`rtk git -C '${amb.specs}' push origin main`), h.permissionDecisionReason);
+    });
+  });
+
+  describe('forma errada ao phati-specs, sem deny nativo: negada com o mesmo ensinamento', () => {
+    test('cd para o phati-specs e git push sem origin main', () => {
+      const amb = montarRepos();
+      const h = push(`cd '${amb.specs}' && git push`, amb);
+      assert.equal(h.permissionDecision, 'deny');
+      assert.match(h.permissionDecisionReason, /Push no phati-specs fora da forma certa/);
+      assert.ok(h.permissionDecisionReason.includes(`rtk git -C '${amb.specs}' push origin main`), h.permissionDecisionReason);
+    });
+    test('git push no cwd do phati-specs (sem cd, sem -C)', () => {
+      const amb = montarRepos();
+      const h = push('git push', amb, amb.specs);
+      assert.match(h.permissionDecisionReason, /fora da forma certa/);
+    });
+    test('rtk git -C <phati-specs> push sem refs', () => {
+      const amb = montarRepos();
+      const h = push(`rtk git -C '${amb.specs}' push`, amb);
+      assert.match(h.permissionDecisionReason, /fora da forma certa/);
+    });
+    test('--git-dir apontando para o phati-specs (sem -C) é forma errada', () => {
+      const amb = montarRepos();
+      const h = push(`git --git-dir='${amb.specs}/.git' push origin main`, amb);
+      assert.equal(h.permissionDecision, 'deny');
+      assert.match(h.permissionDecisionReason, /fora da forma certa/);
+    });
+  });
+
+  describe('infeliz ou fora do alvo: falha aberta', () => {
+    test('sem symlink specs no projeto, push de branch no phati-dev passa', () => {
+      const amb = montarRepos({ specs: false });
+      assert.equal(push('git push -u origin feat/x', amb), null);
+    });
+    test('alvo indeterminado sem origin main não é barrado pelo hook', () => {
+      const amb = montarRepos();
+      assert.equal(push('cd $DESTINO && git push -u origin feat/x', amb), null);
+    });
+    test('comando sem push não é analisado', () => {
+      const amb = montarRepos();
+      assert.equal(push('ls -la', amb), null);
+    });
+  });
+});

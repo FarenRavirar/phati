@@ -10,7 +10,8 @@ from django.utils import timezone
 
 from comum.models import EventoAuditoria
 from identidade.models import PedidoRedefinicao, Pessoa
-from permissao.models import Cargo, CargoPermissao, Concessao, Convite
+from permissao import convite as convites
+from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, Convite
 
 TRECHO_HTML = '<script>alert(1)</script>'
 
@@ -232,6 +233,8 @@ def test_convidar_cpf_que_ja_existe_grava_convite_pendente_sem_senha_e_sem_dado_
     html = resposta.content.decode()
     assert resposta.status_code == 200
     assert 'senha-temporaria' not in html
+    assert 'Convite enviado. Ele vale por 7 dias.' in html  # texto de telas.md §6 para CPF existente
+    assert 'O convite foi enviado' not in html
     assert 'Ja Cadastrada' not in html
     assert Convite.objects.get(pessoa=existente).fazenda_id == cenario.f1.pk
     assert not Concessao.objects.filter(pessoa=existente).exists()  # a concessão nasce no aceite
@@ -669,10 +672,15 @@ def test_curador_de_sub_area_nao_ve_o_acesso_da_mesma_pessoa_em_outros_lugares(c
     conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.g1)  # dentro do alcance de quem olha
     conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.g2, fim=timezone.now() + timedelta(days=30))  # sub-área irmã
     conceder_direto(pessoa, cenario.cargos_x['administrador'], cenario.x)  # empresa inteira
-    html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/').content.decode())
+    resposta = cliente_logado.get(_casa(cenario) + 'pessoas/')
+    html = _sem_nonce(resposta.content.decode())
     assert 'Pessoa com dois acessos' in html
     assert 'Usuário · F1 › G1' in html
-    for fora in ('Técnico', 'G2', 'Administrador · Empresa inteira'):
+    # O diálogo "Convidar pessoa" lista os cargos da empresa (telas.md §6), então o nome "Técnico" aparece no HTML sem
+    # ser acesso visível: o acesso oculto é conferido no dado da lista.
+    concessoes = next(item for item in resposta.context['itens'] if item['nome'] == 'Pessoa com dois acessos')['concessoes']
+    assert [concessao['cargo'] for concessao in concessoes] == ['Usuário']
+    for fora in ('G2', 'Administrador · Empresa inteira'):
         assert fora not in html, fora
 
 
@@ -729,11 +737,13 @@ def test_convites_enviados_tem_paginas_e_so_traz_os_da_empresa(cliente_logado, a
         Pessoa.objects.criar(nome='Ja Cadastrada', email='ja@exemplo.test', cpf=cpf)
         cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf))
     caminho = _casa(cenario) + 'pessoas/convites'
+    # Rodapé igual ao de Fazendas (telas.md §6): contagem e Anterior/Próxima, no lugar do "Página n de m" antigo.
     primeira = cliente_logado.get(caminho).content.decode()
-    assert 'Página 1 de 2' in primeira
+    assert '2 convites' in primeira
+    assert 'pagina=2' in primeira  # Próxima leva à segunda página
     assert primeira.count('Reenviar o convite') == 1
     segunda = cliente_logado.get(caminho + '?pagina=2').content.decode()
-    assert 'Página 2 de 2' in segunda
+    assert 'pagina=1' in segunda  # Anterior volta à primeira
     assert segunda.count('Reenviar o convite') == 1
 
 
@@ -1073,3 +1083,260 @@ def test_cargo_so_com_redefinir_senha_abre_a_lista_de_pessoas_do_atalho(cliente_
         CargoPermissao.objects.create(cargo=personalizado, permissao_id=codigo)
     conceder_direto(conta.pessoa, personalizado, cenario.x)
     assert cliente_logado.get(_casa(cenario) + 'pessoas/').status_code == 200  # o atalho "Redefinir senha" não cai em 404
+
+
+# --- leitura: cargo, lugar, situação e último acesso (R26, Q19, Q23) ---
+
+
+def _itens(cliente, cenario):
+    """Os itens da lista de pessoas da empresa X, direto do contexto da resposta (a tela ainda não mostra a coluna)."""
+    resposta = cliente.get(_casa(cenario) + 'pessoas/')
+    assert resposta.status_code == 200
+    return {item['nome']: item for item in resposta.context['itens']}
+
+
+def _ultimo_acesso_de(pessoa, instante):
+    Pessoa.objects.filter(pk=pessoa.pk).update(last_login=instante)
+
+
+@pytest.fixture
+def curador(conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
+    return conta.pessoa
+
+
+def test_administradora_ve_o_ultimo_acesso_e_quem_nunca_entrou_vem_como_none(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    entrou = fabrica_pessoa('Entrou Sintetica')
+    nunca = fabrica_pessoa('Nunca Sintetica')
+    conceder_direto(entrou, cenario.cargos_x['tecnico'], cenario.x)
+    conceder_direto(nunca, cenario.cargos_x['tecnico'], cenario.x)
+    instante = timezone.now().replace(microsecond=0) - timedelta(days=2)
+    _ultimo_acesso_de(entrou, instante)
+    itens = _itens(cliente_logado, cenario)
+    assert itens['Entrou Sintetica']['ultimo_acesso'] == instante
+    assert 'ultimo_acesso' in itens['Nunca Sintetica']
+    assert itens['Nunca Sintetica']['ultimo_acesso'] is None
+
+
+def test_curador_nao_recebe_o_ultimo_acesso_nem_no_dado(cliente_logado, curador, cenario, fabrica_pessoa, conceder_direto):
+    alvo = fabrica_pessoa('Alvo Sintetica')
+    conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.x)
+    _ultimo_acesso_de(alvo, timezone.now())
+    itens = _itens(cliente_logado, cenario)
+    assert 'Alvo Sintetica' in itens
+    assert all('ultimo_acesso' not in item for item in itens.values())  # negativo: a chave nem entra no dado
+
+
+def test_administrador_de_plataforma_ve_o_ultimo_acesso(cliente_logado, cenario, fabrica_pessoa, conceder_direto, conta):
+    conta.pessoa.administrador_plataforma = True
+    conta.pessoa.save(update_fields=['administrador_plataforma'])
+    alvo = fabrica_pessoa('Alvo Plataforma Sintetica')
+    conceder_direto(alvo, cenario.cargos_x['tecnico'], cenario.x)
+    instante = timezone.now().replace(microsecond=0)
+    _ultimo_acesso_de(alvo, instante)
+    assert _itens(cliente_logado, cenario)['Alvo Plataforma Sintetica']['ultimo_acesso'] == instante
+
+
+def test_administrador_de_outra_empresa_nao_ve_a_lista_de_x(cliente_logado, cenario, conta, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_y['administrador'], cenario.y)  # administra Y, não X
+    assert cliente_logado.get(_casa(cenario) + 'pessoas/').status_code == 404  # o último acesso de X não sai por Y
+
+
+def test_situacao_ativo_e_comeca_em(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    ativa = fabrica_pessoa('Ativa Sintetica')
+    futura = fabrica_pessoa('Futura Sintetica')
+    conceder_direto(ativa, cenario.cargos_x['tecnico'], cenario.x)
+    inicio = timezone.now() + timedelta(days=10)
+    conceder_direto(futura, cenario.cargos_x['tecnico'], cenario.x, inicio=inicio)
+    itens = _itens(cliente_logado, cenario)
+    assert itens['Ativa Sintetica']['situacao'] == 'Ativo'
+    assert itens['Futura Sintetica']['situacao'] == f"Começa em {timezone.localtime(inicio).strftime('%d/%m/%Y')}"
+
+
+def test_pessoa_sem_concessao_visivel_fica_sem_acesso_ativo(cliente_logado, administradora, cenario, fabrica_pessoa):
+    origem = fabrica_pessoa('Origem Sintetica')
+    origem.empresa_origem = cenario.x
+    origem.save(update_fields=['empresa_origem'])
+    assert _itens(cliente_logado, cenario)['Origem Sintetica']['situacao'] == 'Sem acesso ativo'
+
+
+def test_concessoes_do_lugar_mais_amplo_primeiro(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Ordem Sintetica')
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f1)  # fazenda primeiro na criação
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.x)  # empresa inteira depois
+    onde = [concessao['onde'] for concessao in _itens(cliente_logado, cenario)['Ordem Sintetica']['concessoes']]
+    assert onde[0] == 'Empresa inteira'
+    assert len(onde) == 2
+
+
+# --- tela nova (telas.md §6): abas, coluna de último acesso, menu, diálogo e recolher de concessões ---
+
+
+def _html_da_lista(cliente, cenario):
+    return _sem_nonce(cliente.get(_casa(cenario) + 'pessoas/').content.decode())
+
+
+def test_empresa_arquivada_nao_mostra_a_aba_de_convites_pendentes(cliente_logado, administradora, cenario):
+    from territorio.cadastro import arquivar, efeitos_do_arquivamento
+
+    arquivar(administradora, cenario.x, efeitos_do_arquivamento(cenario.x))
+    resposta = cliente_logado.get(_casa(cenario) + 'pessoas/')
+    html = resposta.content.decode()
+    assert resposta.status_code == 200, resposta.status_code
+    assert 'Convites pendentes' not in html  # sem convidar, a aba de convites não existe (`pode_convidar` falso)
+
+
+def test_lista_tem_abas_com_contagem_e_o_convite_pendente_sem_style(cliente_logado, administradora, cenario, convite_enviado):
+    html = _html_da_lista(cliente_logado, cenario)
+    assert 'aria-current="page">Todas<span class="ag-aba-contador">' in html
+    assert f'href="{_casa(cenario)}pessoas/convites"' in html
+    assert 'Convites pendentes<span class="ag-aba-contador">1</span>' in html
+    assert 'style=' not in html
+
+
+def test_ultimo_acesso_aparece_so_para_administrador_com_nunca_entrou(cliente_logado, administradora, cenario, alvo):
+    html = _html_da_lista(cliente_logado, cenario)
+    assert '<th scope="col">Último acesso</th>' in html
+    assert 'Nunca entrou' in html  # o alvo nunca entrou: None vira texto, não 0 nem data
+
+
+def test_curador_nao_ve_a_coluna_ultimo_acesso_nem_o_texto_de_nunca_entrou(cliente_logado, conta, cenario, conceder_direto, alvo):
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.f1)
+    html = _html_da_lista(cliente_logado, cenario)
+    assert 'Alvo Tecnico' in html
+    assert 'Último acesso' not in html  # negativo: a coluna inteira some para quem não é Administrador (Q19)
+    assert 'Nunca entrou' not in html
+
+
+def test_convidar_pessoa_e_um_dialogo_com_os_campos_atuais_e_posta_para_a_pagina(cliente_logado, administradora, cenario):
+    html = _html_da_lista(cliente_logado, cenario)
+    assert '<dialog class="ag-dialogo" id="convidar-pessoa"' in html
+    assert 'data-dialogo-abrir="convidar-pessoa"' in html  # com JS abre o diálogo; sem JS o link leva à página do convite
+    assert f'<form id="convidar-pessoa-form" method="post" action="/empresa/{cenario.x.pk}/pessoas/convidar">' in html
+    for campo_esperado in ('name="nome"', 'name="email"', 'name="cpf"', 'name="cargo"', 'name="escopo"', 'name="inicio"', 'name="fim"'):
+        assert campo_esperado in html
+    assert 'form="convidar-pessoa-form"' in html
+    assert 'Enviar convite' in html
+    assert 'Escolher uma sub-área' in html  # o caminho para o convite em sub-área segue alcançável pelo diálogo
+    assert 'O cargo vale só neste lugar e nas áreas abaixo dele.' in html  # ajuda de "Onde" (telas.md §6)
+    assert 'Quem já tem conta recebe um convite por e-mail.' in html  # descrição do diálogo (telas.md §6)
+
+
+def test_convite_de_cpf_existente_diz_a_validade_que_o_servico_usa(cliente_logado, administradora, cenario, cpf_novo, monkeypatch):
+    # O prazo do texto sai de `convite.VALIDADE`: trocar a validade troca o texto (negativo: o número fixo de antes não volta).
+    monkeypatch.setattr(convites, 'VALIDADE', timedelta(days=3))
+    cpf = cpf_novo()
+    Pessoa.objects.criar(nome='Ja Cadastrada', email='ja@exemplo.test', cpf=cpf)
+    html = cliente_logado.post(_casa(cenario) + 'pessoas/convidar', _dados(cenario, cpf)).content.decode()
+    assert 'Convite enviado. Ele vale por 3 dias.' in html
+    assert 'vale por 7 dias' not in html
+
+
+def test_convidar_mostra_categorias_so_quando_a_empresa_tem_alguma(cliente_logado, administradora, cenario):
+    url = _casa(cenario) + 'pessoas/convidar'
+    assert 'name="categorias"' not in cliente_logado.get(url).content.decode()  # negativo: sem categoria, o campo nem aparece
+    CategoriaDado.objects.create(empresa=cenario.x, nome='Solo')
+    html = cliente_logado.get(url).content.decode()
+    assert '<legend class="ag-rotulo">Categorias</legend>' in html  # rótulo de telas.md §6
+    assert 'name="categorias"' in html
+
+
+def test_empresa_arquivada_nao_tem_dialogo_de_convidar(cliente_logado, administradora, cenario, alvo):
+    from territorio.cadastro import arquivar, efeitos_do_arquivamento
+
+    arquivar(administradora, cenario.x, efeitos_do_arquivamento(cenario.x))
+    html = _html_da_lista(cliente_logado, cenario)
+    assert 'id="convidar-pessoa"' not in html  # negativo: sem convidar, o diálogo nem chega ao HTML
+    assert 'data-dialogo-abrir' not in html
+
+
+def test_mais_de_tres_concessoes_ficam_recolhidas_em_mais_n_com_o_lugar_mais_amplo_antes(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Muitas Sintetica')
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.x)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f1)
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.f2)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2)
+    html = _html_da_lista(cliente_logado, cenario)
+    assert '<details class="ag-mais-concessoes"><summary>mais 1</summary>' in html
+    assert html.index('Empresa inteira') < html.index('<summary>mais 1</summary>')  # as 3 visíveis vêm primeiro, o lugar mais amplo na frente
+
+
+def _recolhidas(html):
+    """O miolo do "mais N" (o `<details>` das concessões além das 3 primeiras)."""
+    return html.split('<details class="ag-mais-concessoes">')[1].split('</details>')[0]
+
+
+def _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto):
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.x)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f1)
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.f2)
+
+
+def test_mais_n_mostra_o_prazo_de_uma_quarta_concessao_futura(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Futura Recolhida Sintetica')
+    _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto)
+    inicio = timezone.now() + timedelta(days=10)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2, inicio=inicio)  # a 4ª, recolhida no "mais 1"
+    recolhida = _recolhidas(_html_da_lista(cliente_logado, cenario))
+    assert f"começa em {timezone.localtime(inicio).strftime('%d/%m/%Y')}" in recolhida  # o mesmo prazo das 3 visíveis
+
+
+def test_mais_n_mostra_o_ate_de_uma_quarta_concessao_com_fim(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Com Fim Recolhida Sintetica')
+    _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2, fim=timezone.make_aware(datetime(2030, 1, 2)))  # exclusivo: o último dia é 01/01
+    recolhida = _recolhidas(_html_da_lista(cliente_logado, cenario))
+    assert 'até 01/01/2030' in recolhida
+    assert 'Técnico' in recolhida  # o cargo da 4ª continua na linha
+
+
+def test_mais_n_sem_prazo_nao_mostra_data_nenhuma(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Sem Prazo Recolhida Sintetica')
+    _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2)  # negativo: sem início nem fim, a linha não traz prazo
+    recolhida = _recolhidas(_html_da_lista(cliente_logado, cenario))
+    assert 'Técnico' in recolhida
+    assert 'começa em' not in recolhida
+    assert 'até ' not in recolhida
+
+
+def test_menu_de_acoes_tem_o_nome_da_pessoa_e_as_acoes_do_alcance(cliente_logado, administradora, cenario, alvo):
+    html = _html_da_lista(cliente_logado, cenario)
+    assert 'aria-label="Ações para Alvo Tecnico"' in html
+    assert 'Conceder cargo' in html
+    assert 'Redefinir senha' in html
+    assert 'Revogar Técnico' in html
+
+
+def test_linha_sem_acao_nao_tem_menu_de_acoes(cliente_logado, conta, cenario, fabrica_pessoa, conceder_direto):
+    """Pessoa só pela empresa de origem, sem concessão aqui, com Curador numa empresa arquivada: nenhuma ação, então sem menu."""
+    from territorio.cadastro import arquivar, efeitos_do_arquivamento
+
+    origem = fabrica_pessoa('Origem Sintetica', empresa_origem=cenario.x)
+    administradora_de_fora = fabrica_pessoa('Administradora Sintetica')
+    conceder_direto(administradora_de_fora, cenario.cargos_x['administrador'], cenario.x)
+    arquivar(administradora_de_fora, cenario.x, efeitos_do_arquivamento(cenario.x))
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
+    html = _html_da_lista(cliente_logado, cenario)
+    assert origem.nome in html  # a linha existe: o teste não passa por ausência da pessoa
+    assert 'Ações para Origem Sintetica' not in html
+    assert 'ag-mais-acoes' not in html
+
+
+def test_cargo_da_lista_e_selo_sem_ponto_e_administrador_em_tom_marca(cliente_logado, administradora, cenario, alvo):
+    html = _html_da_lista(cliente_logado, cenario)
+    # Só as células da coluna Cargo do corpo (a Situação do mesmo corpo tem ponto de propósito): o recorte antigo pegava o cabeçalho.
+    corpo = html.split('<tbody>')[1].split('</tbody>')[0]
+    cargos = '\n'.join(re.findall(r'<td>(.*?)</td>', linha, re.S)[1] for linha in re.findall(r'<tr>(.*?)</tr>', corpo, re.S))
+    assert '<span class="ag-selo" data-tom="marca">Administrador</span>' in cargos
+    assert '<span class="ag-selo" data-tom="neutro">Técnico</span>' in cargos
+    assert 'ag-selo-ponto' not in cargos  # cargo sem ponto, em toda linha do corpo
+
+
+def test_convites_pendentes_tem_as_abas_e_o_cabecalho_sem_diálogo(cliente_logado, convite_enviado, cenario):
+    html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/convites').content.decode())
+    assert 'aria-current="page">Convites pendentes' in html
+    assert 'Convidar pessoa' in html
+    assert 'style=' not in html
+    assert 'id="convidar-pessoa"' not in html  # a página de convites não tem diálogo: o botão leva à página do convite
+    assert f'href="{_casa(cenario)}pessoas/convidar"' in html

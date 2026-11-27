@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // branch-gate — PreToolUse(Bash): NEGA `git commit` feito em branch fora da regra do AGENTS.md §Git.
 //
-// Alvo de cada commit: o repositório que o próprio comando escolhe. Parte do cwd do payload
-// e segue `cd <dir> &&` e `git -C <dir>` encadeados (relativos ao cwd atual). `bash -c "..."`
-// e `$(...)`/crase são analisados por dentro. Diretório não resolvível (variável) cai no cwd
-// do payload. Vários commits no comando: nega se qualquer um negar.
+// Alvo de cada commit: o repositório que o próprio comando escolhe (cwd do payload, `cd`,
+// `git -C`, `--git-dir`, `--work-tree`). A análise do shell é do shell-analise.js, compartilhado
+// com o autorizacao-gate. Alvo que não se determina (variável, substituição, `cd -`, diretório
+// que pode nascer no próprio comando) nega quando há commit. Vários commits: nega se qualquer um negar.
 //
 // Regras, por commit (a primeira que casa decide):
+//   0. alvo indeterminado: nega (fail closed). Profundidade além do limite também nega.
 //   1. branch `dev` ou `main` do repositório-alvo: nada é commitado direto nelas.
 //   2. nome fora de `^(feat|fix|chore|docs|infra)/[a-z0-9][a-z0-9._-]*$`.
 //   3. HEAD é ancestral de origin/dev e diferente dele: branch já mergeada, reuso proibido.
@@ -15,24 +16,21 @@
 //      exige o prefixo inline `PHATI_GATE_BRANCH=0` e identidade git. Sem o prefixo nega e
 //      mostra o comando pronto; o prefixo vale só para este repositório. A autorização do
 //      mantenedor continua sendo pedida pelo autorizacao-gate, por ação.
+//   5. o mesmo comando troca de ramo ou de refs (switch, checkout, reset, merge...) antes do
+//      commit: o ramo que o commit verá não é o lido agora. Nega.
 //
 // Por que existe: o autorizacao-gate pergunta antes de cada commit, mas não sabe em
 // qual branch o commit cai. Este hook barra o commit na branch errada antes de chegar
 // ao prompt. Branch errada só aparece tarde, no PR.
 //
-// Técnica: tokeniza o comando (aspas, separadores, substituições), em vez de casar texto.
-// Assim `-c user.name='A B'`, `-C "dir com espaço"` e `echo "git commit"` (dado) saem certos.
-// Não importa o autorizacao-gate: ele roda lerPayload no require e não exporta o helper.
-//
-// shortcut: diretório que é variável (`git -C "$X" commit`) é avaliado no cwd do payload; o
-//   commit pode cair em outro repositório. Upgrade: resolver as variáveis do próprio comando.
 // shortcut: a regra 3 não detecta squash merge nem origin/dev desatualizado (exigiria
 //   `git fetch` ou `gh`). Upgrade: consultar `gh pr list --state merged` quando houver rede.
-// shortcut: substituição `$(...)` é analisada com o cwd do fim do comando, não do ponto exato.
+// shortcut: troca de ramo em OUTRA chamada do Bash, entre a leitura deste hook e o commit, não
+//   é vista: PreToolUse não é atômico. Upgrade: pre-commit no próprio phati-specs conferindo ramo.
 //
-// Falha aberta: payload ilegível, fora de repositório, HEAD destacado, sem origin/dev
-// local e git com erro não negam. Um gate que derruba o turno sem motivo é desligado na
-// primeira vez que atrapalha.
+// Falha aberta: payload ilegível, fora de repositório, HEAD destacado, sem origin/dev local e git com erro não negam.
+// Exceção: alvo com --git-dir/--work-tree que não se lê como repositório nega, porque o commit
+// iria para um lugar que o hook não confere.
 //
 // `PHATI_GATE_BRANCH=0` no ambiente do processo desliga esta regra inteira (só o valor exato `0`).
 // Como prefixo inline do comando, vale só para o commit no phati-specs (regra 4).
@@ -41,202 +39,44 @@
 
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
+const { percorrer, desmontarGit, resolverDir } = require(path.join(__dirname, 'shell-analise.js'));
 
 const MOLDE = /^(feat|fix|chore|docs|infra)\/[a-z0-9][a-z0-9._-]*$/;
 const BRANCHES_PROTEGIDAS = ['dev', 'main'];
 const DICA = 'Crie branch nova: git fetch origin && git switch -c <tipo>/<escopo> --no-track origin/dev (mudanças não commitadas vão junto).';
 const PREFIXO_SPECS = 'PHATI_GATE_BRANCH=0';
-const PROFUNDIDADE_MAX = 4;
-const SEPARADORES = new Set([';', '|', '&', '(', ')', '\n']);
-// Palavras que só envolvem o comando (não são o comando): `rtk git`, `env X=1 git`.
-const ATALHOS = new Set(['rtk', 'bypass', 'env', 'command']);
-const SHELLS = new Set(['bash', 'sh', 'zsh']);
-const GLOBAIS_COM_VALOR = new Set(['--git-dir', '--work-tree', '--namespace', '--exec-path']);
+// Subcomandos que trocam o HEAD ou as refs: o ramo que um commit seguinte verá muda.
+const MUDA_RAMO = new Set(['switch', 'checkout', 'reset', 'rebase', 'pull', 'cherry-pick', 'revert',
+  'am', 'merge', 'update-ref', 'symbolic-ref', 'branch']);
 
-// Corta o texto em segmentos (separados por ; | & ( ) e quebra de linha) e cada segmento em
-// palavras, sem aspas. Substituições `$(...)` e crases viram textos à parte, para análise
-// recursiva. `dinamica` marca palavra com `$` ou substituição: o valor não se conhece aqui.
-function tokenizar(texto) {
-  const segmentos = [];
-  const subs = [];
-  let seg = [];
-  let pal = null;
-  let dinamica = false;
-  const fimPal = () => {
-    if (pal !== null) seg.push({ valor: pal, dinamica });
-    pal = null;
-    dinamica = false;
-  };
-  const fimSeg = () => {
-    fimPal();
-    if (seg.length) segmentos.push(seg);
-    seg = [];
-  };
-  const add = (t) => {
-    pal = (pal ?? '') + t;
-  };
-  // i aponta logo após a abertura. Devolve o índice logo após o fechamento.
-  const lerSub = (i, crase) => {
-    let prof = 1;
-    let j = i;
-    for (; j < texto.length; j++) {
-      const ch = texto[j];
-      if (crase) {
-        if (ch === '`') break;
-      } else if (ch === '(') {
-        prof++;
-      } else if (ch === ')' && --prof === 0) {
-        break;
-      }
-    }
-    subs.push(texto.slice(i, j));
-    pal = pal ?? '';
-    dinamica = true;
-    return j + 1;
-  };
-
-  let i = 0;
-  while (i < texto.length) {
-    const c = texto[i];
-    if (c === "'") {
-      const fim = texto.indexOf("'", i + 1);
-      const ate = fim === -1 ? texto.length : fim;
-      add(texto.slice(i + 1, ate));
-      i = ate + 1;
-    } else if (c === '"') {
-      pal = pal ?? '';
-      i++;
-      while (i < texto.length && texto[i] !== '"') {
-        const d = texto[i];
-        if (d === '\\' && i + 1 < texto.length) {
-          add(texto[i + 1]);
-          i += 2;
-        } else if (d === '$' && texto[i + 1] === '(') {
-          i = lerSub(i + 2, false);
-        } else if (d === '`') {
-          i = lerSub(i + 1, true);
-        } else {
-          if (d === '$') dinamica = true;
-          add(d);
-          i++;
-        }
-      }
-      i++;
-    } else if (c === '\\') {
-      if (i + 1 < texto.length) add(texto[i + 1]);
-      i += 2;
-    } else if (c === '$' && texto[i + 1] === '(') {
-      i = lerSub(i + 2, false);
-    } else if (c === '`') {
-      i = lerSub(i + 1, true);
-    } else if (c === ' ' || c === '\t') {
-      fimPal();
-      i++;
-    } else if (SEPARADORES.has(c)) {
-      fimSeg();
-      i++;
-    } else {
-      if (c === '$') dinamica = true;
-      add(c);
-      i++;
-    }
-  }
-  fimSeg();
-  return { segmentos, subs };
+function negar(regra, motivo) {
+  return { regra, motivo };
 }
 
-const ehAtribuicao = (v) => /^[A-Za-z_]\w*=/.test(v);
+// Aspas simples no valor, com a aspa interna escapada: o comando sugerido é copiado para o shell.
+const shq = (s) => `'${s.replace(/'/g, "'\\''")}'`;
 
-// Lista de commits do comando: { dir, cfg, prefixo }. `dir` é o repositório-alvo (absoluto).
-// `cfg` são os `-c chave=valor` do próprio commit; `prefixo` são as atribuições inline
-// (`PHATI_GATE_BRANCH=0 git ...`), que valem só para aquele segmento.
-function commitsDo(texto, raiz, profund = 0) {
-  if (profund > PROFUNDIDADE_MAX) return [];
-  const { segmentos, subs } = tokenizar(texto);
-  const achados = [];
-  let cwd = raiz;
-  // Diretório de palavra: variável cai no cwd do payload (regra: não resolvível avalia o cwd).
-  const resolver = (p, base) => {
-    if (p.dinamica) return raiz;
-    const v = p.valor === '~' || p.valor.startsWith('~/') ? os.homedir() + p.valor.slice(1) : p.valor;
-    return path.resolve(base, v);
-  };
-
-  for (const seg of segmentos) {
-    const prefixo = {};
-    let k = 0;
-    for (;;) {
-      const v = seg[k]?.valor;
-      if (v === undefined) break;
-      if (ehAtribuicao(v)) {
-        const eq = v.indexOf('=');
-        prefixo[v.slice(0, eq)] = v.slice(eq + 1);
-        k++;
-      } else if (ATALHOS.has(v)) {
-        k++;
-      } else {
-        break;
-      }
-    }
-    if (k >= seg.length) continue;
-
-    const primeiro = seg[k].valor;
-    if (primeiro === 'cd') {
-      cwd = seg[k + 1] ? resolver(seg[k + 1], cwd) : os.homedir();
-      continue;
-    }
-    if (SHELLS.has(path.basename(primeiro))) {
-      const idx = seg.findIndex((t, j) => j > k && /^-\w*c\w*$/.test(t.valor));
-      if (idx !== -1 && seg[idx + 1]) achados.push(...commitsDo(seg[idx + 1].valor, cwd, profund + 1));
-      continue;
-    }
-    if (path.basename(primeiro) !== 'git') continue;
-
-    let dir = cwd;
-    const cfg = {};
-    let j = k + 1;
-    for (;;) {
-      const t = seg[j]?.valor;
-      if (t === '-C' && seg[j + 1]) {
-        dir = resolver(seg[j + 1], dir);
-        j += 2;
-      } else if (t === '-c' && seg[j + 1]) {
-        const kv = seg[j + 1].valor;
-        const eq = kv.indexOf('=');
-        cfg[eq === -1 ? kv : kv.slice(0, eq)] = eq === -1 ? '' : kv.slice(eq + 1);
-        j += 2;
-      } else if (GLOBAIS_COM_VALOR.has(t) && seg[j + 1]) {
-        j += 2;
-      } else if (/^--(git-dir|work-tree|namespace|exec-path)=/.test(t ?? '')) {
-        j++;
-      } else {
-        break;
-      }
-    }
-    if (seg[j]?.valor === 'commit') achados.push({ dir, cfg, prefixo });
-  }
-  for (const s of subs) achados.push(...commitsDo(s, cwd, profund + 1));
-  return achados;
-}
-
+// Roda git no repositório-alvo, com os mesmos --git-dir/--work-tree do comando avaliado.
 // Retorna { status, out }. status -1 quando o binário nem roda (git ausente).
-function git(cwd, args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+function git(alvo, args) {
+  const extra = [];
+  if (alvo.gitDir) extra.push(`--git-dir=${alvo.gitDir}`);
+  if (alvo.workTree) extra.push(`--work-tree=${alvo.workTree}`);
+  const r = spawnSync('git', [...extra, ...args], { cwd: alvo.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   return { status: r.error ? -1 : r.status, out: (r.stdout || '').trim() };
 }
 
-function configurado(dir, chave) {
-  const r = git(dir, ['config', '--get', chave]);
+function configurado(alvo, chave) {
+  const r = git(alvo, ['config', '--get', chave]);
   return r.status === 0 && r.out !== '';
 }
 
-// Raiz real do repositório que contém `dir`, ou null (fora de repositório ou diretório inexistente).
-function raizRepo(dir) {
-  const r = git(dir, ['rev-parse', '--show-toplevel']);
+// Raiz real do repositório do alvo, ou null (fora de repositório ou diretório inexistente).
+function raizDoAlvo(alvo) {
+  const r = git(alvo, ['rev-parse', '--show-toplevel']);
   if (r.status !== 0 || !r.out) return null;
   try {
     return fs.realpathSync(r.out);
@@ -255,59 +95,55 @@ function infoSpecs(ambiente) {
   } catch {
     return null;
   }
-  const top = raizRepo(real);
-  if (!top) return null;
-  return { top, rel: path.relative(raizProjeto, top) || '.' };
-}
-
-function negar(regra, motivo) {
-  return { regra, motivo };
+  const top = raizDoAlvo({ dir: real, gitDir: null, workTree: null });
+  return top ? { top } : null;
 }
 
 // Identidade efetiva: config do repositório, `-c` do próprio commit, ou o par GIT_AUTHOR_* +
 // GIT_COMMITTER_* do ambiente (processo ou prefixo inline).
-function temIdentidade(commit, dir, ambiente) {
-  const env = { ...ambiente, ...commit.prefixo };
+function temIdentidade(alvo, ambiente) {
+  const env = { ...ambiente, ...alvo.prefixo };
   return {
-    nome: !!commit.cfg['user.name'] || configurado(dir, 'user.name')
+    nome: !!alvo.cfg['user.name'] || configurado(alvo, 'user.name')
       || (!!env.GIT_AUTHOR_NAME && !!env.GIT_COMMITTER_NAME),
-    email: !!commit.cfg['user.email'] || configurado(dir, 'user.email')
+    email: !!alvo.cfg['user.email'] || configurado(alvo, 'user.email')
       || (!!env.GIT_AUTHOR_EMAIL && !!env.GIT_COMMITTER_EMAIL),
   };
 }
 
-// Comando pronto para o mantenedor copiar. Identidade que falta vira `-c`, com nome e e-mail
-// do último commit do próprio phati-specs.
-function comandoPronto(specs, dir, tem) {
-  const r = git(dir, ['log', '-1', '--format=%an%x1f%ae']);
+// Comando pronto para o mantenedor copiar: caminho absoluto entre aspas, identidade que falta
+// como `-c` (com nome e e-mail do último commit do próprio phati-specs) e heredoc para a mensagem.
+function comandoPronto(specs, alvo, tem) {
+  const r = git(alvo, ['log', '-1', '--format=%an%x1f%ae']);
   const [nome, email] = r.status === 0 && r.out ? r.out.split('\x1f') : [];
   const cfg = [];
-  if (!tem.nome) cfg.push(`-c user.name='${nome || '<nome>'}'`);
-  if (!tem.email) cfg.push(`-c user.email='${email || '<email>'}'`);
-  return [`${PREFIXO_SPECS} git -C ${specs.rel}`, ...cfg, 'commit -F -'].join(' ');
+  if (!tem.nome) cfg.push(`-c ${shq(`user.name=${nome || '<nome>'}`)}`);
+  if (!tem.email) cfg.push(`-c ${shq(`user.email=${email || '<email>'}`)}`);
+  const opcoes = cfg.map((c) => ` ${c}`).join('');
+  return `${PREFIXO_SPECS} git -C ${shq(specs.top)}${opcoes} commit -F - <<'FIM'\n<mensagem do commit>\nFIM`;
 }
 
-function decidirSpecs(commit, ctx) {
-  const ramo = git(commit.dir, ['symbolic-ref', '--short', '-q', 'HEAD']);
+function decidirSpecs(alvo, ctx) {
+  const ramo = git(alvo, ['symbolic-ref', '--short', '-q', 'HEAD']);
   // HEAD destacado: falha aberta, como nos outros repositórios.
   if (ramo.status !== 0 || !ramo.out) return null;
   if (ramo.out !== 'main') {
     return negar('specs-branch', `phati-specs trabalha só em main (AGENTS.md §Git): branch ${ramo.out} não recebe commit.`);
   }
-  const tem = temIdentidade(commit, commit.dir, ctx.ambiente);
-  if (commit.prefixo.PHATI_GATE_BRANCH !== '0') {
-    return negar('specs-sem-parametro', `Commit no phati-specs exige o prefixo inline do hook. Comando pronto: ${comandoPronto(ctx.specs, commit.dir, tem)}. Exige autorização do mantenedor, por ação.`);
+  const tem = temIdentidade(alvo, ctx.ambiente);
+  if (alvo.prefixo.PHATI_GATE_BRANCH !== '0') {
+    return negar('specs-sem-parametro', `Commit no phati-specs exige o prefixo inline do hook. Comando pronto: ${comandoPronto(ctx.specs, alvo, tem)}. Exige autorização do mantenedor, por ação.`);
   }
   if (!tem.nome || !tem.email) {
-    return negar('specs-identidade', `Commit no phati-specs sem identidade git (user.name/user.email). Comando pronto: ${comandoPronto(ctx.specs, commit.dir, tem)}. Exige autorização do mantenedor, por ação.`);
+    return negar('specs-identidade', `Commit no phati-specs sem identidade git (user.name/user.email). Comando pronto: ${comandoPronto(ctx.specs, alvo, tem)}. Exige autorização do mantenedor, por ação.`);
   }
   return null;
 }
 
-function decidirBranch(dir) {
+function decidirBranch(alvo) {
   // symbolic-ref (e não rev-parse --abbrev-ref) porque funciona em branch sem commit
   // ainda; detached HEAD sai com status 1 e passa por falha aberta.
-  const ramo = git(dir, ['symbolic-ref', '--short', '-q', 'HEAD']);
+  const ramo = git(alvo, ['symbolic-ref', '--short', '-q', 'HEAD']);
   if (ramo.status !== 0 || !ramo.out) return null;
   const nome = ramo.out;
 
@@ -319,55 +155,122 @@ function decidirBranch(dir) {
   }
 
   // shortcut: sem origin/dev local a checagem de mergeada não roda (ver cabeçalho).
-  const dev = git(dir, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/dev']);
+  const dev = git(alvo, ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/dev']);
   if (dev.status !== 0) return null;
-  const head = git(dir, ['rev-parse', 'HEAD']);
+  const head = git(alvo, ['rev-parse', 'HEAD']);
   if (head.status !== 0 || head.out === dev.out) return null;
   // --is-ancestor: status 0 = é ancestral; 1 = não é; outro = erro. Só o 0 nega.
-  const ancestral = git(dir, ['merge-base', '--is-ancestor', 'HEAD', 'origin/dev']);
+  const ancestral = git(alvo, ['merge-base', '--is-ancestor', 'HEAD', 'origin/dev']);
   if (ancestral.status !== 0) return null;
   return negar('mergeada', `Branch ${nome} já foi mergeada em dev. ${DICA}`);
 }
 
-function decidirCommit(commit, ctx) {
-  const top = raizRepo(commit.dir);
-  if (!top) return null; // fora de repositório: falha aberta
-  if (ctx.specs && top === ctx.specs.top) return decidirSpecs(commit, ctx);
-  return decidirBranch(commit.dir);
+function decidirCommit(alvo, ctx) {
+  const top = raizDoAlvo(alvo);
+  if (!top) {
+    // Fora de repositório: falha aberta. Com --git-dir/--work-tree explícito, o commit iria
+    // para um alvo que o hook não consegue ler: nega.
+    if (alvo.gitDir || alvo.workTree) {
+      return negar('alvo-indeterminado', `git --git-dir/--work-tree aponta para ${alvo.gitDir || alvo.workTree}, que o hook não lê como repositório.`);
+    }
+    return null;
+  }
+  if (ctx.specs && top === ctx.specs.top) return decidirSpecs(alvo, ctx);
+  return decidirBranch(alvo);
+}
+
+// Alvo de um commit: diretório-base (cwd candidato) mais as opções globais do git. `null` em
+// qualquer ponto = não determinável (variável, substituição, cwd desconhecido).
+function alvoDoCommit(globais, base, prefixo) {
+  const alvo = { dir: base, gitDir: null, workTree: null, cfg: {}, prefixo, indeterminado: base === null };
+  const resolve = (valor) => {
+    const r = resolverDir(valor, alvo.dir);
+    if (r === null) alvo.indeterminado = true;
+    return r;
+  };
+  for (const gl of globais) {
+    if (gl.opcao === '-C') {
+      alvo.dir = resolve(gl.valor);
+    } else if (gl.opcao === '-c') {
+      const kv = gl.valor.v;
+      const eq = kv.indexOf('=');
+      alvo.cfg[eq === -1 ? kv : kv.slice(0, eq)] = eq === -1 ? '' : kv.slice(eq + 1);
+    } else if (gl.opcao === '--git-dir') {
+      alvo.gitDir = resolve(gl.valor);
+    } else if (gl.opcao === '--work-tree') {
+      alvo.workTree = resolve(gl.valor);
+    }
+  }
+  return alvo;
+}
+
+// Subcomandos `sub` do comando (com alvo; `resto` e `globais` do git) e se algum subcomando
+// troca de ramo ou refs. Padrão `commit`; o regra-negada-explicada usa `push`.
+function coletar(comando, raiz, sub = 'commit') {
+  const achados = [];
+  let mudaRamo = false;
+  percorrer(comando, [raiz], (cmd) => {
+    if (cmd.profundidade) {
+      // Além do limite não há como ler o comando: nega se o texto mencionar git ou commit.
+      if (/git|commit/.test(cmd.texto)) achados.push({ profundidade: true });
+      return;
+    }
+    if (cmd.nome !== 'git') return;
+    const g = desmontarGit(cmd.palavras);
+    if (MUDA_RAMO.has(g.sub)) mudaRamo = true;
+    if (g.sub !== sub) return;
+    for (const base of cmd.cwds) {
+      achados.push(Object.assign(alvoDoCommit(g.globais, base, cmd.prefixo), { globais: g.globais, resto: g.resto }));
+    }
+  });
+  return { achados, mudaRamo };
 }
 
 function decidir(comando, cwd, ambiente) {
   if (ambiente.PHATI_GATE_BRANCH === '0') return null;
-  const raiz = cwd || process.cwd();
-  const commits = commitsDo(comando, raiz);
-  if (!commits.length) return null;
+  const { achados, mudaRamo } = coletar(comando, cwd || process.cwd());
+  if (!achados.length) return null;
   const ctx = { ambiente, specs: infoSpecs(ambiente) };
-  for (const commit of commits) {
-    const veredito = decidirCommit(commit, ctx);
+  for (const alvo of achados) {
+    if (alvo.profundidade) {
+      return negar('profundidade', 'Comando aninhado além do limite de análise do hook, com git ou commit dentro. Rode o commit em um comando simples.');
+    }
+    if (alvo.indeterminado) {
+      return negar('alvo-indeterminado', 'Commit com diretório que o hook não consegue determinar (variável, substituição, cd -, ou cd para diretório que pode ser criado no próprio comando). Use caminho literal em git -C.');
+    }
+    const veredito = decidirCommit(alvo, ctx);
     if (veredito) return veredito;
+  }
+  if (mudaRamo) {
+    return negar('ramo-muda-no-comando', 'O mesmo comando troca de ramo ou de refs (switch, checkout, reset, merge...) antes do commit, e o ramo que o commit verá não é o lido agora. Separe a troca e o commit em comandos diferentes, cada um com a branch conferida.');
   }
   return null;
 }
 
-lerPayload((raw) => {
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    process.exit(0); // payload ilegível nunca bloqueia trabalho
-  }
-  const comando = payload?.tool_input?.command ?? '';
-  if (!comando) process.exit(0);
+if (require.main === module) {
+  lerPayload((raw) => {
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      process.exit(0); // payload ilegível nunca bloqueia trabalho
+    }
+    const comando = payload?.tool_input?.command ?? '';
+    if (!comando) process.exit(0);
 
-  const veredito = decidir(comando, payload.cwd, process.env);
-  if (veredito) {
-    console.log(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: `[branch-gate/${veredito.regra}] ${veredito.motivo}`,
-      },
-    }));
-  }
-  process.exit(0);
-});
+    const veredito = decidir(comando, payload.cwd, process.env);
+    if (veredito) {
+      console.log(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `[branch-gate/${veredito.regra}] ${veredito.motivo}`,
+        },
+      }));
+    }
+    process.exit(0);
+  });
+}
+
+// Exportado para o regra-negada-explicada reusar a resolução de alvo (phati-specs x phati-dev).
+module.exports = { coletar, alvoDoCommit, infoSpecs, raizDoAlvo, shq };
