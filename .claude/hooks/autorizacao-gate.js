@@ -83,8 +83,10 @@ function normalizar(cmd) {
     // Aspas em torno do subcomando: git 'commit' -> git commit.
     .replace(/(^|\s)(['"])([\w-]+)\2/g, '$1$3')
     // Flags de configuracao entre o executavel e o subcomando:
-    // git -C . commit / git -c k=v commit -> git commit.
-    .replace(/\bgit(?:\s+-(?:C|c|-git-dir|-work-tree|-namespace|-exec-path)(?:=\S+|\s+\S+))+/g, 'git')
+    // git -C . commit / git -c k=v commit -> git commit. O valor é uma palavra com
+    // trechos entre aspas (`user.name='A B'`): sem isso o corte para no espaço e o
+    // subcomando some do texto (achado de 2026-11-27, 9 casos escapavam).
+    .replace(/\bgit(?:\s+-(?:C|c|-git-dir|-work-tree|-namespace|-exec-path)(?:=|\s+)(?:[^\s'"]|'[^']*'|"[^"]*")+)+/g, 'git')
     .replace(/\s+/g, ' ');
 }
 

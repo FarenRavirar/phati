@@ -57,6 +57,19 @@ const CASOS = [
   ['/usr/bin/git commit -m "x"', 'commit-sem-autorizacao'],
   ['git -C . commit -m "x"', 'commit-sem-autorizacao'],
   ['git -c user.name=x commit -m "y"', 'commit-sem-autorizacao'],
+  // Valor de -c ou -C com espaço entre aspas: a normalização antiga cortava no espaço
+  // e o `commit` escapava. Medido como defeito antes da correção (2026-11-27).
+  ["git -c user.name='A B' -c user.email=x commit -m y", 'commit-sem-autorizacao'],
+  ['git -c user.name="A B" -c user.email=x commit -m y', 'commit-sem-autorizacao'],
+  ["git -c 'user.name=A B' commit -m y", 'commit-sem-autorizacao'],
+  ["git -C '../phati specs' commit -F -", 'commit-sem-autorizacao'],
+  ['git -C "../phati specs" commit -F -', 'commit-sem-autorizacao'],
+  // Prefixo de variável inline não tira o commit da pergunta.
+  ['PHATI_GATE_BRANCH=0 git commit -m x', 'commit-sem-autorizacao'],
+  ["PHATI_GATE_BRANCH=0 git -C ../phati-specs -c user.name='A B' commit -F -", 'commit-sem-autorizacao'],
+  ["git -c user.name='A B' -c user.email=x commit --amend", 'amend-proibido'],
+  ["git -c user.name='A B' -c user.email=x push --force origin feat/x", 'push-force'],
+  ['git -C "../phati specs" push -f origin feat/x', 'push-force'],
   ['git --git-dir=/repo/.git commit -m "x"', 'commit-sem-autorizacao'],
   ["git 'commit' -m x", 'commit-sem-autorizacao'],
   ['bash -lc "cd /tmp && git commit -m x"', 'commit-sem-autorizacao'],
