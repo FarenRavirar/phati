@@ -994,9 +994,11 @@ def test_repetir_recusa_quantidade_invalida_ou_hostil(quantidade):
 def test_atalhos_do_seletor_so_mostram_o_que_a_pessoa_pode():
     # Feliz: cadastrar e arquivadas aparecem conforme o contexto; negativo: sem nenhum, o bloco sai vazio.
     so_cadastrar = _renderizar('componentes/atalhos_seletor.html', seletor={'cadastrar': True, 'arquivadas': False})
-    assert 'href="/empresas/nova"' in so_cadastrar and 'href="/arquivadas/"' not in so_cadastrar
+    assert 'href="/empresas/nova"' in so_cadastrar
+    assert 'href="/arquivadas/"' not in so_cadastrar
     so_arquivadas = _renderizar('componentes/atalhos_seletor.html', seletor={'cadastrar': False, 'arquivadas': True})
-    assert 'href="/arquivadas/"' in so_arquivadas and 'href="/empresas/nova"' not in so_arquivadas
+    assert 'href="/arquivadas/"' in so_arquivadas
+    assert 'href="/empresas/nova"' not in so_arquivadas
     assert _renderizar('componentes/atalhos_seletor.html', seletor={'cadastrar': False, 'arquivadas': False}).strip() == ''
 
 

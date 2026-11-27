@@ -21,30 +21,30 @@ ACOES = [('exportar_dados', 'Exportar a lista de fazendas em CSV (só o Administ
 
 
 def marcar_cargos_base(apps, schema_editor):
-    Cargo = apps.get_model('permissao', 'Cargo')
+    modelo_cargo = apps.get_model('permissao', 'Cargo')
     admin_de = {}
-    for empresa_id, pk in Cargo.objects.filter(base='administrador').order_by('pk').values_list('empresa_id', 'pk'):
+    for empresa_id, pk in modelo_cargo.objects.filter(base='administrador').order_by('pk').values_list('empresa_id', 'pk'):
         admin_de.setdefault(empresa_id, pk)
     marcar = []
     for empresa_id, pk_admin in admin_de.items():
         marcar.append(pk_admin)
         for base in BASES_APOS_ADMINISTRADOR:
-            cargo = Cargo.objects.filter(empresa_id=empresa_id, base=base, pk__gt=pk_admin).order_by('pk').first()
+            cargo = modelo_cargo.objects.filter(empresa_id=empresa_id, base=base, pk__gt=pk_admin).order_by('pk').first()
             if cargo is not None:
                 marcar.append(cargo.pk)
-    Cargo.objects.filter(pk__in=marcar).update(de_base=True)
+    modelo_cargo.objects.filter(pk__in=marcar).update(de_base=True)
 
 
 def carregar_exportar_dados(apps, schema_editor):
-    Permissao = apps.get_model('permissao', 'Permissao')
-    Permissao.objects.bulk_create(
-        (Permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES), ignore_conflicts=True,
+    modelo_permissao = apps.get_model('permissao', 'Permissao')
+    modelo_permissao.objects.bulk_create(
+        (modelo_permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES), ignore_conflicts=True,
     )
-    Cargo = apps.get_model('permissao', 'Cargo')
-    CargoPermissao = apps.get_model('permissao', 'CargoPermissao')
-    cargos = Cargo.objects.filter(Q(base='administrador') | Q(base='curador', de_base=True))
-    CargoPermissao.objects.bulk_create(
-        (CargoPermissao(cargo=cargo, permissao_id=codigo) for cargo in cargos for codigo, _, _ in ACOES),
+    modelo_cargo = apps.get_model('permissao', 'Cargo')
+    modelo_cargo_permissao = apps.get_model('permissao', 'CargoPermissao')
+    cargos = modelo_cargo.objects.filter(Q(base='administrador') | Q(base='curador', de_base=True))
+    modelo_cargo_permissao.objects.bulk_create(
+        (modelo_cargo_permissao(cargo=cargo, permissao_id=codigo) for cargo in cargos for codigo, _, _ in ACOES),
         ignore_conflicts=True,
     )
 
