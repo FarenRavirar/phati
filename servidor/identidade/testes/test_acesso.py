@@ -3,6 +3,7 @@
 import pytest
 from django.contrib.sessions.backends.db import SessionStore
 from django.test import RequestFactory
+from django.utils import timezone
 
 from identidade import acesso, senha, sessao
 from identidade.models import Pessoa
@@ -22,6 +23,26 @@ def test_cpf_certo_abre_a_sessao_e_pede_o_cookie_csrf(pessoa):
     assert acesso.entrar(requisicao, CPF, SENHA) == (pessoa, None)
     assert requisicao.session['_auth_user_id'] == str(pessoa.pk)
     assert requisicao.META['CSRF_COOKIE_NEEDS_UPDATE']  # `get_token` marca o cookie para a resposta
+
+
+def test_entrada_web_grava_o_ultimo_acesso(pessoa, monkeypatch):
+    instante = timezone.now().replace(microsecond=0)
+    monkeypatch.setattr(timezone, 'now', lambda: instante)
+    acesso.entrar(_requisicao(), CPF, SENHA)
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login == instante  # `login()` do Django, pelo sinal `update_last_login`
+
+
+def test_entrada_do_aplicativo_grava_o_ultimo_acesso(pessoa, monkeypatch):
+    instante = timezone.now().replace(microsecond=0)
+    monkeypatch.setattr(timezone, 'now', lambda: instante)
+    acesso.entrar(_requisicao(), CPF, SENHA, 'celular')
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login == instante
+
+
+@pytest.mark.parametrize('dispositivo', [None, 'celular'])
+def test_senha_errada_nao_grava_o_ultimo_acesso(pessoa, dispositivo):
+    assert acesso.entrar(_requisicao(), CPF, 'errada-errada-errada', dispositivo) is None
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login is None
 
 
 def test_cpf_com_e_sem_pontuacao_entram_na_mesma_pessoa(pessoa):

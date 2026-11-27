@@ -1,0 +1,2 @@
+<form id="convidar-pessoa-form" method="post" action="{{ url_convidar }}">{% csrf_token %}{% for c in campos_do_convite %}{% include "componentes/campo.html" with id=c.id nome=c.nome rotulo=c.rotulo valor=c.valor erro=c.erro ajuda=c.ajuda tipo=c.tipo autocomplete=c.autocomplete teclado=c.teclado obrigatorio=c.obrigatorio opcoes=c.opcoes only %}{% endfor %}</form>
+<p><a href="{{ url_sub_area }}">Escolher uma sub-área</a></p>

@@ -132,6 +132,28 @@ const CASOS = [
   ['git commit -m x', 'commit-sem-autorizacao', { PHATI_GATE_WORKTREE: '0' }],
   ['sudo apt install foo', 'pacote-novo', { PHATI_GATE_WORKTREE: '0' }],
   ['git push --force origin dev', 'push-force', { PHATI_GATE_WORKTREE: '0' }],
+
+  // --- Achados da revisão de 2026-11-27: o analisador compartilhado entende o shell ---
+  // Achado 18: espaço escapado em -c e em -C fazia o commit escapar da pergunta (medido antes da correção).
+  ['git -c user.name=A\\ B commit -m x', 'commit-sem-autorizacao'],
+  ['git -C ../phati\\ specs push --force origin feat/x', 'push-force'],
+  // Achados 4, 5, 6, 11 e 12: palavras de controle, sudo, env, redirecionamento e dash.
+  ['if git commit -m x; then :; fi', 'commit-sem-autorizacao'],
+  ['sudo -n git commit -m x', 'commit-sem-autorizacao'],
+  ['env -i git commit -m x', 'commit-sem-autorizacao'],
+  ['> log git commit -m x', 'commit-sem-autorizacao'],
+  ['2>&1 git commit -m x', 'commit-sem-autorizacao'],
+  ['dash -c "git commit -m x"', 'commit-sem-autorizacao'],
+  ['(git commit -m x)', 'commit-sem-autorizacao'],
+  // Achado 9: ")" entre aspas dentro de $( ) não fecha a substituição.
+  ['echo $(echo ")"; git commit -m x)', 'commit-sem-autorizacao'],
+  // Achado 19: corpo de heredoc não é comando (o push --force do corpo não pode virar a regra).
+  ["git commit -F - <<'FIM'\ngit push --force origin dev\nFIM", 'commit-sem-autorizacao'],
+  ["bash <<'FIM'\ngit commit -m x\nFIM", 'commit-sem-autorizacao'],
+  ["cat <<'FIM'\ngit push --force origin dev\nFIM", null],
+  // Não relaxar: echo/rg com texto não citado continuam perguntando, como no HEAD (medido).
+  ['echo git commit -m x', 'commit-sem-autorizacao'],
+  ['rg git commit docs', 'commit-sem-autorizacao'],
 ];
 
 let ok = 0;

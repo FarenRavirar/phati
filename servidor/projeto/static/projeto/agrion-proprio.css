@@ -47,7 +47,11 @@ a { text-decoration: underline; text-underline-offset: 0.2em; }
 .ag-esqueleto-curto { width: 60%; }
 
 /* Diálogo nativo (spec 012, R37): a caixa é o <dialog>, sem a margem nem o padding do navegador; o fundo é ::backdrop. */
-dialog.ag-dialogo { margin: auto; padding: 0; border: 0; color: var(--texto-primario); }
+dialog.ag-dialogo { margin: auto; padding: 0; border: 0; color: var(--texto-primario); overflow: hidden; }
+/* telas.md §6: o corpo rola dentro do diálogo e o rodapé fica sempre à vista (o `overflow: auto` de componentes.css rolaria tudo). `:where` zera a especificidade: o `[hidden]` continua vencendo. */
+:where(dialog.ag-dialogo[open]) { display: flex; flex-direction: column; }
+dialog.ag-dialogo > .ag-dialogo-topo, dialog.ag-dialogo > .ag-dialogo-rodape { flex-shrink: 0; }
+dialog.ag-dialogo > .ag-dialogo-corpo { min-height: 0; overflow-y: auto; }
 dialog.ag-dialogo::backdrop { background: color-mix(in srgb, var(--texto-primario) 44%, transparent); }
 @media (prefers-reduced-motion: no-preference) {
   dialog.ag-dialogo::backdrop { animation: ag-surgir var(--duracao-media) var(--curva-padrao); }
@@ -120,3 +124,10 @@ fieldset.ag-segmentado { border: 0; margin: 0; min-inline-size: 0; }
 .ag-segmentado a { display: inline-flex; align-items: center; gap: var(--espaco-1-5); height: 28px; padding: 0 var(--espaco-3); border-radius: var(--raio-sm); color: var(--texto-secundario); font-size: var(--texto-sm); font-weight: var(--peso-medio); text-decoration: none; }
 .ag-segmentado a:hover { color: var(--texto-primario); }
 .ag-segmentado a[aria-current="true"] { background: var(--bg-superficie); color: var(--texto-primario); box-shadow: var(--sombra-sm); }
+/* Pessoas (telas.md §6, Q23): avatar com nome, concessões empilhadas (cargo e lugar na mesma altura) e coluna de ações de 56 px. */
+.ag-celula-pessoa { display: flex; align-items: center; gap: var(--espaco-3); }
+.ag-celula-texto { display: grid; min-width: 0; }
+.ag-concessao { display: grid; }
+.ag-coluna-acoes { width: 56px; }
+.ag-mais-concessoes > summary { cursor: pointer; color: var(--texto-secundario); font-size: var(--texto-sm); }
+.ag-mais-concessoes > ul { margin: 0; padding-left: var(--espaco-4); }

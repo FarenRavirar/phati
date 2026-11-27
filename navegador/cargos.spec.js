@@ -61,7 +61,8 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
 
   // Conceder o cargo novo a quem já está na empresa; o acesso aparece na lista.
   await page.goto(page.url().replace(/cargos\/.*/, 'pessoas/'));
-  await page.getByRole('link', { name: 'Conceder cargo a Administrador Cargos' }).click();
+  await page.locator('summary[aria-label="Ações para Administrador Cargos"]').click();
+  await page.getByRole('link', { name: 'Conceder cargo', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Conceder cargo a Administrador Cargos', level: 1 })).toBeVisible();
   await conferirTela(page);
   // exact: a região do histórico ("Acessos de ... nesta empresa") também casa com "Cargo" por substring.
@@ -69,7 +70,11 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
   await page.getByLabel('Onde vale').selectOption({ label: 'Empresa inteira' });
   await page.getByRole('button', { name: 'Conceder' }).click();
   await expect(page.getByText('Acesso concedido.')).toBeVisible();
-  await expect(page.getByText(/Campo novo · Empresa inteira/)).toBeVisible();
+  // Lista: cargo e lugar caem em colunas diferentes (telas.md §6, Q23); o texto junto só existe no menu recolhido.
+  const linhaAdmin = page.getByRole('row', { name: /Administrador Cargos/ });
+  await expect(linhaAdmin.getByText('Campo novo', { exact: true })).toBeVisible();
+  // Duas concessões em "Empresa inteira": a que a empresa criou com o Administrador (pessoas.spec.js) e a nova.
+  await expect(linhaAdmin.getByText('Empresa inteira', { exact: true })).toHaveCount(2);
   await conferirTela(page);
 
   // Sub-área: a escolha em duas etapas volta para a tela de conceder, e conceder de novo o mesmo acesso não duplica (D095).
@@ -81,7 +86,8 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
   await page.getByLabel('Nome de gleba').fill('Gleba Cargos');
   await page.getByRole('button', { name: 'Cadastrar gleba' }).click();
   await page.goto(`${casa}pessoas/`);
-  await page.getByRole('link', { name: 'Conceder cargo a Administrador Cargos' }).click();
+  await page.locator('summary[aria-label="Ações para Administrador Cargos"]').click();
+  await page.getByRole('link', { name: 'Conceder cargo', exact: true }).click();
   await page.getByRole('link', { name: 'Escolher uma sub-área' }).click();
   await expect(page.getByRole('heading', { name: 'Escolher a fazenda', level: 1 })).toBeVisible();
   await conferirTela(page);
@@ -95,7 +101,8 @@ test('plataforma cria e edita cargo, concede o cargo e o acesso aparece', async 
   await page.getByLabel('Cargo', { exact: true }).selectOption({ label: 'Campo novo' });
   await page.getByRole('button', { name: 'Conceder' }).click();
   await expect(page.getByText('Acesso concedido.')).toBeVisible();
-  await page.getByRole('link', { name: 'Conceder cargo a Administrador Cargos' }).click();
+  await page.locator('summary[aria-label="Ações para Administrador Cargos"]').click();
+  await page.getByRole('link', { name: 'Conceder cargo', exact: true }).click();
   await expect(page.getByText(/Campo novo · Fazenda Cargos › Gleba Cargos · ativa/)).toHaveCount(1);
   await conferirTela(page);
 });

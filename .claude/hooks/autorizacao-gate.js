@@ -16,6 +16,11 @@
 // O hook alcanca os quatro porque le `tool_input.command` — o texto integral da
 // chamada, inclusive o que esta dentro das aspas de um `bash -lc`.
 //
+// Antes de testar as regras, o comando passa pelo percorredor compartilhado
+// (shell-analise.js, o mesmo do branch-gate): cada comando simples vira um texto canônico,
+// sem aspas, prefixos (sudo, env, rtk, palavras de controle), opções globais do git, corpo de
+// heredoc, nem o argumento de echo/grep (dado). Assim o regex das regras casa a forma real.
+//
 // Escopo deliberadamente estreito: este hook NAO reimplementa a lista inteira do
 // AGENTS.md. As regras declarativas ja cobrem o caso comum e mostram o prompt ao
 // mantenedor, que e o comportamento desejado. Aqui ficam so as acoes cujo
@@ -29,12 +34,14 @@
 //
 // Falha aberta, deliberadamente: payload ilegivel ou erro interno sai com 0. Um
 // gate que derruba o turno e desligado na primeira vez que atrapalha, e ai nao
-// protege mais nada.
+// protege mais nada. Exceção: profundidade além do limite com git/gh/sistema dentro nega.
 
 'use strict';
 
 const { spawnSync } = require('node:child_process');
-const { lerPayload } = require(require('node:path').join(__dirname, 'ler-payload.js'));
+const path = require('node:path');
+const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
+const { percorrer, desmontarGit } = require(path.join(__dirname, 'shell-analise.js'));
 
 // Lê branch atual, último commit e o aviso que vai no prompt de commit. Falha aberta:
 // qualquer erro (cwd inválido, fora de repositório, HEAD destacado) vira `null` e o
@@ -64,32 +71,34 @@ function avisoCommit({ branch, ultimo }) {
   return `\n\n${onde} ${commit} Confira se esta é a branch certa para este assunto antes de aprovar.`;
 }
 
-// Normaliza o texto antes de testar, para que o padrao nao precise antecipar
-// cada forma de escrever o mesmo comando. Sem isto, cada regra viraria uma
-// regex barroca e as evasoes passariam pelo que ela esquecesse.
-function normalizar(cmd) {
-  return cmd
-    // Argumento de `echo`/`printf` e dado, nao execucao: `echo "git commit e o
-    // assunto"` nao commita nada, e bloquear isso e o tipo de falso positivo que
-    // faz o mantenedor desligar o gate. So a forma literal cai fora — uma
-    // substituicao como `echo "$(git commit)"` executa de verdade e por isso e
-    // preservada pelo negative lookahead do $(.
-    .replace(/\b(?:echo|printf)\s+(['"])(?:(?!\1)[^$\\]|\\.)*\1/g, ' ')
-    // Mesma logica para o padrao de busca: `rtk rg "git commit" docs` procura o
-    // texto, nao commita. Achado pela propria suite em 2026-09-10.
-    .replace(/\b(?:rg|grep|ag|ack|rtk\s+rg|rtk\s+grep)\s+(?:-\S+\s+)*(['"])(?:(?!\1)[^$\\]|\\.)*\1/g, ' ')
-    // Caminho absoluto vira o executavel nu: /usr/bin/git -> git.
-    .replace(/(^|[\s;&|(`$])(?:\/[\w.\-/]*\/)?(?=(?:git|gh|docker|apt-get|apt|scp|rsync|ssh|shutdown|reboot|poweroff|halt)\b)/g, '$1')
-    // Aspas em torno do subcomando: git 'commit' -> git commit.
-    .replace(/(^|\s)(['"])([\w-]+)\2/g, '$1$3')
-    // Flags de configuracao entre o executavel e o subcomando:
-    // git -C . commit / git -c k=v commit -> git commit. O valor é uma palavra com
-    // trechos entre aspas (`user.name='A B'`): sem isso o corte para no espaço e o
-    // subcomando some do texto (achado de 2026-11-27, 9 casos escapavam).
-    .replace(/\bgit(?:\s+-(?:C|c|-git-dir|-work-tree|-namespace|-exec-path)(?:=|\s+)(?:[^\s'"]|'[^']*'|"[^"]*")+)+/g, 'git')
-    .replace(/\s+/g, ' ');
+// Usado só quando a profundidade estoura: o texto cru mencionando estes comandos nega.
+const AMPLO = /git|gh|apt|shutdown|reboot|poweroff|halt|systemctl/;
+
+// Texto canônico do que o shell executa: um trecho por comando simples, separado por ` ; `.
+// `profundo` marca texto além do limite de aninhamento, que não foi lido por inteiro.
+function canonico(texto) {
+  const trechos = [];
+  let profundo = false;
+  percorrer(texto, [null], (cmd) => {
+    if (cmd.profundidade) {
+      if (AMPLO.test(cmd.texto)) profundo = true;
+      return;
+    }
+    if (cmd.dado) {
+      // echo/rg com argumento citado é dado (não entra). Argumento não citado continua texto,
+      // como no normalizar antigo: `echo git commit` pergunta (medido contra o HEAD, 2026-11-27).
+      trechos.push([cmd.nome, ...cmd.palavras.filter((p) => !p.citado).map((p) => p.v)].join(' '));
+    } else if (cmd.nome === 'git') {
+      const g = desmontarGit(cmd.palavras);
+      trechos.push(['git', g.sub, ...g.resto.map((p) => p.v)].filter((x) => x !== undefined).join(' '));
+    } else {
+      trechos.push([cmd.nome, ...cmd.palavras.map((p) => p.v)].join(' '));
+    }
+  });
+  return { alvo: trechos.join(' ; '), profundo };
 }
 
+// [nome, decisao, motivo]. Ordem importa: a primeira que casa decide.
 const REGRAS = [
   // --- `deny`: bloqueio sem prompt. Nenhum pedido autoriza por interpretacao ---
   {
@@ -105,7 +114,7 @@ const REGRAS = [
     nome: 'amend-proibido',
     decisao: 'deny',
     // Duplicado de proposito com o git-commit-msg-gate: la o padrao e o texto
-    // literal `--amend`; aqui ele passa pela normalizacao, entao tambem pega
+    // literal `--amend`; aqui ele passa pelo texto canônico, entao tambem pega
     // `/usr/bin/git commit --amend` e a forma dentro de `bash -lc`.
     test: /\bgit\s+commit\b[^;&|]*--amend/,
     porque: 'AGENTS.md (petrea, sem excecao): `git commit --amend` e PROIBIDO. Reescreve commit ja em review e forca push --force. Faca commit novo.',
@@ -151,6 +160,25 @@ function regrasAtivas(ambiente) {
   return REGRAS.filter((regra) => !regra.desligavel || ambiente[regra.desligavel] !== '0');
 }
 
+function emitir(nome, decisao, porque, extra = '') {
+  console.log(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: decisao,
+      permissionDecisionReason:
+        `[autorizacao-gate/${nome}] ${porque}`
+        // No `ask`, o proprio prompt E o pedido de autorizacao: mandar o agente
+        // "pedir antes de reemitir" faria ele pedir duas vezes a mesma coisa.
+        // No `deny` nao ha prompt, entao a saida de escape precisa vir no texto.
+        + (decisao === 'ask'
+          ? ''
+          : `\n\nPeca a autorizacao ao mantenedor no formato "APROVACAO NECESSARIA" `
+            + `(Acao / Motivo / Risco / Rollback / Escopo / Comandos) antes de reemitir.`)
+        + extra,
+    },
+  }));
+}
+
 lerPayload((raw) => {
   let payload;
   try {
@@ -161,7 +189,11 @@ lerPayload((raw) => {
   const command = payload?.tool_input?.command ?? '';
   if (!command) process.exit(0);
 
-  const alvo = normalizar(command);
+  const { alvo, profundo } = canonico(command);
+  if (profundo) {
+    emitir('profundidade', 'deny', 'Comando aninhado além do limite de análise do hook, com git, gh ou comando de sistema dentro. Rode em comando simples.');
+    process.exit(0);
+  }
 
   for (const regra of regrasAtivas(process.env)) {
     if (!regra.test.test(alvo)) continue;
@@ -169,23 +201,7 @@ lerPayload((raw) => {
     // Só o commit mostra branch e último commit: é a ação em que o mantenedor precisa
     // conferir a branch antes de aprovar. O `ask` do commit segue mesmo sem leitura.
     const aviso = regra.nome === 'commit-sem-autorizacao' ? avisoCommit(contextoRepo(payload?.cwd)) : '';
-
-    console.log(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: regra.decisao,
-        permissionDecisionReason:
-          `[autorizacao-gate/${regra.nome}] ${regra.porque}`
-          // No `ask`, o proprio prompt E o pedido de autorizacao: mandar o agente
-          // "pedir antes de reemitir" faria ele pedir duas vezes a mesma coisa.
-          // No `deny` nao ha prompt, entao a saida de escape precisa vir no texto.
-          + (regra.decisao === 'ask'
-            ? ''
-            : `\n\nPeca a autorizacao ao mantenedor no formato "APROVACAO NECESSARIA" `
-              + `(Acao / Motivo / Risco / Rollback / Escopo / Comandos) antes de reemitir.`)
-          + aviso,
-      },
-    }));
+    emitir(regra.nome, regra.decisao, regra.porque, aviso);
     process.exit(0);
   }
 

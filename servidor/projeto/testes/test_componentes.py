@@ -1,13 +1,14 @@
 """Componentes base e travas de estilo (R13, R15; A12, A19): cada componente renderiza e o CSS segue os tokens."""
 
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from django.template import Context, Template, TemplateSyntaxError
 from django.template.loader import render_to_string
 
-from projeto.templatetags.componentes import dentre, repetir, selo_rotulo, selo_tom
+from projeto.templatetags.componentes import _relativa, dentre, hora_relativa, repetir, selo_rotulo, selo_tom
 
 RAIZ = Path(__file__).resolve().parent.parent
 TEMPLATES = RAIZ / 'templates'
@@ -17,6 +18,44 @@ AGRION = ESTATICOS / 'agrion'
 
 def _renderizar(modelo, **contexto):
     return render_to_string(modelo, contexto)
+
+
+AGORA = datetime(2026, 11, 27, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize('local, esperado', [
+    (AGORA - timedelta(seconds=30), 'agora'),
+    (AGORA + timedelta(minutes=5), 'agora'),  # relógio do banco à frente não vira "há -5 min"
+    (AGORA - timedelta(minutes=5), 'há 5 min'),
+    (AGORA - timedelta(hours=2), 'há 2 h'),
+    (AGORA - timedelta(hours=13), 'ontem'),
+    (AGORA - timedelta(days=2), '25/11'),
+    (datetime(2025, 3, 12, 8, 12, tzinfo=timezone.utc), '12/03/2025'),
+])
+def test_hora_relativa_segue_a_regra_do_anexo(local, esperado):
+    assert _relativa(local, AGORA) == esperado
+
+
+def test_filtro_hora_relativa_so_aceita_instante():
+    assert hora_relativa(None) == ''  # ausente não vira data: a página decide "Nunca entrou" antes
+    assert hora_relativa('2026-11-27') == ''
+
+
+def test_abas_com_destino_levam_a_pagina_e_sem_destino_usam_aba():
+    html = _renderizar('componentes/abas.html', abas=[{'valor': 'convites', 'rotulo': 'Convites pendentes', 'contador': 2, 'destino': '/empresa/1/pessoas/convites'}], atual='convites', rotulo='R')
+    assert '<a class="ag-aba" href="/empresa/1/pessoas/convites" aria-current="page">Convites pendentes<span class="ag-aba-contador">2</span></a>' in html
+    assert '<a class="ag-aba" href="?aba=camadas"' in _renderizar('componentes/abas.html', abas=[{'valor': 'camadas', 'rotulo': 'Camadas'}], atual='x', rotulo='R')
+
+
+def test_lista_de_convites_enviados_mostra_cargo_onde_prazo_e_acoes_e_escapa():
+    convites = [{'id': 4, 'cargo_nome': '<b>Técnico</b>', 'onde': 'F1', 'criado_em': AGORA, 'expira_em': AGORA, 'vencido': False,
+                 'reenviar': '/x/reenviar', 'cancelar': '/x/cancelar'}]
+    html = _renderizar('componentes/lista_convites.html', convites=convites, enviados=True)
+    assert '<b>' not in html and '&lt;b&gt;Técnico&lt;/b&gt; · F1' in html
+    assert 'vale até' in html and 'Reenviar' in html and 'Cancelar' in html and 'Recusar' not in html
+    vencido = _renderizar('componentes/lista_convites.html', convites=[{**convites[0], 'vencido': True}], enviados=True)
+    assert 'venceu em' in vencido
+    assert 'class="ag-convite"' not in _renderizar('componentes/lista_convites.html', convites=[], enviados=True)
 
 
 def _css_do_projeto():

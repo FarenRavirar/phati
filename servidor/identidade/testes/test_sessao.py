@@ -15,7 +15,7 @@ from django.test import RequestFactory
 from django.utils import timezone
 
 from identidade import senha, sessao
-from identidade.models import AcessoAplicativo
+from identidade.models import AcessoAplicativo, Pessoa
 from identidade.testes.conftest import SENHA
 
 pytestmark = pytest.mark.django_db
@@ -29,6 +29,33 @@ def _requisicao():
 
 def _agora_em(monkeypatch, instante):
     monkeypatch.setattr(timezone, 'now', lambda: instante)
+
+
+def test_emitir_acesso_grava_o_ultimo_acesso(pessoa, monkeypatch):
+    instante = timezone.now().replace(microsecond=0)
+    _agora_em(monkeypatch, instante)
+    sessao.emitir_acesso(pessoa, 'celular')
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login == instante
+
+
+def test_emitir_acesso_que_falha_nao_grava_o_ultimo_acesso(pessoa, monkeypatch):
+    def falhar(*_):
+        raise RuntimeError('emissão indisponível')
+
+    monkeypatch.setattr(sessao, '_emitir', falhar)
+    with pytest.raises(RuntimeError):
+        sessao.emitir_acesso(pessoa, 'celular')
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login is None  # a data volta junto com o acesso que não nasceu
+
+
+def test_renovar_acesso_nao_mexe_no_ultimo_acesso(pessoa, monkeypatch):
+    entrada = timezone.now().replace(microsecond=0) - timedelta(days=1)
+    _agora_em(monkeypatch, entrada)
+    segredo = sessao.emitir_acesso(pessoa, 'celular')
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login == entrada
+    _agora_em(monkeypatch, entrada + timedelta(days=5))
+    assert sessao.renovar_acesso(segredo) is not None  # renovação silenciosa de uma entrada já gravada
+    assert Pessoa.objects.get(pk=pessoa.pk).last_login == entrada
 
 
 def test_cookie_de_sessao_tem_httponly_secure_e_samesite_lax():

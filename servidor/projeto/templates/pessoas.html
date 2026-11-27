@@ -1,25 +1,32 @@
 {% extends "casca.html" %}
 {% block titulo %}Pessoas{% endblock %}
 {% block conteudo %}
-{% include "componentes/cabecalho_pagina.html" with titulo="Pessoas" subtitulo=empresa.nome %}
+{% include "componentes/cabecalho_pagina.html" with titulo="Pessoas" subtitulo=descricao trilha=trilha acoes_template="componentes/acoes_pessoas.html" acoes=acoes pode_convidar=pode_convidar destino_convidar=url_convidar dialogo=dialogo only %}
 {% if aviso %}{% include "componentes/aviso.html" with tipo="sucesso" texto=aviso only %}{% endif %}
-{% include "componentes/acoes.html" with acoes=acoes %}
-{% if itens %}<ul class="lista-pessoas">
-{% for pessoa in itens %}<li class="pessoa">
-<p class="pessoa-nome">{{ pessoa.nome }}</p>
-<p class="pessoa-detalhe">{{ pessoa.email }}{% if pessoa.deve_trocar_senha %} · ainda não definiu a senha{% endif %}</p>
-{% if pessoa.concessoes %}<ul class="pessoa-concessoes">
-{% for concessao in pessoa.concessoes %}<li>{{ concessao.cargo }} · {{ concessao.onde }}{% if concessao.comeca %} · começa em {{ concessao.comeca|date:'d/m/Y' }}{% endif %}{% if concessao.fim %} · até {{ concessao.fim|date:'d/m/Y' }}{% endif %}{% if concessao.revogar %} <a href="{{ concessao.revogar }}" aria-label="Revogar {{ concessao.cargo }} de {{ pessoa.nome }}">Revogar</a>{% endif %}</li>
-{% endfor %}</ul>
-{% else %}<p class="pessoa-detalhe">Sem acesso ativo nesta empresa.</p>{% endif %}
-{% if pessoa.conceder %}<p><a href="{{ pessoa.conceder }}" aria-label="Conceder cargo a {{ pessoa.nome }}">Conceder cargo</a></p>{% endif %}
-{% if pessoa.redefinir %}<p><a href="{{ pessoa.redefinir }}" aria-label="Redefinir senha de {{ pessoa.nome }}">Redefinir senha</a></p>{% endif %}
-</li>
-{% endfor %}</ul>
-{% if pagina.has_other_pages %}<nav class="paginacao" aria-label="Páginas de pessoas"><p class="acoes-pagina">
-{% if pagina.has_previous %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
-<span class="tipo-arquivada">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
-{% if pagina.has_next %}<a class="ag-botao" data-variante="secundario" data-tamanho="md" href="?pagina={{ pagina.next_page_number }}">Próxima</a>{% endif %}
-</p></nav>{% endif %}
-{% else %}{% include "componentes/vazio.html" with texto="Nenhuma pessoa com acesso a esta empresa." acao_rotulo=vazio_rotulo acao_destino=vazio_destino only %}{% endif %}
+{% include "componentes/abas.html" with abas=abas atual=aba rotulo="Seções de pessoas" only %}
+<section class="ag-painel" data-sem-margem="">
+{% if itens %}
+<div class="ag-tabela-wrap"><table class="ag-tabela">
+<caption class="so-leitor">Pessoas</caption>
+<thead><tr><th scope="col">Pessoa</th><th scope="col">Cargo</th><th scope="col">Onde</th><th scope="col">Situação</th>{% if mostrar_ultimo_acesso %}<th scope="col">Último acesso</th>{% endif %}<th scope="col" class="ag-coluna-acoes"><span class="so-leitor">Ações</span></th></tr></thead>
+<tbody>
+{% for item in itens %}<tr>
+<td><div class="ag-celula-pessoa">{% include "componentes/avatar.html" with nome=item.nome only %}<div class="ag-celula-texto"><div class="ag-celula-principal">{{ item.nome }}</div><div class="ag-celula-sub">{{ item.email }}</div>{% if item.deve_trocar_senha %}<div class="ag-celula-sub">ainda não definiu a senha</div>{% endif %}</div></div></td>
+<td>{% for c in item.concessoes|slice:":3" %}<div class="ag-concessao">{% include "componentes/selo.html" with tom=c.tom texto=c.cargo ponto=False only %}<span class="ag-celula-sub">{% if c.comeca %}começa em {{ c.comeca|date:'d/m/Y' }}{% endif %}{% if c.fim %}{% if c.comeca %} · {% endif %}até {{ c.fim|date:'d/m/Y' }}{% endif %}{% if not c.comeca and not c.fim %}&nbsp;{% endif %}</span></div>{% empty %}Sem acesso ativo nesta empresa.{% endfor %}</td>
+<td>{% for c in item.concessoes|slice:":3" %}<div class="ag-concessao"><span>{{ c.onde }}</span><span class="ag-celula-sub">&nbsp;</span></div>{% endfor %}{% if item.concessoes|length > 3 %}<details class="ag-mais-concessoes"><summary>mais {{ item.concessoes|length|add:"-3" }}</summary><ul>{% for c in item.concessoes|slice:"3:" %}<li>{{ c.cargo }} · {{ c.onde }}</li>{% endfor %}</ul></details>{% endif %}</td>
+<td>{% if item.situacao == 'Ativo' %}{% include "componentes/selo.html" with tom="sucesso" texto=item.situacao only %}{% elif item.concessoes %}{% include "componentes/selo.html" with tom="info" texto=item.situacao only %}{% else %}{% include "componentes/selo.html" with tom="neutro" texto=item.situacao only %}{% endif %}</td>
+{% if mostrar_ultimo_acesso %}<td>{% if item.ultimo_acesso %}<time datetime="{{ item.ultimo_acesso|date:'c' }}" title="{{ item.ultimo_acesso|date:'d/m/Y H:i' }}">{{ item.ultimo_acesso|hora_relativa }}</time>{% else %}Nunca entrou{% endif %}</td>{% endif %}
+<td>{% if item.tem_menu %}<details class="ag-mais-acoes"><summary class="ag-botao" data-variante="secundario" data-tamanho="md" aria-label="Ações para {{ item.nome }}" title="Ações para {{ item.nome }}">{% icone "ellipsis" %}</summary><ul class="ag-mais-acoes-lista">
+{% if item.conceder %}<li><a href="{{ item.conceder }}">Conceder cargo</a></li>{% endif %}
+{% for c in item.concessoes %}{% if c.revogar %}<li><a href="{{ c.revogar }}">Revogar {{ c.cargo }} · {{ c.onde }}</a></li>{% endif %}{% endfor %}
+{% if item.redefinir %}<li><a href="{{ item.redefinir }}">Redefinir senha</a></li>{% endif %}
+</ul></details>{% endif %}</td>
+</tr>
+{% endfor %}</tbody></table></div>
+{% include "pessoas_paginacao.html" with pagina=pagina rotulo="pessoas" url_anterior=url_anterior url_proxima=url_proxima only %}
+{% else %}
+{% include "componentes/vazio.html" with texto="Nenhuma pessoa com acesso a esta empresa." acao_rotulo=vazio_rotulo acao_destino=vazio_destino only %}
+{% endif %}
+</section>
+{% if pode_convidar %}{% include "componentes/dialogo.html" with id="convidar-pessoa" titulo="Convidar pessoa" descricao="Quem já tem conta recebe um convite por e-mail. CPF novo entra direto: a senha temporária vai por e-mail e aparece aqui uma vez." corpo="pessoas_convidar_corpo.html" rodape="pessoas_convidar_rodape.html" %}{% endif %}
 {% endblock %}

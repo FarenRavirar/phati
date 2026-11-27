@@ -194,9 +194,9 @@ test('git -c user.name com espaço entre aspas em dev nega (a leitura não quebr
   assertNegado(rodar("git -c user.name='A B' -c user.email=x commit -m x", { cwd: dir }), 'protegida');
 });
 
-test('diretório de variável não resolvível avalia o cwd: dev nega', () => {
+test('diretório de variável não resolvível nega (alvo indeterminado, achado 2)', () => {
   const dir = repo('dev');
-  assertNegado(rodar('git -C "$ALVO" commit -m x', { cwd: dir }), 'protegida');
+  assertNegadoRegra(rodar('git -C "$ALVO" commit -m x', { cwd: dir }), 'alvo-indeterminado');
 });
 
 test('prefixo PHATI_GATE_BRANCH=0 inline não libera commit em main fora de phati-specs (git -C)', () => {
@@ -215,8 +215,9 @@ test('phati-specs sem prefixo nega com o comando pronto (cd e identidade já con
   const r = rodar(`cd ${specs} && git commit -m x`, { cwd: repoFeat(), ambiente: { CLAUDE_PROJECT_DIR: proj } });
   assert.equal(r.decisao, 'deny');
   assert.equal(r.regra, 'specs-sem-parametro');
-  const rel = path.relative(proj, specs);
-  assert.ok(r.motivo.includes(`PHATI_GATE_BRANCH=0 git -C ${rel} commit -F -`), r.motivo);
+  // Achados 14 e 16: caminho absoluto entre aspas e heredoc no comando sugerido.
+  const top = fs.realpathSync(specs);
+  assert.ok(r.motivo.includes(`PHATI_GATE_BRANCH=0 git -C '${top}' commit -F - <<'FIM'`), r.motivo);
   assert.ok(r.motivo.includes('autorização do mantenedor'), r.motivo);
 });
 
@@ -242,7 +243,7 @@ test('phati-specs em main com prefixo e sem identidade nega com -c no comando pr
   const r = rodar(`PHATI_GATE_BRANCH=0 git -C ${specs} commit -m x`, { cwd: repo('dev'), ambiente: { CLAUDE_PROJECT_DIR: proj } });
   assert.equal(r.decisao, 'deny');
   assert.equal(r.regra, 'specs-identidade');
-  assert.ok(r.motivo.includes("-c user.name='teste' -c user.email='teste@exemplo.invalid'"), r.motivo);
+  assert.ok(r.motivo.includes("-c 'user.name=teste' -c 'user.email=teste@exemplo.invalid' commit -F - <<'FIM'"), r.motivo);
 });
 
 test('vários commits: phati-specs liberado e git commit em dev sem prefixo nega', () => {
@@ -364,4 +365,184 @@ test('git -c user.name com espaço em feat/x passa (a leitura não cria falso ne
 test('projeto sem symlink specs: prefixo inline não muda nada, repositório comum segue a regra', () => {
   const outro = repo('dev');
   assertNegado(rodar(`PHATI_GATE_BRANCH=0 git -C ${outro} commit -m x`, { cwd: repoFeat() }), 'protegida');
+});
+
+// --- Achados da revisão de 2026-11-27 (19 itens). Cada teste falhava antes da correção. ---
+
+function assertNegadoRegra(resultado, regra) {
+  assert.ok(resultado, 'esperava deny, hook passou');
+  assert.equal(resultado.decisao, 'deny');
+  assert.equal(resultado.regra, regra);
+}
+
+// Achado 1: --git-dir e --work-tree definem o repositório avaliado.
+test('achado 1: --git-dir=X (com =) avalia o repositório apontado, não o cwd', () => {
+  const dev = repo('dev');
+  assertNegadoRegra(rodar(`git --git-dir=${dev}/.git commit -m x`, { cwd: repoFeat() }), 'protegida');
+});
+
+test('achado 1: --git-dir X (com espaço) avalia o repositório apontado', () => {
+  const dev = repo('dev');
+  assertNegadoRegra(rodar(`git --git-dir ${dev}/.git commit -m x`, { cwd: repoFeat() }), 'protegida');
+});
+
+test('achado 1: --work-tree=X com --git-dir avalia o repositório apontado', () => {
+  const dev = repo('dev');
+  assertNegadoRegra(rodar(`git --git-dir=${dev}/.git --work-tree=${dev} commit -m x`, { cwd: repoFeat() }), 'protegida');
+});
+
+test('achado 1: --git-dir de repositório em feat/x passa (sem falso bloqueio)', () => {
+  const feat = repoFeat();
+  assert.equal(rodar(`git --git-dir=${feat}/.git commit -m x`, { cwd: repo('dev') }), null);
+});
+
+test('achado 1: --git-dir com variável nega (alvo indeterminado)', () => {
+  assertNegadoRegra(rodar('git --git-dir=$GD/.git commit -m x', { cwd: repoFeat() }), 'alvo-indeterminado');
+});
+
+// Achado 2: -C com substituição não tem alvo determinável.
+test('achado 2: -C com substituição nega (alvo indeterminado), em vez de cair no cwd', () => {
+  assertNegadoRegra(rodar('git -C $(echo /) commit -m x', { cwd: repoFeat() }), 'alvo-indeterminado');
+});
+
+// Achado 3: cd que falha não muda o cwd do commit seguinte; o original é avaliado.
+test('achado 3: cd para diretório inexistente antes do commit nega (o shell fica no original)', () => {
+  const r = rodar(`cd ${path.join(SEM_SPECS, 'nao-existe')}; git commit -m x`, { cwd: repo('dev') });
+  assert.equal(r.decisao, 'deny');
+});
+
+test('achado 3: cd inexistente || commit: o commit roda no original, que é avaliado', () => {
+  const r = rodar(`cd ${path.join(SEM_SPECS, 'nao-existe')} || git commit -m x`, { cwd: repo('dev') });
+  assert.equal(r.decisao, 'deny');
+});
+
+// Achado 4: palavras de controle antes de git.
+test('achado 4: palavras de controle antes de git não escondem o commit', () => {
+  const dir = repo('dev');
+  for (const cmd of [
+    'if git commit -m x; then :; fi',
+    'while :; do git commit -m x; break; done',
+    'true && ! git commit -m x',
+    'time git commit -m x',
+    '{ git commit -m x; }',
+  ]) assertNegadoRegra(rodar(cmd, { cwd: dir }), 'protegida');
+});
+
+// Achado 5: sudo com opções é invólucro.
+test('achado 5: sudo com opções e sudo bash -c não escondem o commit', () => {
+  const dir = repo('dev');
+  for (const cmd of [
+    'sudo -n git commit -m x',
+    'sudo -u root -E git commit -m x',
+    'sudo -- git commit -m x',
+    'sudo bash -c "git commit -m x"',
+  ]) assertNegadoRegra(rodar(cmd, { cwd: dir }), 'protegida');
+});
+
+// Achado 6: env com opções e atribuições; env -C muda o diretório.
+test('achado 6: env com opções e atribuições não escondem o commit', () => {
+  const dir = repo('dev');
+  for (const cmd of ['env -i git commit -m x', 'env -u HOME git commit -m x', 'env -- git commit -m x', 'env A=1 -i git commit -m x']) {
+    assertNegadoRegra(rodar(cmd, { cwd: dir }), 'protegida');
+  }
+});
+
+test('achado 6: env -C DIR muda o diretório do commit', () => {
+  assertNegadoRegra(rodar(`env -C ${repo('dev')} git commit -m x`, { cwd: repoFeat() }), 'protegida');
+});
+
+// Achado 7: cd em subshell, pipeline ou & não vaza; cd dentro de ( ) vale só ali.
+test('achado 7: cd dentro de ( ), | ou & não muda o cwd do commit seguinte', () => {
+  const feat = repoFeat();
+  const dev = repo('dev');
+  for (const cmd of [`(cd ${dev} && true); git commit -m x`, `cd ${dev} | cat; git commit -m x`, `cd ${dev} & git commit -m x`]) {
+    assert.equal(rodar(cmd, { cwd: feat }), null, cmd);
+  }
+});
+
+test('achado 7: cd dentro de ( ) vale para o commit dentro do próprio ( )', () => {
+  assertNegadoRegra(rodar(`(cd ${repo('dev')} && git commit -m x)`, { cwd: repoFeat() }), 'protegida');
+});
+
+// Achado 8: substituição é avaliada no cwd do ponto onde ocorre.
+test('achado 8: substituição depois de cd usa o diretório novo', () => {
+  assertNegadoRegra(rodar(`cd ${repo('dev')}; echo "$(git commit -m x)"`, { cwd: repoFeat() }), 'protegida');
+});
+
+test('achado 8: substituição antes de cd usa o cwd original', () => {
+  assert.equal(rodar(`echo "$(git commit -m x)"; cd ${repo('dev')}`, { cwd: repoFeat() }), null);
+});
+
+// Achado 9: ")" entre aspas dentro de $( ) não fecha a substituição.
+test('achado 9: ) entre aspas dentro de $( ) não fecha a substituição', () => {
+  assertNegadoRegra(rodar('echo $(echo ")"; git commit -m x)', { cwd: repo('dev') }), 'protegida');
+});
+
+// Achado 10: profundidade além do limite nega, não omite.
+test('achado 10: commit além da PROFUNDIDADE_MAX nega (profundidade)', () => {
+  assertNegadoRegra(rodar('echo $(echo $(echo $(echo $(echo $(git commit -m x)))))', { cwd: repo('dev') }), 'profundidade');
+});
+
+test('achado 10: commit dentro do limite de profundidade ainda é avaliado', () => {
+  assertNegadoRegra(rodar('echo $(echo $(echo $(echo $(git commit -m x))))', { cwd: repo('dev') }), 'protegida');
+});
+
+// Achado 11: redirecionamento antes do comando não é o nome do comando.
+test('achado 11: redirecionamento antes do comando não esconde o commit', () => {
+  const dir = repo('dev');
+  for (const cmd of ['> log git commit -m x', '2>&1 git commit -m x', '>log git commit -m x', '2>/dev/null git commit -m x']) {
+    assertNegadoRegra(rodar(cmd, { cwd: dir }), 'protegida');
+  }
+});
+
+// Achado 12: dash -c e demais shells.
+test('achado 12: dash -c e demais shells analisam o código', () => {
+  const dir = repo('dev');
+  for (const cmd of ['dash -c "git commit -m x"', '/bin/dash -c "git commit -m x"', 'ksh -c "git commit -m x"', 'fish -c "git commit -m x"']) {
+    assertNegadoRegra(rodar(cmd, { cwd: dir }), 'protegida');
+  }
+});
+
+// Achado 13 (parte do mesmo comando): troca de ramo antes do commit invalida a leitura do ramo.
+test('achado 13: git switch antes do commit no mesmo comando nega (ramo muda no comando)', () => {
+  assertNegadoRegra(rodar('git switch -q dev && git commit -m x', { cwd: repoFeat() }), 'ramo-muda-no-comando');
+});
+
+// Achado 15: aspa simples no nome do autor sai escapada no comando sugerido.
+test("achado 15: aspa simples no nome do autor é escapada no comando sugerido", () => {
+  const specs = repoSpecs('main', false);
+  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'autor'], {
+    cwd: specs,
+    env: { ...ENV_GIT, GIT_AUTHOR_NAME: "O'Brien", GIT_COMMITTER_NAME: "O'Brien" },
+  });
+  const proj = projetoCom(specs);
+  const r = rodar(`PHATI_GATE_BRANCH=0 git -C ${specs} commit -m x`, { cwd: repo('dev'), ambiente: { CLAUDE_PROJECT_DIR: proj } });
+  assert.equal(r.regra, 'specs-identidade');
+  assert.ok(r.motivo.includes("-c 'user.name=O'\\''Brien'"), r.motivo);
+});
+
+// Achado 17: cd --, -P, -L e cd - (OLDPWD desconhecido).
+test('achado 17: cd -- / -P / -L apontam o diretório certo', () => {
+  const dev = repo('dev');
+  for (const opt of ['-- ', '-P ', '-L ']) {
+    assertNegadoRegra(rodar(`cd ${opt}${dev} && git commit -m x`, { cwd: repoFeat() }), 'protegida');
+  }
+});
+
+test('achado 17: cd - (OLDPWD desconhecido) nega o commit seguinte', () => {
+  assertNegadoRegra(rodar('cd - && git commit -m x', { cwd: repoFeat() }), 'alvo-indeterminado');
+});
+
+// Achado 19: corpo de heredoc não é comando; heredoc que alimenta shell é código.
+test('achado 19: corpo de heredoc com git commit não é comando (cat passa)', () => {
+  assert.equal(rodar("cat <<'FIM'\ngit commit -m x\nFIM", { cwd: repo('dev') }), null);
+});
+
+// Achado 18 no hook: espaço escapado em -c não pode tirar o commit da análise.
+test('achado 18: -c user.name=A\\ B com espaço escapado não esconde o commit', () => {
+  assertNegadoRegra(rodar('git -c user.name=A\\ B commit -m x', { cwd: repo('dev') }), 'protegida');
+});
+
+test('achado 19: heredoc alimentando bash continua analisado', () => {
+  assertNegadoRegra(rodar("bash <<'FIM'\ngit commit -m x\nFIM", { cwd: repo('dev') }), 'protegida');
 });
