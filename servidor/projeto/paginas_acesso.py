@@ -18,7 +18,7 @@ TEXTOS_DA_SENHA = {
     'senha_curta': f'A senha precisa ter pelo menos {senha.COMPRIMENTO_MINIMO} caracteres.',
     'senha_longa': f'A senha pode ter no máximo {senha.COMPRIMENTO_MAXIMO} caracteres.',
     'senha_comum': 'Essa senha é comum demais. Escolha outra.',
-    'senha_contexto': 'A senha não pode conter seu nome, e-mail ou CPF.',
+    'senha_contexto': 'A senha não pode conter seu nome, e-mail ou CPF, nem o nome do produto.',
 }
 
 

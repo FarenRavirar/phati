@@ -98,9 +98,12 @@ def test_entrada_nao_usa_no_referrer_que_faz_o_navegador_mandar_origin_null():
 
 def test_tela_tem_os_campos_do_prototipo_e_o_script_com_nonce():
     html = Client().get('/entrar').content.decode()
-    assert 'inputmode="numeric"' in html and 'autocomplete="username"' in html
-    assert 'placeholder="000.000.000-00"' in html and 'autocomplete="current-password"' in html
-    assert 'href="/esqueci-senha"' in html and 'Esqueci a senha' in html
+    assert 'inputmode="numeric"' in html
+    assert 'autocomplete="username"' in html
+    assert 'placeholder="000.000.000-00"' in html
+    assert 'autocomplete="current-password"' in html
+    assert 'href="/esqueci-senha"' in html
+    assert 'Esqueci a senha' in html
     assert 'Use seu CPF e a senha da sua conta AgriOn.' in html
     assert re.search(r'<script src="[^"]*entrar\.js"[^>]*nonce=', html)
 
@@ -108,7 +111,8 @@ def test_tela_tem_os_campos_do_prototipo_e_o_script_com_nonce():
 def test_campos_vazios_sem_js_ficam_com_required_e_com_js_o_servidor_recebe_o_vazio():
     # Sem JS, `required` barra o vazio; o aviso do script só vale com o JS, que tira `required` pelo `noValidate`.
     html = Client().get('/entrar').content.decode()
-    assert 'name="cpf"' in html and 'required' in html
+    assert 'name="cpf"' in html
+    assert 'required' in html
     assert re.search(r'id="aviso-campos"[^>]*\shidden', html)
 
 

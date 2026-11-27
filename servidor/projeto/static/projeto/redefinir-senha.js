@@ -11,7 +11,7 @@ const TEXTOS = {
   senha_curta: 'A senha é curta demais.',
   senha_longa: 'A senha é longa demais.',
   senha_comum: 'Essa senha é comum demais. Escolha outra.',
-  senha_contexto: 'A senha não pode conter seu nome, e-mail ou CPF.',
+  senha_contexto: 'A senha não pode conter seu nome, e-mail ou CPF, nem o nome do produto.',
 };
 function avisar(texto, sucesso = false) {
   const mostrar = sucesso ? mensagemSucesso : mensagemErro;

@@ -28,10 +28,13 @@ def test_titulo_de_aba_e_favicon_da_agrion():
 
 def test_painel_de_marca_fica_fora_da_leitura_e_tem_o_texto_do_readme():
     html = Client().get('/entrar').content.decode()
-    painel = re.search(r'<aside class="ag-publica-marca"[^>]*>', html)
-    assert painel is not None and 'aria-hidden="true"' in painel.group(0)
-    assert 'Gestão e inteligência territorial para o agro.' in html
-    assert 'agrion-simbolo-branco.svg' in html
+    # Achado do Sourcery (PR #98): o texto tem de estar dentro do próprio aside oculto, não em qualquer ponto da página.
+    painel = re.search(r'(<aside class="ag-publica-marca"[^>]*>)(.*?)</aside>', html, re.DOTALL)
+    assert painel is not None
+    abertura, conteudo = painel.group(1), painel.group(2)
+    assert 'aria-hidden="true"' in abertura
+    assert 'Gestão e inteligência territorial para o agro.' in conteudo
+    assert 'agrion-simbolo-branco.svg' in conteudo
 
 
 def test_sem_foto_de_satelite_por_ora():
@@ -45,7 +48,8 @@ def test_rodape_sem_texto_de_termos_nao_tem_link(settings):
     settings.AMBIENTE = 'producao'
     html = Client().get('/entrar').content.decode()
     assert '© AgriOn' in html
-    assert 'href="/termos"' not in html and 'href="/privacidade"' not in html
+    assert 'href="/termos"' not in html
+    assert 'href="/privacidade"' not in html
 
 
 def test_marca_phati_nao_aparece_nas_telas_publicas():

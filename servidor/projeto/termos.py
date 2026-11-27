@@ -19,9 +19,11 @@ from django.urls import NoReverseMatch, reverse
 from django.views.decorators.http import require_GET
 
 REGISTRO = logging.getLogger(__name__)
-SECOES = {'termos': 'Termos de uso', 'privacidade': 'Política de privacidade'}
-# Rótulo do rodapé (spec 012, telas.md §1): o título da página de privacidade segue `SECOES`.
-ROTULO_DO_RODAPE = {'termos': 'Termos de uso', 'privacidade': 'Privacidade'}
+# Título da página e rótulo do rodapé (spec 012, telas.md §1) ficam juntos: seção nova entra só aqui.
+SECOES = {
+    'termos': {'titulo': 'Termos de uso', 'rodape': 'Termos de uso'},
+    'privacidade': {'titulo': 'Política de privacidade', 'rodape': 'Privacidade'},
+}
 # Os dois documentos que a cláusula 3.2.2(a)(i) dos termos do Google Maps Platform manda os termos do aplicativo citar.
 TERMO_DO_GOOGLE = 'https://maps.google.com/help/terms_maps/'
 PRIVACIDADE_DO_GOOGLE = 'https://policies.google.com/privacy'
@@ -69,7 +71,7 @@ def disponiveis(_requisicao):
     """Variável de contexto do rodapé: o link só aparece para a página que de fato responde. Rota ausente (urlconf de
     teste, página de erro) tira o rodapé em vez de derrubar a página."""
     try:
-        return {'termos_links': [(reverse(secao), ROTULO_DO_RODAPE[secao]) for secao in SECOES if disponivel(secao)]}
+        return {'termos_links': [(reverse(secao), SECOES[secao]['rodape']) for secao in SECOES if disponivel(secao)]}
     except NoReverseMatch:
         return {'termos_links': []}
 
@@ -85,7 +87,7 @@ def pagina(requisicao, secao):
             raise Http404
         texto = [SEM_TEXTO]
     contexto = {
-        'titulo': SECOES[secao], 'paragrafos': texto, 'termo_do_google': TERMO_DO_GOOGLE,
+        'titulo': SECOES[secao]['titulo'], 'paragrafos': texto, 'termo_do_google': TERMO_DO_GOOGLE,
         'privacidade_do_google': PRIVACIDADE_DO_GOOGLE,
     }
     return render(requisicao, 'termos.html', contexto)

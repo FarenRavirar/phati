@@ -130,3 +130,15 @@ def test_com_uma_so_secao_o_rodape_linka_so_ela_e_a_outra_da_404(tmp_path, setti
     cliente = Client()
     assert cliente.get(f'/{so}').status_code == 200
     assert cliente.get(f'/{outra}').status_code == 404
+
+
+def test_secao_nova_com_rota_entra_no_rodape_sem_derrubar_as_paginas(settings, monkeypatch):
+    # Achado do Sourcery (PR #98): seção nova em SECOES, com rota, não pode gerar KeyError no rodapé.
+    settings.AMBIENTE = 'local'
+    settings.TERMOS_ARQUIVO = ''
+    rota_real = termos.reverse
+    monkeypatch.setattr(termos, 'reverse', lambda nome: '/nova' if nome == 'nova' else rota_real(nome))
+    monkeypatch.setitem(termos.SECOES, 'nova', {'titulo': 'Nova página', 'rodape': 'Nova'})
+    links = termos.disponiveis(None)['termos_links']
+    assert ('/nova', 'Nova') in links
+    assert ('/termos', 'Termos de uso') in links

@@ -95,6 +95,7 @@ def test_proximo_externo_some_na_troca(conta):
     ('x' * 129, 'no máximo 128 caracteres'),
     ('1q2w3e4r5t6y7u8i9o0p', 'comum demais'),
     ('fulana sintetica 123', 'seu nome, e-mail ou CPF'),
+    ('minha agrion sintetica 1', 'nome do produto'),
 ])
 def test_recusa_diz_a_regra_e_como_corrigir(cliente_logado, nova, texto):
     assert texto in _trocar(cliente_logado, nova).content.decode()

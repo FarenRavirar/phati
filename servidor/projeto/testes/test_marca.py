@@ -61,7 +61,8 @@ def test_resposta_429_do_nginx_leva_a_marca_agrion():
     linhas = [linha for linha in (RAIZ / 'nginx' / 'default.conf').read_text(encoding='utf-8').splitlines() if 'return 429' in linha]
     # Duas respostas 429: a da API (JSON, sem marca) e a da página (HTML, com a marca). Só a página leva o nome.
     paginas = [linha for linha in linhas if '<!doctype html>' in linha]
-    assert len(linhas) == 2 and len(paginas) == 1
+    assert len(linhas) == 2
+    assert len(paginas) == 1
     assert 'AgriOn' in paginas[0]
     assert all('phati' not in linha.casefold() for linha in linhas)
 
