@@ -15,7 +15,7 @@ from permissao.models import Cargo, CargoPermissao, CategoriaDado, Concessao, Pe
 
 @pytest.fixture(autouse=True)
 def catalogo(db):
-    for codigo, descricao, delegavel in (*import_module('permissao.migrations.0001_initial').ACOES, *import_module('territorio.migrations.0008_fase_fazendas').ACOES):
+    for codigo, descricao, delegavel in (*import_module('permissao.migrations.0001_initial').ACOES, *import_module('permissao.migrations.0012_cargo_de_base').ACOES):
         Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
 
 

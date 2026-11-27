@@ -131,7 +131,7 @@ def test_pessoa_sem_concessao_lista_zero_empresas(cenario, fabrica_pessoa):
 @pytest.fixture
 def catalogo(db):
     """Teste transacional esvazia o catálogo carregado pela migração; recria antes do `cenario` (mesmo molde de test_api)."""
-    for codigo, descricao, delegavel in (*import_module('permissao.migrations.0001_initial').ACOES, *import_module('territorio.migrations.0008_fase_fazendas').ACOES):
+    for codigo, descricao, delegavel in (*import_module('permissao.migrations.0001_initial').ACOES, *import_module('permissao.migrations.0012_cargo_de_base').ACOES):
         Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
 
 
@@ -629,3 +629,28 @@ def test_empresas_com_nova_fazenda_nao_consulta_arquivamento_por_empresa(cenario
         return len(contagem.captured_queries)
 
     assert consultas_com(10) == consultas_com(1)
+
+
+def test_pode_exportar_nao_percorre_fazendas_o_numero_de_consultas_nao_cresce(cenario, fabrica_pessoa, conceder_direto):
+    # Feliz: Curador de empresa exporta. Negativo: quem só tem sub-área não exporta a fazenda que a contém.
+    curador = fabrica_pessoa('Curador numero')
+    conceder_direto(curador, cenario.cargos_x['curador'], cenario.x)
+    sub = fabrica_pessoa('Sub numero')
+    conceder_direto(sub, cenario.cargos_x['curador'], cenario.t1)
+    pode_exportar_fazendas(curador)  # aquece o cache de memória de permissão
+    with CaptureQueriesContext(connection) as pequena:
+        assert pode_exportar_fazendas(curador) is True
+    for numero in range(20):
+        Fazenda.objects.create(empresa=cenario.x, nome=f'Lote {numero:02d}')
+    with CaptureQueriesContext(connection) as grande:
+        assert pode_exportar_fazendas(curador) is True
+    assert len(grande.captured_queries) == len(pequena.captured_queries)
+    assert pode_exportar_fazendas(sub) is False
+
+
+def test_talhao_ativo_de_fazenda_arquivada_conta_na_contagem(cenario, plataforma):
+    # Talhão criado depois do arquivamento tem `arquivamento` nulo: entra pela primeira cláusula, não pela do ato.
+    arquivar(plataforma, cenario.f2)
+    grupo = SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f2, nivel=1, nome='G novo')
+    SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f2, pai=grupo, nivel=2, nome='T novo')
+    assert _por_nome(listar_fazendas(plataforma, situacao='arquivadas'))['F2'].talhoes == 1

@@ -30,6 +30,9 @@ class Cargo(models.Model):
     empresa = models.ForeignKey(MODELO_EMPRESA, on_delete=models.PROTECT)
     nome = models.CharField(max_length=100)
     base = models.CharField(max_length=20, choices=[(base, base) for base in NIVEL_DA_BASE])
+    # Cargo-base de fábrica (`criar_cargos_base`, migração 0012): só ele leva a carga de `exportar_dados` (Q20). Nunca
+    # marcado por `gerenciar_cargo`, então um personalizado de mesma base não herda o que é do cargo-base.
+    de_base = models.BooleanField(default=False, db_default=False)
     empresa_id: int  # anotação só para o pyright
     # Bloqueio otimista: quem edita devolve a versão que leu, e a edição velha é recusada em vez de sobrescrever a outra
     # (padrão de ETag e If-Match; pesquisa de 2026-10-29). Começa em 1 e sobe a cada edição.
@@ -46,6 +49,8 @@ class Cargo(models.Model):
             models.UniqueConstraint(fields=['empresa', 'nome'], name='cargo_nome_unico_por_empresa'),
             # Alvo da chave estrangeira composta de concessao (migração 0002): o cargo é da empresa da concessão.
             models.UniqueConstraint(fields=['id', 'empresa'], name='cargo_id_empresa_unico'),
+            # Um cargo-base de cada base por empresa (migração 0012): a carga de `exportar_dados` acha o cargo por essa marca.
+            models.UniqueConstraint(fields=['empresa', 'base'], condition=Q(de_base=True), name='cargo_base_unica_por_empresa'),
         ]
 
 

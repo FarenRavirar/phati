@@ -1,11 +1,11 @@
 """Listagens de território autorizadas (R14, R12): só o que a pessoa pode ver, pelo escopo de cada concessão ativa."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Page, Paginator
-from django.db.models import Count, Exists, Max, OuterRef, Q
+from django.db.models import Count, Exists, F, Max, OuterRef, Q
 
 from catalogo.models import Feicao, VersaoCamada
 from permissao.pode import com_permissao, escopos_da_acao, pode
@@ -143,14 +143,11 @@ def _consulta_filtrada(escopos, texto, arquivadas, empresa_id):
     return base, _filtrar_arquivadas(consulta, arquivadas)
 
 
-def _talhoes_contaveis(fazendas):
-    """Sub-áreas de trabalho de cada fazenda. Na fazenda arquivada, também as que o próprio ato de arquivar fechou (o
-    mesmo `arquivamento`); as arquivadas antes, em outro ato, ficam fora (R11)."""
-    filtro = Q(arquivada_em__isnull=True)
-    for fazenda in fazendas:
-        if fazenda.arquivada_em is not None:
-            filtro |= Q(fazenda_id=fazenda.pk, arquivamento=fazenda.arquivamento)
-    return filtro
+def _talhoes_contaveis():
+    """Sub-áreas de trabalho, e as de fazenda arquivada que o próprio ato de arquivar fechou (o mesmo `arquivamento` da
+    fazenda); as arquivadas antes, em outro ato, ficam fora (R11). Sem `arquivamento` nulo no ato: a restrição
+    `sub_area_arquivamento_coerente` deixa `arquivamento` nulo só quando `arquivada_em` é nulo, e esse caso cai na primeira cláusula."""
+    return Q(arquivada_em__isnull=True) | Q(fazenda__arquivada_em__isnull=False, arquivamento=F('fazenda__arquivamento'))
 
 
 def _linhas(escopos, fazendas):
@@ -160,7 +157,7 @@ def _linhas(escopos, fazendas):
 
     talhoes = dict(
         SubArea.objects.filter(fazenda_id__in=ids, nivel=NIVEL_TALHAO)
-        .filter(_talhoes_contaveis(fazendas), _alcance_sub_areas(escopos, fazendas))
+        .filter(_talhoes_contaveis(), _alcance_sub_areas(escopos, fazendas))
         .order_by()
         .values('fazenda_id').annotate(n=Count('pk')).values_list('fazenda_id', 'n')
     )
@@ -205,13 +202,12 @@ def listar_fazendas(pessoa, busca: object = '', situacao: object = 'todas', empr
 
 
 def pode_exportar_fazendas(pessoa, empresa_id=None) -> bool:
-    """Tem `exportar_dados` em alguma fazenda da tela (`empresa_id`, ou todas as que vê), pela mesma checagem por fazenda
-    de `exportar_fazendas` (`pode()`). Concessão só de sub-área não conta: `pode()` exige a fazenda inteira. Quem não tem
-    não vê o botão Exportar nem a rota (R30)."""
-    escopos = escopos_da_acao(pessoa, 'ver')
+    """Tem `exportar_dados` numa fazenda inteira da tela (`empresa_id`, ou todas as que vê): pela empresa ou pela própria
+    fazenda concedida. Concessão só de sub-área não conta, como em `pode()`, que exige a fazenda inteira. Quem não tem
+    não vê o botão Exportar nem a rota (R30). Uma consulta de existência, sem percorrer as fazendas."""
+    escopos = replace(escopos_da_acao(pessoa, 'exportar_dados'), fazendas_das_sub_areas=frozenset())
     with com_permissao(pessoa, 'ver', 'exportar_dados'):
-        # shortcut: percorre em memória as fazendas da tela; se passar de alguns milhares, trocar por consulta de existência com o mesmo critério de pode().
-        return any(pode(pessoa, 'exportar_dados', fazenda) for fazenda in _consulta_fazendas(escopos, empresa_id=empresa_id, arquivadas=None))
+        return _consulta_fazendas(escopos, empresa_id=empresa_id, arquivadas=None).exists()
 
 
 def empresas_com_nova_fazenda(pessoa) -> list[Empresa]:

@@ -989,3 +989,18 @@ def test_repetir_gera_as_linhas_do_esqueleto():
 @pytest.mark.parametrize('quantidade', [0, -1, 21, 10**9, '3', None, True, 2.0])
 def test_repetir_recusa_quantidade_invalida_ou_hostil(quantidade):
     assert list(repetir(quantidade)) == []
+
+
+def test_atalhos_do_seletor_so_mostram_o_que_a_pessoa_pode():
+    # Feliz: cadastrar e arquivadas aparecem conforme o contexto; negativo: sem nenhum, o bloco sai vazio.
+    so_cadastrar = _renderizar('componentes/atalhos_seletor.html', seletor={'cadastrar': True, 'arquivadas': False})
+    assert 'href="/empresas/nova"' in so_cadastrar and 'href="/arquivadas/"' not in so_cadastrar
+    so_arquivadas = _renderizar('componentes/atalhos_seletor.html', seletor={'cadastrar': False, 'arquivadas': True})
+    assert 'href="/arquivadas/"' in so_arquivadas and 'href="/empresas/nova"' not in so_arquivadas
+    assert _renderizar('componentes/atalhos_seletor.html', seletor={'cadastrar': False, 'arquivadas': False}).strip() == ''
+
+
+def test_casca_usa_o_mesmo_atalho_no_seletor_e_no_noscript():
+    casca = (TEMPLATES / 'casca.html').read_text(encoding='utf-8')
+    assert casca.count('componentes/atalhos_seletor.html') == 2
+    assert 'href="/empresas/nova"' not in casca  # os links saem do modelo da casca, não ficam copiados nele

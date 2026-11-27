@@ -8,6 +8,14 @@ COMPOSE = (RAIZ / 'compose.yaml').read_text(encoding='utf-8')
 DOCKERFILE = (RAIZ / 'banco' / 'Dockerfile').read_text(encoding='utf-8')
 SCRIPT = (RAIZ / 'banco' / 'criar-postgis.sh').read_text(encoding='utf-8')
 CI = (RAIZ.parent / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+ATUALIZAR = (RAIZ / 'banco' / 'atualizar-postgis.sh').read_text(encoding='utf-8')
+# Versão pgdg do PostGIS (ex.: número+dfsg-N.pgdgN+N); o número antes do '+' não pode repetir em outro arquivo versionado.
+VERSAO_PGDG = re.compile(r'^\d+\.\d+\.\d+\+dfsg-\d+\.pgdg\d+\+\d+$')
+
+
+def arg_postgis(dockerfile):
+    # Valores de todo `ARG POSTGIS_VERSAO=` do Dockerfile; lista vazia se não houver.
+    return re.findall(r'^ARG\s+POSTGIS_VERSAO=(\S+)\s*$', dockerfile, re.M)
 
 
 def test_compose_constroi_o_banco_pela_imagem_propria():
@@ -18,9 +26,38 @@ def test_compose_constroi_o_banco_pela_imagem_propria():
 
 def test_dockerfile_fixa_postgres_por_digest_e_postgis_por_versao():
     assert re.search(r'^FROM postgres:18@sha256:[0-9a-f]{64}$', DOCKERFILE, re.M)
-    assert 'postgresql-18-postgis-3=3.6.4+dfsg-2.pgdg13+1' in DOCKERFILE
-    # Sem o pacote de scripts fixado, o apt puxa a versão 3.7 e a extensão recusa a biblioteca 3.6 (medido em 2026-11-19).
-    assert 'postgresql-18-postgis-3-scripts=3.6.4+dfsg-2.pgdg13+1' in DOCKERFILE
+    # Os dois pacotes puxam da mesma variável: a versão fica registrada num único lugar.
+    assert 'postgresql-18-postgis-3="${POSTGIS_VERSAO}"' in DOCKERFILE
+    # Sem o pacote de scripts fixado, o apt puxa outra versão e a extensão recusa a biblioteca (medido em 2026-11-19 com 3.6).
+    assert 'postgresql-18-postgis-3-scripts="${POSTGIS_VERSAO}"' in DOCKERFILE
+    # PostGIS 3.6.4 saiu da pilha: nenhuma linha do Dockerfile pode fixar a versão antiga.
+    assert '3.6.4' not in DOCKERFILE
+
+
+def test_postgis_tem_um_unico_arg_com_versao_pgdg():
+    valores = arg_postgis(DOCKERFILE)
+    assert len(valores) == 1
+    assert VERSAO_PGDG.match(valores[0])
+    assert len(re.findall(r'^ARG\s+POSTGIS_VERSAO\b', DOCKERFILE, re.M)) == 1
+
+
+def test_numero_da_versao_postgis_nao_aparece_literal_fora_do_arg():
+    # Só o ARG do Dockerfile guarda a versão; comentários e scripts apontam para ele, sem repetir o número.
+    valores = arg_postgis(DOCKERFILE)
+    assert len(valores) == 1
+    numero = valores[0].split('+')[0]
+    dockerfile_sem_arg = '\n'.join(
+        linha for linha in DOCKERFILE.splitlines() if not linha.startswith('ARG POSTGIS_VERSAO=')
+    )
+    testes = [p.read_text(encoding='utf-8') for p in RAIZ.glob('*/testes/*.py')]
+    for texto in [COMPOSE, CI, dockerfile_sem_arg, ATUALIZAR, *testes]:
+        assert numero not in texto
+
+
+def test_arg_postgis_acusa_ausencia_e_duplicado():
+    # Caminho infeliz: o verificador precisa distinguir zero ARG e dois ARG, senão o teste de unicidade não vale.
+    assert arg_postgis('FROM x\nRUN true\n') == []
+    assert len(arg_postgis('FROM x\nARG POSTGIS_VERSAO=1.0.0+dfsg-1.pgdg1+1\nARG POSTGIS_VERSAO=2.0.0+dfsg-1.pgdg1+1\n')) == 2
 
 
 def usuario_final(dockerfile):
