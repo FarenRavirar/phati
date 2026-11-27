@@ -2624,7 +2624,10 @@ const ROTAS_OK = {
   '/painel/': { status: 302, cabecalhos: { Location: '/painel/login/' } },
   '/api/v1/pessoas': { status: 401 },
 };
-const smoke = (url) => ASSINCRONO('bash', [unix(SMOKE), url]).then(
+// Sem espera por padrão (prazo de 1 s, intervalo 0): os casos que querem a espera passam SMOKE_* explicitamente.
+const smoke = (url, ambiente = {}) => ASSINCRONO('bash', [unix(SMOKE), url], {
+  env: { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '0', ...ambiente },
+}).then(
   (r) => ({ status: 0, ...r }),
   (e) => ({ status: e.code, stdout: e.stdout, stderr: e.stderr }),
 );
@@ -2672,7 +2675,7 @@ function smokeHttps(hsts, codigoDeSaida = 0) {
     { mode: 0o755 },
   );
   const r = spawnSync('bash', [unix(SMOKE), 'https://phati.exemplo.test'], {
-    env: { ...process.env, PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0', FAKE_CURL_FALHA: String(codigoDeSaida) },
+    env: { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '0', PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0', FAKE_CURL_FALHA: String(codigoDeSaida) },
     encoding: 'utf8',
   });
   fs.rmSync(pasta, { recursive: true, force: true });
@@ -2704,6 +2707,99 @@ test('smoke recusa URL com caminho, sem esquema e HTTP puro fora do computador l
   }
 });
 
+// Servidor de mentira para a espera de /saude: as primeiras `falhas` consultas devolvem 503 e depois a rota de `rotas`;
+// com `travado`, /saude nunca responde (a conexão fica aberta até o --max-time do curl). Anota todo pedido, para contar
+// as consultas a /saude e confirmar que nenhuma foi feita quando a entrada é inválida.
+async function comSaude({ falhas = 0, rotas = ROTAS_OK, travado = false }, fn) {
+  const pedidos = [];
+  let saudes = 0;
+  const servidor = http.createServer((req, res) => {
+    pedidos.push(req.url);
+    if (req.url === '/saude' && travado) return;
+    if (req.url === '/saude' && ++saudes <= falhas) {
+      res.writeHead(503).end('{"estado": "indisponivel"}');
+      return;
+    }
+    const rota = rotas[req.url] ?? { status: 404, corpo: '' };
+    res.writeHead(rota.status, rota.cabecalhos ?? {});
+    res.end(rota.corpo ?? '');
+  });
+  await new Promise((resolver) => servidor.listen(0, '127.0.0.1', resolver));
+  try {
+    const r = await fn(`http://127.0.0.1:${servidor.address().port}`);
+    return { r, pedidos, saudes: pedidos.filter((url) => url === '/saude').length };
+  } finally {
+    servidor.closeAllConnections?.();
+    servidor.close();
+  }
+}
+
+test('smoke espera /saude ficar pronto: servidor que falha as primeiras consultas e depois responde passa', async () => {
+  const { r, saudes } = await comSaude({ falhas: 2 }, (url) => smoke(url, { SMOKE_PRAZO: '20', SMOKE_INTERVALO: '0' }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /smoke_ok/);
+  assert.equal(saudes, 3, 'duas falhas e um ok: três consultas a /saude');
+});
+
+test('smoke nunca fica pronto: reprova dentro do prazo total, sem passar dele', async () => {
+  const inicio = Date.now();
+  const { r, saudes } = await comSaude({ falhas: Infinity }, (url) => smoke(url, { SMOKE_PRAZO: '3', SMOKE_INTERVALO: '1' }));
+  const decorrido = Date.now() - inicio;
+  assert.equal(r.status, 1, r.stderr);
+  assert.ok(saudes >= 2, `mais de uma consulta dentro do prazo: ${saudes}`);
+  assert.match(r.stderr, /FALHA \/saude devolve estado ok/);
+  assert.match(r.stderr, /não ficou pronto em 3 s/);
+  assert.ok(decorrido >= 2500, `o prazo de 3 s foi usado: ${decorrido} ms`);
+  assert.ok(decorrido < 6000, `o prazo de 3 s não passou: ${decorrido} ms`);
+});
+
+test('smoke com /saude travado: a consulta não passa do prazo restante, mesmo com --max-time de 10 s', async () => {
+  const inicio = Date.now();
+  const { r, saudes } = await comSaude({ travado: true }, (url) => smoke(url, { SMOKE_PRAZO: '4', SMOKE_INTERVALO: '0' }));
+  const decorrido = Date.now() - inicio;
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(saudes, 1, 'o prazo acabou na primeira consulta');
+  assert.match(r.stderr, /FALHA \/saude devolve estado ok/);
+  assert.ok(decorrido >= 3000, `a consulta usou o prazo: ${decorrido} ms`);
+  assert.ok(decorrido < 8000, `teto total de 4 s, não o --max-time de 10 s: ${decorrido} ms`);
+});
+
+test('smoke pronto de imediato não espera: uma consulta a /saude, mesmo com intervalo de 30 s', async () => {
+  const inicio = Date.now();
+  const { r, saudes } = await comSaude({}, (url) => smoke(url, { SMOKE_PRAZO: '60', SMOKE_INTERVALO: '30' }));
+  const decorrido = Date.now() - inicio;
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(saudes, 1);
+  assert.ok(decorrido < 10000, `não deveria dormir o intervalo: ${decorrido} ms`);
+});
+
+test('smoke com /saude pronto e outra verificação ruim continua reprovando depois da espera', async () => {
+  const rotas = { ...ROTAS_OK, '/entrar': { status: 500, cabecalhos: { 'Content-Security-Policy': "default-src 'self'" } } };
+  const { r, saudes } = await comSaude({ falhas: 1, rotas }, (url) => smoke(url, { SMOKE_PRAZO: '20', SMOKE_INTERVALO: '0' }));
+  assert.equal(r.status, 1, r.stderr);
+  assert.equal(saudes, 2);
+  assert.match(r.stderr, /FALHA \/entrar responde 200/);
+  assert.doesNotMatch(r.stderr, /FALHA \/saude/);
+});
+
+test('smoke recusa SMOKE_PRAZO e SMOKE_INTERVALO inválidos antes de qualquer consulta', async () => {
+  const casos = [
+    { SMOKE_PRAZO: '0' },
+    { SMOKE_PRAZO: '-1' },
+    { SMOKE_PRAZO: 'abc' },
+    { SMOKE_PRAZO: '1.5' },
+    { SMOKE_INTERVALO: '-2' },
+    { SMOKE_INTERVALO: 'dois' },
+  ];
+  for (const ambiente of casos) {
+    const { r, pedidos } = await comSaude({}, (url) => smoke(url, ambiente));
+    const nome = JSON.stringify(ambiente);
+    assert.equal(r.status, 1, nome);
+    assert.match(r.stderr, /SMOKE_PRAZO|SMOKE_INTERVALO/, nome);
+    assert.equal(pedidos.length, 0, `nenhuma consulta com ${nome}`);
+  }
+});
+
 // Servidor que recusa Host fora da lista, como o ALLOWED_HOSTS do Django (spec 011 R8): o smoke local precisa mandar o Host permitido.
 async function comServidorDeHosts(permitidos, fn) {
   const servidor = http.createServer((req, res) => {
@@ -2724,7 +2820,7 @@ async function comServidorDeHosts(permitidos, fn) {
   }
 }
 const smokeComHosts = (url, hosts) => {
-  const env = { ...process.env };
+  const env = { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '0' };
   if (hosts === undefined) delete env.PHATI_HOSTS_PERMITIDOS;
   else env.PHATI_HOSTS_PERMITIDOS = hosts;
   return ASSINCRONO('bash', [unix(SMOKE), url], { env }).then(

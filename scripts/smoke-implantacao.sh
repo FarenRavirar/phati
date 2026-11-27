@@ -8,6 +8,14 @@ base="${1:-}"
 # HTTP puro só para o próprio computador (o teste sobe um servidor local); a implantação real é sempre https.
 [[ "$base" =~ ^(https://[^/]+|http://(127\.0\.0\.1|localhost)(:[0-9]+)?)$ ]] || { echo "ERRO: informe a URL base sem caminho: https://… (http:// só em 127.0.0.1 ou localhost)" >&2; exit 1; }
 
+# Espera limitada por /saude: logo depois do `up` o túnel e o app ainda não respondem. Teto total em SMOKE_PRAZO segundos
+# (padrão 60); entre as consultas dorme SMOKE_INTERVALO (padrão 2). Cada consulta tem --max-time de no máximo 10 s e nunca
+# passa do que resta do prazo. Valores inválidos recusam antes de qualquer consulta.
+prazo="${SMOKE_PRAZO:-60}"
+intervalo="${SMOKE_INTERVALO:-2}"
+[[ "$prazo" =~ ^[1-9][0-9]*$ ]] || { echo "ERRO: SMOKE_PRAZO precisa ser inteiro em segundos, maior que zero" >&2; exit 1; }
+[[ "$intervalo" =~ ^[0-9]+$ ]] || { echo "ERRO: SMOKE_INTERVALO precisa ser inteiro em segundos, zero ou mais" >&2; exit 1; }
+
 # Base local (http) numa implantação: o Host é o primeiro de PHATI_HOSTS_PERMITIDOS, o mesmo de implantar.sh e do healthcheck;
 # sem ele, o Django recusa o Host do loopback com 400 (spec 011 R8). Nome fora de host é recusado antes de qualquer curl.
 host_args=()
@@ -30,8 +38,24 @@ confere() { # descrição, código de saída da condição (0 = ok)
 status() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${host_args[@]}" "$@"; }
 cabecalhos() { curl -s -D - -o /dev/null --max-time 10 "${host_args[@]}" "$@"; }
 
-corpo="$(curl -s --max-time 10 "${host_args[@]}" "$base/saude" || true)"
+# $SECONDS são segundos inteiros desde o início do shell: só importa a diferença. A primeira consulta sempre roda,
+# com prazo >= 1, então --max-time nunca é 0 (0 seria sem limite no curl).
+fim_espera=$((SECONDS + prazo))
+restante=$prazo
+corpo=""
+while :; do
+  maximo_consulta=$(( restante < 10 ? restante : 10 ))
+  corpo="$(curl -s --max-time "$maximo_consulta" "${host_args[@]}" "$base/saude" || true)"
+  if [[ "$corpo" == *'"estado": "ok"'* ]]; then break; fi
+  restante=$((fim_espera - SECONDS))
+  if (( restante <= 0 )); then break; fi
+  pausa=$(( restante < intervalo ? restante : intervalo ))
+  sleep "$pausa"
+  restante=$((fim_espera - SECONDS))
+  if (( restante <= 0 )); then break; fi
+done
 [[ "$corpo" == *'"estado": "ok"'* ]] && ok=0 || ok=1
+[[ "$ok" == 0 ]] || echo "espera esgotada: /saude não ficou pronto em $prazo s (intervalo de ${intervalo} s)" >&2
 confere "/saude devolve estado ok" "$ok"
 [[ "$(status "$base/entrar")" == 200 ]] && ok=0 || ok=1
 confere "/entrar responde 200" "$ok"

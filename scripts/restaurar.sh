@@ -38,12 +38,14 @@ valor_env() {
   if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
   printf '%s' "$v"
 }
+destino_env="${PHATI_BANCO_DESTINO:-}"
+[[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
 if [[ "$banco_srv" == banco_novo ]]; then
+  [[ -z "$destino_env" || "$destino_env" == banco_novo ]] || { echo "ERRO: estado de banco divergente: .env aponta $destino_env, banco-ativo banco_novo" >&2; exit 1; }
   export PHATI_BANCO_DESTINO=banco_novo
 else
-  destino_env="${PHATI_BANCO_DESTINO:-}"
-  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
   [[ "$destino_env" != banco_novo ]] || { echo "ERRO: estado de banco divergente: .env aponta banco_novo, banco-ativo não" >&2; exit 1; }
+  [[ -z "$destino_env" || "$destino_env" == banco ]] || { echo "ERRO: estado de banco divergente: .env aponta $destino_env, banco-ativo banco" >&2; exit 1; }
 fi
 # X4: mesma ordem do backup.sh e do implantar.sh (ambiente, `.env`, padrão $dir/alvo); a instrução de recuperação a traz.
 alvo_dir="${PHATI_ALVO_DIR:-}"

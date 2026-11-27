@@ -16,7 +16,7 @@
 # Sem rollback automático depois do RESUME da troca: o host novo já atende a app; falha depois disso vira AVISO com o
 # comando de recuperação. Antes desse RESUME, qualquer falha restaura o `host=` anterior, remove a assinatura e a
 # publicação e sai rc 1.
-# Destino para o PgBouncer: grava `banco_novo` em `/cfg/banco-destino` (volume pgb_cfg, por one-off do pgb_auth). O entrypoint
+# Destino para o PgBouncer: grava o NOVO (`banco_novo` na ida, `banco` na volta) em `/cfg/banco-destino` (volume pgb_cfg, por one-off do pgb_auth). O entrypoint
 # lê esse arquivo ao subir e ele vence PHATI_BANCO_DESTINO, porque o ambiente do contêiner não muda com `docker restart`.
 # Modo lógico: depois do RELOAD e antes do RESUME. Janela residual: entre o RELOAD e a gravação, um reinício do PgBouncer
 # volta ao `banco` pela variável; com a origem somente leitura (item 2, lote 3) isso vira erro de escrita, não divergência
@@ -30,7 +30,9 @@
 # Variáveis: PHATI_DIR (padrão /opt/phati, com `.env`, `repo/` e `backups/`), DOCKER (para teste), PHATI_PROJETO, PHATI_BANCO_NOME
 # (ambiente, depois `.env`, padrão phati; usado em todas as conexões), PHATI_FLOCK,
 # PHATI_TRAVA_LIMITE (padrão 3600), PHATI_ESPERA e PHATI_TENTATIVAS (esperas), PHATI_MARGEM_SEQ (padrão 1000),
-# PHATI_TROCA_MODO (padrão fisica; `--modo` na linha de comando tem prioridade). Argumentos: só `trocar --modo <valor>`.
+# PHATI_TROCA_MODO (padrão fisica; `--modo` na linha de comando tem prioridade). Argumentos: `trocar --modo <valor>` e
+# `limpar-destino <banco|banco_novo>` (remove o banco inativo, contêiner e volume; único subcomando que apaga volume). A direção é
+# dinâmica (volta): ORIG é o banco ativo gravado em banco-ativo e NOVO o outro (`resolver_direcao`).
 # Segredo: a senha do `replicador` vai só ao ambiente do `exec` (`-e NOME`, sem valor na linha de comando) e ao `\getenv`
 # do psql; nunca à saída nem ao registro. O stderr do psql é descartado porque ele pode ecoar a instrução com a senha.
 # -E: o trap ERR vale dentro de funções; sem ele, falha do Docker sairia calada.
@@ -40,8 +42,10 @@ sub="${1:-}"
 dir="${PHATI_DIR:-/opt/phati}"
 docker="${DOCKER:-docker}"
 registro="$dir/implantacoes.log"
-ORIG=banco
-NOVO=banco_novo
+# Par de bancos (spec 009 R15, volta): ORIG é o banco ativo e NOVO o outro. Vêm de `resolver_direcao` (depois da trava): com
+# marcador de troca em curso, o marcador grava origem e destino; sem ele, ORIG é o `banco-ativo` (padrão banco). Nada de literal fixo.
+ORIG=""
+NOVO=""
 PUB=phati_troca_pub
 SUB=phati_troca_sub
 # Passfile do libpq no banco_novo: a conninfo da assinatura aponta para ele, sem senha no SQL. Sai só depois do DROP SUBSCRIPTION.
@@ -116,6 +120,54 @@ erro() {
   registrar "FALHOU: $*"
   exit 1
 }
+# Banco ativo gravado em banco-ativo (padrão banco). Só leitura; quem usa valida o valor.
+ativo_gravado() {
+  local v=banco
+  if [[ -f "$dir/banco-ativo" ]]; then v="$(cat "$dir/banco-ativo")"; fi
+  printf '%s' "$v"
+}
+# Recusa antes de qualquer ação. Não usa `erro`: o `erro` apaga o marcador da troca, e aqui o marcador pode ser o que se recusa.
+recusar() {
+  echo "ERRO: $*" >&2
+  exit 1
+}
+# Direção da troca (desenho da volta): ORIG = banco ativo, NOVO = o outro do par. Com marcador, o marcador manda (grava origem e
+# destino); marcador sem os dois (formato anterior) recusa e não é apagado. Sem marcador, ORIG vem de banco-ativo e o destino do
+# `.env` (vazio conta como banco, o padrão do compose) tem de ser ORIG: divergência recusa. Nunca recalcula a direção de um
+# banco-ativo já gravado pela metade.
+resolver_direcao() {
+  local linha ativo env_dest efetivo re='^origem=(banco|banco_novo) destino=(banco|banco_novo) modo='
+  if [[ -e "$marcador" ]]; then
+    linha="$(head -n 1 "$marcador" 2>/dev/null || true)"
+    if [[ "$linha" =~ $re && "${BASH_REMATCH[1]}" != "${BASH_REMATCH[2]}" ]]; then
+      ORIG="${BASH_REMATCH[1]}"
+      NOVO="${BASH_REMATCH[2]}"
+      return 0
+    fi
+    # Marcador de versão anterior (`modo=... passo=...`, sem origem e destino): a versão que o gravou só fazia banco -> banco_novo
+    # (ORIG e NOVO eram literais), então a direção é essa. O marcador novo sempre grava origem e destino (`marcar_troca`).
+    if [[ "$linha" =~ ^modo=(fisica|logica)\ passo= ]]; then
+      ORIG=banco
+      NOVO=banco_novo
+      return 0
+    fi
+    recusar "marcador $marcador inválido (sem origem, destino e modo): reconcilie à mão, grave origem e destino ou remova o marcador; nada foi feito"
+  fi
+  ativo="$(ativo_gravado)"
+  [[ "$ativo" == banco || "$ativo" == banco_novo ]] || recusar "$dir/banco-ativo tem valor inválido: nada foi feito"
+  env_dest="$(ler_env PHATI_BANCO_DESTINO)"
+  efetivo="${env_dest:-banco}"
+  [[ "$efetivo" == "$ativo" ]] || recusar "PHATI_BANCO_DESTINO é '$efetivo', esperado $ativo: nada foi feito (persistência parcial da troca: banco-ativo e .env divergem sem o marcador $marcador; reconcilie à mão antes de repetir)"
+  ORIG="$ativo"
+  if [[ "$ativo" == banco ]]; then NOVO=banco_novo; else NOVO=banco; fi
+}
+# Guarda explícita do stop/rm (desenho item 5): o serviço nunca é o banco ativo gravado nem o ORIG desta execução. Falso = não atinge.
+# Não chama `erro` (o erro chama as limpezas, que chamariam esta guarda de novo).
+guarda_inativo() {
+  local svc="$1"
+  [[ "$svc" != "$(ativo_gravado)" && "$svc" != "$ORIG" ]]
+}
+
 # Compose com os mesmos arquivos do implantar.sh. O `PHATI_ALVO_DIR` é exigido pelo compose (monta o nginx), então é exportado.
 # O override de wal_level entra só no modo lógico ou no `preparar` (sempre lógico): ele recria o `banco` no `up`.
 # $1 = segundos de limite ("" = sem limite): `timeout N` na frente do `docker` (PHATI_TIMEOUT). Sem o comando, AVISO e segue sem limite.
@@ -153,7 +205,7 @@ esperar_saude() {
 }
 # Valor de `wal_level` do banco (só leitura). Falha do exec sai com rc diferente de 0.
 consultar_wal() {
-  compor exec -T banco sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -h 127.0.0.1 -U postgres -d postgres -c "SHOW wal_level"'
+  compor exec -T "$ORIG" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -h 127.0.0.1 -U postgres -d postgres -c "SHOW wal_level"'
 }
 # psql no banco do serviço $1 com as opções seguintes. SQL vai por `-c` (leitura) ou por stdin (`-f -`). Stderr descartado:
 # o psql pode ecoar a instrução com erro.
@@ -405,7 +457,7 @@ checar_vm() {
   [[ -f "$dir/repo/servidor/compose.implantacao.yaml" ]] || erro "compose de implantação ausente no clone"
   [[ -f "$dir/repo/servidor/banco/papeis.sql" ]] || erro "papeis.sql ausente no clone"
   saudavel_agora pgb1 && saudavel_agora pgb2 || erro "PgBouncer indisponível: pgb1 e pgb2 precisam estar saudáveis antes da troca"
-  saudavel_agora banco || erro "banco não está saudável: nada foi feito"
+  saudavel_agora "$ORIG" || erro "banco não está saudável: nada foi feito"
 }
 # Backup verificado antes de qualquer alteração (R8). O backup.sh ignora o argumento `preparar-troca` (não tem despacho).
 backup_verificado() {
@@ -423,7 +475,7 @@ preparar() {
   backup_verificado
 
   passo=replicador
-  compor exec -T -e PHATI_BANCO_REPLICADOR_SENHA banco sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f -' < "$dir/repo/servidor/banco/papeis.sql" >/dev/null 2>&1 \
+  compor exec -T -e PHATI_BANCO_REPLICADOR_SENHA "$ORIG" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres -f -' < "$dir/repo/servidor/banco/papeis.sql" >/dev/null 2>&1 \
     || erro "SQL do papel replicador falhou (saída suprimida: contém a senha)"
 
   if [[ "$ja_logical" == 1 ]]; then
@@ -435,8 +487,8 @@ preparar() {
   passo=pausa
   pausar_pgb
   passo=banco-reinicio
-  compor up -d --no-deps banco >/dev/null || erro "não consegui recriar o banco com wal_level=logical"
-  esperar_saude banco || erro "banco não voltou saudável depois do reinício (estado: ${estado:-desconhecido})"
+  compor up -d --no-deps "$ORIG" >/dev/null || erro "não consegui recriar o banco com wal_level=logical"
+  esperar_saude "$ORIG" || erro "banco não voltou saudável depois do reinício (estado: ${estado:-desconhecido})"
   passo=wal-level
   wal="$(consultar_wal)" || erro "não consegui ler wal_level depois do reinício"
   [[ "$wal" == logical ]] || erro "wal_level não virou logical (valor: $wal)"
@@ -520,14 +572,12 @@ limpar_temporarios() {
 # marcador `troca-banco-em-curso` (parcial sem marcador recusa, lote 2 R4). Retorna 1 quando nenhuma das duas diz banco_novo (troca nova).
 completar_persistencia() {
   local ativo_ok=0 env_ok=0 completou=""
-  [[ "$(cat "$dir/banco-ativo" 2>/dev/null || true)" == "$NOVO" ]] && ativo_ok=1
-  grep -qx "PHATI_BANCO_DESTINO=$NOVO" "$dir/.env" 2>/dev/null && env_ok=1
+  [[ "$(ativo_gravado)" == "$NOVO" ]] && ativo_ok=1
+  [[ "$(ler_env PHATI_BANCO_DESTINO)" == "$NOVO" ]] && env_ok=1
+  # Só há o que completar com o marcador da troca em curso (lote 2, R4; desenho da volta). Sem ele, estado completo é troca nova
+  # (não rc 0 falso) e o parcial já foi recusado por `resolver_direcao`. Com marcador, a direção é a do marcador, não a do banco-ativo.
+  [[ -e "$marcador" ]] || return 1
   (( ativo_ok == 1 || env_ok == 1 )) || return 1
-  # Parcial (uma gravação feita, a outra não) só se recupera com o marcador da troca (lote 2, R4): sem ele não se prova que o
-  # banco_novo é desta troca. Recusa direto, sem gravar: o fluxo normal não olha o banco-ativo e deixaria passar banco-ativo=banco_novo.
-  if (( ativo_ok + env_ok == 1 )) && [[ ! -e "$marcador" ]]; then
-    erro "persistência parcial da troca (banco-ativo ou .env já diz banco_novo, o outro não) sem o marcador $marcador: reconcilie à mão antes de repetir; nada foi alterado"
-  fi
   # Ponto sem volta já passou: um erro daqui não pode apagar o marcador (limpar_marcador só apaga com comitado=0).
   comitado=1
   if (( ativo_ok == 0 )); then gravar_banco_ativo; completou="banco-ativo"; fi
@@ -550,10 +600,11 @@ completar_persistencia() {
   fi
   return 0
 }
-# Marcador gravado antes do PAUSE (conteúdo: modo e passo). Fica se a troca passou do RESUME e falhou depois: a próxima execução
-# recusa até alguém reconciliar.
+# Marcador gravado antes do PAUSE (conteúdo: origem, destino, modo e passo). Fica se a troca passou do RESUME e falhou depois: a
+# próxima execução recusa até alguém reconciliar. A origem e o destino gravados são o que a recuperação usa para a direção (volta):
+# marcador sem eles é de versão anterior e recusa (`resolver_direcao`).
 marcar_troca() {
-  printf 'modo=%s passo=%s\n' "$modo" "$passo" > "$marcador" || erro "não consegui gravar o marcador $marcador: nada pausado"
+  printf 'origem=%s destino=%s modo=%s passo=%s\n' "$ORIG" "$NOVO" "$modo" "$passo" > "$marcador" || erro "não consegui gravar o marcador $marcador: nada pausado"
 }
 # Remove o marcador só no aborto completo de `trocar` (RESUME feito e sem o ponto sem volta).
 limpar_marcador() {
@@ -619,7 +670,15 @@ saida_run() { grep -v '^#[0-9]' || true; }
 checar_volume_vazio() {
   local conteudo
   conteudo="$(compor run --rm -T --no-deps --entrypoint sh "$NOVO" -c 'ls -A /var/lib/postgresql' | saida_run)" || erro "não consegui ler o volume do $NOVO"
-  [[ -z "$conteudo" ]] || erro "dados_banco_novo não está vazio: remova o volume antes do modo físico (ou use --modo logica)"
+  [[ -z "$conteudo" ]] || erro "dados_$NOVO não está vazio: use limpar-destino $NOVO antes de trocar (nada foi alterado)"
+}
+# Destino limpo antes de qualquer escrita, nos dois modos (desenho item 2): a segunda troca logo após um sucesso cai aqui, porque o
+# banco da origem antiga ainda tem dado. Só o `limpar-destino` apaga volume. O build vem antes do `run` (saída do BuildKit).
+checar_destino_limpo() {
+  passo=build
+  compor build "$NOVO" >/dev/null 2>&1 || erro "build do $NOVO falhou: nada foi alterado"
+  passo=volume
+  checar_volume_vazio
 }
 # Major da origem igual ao da imagem do banco_novo (o standby físico só acompanha a mesma versão maior).
 checar_major() {
@@ -661,7 +720,7 @@ limpar_fisico() {
     local liberado=1
     # O PostgreSQL recusa drop de slot ativo: com o standby iniciado, para-o e espera o slot ficar inativo antes do drop.
     if [[ "$standby_iniciado" == 1 ]]; then
-      compor stop "$NOVO" >/dev/null 2>&1 || liberado=0
+      guarda_inativo "$NOVO" && compor stop "$NOVO" >/dev/null 2>&1 || liberado=0
       standby_iniciado=0
       esperar_consulta "$ORIG" "SELECT active FROM pg_replication_slots WHERE slot_name = '$SLOT'" f || liberado=0
     fi
@@ -673,22 +732,19 @@ limpar_fisico() {
     fi
   fi
   if [[ "$promovido" == 1 ]]; then
-    echo "AVISO: $NOVO foi promovido e o host voltou para $ORIG: descarte o $NOVO (compose rm -sfv $NOVO e remova o volume dados_banco_novo)" >&2
+    echo "AVISO: $NOVO foi promovido e o host voltou para $ORIG: descarte o $NOVO (compose rm -sfv $NOVO e remova o volume dados_$NOVO)" >&2
     return 0
   fi
   if [[ "$novo_criado" == 1 ]]; then
-    compor rm -sfv "$NOVO" >/dev/null 2>&1 || echo "AVISO: não consegui remover o $NOVO: rode compose rm -sfv $NOVO" >&2
-    echo "AVISO: remova o volume dados_banco_novo antes de tentar de novo (o modo físico exige volume vazio)" >&2
+    guarda_inativo "$NOVO" && compor rm -sfv "$NOVO" >/dev/null 2>&1 || echo "AVISO: não consegui remover o $NOVO: rode compose rm -sfv $NOVO" >&2
+    echo "AVISO: remova o volume dados_$NOVO antes de tentar de novo (o modo físico exige volume vazio)" >&2
   fi
 }
 # Build da imagem do banco_novo antes de qualquer `run` capturado: sem ela, o `run` do volume ou da versão constrói a imagem e o
 # progresso do BuildKit cai no stdout capturado (medido no ensaio real: '#1' virou major). A saída do build vai ao /dev/null.
+# Movido para `checar_destino_limpo` (antes dos dois modos, desenho da volta); aqui fica só o que o modo físico precisa depois dele.
 trocar_fisica() {
   local rep r
-  passo=build
-  compor build "$NOVO" >/dev/null 2>&1 || erro "build do $NOVO falhou: nada foi alterado"
-  passo=volume
-  checar_volume_vazio
   passo=major
   checar_major
   passo=backup
@@ -758,7 +814,7 @@ trocar() {
   # Só o `trocar` usa o profile: o `banco_novo` fica fora dos outros subcomandos.
   export COMPOSE_PROFILES=troca-banco
   passo=precondicoes
-  local margem="${PHATI_MARGEM_SEQ:-1000}" atual wal lista n lsn pausa_ms r papel_app
+  local margem="${PHATI_MARGEM_SEQ:-1000}" wal lista n lsn pausa_ms r papel_app
   [[ "$margem" =~ ^[0-9]{1,15}$ ]] || { echo "ERRO: PHATI_MARGEM_SEQ inválida: use inteiro maior ou igual a 0" >&2; exit 1; }
   # Antes do marcador: uma troca que já passou do ponto sem volta só completa a persistência (e o marcador sai com ela).
   completar_persistencia && return 0
@@ -768,8 +824,9 @@ trocar() {
   papel_app="${PHATI_BANCO_APP_USUARIO:-}"
   [[ -n "$papel_app" ]] || papel_app="$(ler_env PHATI_BANCO_APP_USUARIO)"
   [[ "$papel_app" =~ ^[a-z_][a-z0-9_]*$ ]] || erro "PHATI_BANCO_APP_USUARIO ausente ou inválido: nada foi feito"
-  atual="$(ler_env PHATI_BANCO_DESTINO)"
-  [[ -z "$atual" || "$atual" == "$ORIG" ]] || erro "PHATI_BANCO_DESTINO é '$atual', esperado $ORIG: nada foi feito"
+  # O destino do `.env` já foi conferido com o banco ativo em `resolver_direcao`. Destino com dado (origem antiga) recusa aqui, antes de
+  # qualquer escrita, nos dois modos.
+  checar_destino_limpo
   if [[ "$modo" == fisica ]]; then
     trocar_fisica
     return 0
@@ -791,7 +848,7 @@ trocar() {
       | sql_em "$NOVO" -f - || erro "esquema não aplicado no $NOVO"
   else
     # Recusa antes da publicação e do PAUSE: tabelas de uma tentativa abortada fariam a cópia do lógico colidir em chave duplicada.
-    erro "$NOVO já tem tabelas de usuário em public: remova o volume dados_banco_novo antes de repetir o modo lógico (nada foi alterado)"
+    erro "$NOVO já tem tabelas de usuário em public: remova o volume dados_$NOVO antes de repetir o modo lógico (nada foi alterado)"
   fi
 
   passo=publicacao
@@ -881,14 +938,92 @@ SQL
   echo "trocar_ok pausa_ms=$pausa_ms"
 }
 
+# Assinatura, publicação ou slot no banco $1: contagem exata 0. Sem resposta recusa (nada se presume).
+pendencias_de() {
+  local svc="$1" contagem
+  contagem="$(sql_em "$svc" -At -c 'SELECT (SELECT count(*) FROM pg_subscription) + (SELECT count(*) FROM pg_publication) + (SELECT count(*) FROM pg_replication_slots)' || true)"
+  [[ "$contagem" == 0 ]] || erro "assinatura, publicação ou slot pendente em $svc (contagem: ${contagem:-sem resposta}): nada foi removido"
+}
+# Serviço $1 em execução? Saída: 0 sim, 1 não (parado ou removido), 2 indeterminado (o Docker não respondeu). Doc do `ps --status`:
+# https://docs.docker.com/reference/cli/docker/compose/ps/
+alvo_em_execucao() {
+  local svc="$1" saida
+  saida="$(compor ps -q --status running "$svc")" || return 2
+  [[ -n "$saida" ]]
+}
+# Volume nomeado $1 existe? Saída: 0 sim, 1 não, 2 indeterminado (o `volume ls` falhou). Nome exato, não substring do filtro.
+volume_existe() {
+  local nome="$1" saida
+  saida="$("$docker" volume ls -q --filter "name=^${nome}\$")" || return 2
+  grep -qxF -- "$nome" <<<"$saida"
+}
+# Remove o banco INATIVO (desenho da volta, item 4): contêiner e volume nomeado `${projeto}_dados_<serviço>`. É o único lugar que apaga
+# volume; `trocar` nunca apaga. Falha fechada: qualquer dúvida sai antes da remoção. `docker compose rm -v` não serve para o volume
+# nomeado: só remove o anônimo (doc oficial: https://docs.docker.com/reference/cli/docker/compose/rm/), por isso o `docker volume rm`.
+limpar_destino() {
+  local alvo="$1" pgb_dest contagem svc
+  export COMPOSE_PROFILES=troca-banco
+  passo=precondicoes
+  [[ ! -e "$marcador" ]] || recusar "troca anterior interrompida (marcador $marcador): reconcilie antes de remover um banco; nada foi removido"
+  [[ "$alvo" != "$ORIG" ]] || recusar "não remove o banco ativo ($ORIG): nada foi removido"
+  checar_vm
+  # Destino do PgBouncer: o arquivo `/cfg/banco-destino` (ausente = padrão banco, como o entrypoint) e o host em execução nos dois.
+  passo=destino-pgb
+  pgb_dest="$(compor run --rm --no-deps -T --entrypoint sh pgb_auth -c 'if [ -e /cfg/banco-destino ]; then cat /cfg/banco-destino; else echo __AUSENTE__; fi' | saida_run)" \
+    || erro "não consegui ler o destino do PgBouncer: nada foi removido"
+  if [[ "$pgb_dest" == __AUSENTE__ ]]; then pgb_dest=banco; fi
+  [[ "$pgb_dest" == "$ORIG" ]] || erro "destino do PgBouncer não é o banco ativo ($ORIG): nada foi removido"
+  for svc in pgb1 pgb2; do
+    [[ "$(pgb_host_app "$svc")" == "$ORIG" ]] || erro "destino do PgBouncer não é o banco ativo ($ORIG): nada foi removido"
+  done
+  # Pendência (assinatura, publicação ou slot) no ativo: sempre consultado. No alvo: só se está em execução; parado ou removido não tem
+  # conexão ativa a consultar (a consulta falharia, e um contêiner removido é o caso do aborto que manda limpar o volume). Estado
+  # indeterminado (o Docker não responde) recusa antes de qualquer remoção.
+  passo=pendencias
+  pendencias_de "$ORIG"
+  alvo_rc=0
+  alvo_em_execucao "$alvo" || alvo_rc=$?
+  case "$alvo_rc" in
+    0) pendencias_de "$alvo" ;;
+    1) ;;
+    *) erro "não consegui saber se o alvo está em execução: nada foi removido" ;;
+  esac
+  # Volume: existe (será removido), não existe (repetição depois de falha no meio: nada a apagar) ou indeterminado (recusa agora).
+  passo=volume-existe
+  vol="${projeto}_dados_$alvo"
+  vol_rc=0
+  volume_existe "$vol" || vol_rc=$?
+  case "$vol_rc" in
+    0|1) ;;
+    *) erro "não consegui saber se o volume $vol existe: nada de volume foi removido" ;;
+  esac
+  # Backup verificado do ativo antes de qualquer remoção (mesmo mecanismo da troca, R8).
+  passo=backup
+  backup_verificado
+  passo=remover
+  guarda_inativo "$alvo" || erro "guarda: $alvo é o banco ativo: nada foi removido"
+  compor rm -sfv "$alvo" >/dev/null 2>&1 || erro "não consegui remover o contêiner $alvo: o volume ficou (rode compose rm -sfv $alvo)"
+  passo=volume
+  if [[ "$vol_rc" == 0 ]]; then
+    "$docker" volume rm "$vol" >/dev/null 2>&1 || erro "não consegui remover o volume $vol: rode docker volume rm $vol"
+  fi
+  registrar "OK alvo=$alvo"
+  echo "limpar_destino_ok alvo=$alvo"
+}
+
 # Subcomando é a única entrada externa: validado antes de qualquer ação e antes da trava.
 case "$sub" in
-  preparar|trocar) ;;
-  *) echo "ERRO: subcomando inválido: use preparar ou trocar" >&2; exit 1 ;;
+  preparar|trocar|limpar-destino) ;;
+  *) echo "ERRO: subcomando inválido: use preparar, trocar ou limpar-destino" >&2; exit 1 ;;
 esac
 args=("${@:2}")
+alvo_pedido=""
 if [[ "$sub" == preparar ]]; then
   [[ ${#args[@]} -eq 0 ]] || { echo "ERRO: opção desconhecida: preparar não aceita argumentos" >&2; exit 1; }
+elif [[ "$sub" == limpar-destino ]]; then
+  # Serviço explícito e de uma lista fixa; a checagem contra o ativo é depois, com o estado lido.
+  [[ ${#args[@]} -eq 1 && ( "${args[0]}" == banco || "${args[0]}" == banco_novo ) ]] || { echo "ERRO: limpar-destino exige um serviço: banco ou banco_novo" >&2; exit 1; }
+  alvo_pedido="${args[0]}"
 else
   while [[ ${#args[@]} -gt 0 ]]; do
     case "${args[0]}" in
@@ -918,6 +1053,8 @@ bdnome="${PHATI_BANCO_NOME:-}"
 [[ "$bdnome" =~ ^[a-z_][a-z0-9_]*$ ]] || { echo "ERRO: PHATI_BANCO_NOME inválido: use minúsculas, dígitos e _ (começa por letra ou _)" >&2; exit 1; }
 export COMPOSE_PROJECT_NAME="$projeto"
 travar "$@"
+# Direção da troca, depois da trava e antes de qualquer Docker de escrita (ver `resolver_direcao`).
+resolver_direcao
 
 trap 'erro "falhou no passo: $passo"' ERR
 trap 'resumir_pgb; limpar_temporarios' EXIT
@@ -926,5 +1063,6 @@ trap 'erro "interrompido por sinal"' TERM HUP INT
 case "$sub" in
   preparar) preparar ;;
   trocar) trocar ;;
+  limpar-destino) limpar_destino "$alvo_pedido" ;;
   *) erro "subcomando inválido: $sub" ;;
 esac

@@ -42,12 +42,14 @@ valor_env() {
   if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
   printf '%s' "$v"
 }
+destino_env="${PHATI_BANCO_DESTINO:-}"
+[[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
 if [[ "$banco_srv" == banco_novo ]]; then
+  [[ -z "$destino_env" || "$destino_env" == banco_novo ]] || erro "estado de banco divergente: .env aponta $destino_env, banco-ativo banco_novo"
   export PHATI_BANCO_DESTINO=banco_novo
 else
-  destino_env="${PHATI_BANCO_DESTINO:-}"
-  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
   [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+  [[ -z "$destino_env" || "$destino_env" == banco ]] || erro "estado de banco divergente: .env aponta $destino_env, banco-ativo banco"
 fi
 # Modo lógico concluído (banco-logico, spec 009 E5): o override wal_level entra em todo compose, como no implantar.sh.
 extra_logica=()
