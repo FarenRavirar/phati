@@ -47,6 +47,11 @@ class EntradaNome(Schema):
     nome: str = Field(max_length=200)
 
 
+class EntradaFazenda(Schema):
+    nome: str = Field(max_length=200)
+    municipio: str = Field(default='', max_length=200)  # opcional: cliente que não manda continua válido (spec 012, R29)
+
+
 class EntradaSubArea(Schema):
     nome: str = Field(max_length=200)
     pai_id: int | None = None
@@ -56,6 +61,7 @@ class SaidaFazenda(Schema):
     id: int
     nome: str
     empresa_id: int
+    municipio: str  # vazio quando não informado; a tela mostra "Sem dados"
 
 
 class SaidaSubArea(Schema):
@@ -114,15 +120,18 @@ def criar_empresa(request, dados: EntradaEmpresa):
 
 @roteador.post('empresas/{empresa_id}/fazendas', url_name='fazendas_criar', response={201: SaidaFazenda})
 @exige_permissao('criar_fazenda', _empresa)
-def criar_fazenda(request, empresa_id: int, dados: EntradaNome):
-    fazenda = cadastro.criar_fazenda(request.user, _empresa(empresa_id=empresa_id), dados.nome)
-    return Status(201, {'id': fazenda.pk, 'nome': fazenda.nome, 'empresa_id': fazenda.empresa_id})
+def criar_fazenda(request, empresa_id: int, dados: EntradaFazenda):
+    fazenda = cadastro.criar_fazenda(request.user, _empresa(empresa_id=empresa_id), dados.nome, dados.municipio)
+    return Status(201, {'id': fazenda.pk, 'nome': fazenda.nome, 'empresa_id': fazenda.empresa_id, 'municipio': fazenda.municipio})
 
 
 @roteador.get('fazendas', url_name='fazendas_listar', response=list[SaidaFazenda])
 @exige_permissao('ver', listagem=True)
 def listar_fazendas(request):
-    return [{'id': f.pk, 'nome': f.nome, 'empresa_id': f.empresa_id} for f in listagem.fazendas_autorizadas(request.user)]
+    return [
+        {'id': f.pk, 'nome': f.nome, 'empresa_id': f.empresa_id, 'municipio': f.municipio}
+        for f in listagem.fazendas_autorizadas(request.user)
+    ]
 
 
 @roteador.post('fazendas/{fazenda_id}/sub-areas', url_name='sub_areas_criar', response={201: SaidaSubArea})

@@ -41,12 +41,27 @@ function evento(alvo, resto = {}) {
   return e;
 }
 
-function documento(dialogos = {}, botoesFechar = []) {
+function documento(dialogos = {}, botoesFechar = [], selecao = '') {
+  const janelas = [];
   return {
+    janelas,
     getElementById: (id) => dialogos[id] || null,
     querySelectorAll: (seletor) => (seletor === '.ag-aviso-fechar' ? botoesFechar : []),
     addEventListener() {},
+    getSelection: () => ({ toString: () => selecao }),
+    defaultView: { open: (...args) => janelas.push(args) },
   };
+}
+
+// Linha clicável como o HTML de `componentes/tabela.html`: a primeira célula leva o link; a segunda é texto.
+function linhaComLink(destino = '/empresa/1/fazenda/2/') {
+  const filhos = {};
+  const linha = no('tr', { dataset: { clicavel: '' }, filhos });
+  const primeira = no('td', { pai: linha });
+  const segunda = no('td', { pai: linha });
+  const link = no('a', { href: destino, pai: primeira });
+  filhos['td:first-child a'] = link;
+  return { link, linha, primeira, segunda };
 }
 
 test('Fechar aviso esconde o aviso que contém o botão; botão sem aviso não faz nada', () => {
@@ -135,4 +150,60 @@ test('Fechar e clique no fundo fecham o diálogo; clique comum dentro dele não'
   const texto = evento(no('p', { pai: dialogo }));
   assert.equal(componentes.aoClicar(documento(), texto), false);
   assert.equal(dialogo.fechado, 2);
+});
+
+test('clique no corpo da linha, em qualquer célula, vai ao link da primeira célula', () => {
+  const { link, primeira, segunda } = linhaComLink('/empresa/1/fazenda/2/');
+  assert.equal(componentes.aoClicar(documento(), evento(segunda)), true);
+  assert.equal(componentes.aoClicar(documento(), evento(primeira)), true);
+  assert.equal(link.cliques, 2);
+});
+
+test('clique no próprio link fica com o navegador: a linha não o dispara de novo (negativo)', () => {
+  const { link } = linhaComLink();
+  const e = evento(link);
+  assert.equal(componentes.aoClicar(documento(), e), false);
+  assert.equal(link.cliques, 0);
+  assert.equal(e.prevenido, 0);
+});
+
+test('botão, campo, rótulo, resumo e lista dentro da linha são do próprio controle (negativo)', () => {
+  const { link, segunda } = linhaComLink();
+  for (const tipo of ['button', 'input', 'label', 'summary', 'select', 'textarea']) {
+    assert.equal(componentes.aoClicar(documento(), evento(no(tipo, { pai: segunda }))), false, tipo);
+  }
+  assert.equal(link.cliques, 0);
+});
+
+test('ctrl, meta ou shift abrem o destino em nova aba, sem trocar a página atual', () => {
+  const { link, segunda } = linhaComLink('/empresa/1/fazenda/2/');
+  const doc = documento();
+  for (const modificador of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }]) {
+    assert.equal(componentes.aoClicar(doc, evento(segunda, modificador)), true);
+  }
+  assert.deepEqual(doc.janelas, Array(3).fill(['/empresa/1/fazenda/2/', '_blank', 'noopener']));
+  assert.equal(link.cliques, 0);
+});
+
+test('botão do mouse que não é o primário segue o navegador (negativo)', () => {
+  const { link, segunda } = linhaComLink();
+  const doc = documento();
+  assert.equal(componentes.aoClicar(doc, evento(segunda, { button: 1 })), false);
+  assert.equal(link.cliques, 0);
+  assert.deepEqual(doc.janelas, []);
+});
+
+test('texto selecionado na linha não vira navegação (negativo)', () => {
+  const { link, segunda } = linhaComLink();
+  assert.equal(componentes.aoClicar(documento({}, [], 'Fazenda Inventada A1'), evento(segunda)), false);
+  assert.equal(link.cliques, 0);
+});
+
+test('linha sem marca data-clicavel, ou sem link na primeira célula, não é tratada (negativo)', () => {
+  const { link } = linhaComLink();
+  const semMarca = no('tr', { filhos: { 'td:first-child a': link } });
+  assert.equal(componentes.aoClicar(documento(), evento(no('td', { pai: semMarca }))), false);
+  const semLink = no('tr', { dataset: { clicavel: '' }, filhos: {} });
+  assert.equal(componentes.aoClicar(documento(), evento(no('td', { pai: semLink }))), false);
+  assert.equal(link.cliques, 0);
 });

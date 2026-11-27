@@ -1,0 +1,6 @@
+{% comment %}Ações da lista de fazendas, no cabeçalho (acoes_template de componentes/cabecalho_pagina.html). Contexto da página: pode_exportar, url_exportar, destino_nova, acoes (lista de {rotulo, destino}; "Mais ações").{% endcomment %}{% if pode_exportar %}{% include "componentes/botao.html" with texto="Exportar" href=url_exportar secundario=True icone="download" only %}{% endif %}
+{% if destino_nova %}{% include "componentes/botao.html" with texto="Nova fazenda" href=destino_nova icone="plus" only %}{% endif %}
+{% if acoes %}<details class="ag-mais-acoes">
+<summary class="ag-botao" data-variante="secundario" data-tamanho="md" aria-label="Mais ações" title="Mais ações">{% icone "ellipsis" %}</summary>
+<ul class="ag-mais-acoes-lista">{% for acao in acoes %}<li><a href="{{ acao.destino }}">{{ acao.rotulo }}</a></li>{% endfor %}</ul>
+</details>{% endif %}

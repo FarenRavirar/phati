@@ -57,7 +57,9 @@ def test_papel_app_nao_e_dono_e_papel_dono_e():
 
 @usa_app
 def test_papel_app_le_tabela_do_dono_mas_nao_cria_tabela():
-    assert _um('app', 'SELECT count(*) FROM permissao') == (32,)
+    # O catálogo vive nas migrations (sem lista em runtime): o papel `app` tem de ler as mesmas linhas que o dono.
+    assert _um('app', 'SELECT count(*) FROM permissao') == _um('default', 'SELECT count(*) FROM permissao')
+    assert _um('app', 'SELECT count(*) FROM permissao')[0] > 0
     with pytest.raises(ProgrammingError, match='permission denied'), connections['app'].cursor() as consulta:
         consulta.execute('CREATE TABLE intrusa (id int)')
 
@@ -234,8 +236,8 @@ def test_collectstatic_nao_publica_testes_de_js():
     ignorar = getattr(apps.get_app_config('staticfiles'), 'ignore_patterns')  # atributo do StaticFilesConfig, não do AppConfig
     assert '*.test.js' in ignorar
     publicados = [caminho.replace('\\', '/') for achador in finders.get_finders() for caminho, _ in achador.list(ignorar)]
-    assert 'projeto/busca-fazendas.js' in publicados
-    assert 'projeto/busca-fazendas.test.js' not in publicados
+    assert 'projeto/casca.js' in publicados
+    assert 'projeto/casca.test.js' not in publicados
 
 
 def _com_ambiente(monkeypatch, ambiente, flag):

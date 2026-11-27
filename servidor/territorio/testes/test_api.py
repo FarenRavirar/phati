@@ -219,3 +219,41 @@ def test_deslogado_nao_renomeia_nem_arquiva(cenario):
     cliente = Client()
     assert cliente.patch(f'/api/v1/territorio/fazendas/{cenario.f1.pk}', data='{"nome": "x"}', content_type='application/json').status_code == 401
     assert cliente.post(f'/api/v1/territorio/fazendas/{cenario.f1.pk}/arquivar', data='{}', content_type='application/json').status_code == 401
+
+
+def test_criar_fazenda_sem_municipio_continua_valido_e_a_saida_traz_municipio_vazio(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    resposta = _enviar(admin, f'empresas/{cenario.x.pk}/fazendas', {'nome': 'Sem Municipio'})
+    assert resposta.status_code == 201
+    assert resposta.json()['municipio'] == ''
+
+
+def test_criar_fazenda_com_municipio_devolve_o_municipio(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    resposta = _enviar(admin, f'empresas/{cenario.x.pk}/fazendas', {'nome': 'Com', 'municipio': 'Sorriso'})
+    assert (resposta.status_code, resposta.json()['municipio']) == (201, 'Sorriso')
+
+
+def test_municipio_acima_do_limite_e_recusado_e_nada_grava(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    resposta = _enviar(admin, f'empresas/{cenario.x.pk}/fazendas', {'nome': 'Longa', 'municipio': 'm' * 201})
+    assert resposta.status_code in (400, 422)
+    assert not Fazenda.objects.filter(nome='Longa').exists()
+
+
+def test_listagem_traz_o_municipio_de_cada_fazenda(cenario, fabrica_pessoa, conceder_direto):
+    admin = fabrica_pessoa('Admin X')
+    conceder_direto(admin, cenario.cargos_x['administrador'], cenario.x)
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    lista = {f['nome']: f['municipio'] for f in _enviar(admin, 'fazendas', metodo='get').json()}
+    assert lista['F1'] == 'Sorriso'
+    assert lista['F2'] == ''
+
+
+def test_municipio_sem_permissao_de_criar_fazenda_e_negado(cenario, fabrica_pessoa, conceder_direto):
+    usuario = fabrica_pessoa('Usuario X')
+    conceder_direto(usuario, cenario.cargos_x['usuario'], cenario.x)
+    assert _enviar(usuario, f'empresas/{cenario.x.pk}/fazendas', {'nome': 'X', 'municipio': 'Sorriso'}).status_code == 403

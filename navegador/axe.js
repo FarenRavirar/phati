@@ -12,13 +12,21 @@ const REGRAS_DE_TECLADO_DESLIGADAS = ['bypass', 'frame-focusable-content', 'nest
 // Piso de regras habilitadas (70 das ETIQUETAS menos as 4 de teclado, em axe-core 4.14.0): atualizar o axe e perder regra reprova.
 const MINIMO_DE_REGRAS = 66;
 
-// Devolve as violações da página aberta; lista vazia é aprovação.
-async function violacoes(pagina) {
-  const resultado = await new AxeBuilder({ page: pagina })
+// Alvo coberto pelo menu aberto: o menu é conteúdo que a própria pessoa abriu, e o WCAG 2.2 (SC 2.5.8) não exige o
+// tamanho do alvo enquanto ele está coberto por esse conteúdo (https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum,
+// consultado em 2026-11-27: "does not apply to targets while they are obscured by content displayed as a result of a user
+// interaction"). Os itens do próprio menu continuam sujeitos e são auditados à parte, com target-size (empresas.spec.js).
+const TAMANHO_DO_ALVO = 'target-size';
+
+// Devolve as violações da página aberta; lista vazia é aprovação. `desligar`: regras extras desligadas nesta chamada.
+// `dentroDe`: seletor CSS; audita só esse trecho (com todas as regras, inclusive target-size).
+async function violacoes(pagina, { desligar = [], dentroDe } = {}) {
+  let auditoria = new AxeBuilder({ page: pagina })
     .withTags(ETIQUETAS)
-    .disableRules(REGRAS_DE_TECLADO_DESLIGADAS)
-    .analyze();
+    .disableRules([...REGRAS_DE_TECLADO_DESLIGADAS, ...desligar]);
+  if (dentroDe) auditoria = auditoria.include(dentroDe);
+  const resultado = await auditoria.analyze();
   return resultado.violations.map((v) => ({ regra: v.id, impacto: v.impact, alvos: v.nodes.map((n) => n.target.join(' ')) }));
 }
 
-module.exports = { violacoes, ETIQUETAS, REGRAS_DE_TECLADO_DESLIGADAS, MINIMO_DE_REGRAS };
+module.exports = { violacoes, ETIQUETAS, REGRAS_DE_TECLADO_DESLIGADAS, MINIMO_DE_REGRAS, TAMANHO_DO_ALVO };

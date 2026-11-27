@@ -49,6 +49,15 @@ def nome_valido(nome, maximo=200):
     return limpo
 
 
+def municipio_valido(municipio, maximo=200):
+    """Município sem espaços nas pontas. Vazio é válido (a tela mostra "Sem dados"); maior que `maximo` levanta
+    `municipio_invalido`. Mesma regra de texto do nome, na função e não só no formulário (spec 012, R29)."""
+    limpo = (municipio or '').strip()
+    if len(limpo) > maximo:
+        raise ValidationError('Informe um município de até %(maximo)s caracteres.', code='municipio_invalido', params={'maximo': maximo})
+    return limpo
+
+
 def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cpf_administrador):
     """Cria a empresa, os quatro cargos-base e o primeiro Administrador de empresa, convidado por senha temporária,
     que fica como Administrador titular (R23).
@@ -87,14 +96,15 @@ def criar_empresa(solicitante, nome, nome_administrador, email_administrador, cp
     return empresa, administrador, temporaria
 
 
-def criar_fazenda(solicitante, empresa, nome):
+def criar_fazenda(solicitante, empresa, nome, municipio=''):
     nome = nome_valido(nome)
+    municipio = municipio_valido(municipio)
     with transaction.atomic():
         _travar(empresa)  # espera um arquivamento em curso e depois lê o estado gravado (R11)
         if not pode(solicitante, 'criar_fazenda', empresa):
             raise PermissionDenied
         with nome_unico():
-            fazenda = Fazenda.objects.create(empresa=empresa, nome=nome)
+            fazenda = Fazenda.objects.create(empresa=empresa, nome=nome, municipio=municipio)
         auditar('fazenda_criada', solicitante, fazenda, fazenda.empresa_id)
     return fazenda
 
@@ -152,22 +162,37 @@ def _travar_arvore(alvo):
     list(sub_areas.select_for_update(no_key=True).order_by('pk').values_list('pk', flat=True))
 
 
-def _renomear(solicitante, alvo, nome, acao_auditoria):
+def _renomear(solicitante, alvo, nome, acao_auditoria, municipio=None):
+    """`municipio` só existe em fazenda: None não mexe nele. Mudança de município sai no mesmo evento da edição (sem ação
+    nova): o detalhe ganha `municipio_antigo` e `municipio_novo` só quando o município de fato muda."""
     nome = nome_valido(nome)
+    if municipio is not None:
+        municipio = municipio_valido(municipio)
     with transaction.atomic():
         _travar(alvo)
-        alvo.refresh_from_db(fields=['nome'])  # o nome que vale é o gravado sob a trava, não o lido antes dela
+        # o nome e o município que valem são os gravados sob a trava, não os lidos antes dela
+        alvo.refresh_from_db(fields=['nome'] if municipio is None else ['nome', 'municipio'])
         if not pode(solicitante, 'renomear', alvo):
             raise PermissionDenied
         antigo = alvo.nome
+        detalhes = {'nome_antigo': antigo, 'nome_novo': nome}
+        campos = ['nome']
+        municipio_antigo = alvo.municipio if municipio is not None else None
+        if municipio is not None and municipio != municipio_antigo:
+            detalhes.update(municipio_antigo=municipio_antigo, municipio_novo=municipio)
+            campos.append('municipio')
         alvo.nome = nome
+        if 'municipio' in campos:
+            alvo.municipio = municipio
         try:
             with nome_unico():
-                alvo.save(update_fields=['nome'])
+                alvo.save(update_fields=campos)
         except ValidationError:
             alvo.nome = antigo  # o banco ficou como estava; a instância do chamador também
+            if municipio_antigo is not None:
+                alvo.municipio = municipio_antigo
             raise
-        auditar(acao_auditoria, solicitante, alvo, _empresa_de(alvo), {'nome_antigo': antigo, 'nome_novo': nome})
+        auditar(acao_auditoria, solicitante, alvo, _empresa_de(alvo), detalhes)
     return alvo
 
 
@@ -175,8 +200,8 @@ def renomear_empresa(solicitante, empresa, nome):
     return _renomear(solicitante, empresa, nome, 'empresa_renomeada')
 
 
-def renomear_fazenda(solicitante, fazenda, nome):
-    return _renomear(solicitante, fazenda, nome, 'fazenda_renomeada')
+def renomear_fazenda(solicitante, fazenda, nome, municipio=None):
+    return _renomear(solicitante, fazenda, nome, 'fazenda_renomeada', municipio)
 
 
 def renomear_sub_area(solicitante, sub_area, nome):

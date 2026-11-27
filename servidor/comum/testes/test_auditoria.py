@@ -27,7 +27,7 @@ def test_acoes_de_auditoria_sao_as_do_r16():
         'concessao_revogada', 'titularidade_transferida', 'redefinicao_pedida', 'redefinicao_confirmada', 'conta_bloqueada',
         'acesso_reutilizado', 'cargo_alterado', 'convite_criado', 'convite_aceito', 'convite_recusado', 'convite_cancelado',
         'empresa_renomeada', 'fazenda_renomeada', 'sub_area_renomeada', 'territorio_arquivado', 'territorio_desarquivado',
-        'nivel_definido', 'pacote_gerado', 'auditoria_consultada',
+        'nivel_definido', 'pacote_gerado', 'auditoria_consultada', 'dados_exportados',
         'camada_publicada', 'sistema_confirmado', 'no_trocado', 'atributo_ocultado',  # 008 R14 (catálogo)
     }
 

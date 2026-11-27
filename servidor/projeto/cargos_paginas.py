@@ -27,7 +27,7 @@ SEM_ALCANCE = 'Você não pode criar nem alterar este cargo: ele tem nível ou p
 # último, com aviso, porque quem as tem controla o acesso de outras pessoas. Ação do catálogo que ainda não entrou aqui aparece
 # em "Outras permissões", nunca some da tela; o teste do arquivo falha até ela ganhar grupo.
 GRUPOS_DE_PERMISSOES = (
-    ('Consulta', ('ver', 'baixar_pacote_offline'), None),
+    ('Consulta', ('ver', 'baixar_pacote_offline', 'exportar_dados'), None),
     ('Trabalho de campo', ('criar_registro_campo', 'propor_alteracao_atributo', 'revisar_trabalho_de_outro'), None),
     ('Documentos', ('baixar_documento', 'subir_documento', 'definir_validade_documento'), None),
     ('Validação e aprovação', ('validar_registro', 'validar_atributo', 'conferir_revisao_enviada', 'enviar_revisao_camada',

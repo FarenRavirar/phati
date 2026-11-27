@@ -100,3 +100,23 @@ dialog.ag-dialogo::backdrop { background: color-mix(in srgb, var(--texto-primari
 :where(.ag-publica) :where(.ag-publica-caixa) > p { margin: 0; }
 .ag-envio:focus-within { outline: 2px solid var(--verde-500); outline-offset: 2px; }
 fieldset.ag-segmentado { border: 0; margin: 0; min-inline-size: 0; }
+
+/* Fazendas (spec 012, telas.md §3): barra com busca de 300 px e Segmentado; rodapé com contagem e páginas. Sem cor literal. */
+.ag-barra-fazendas { display: flex; flex-wrap: wrap; gap: var(--espaco-3); align-items: center; justify-content: space-between; padding: var(--espaco-3) var(--espaco-4); border-bottom: 1px solid var(--borda-sutil); }
+.ag-barra-busca { width: 300px; max-width: 100%; }
+.ag-fazendas-rodape { display: flex; flex-wrap: wrap; gap: var(--espaco-2); align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid var(--borda-sutil); font-size: var(--texto-sm); color: var(--texto-secundario); }
+.ag-fazendas-paginas { display: inline-flex; gap: var(--espaco-2); }
+/* "Mais ações" (telas.md §0, R39): `details` sem JS; o resumo é o botão só com ícone e a lista é o menu. */
+.ag-mais-acoes { position: relative; display: inline-block; }
+.ag-mais-acoes > summary { display: inline-flex; cursor: pointer; }
+.ag-mais-acoes-lista { position: absolute; right: 0; z-index: 10; min-width: 12rem; margin: var(--espaco-1) 0 0; padding: var(--espaco-1); list-style: none; background: var(--bg-superficie); border: 1px solid var(--borda-padrao); border-radius: var(--raio-sm); box-shadow: var(--sombra-sm); }
+/* `:where` zera a especificidade (0,1,0): a lista não é `hidden`, então não precisa do teto de `html [hidden]` (0,1,1). */
+:where(.ag-mais-acoes:not([open])) > .ag-mais-acoes-lista { display: none; }
+.ag-mais-acoes-lista a { display: block; padding: var(--espaco-2) var(--espaco-3); border-radius: var(--raio-sm); color: var(--texto-primario); text-decoration: none; white-space: nowrap; }
+.ag-mais-acoes-lista a:hover, .ag-mais-acoes-lista a:focus-visible { background: var(--bg-sutil); }
+/* Ações do cabeçalho à direita também quando a linha quebra (320): sem isso o menu, ancorado à direita do botão, sai da tela pela esquerda (medido: x=-48). */
+.ag-cabecalho > .ag-cabecalho-acoes { margin-left: auto; }
+/* Segmentado com links (filtro sem JS): aparência de botão; a opção ativa tem aria-current. */
+.ag-segmentado a { display: inline-flex; align-items: center; gap: var(--espaco-1-5); height: 28px; padding: 0 var(--espaco-3); border-radius: var(--raio-sm); color: var(--texto-secundario); font-size: var(--texto-sm); font-weight: var(--peso-medio); text-decoration: none; }
+.ag-segmentado a:hover { color: var(--texto-primario); }
+.ag-segmentado a[aria-current="true"] { background: var(--bg-superficie); color: var(--texto-primario); box-shadow: var(--sombra-sm); }

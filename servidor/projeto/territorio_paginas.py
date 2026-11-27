@@ -8,7 +8,7 @@ da exceção do serviço. Arquivar e desarquivar têm tela de confirmação que 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.core.paginator import Paginator
-from django.http import Http404
+from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.decorators.http import require_GET
@@ -19,10 +19,10 @@ from projeto.escopo import resolver_escopo
 from projeto.paginas_autenticadas import campo, confirmacao, exige_acao, exige_entrada, exigir, formulario, pagina, renderizar_na_casca, texto_do_erro
 from projeto.painel import ACOES_DE_PESSOAS
 from territorio import cadastro, niveis
-from territorio.listagem import empresas_autorizadas, fazendas_autorizadas, sub_areas_da_fazenda
+from territorio.exportacao import csv_das_fazendas, registrar_exportacao
+from territorio.listagem import ITENS_POR_PAGINA, empresas_autorizadas, exportar_fazendas, fazendas_autorizadas, sub_areas_da_fazenda
 from territorio.models import Empresa, Fazenda, SubArea
 
-ITENS_POR_PAGINA = 25
 ROTULO_CADASTRAR_FAZENDA = 'Cadastrar fazenda'
 TITULO_NIVEIS = 'Nomes dos níveis da divisão'
 
@@ -164,20 +164,27 @@ def empresa_nova(requisicao):
         return resposta
 
 
+def _marcar_erro(campos, erro):
+    """O erro vai no campo de que trata (município ou nome); o texto vem da exceção do serviço."""
+    nome_do_campo = 'municipio' if getattr(erro, 'code', None) == 'municipio_invalido' else 'nome'
+    next(c for c in campos if c['nome'] == nome_do_campo)['erro'] = texto_do_erro(erro)
+
+
 @pagina('criar_fazenda')
 def fazenda_nova(requisicao, empresa_id):
     empresa, _, _ = _resolver(requisicao, empresa_id)
     with com_permissao(requisicao.user, 'criar_fazenda', 'ver'):
         exigir(requisicao, 'criar_fazenda', empresa)
         nome = requisicao.POST.get('nome', '') if requisicao.method == 'POST' else ''
-        campos = [campo('nome', 'Nome da fazenda', nome, obrigatorio=True)]
+        municipio = requisicao.POST.get('municipio', '') if requisicao.method == 'POST' else ''
+        campos = [campo('nome', 'Nome da fazenda', nome, obrigatorio=True), campo('municipio', 'Município', municipio)]
         cancelar = caminho_de(empresa)
         if requisicao.method == 'GET':
             return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa)
         try:
-            fazenda = cadastro.criar_fazenda(requisicao.user, empresa, nome)
+            fazenda = cadastro.criar_fazenda(requisicao.user, empresa, nome, municipio)
         except ValidationError as erro:
-            campos[0]['erro'] = texto_do_erro(erro)
+            _marcar_erro(campos, erro)
             return formulario(requisicao, 'Nova fazenda', campos, ROTULO_CADASTRAR_FAZENDA, cancelar, empresa=empresa, codigo_http=400)
         registrar_uso(requisicao.user, 'criar_fazenda')
         return redirect(caminho_de(fazenda))
@@ -226,13 +233,19 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         nome = requisicao.POST.get('nome', alvo.nome) if requisicao.method == 'POST' else alvo.nome
         campos = [campo('nome', 'Nome', nome, obrigatorio=True)]
         funcao = {Empresa: cadastro.renomear_empresa, Fazenda: cadastro.renomear_fazenda, SubArea: cadastro.renomear_sub_area}[type(alvo)]
+        # Município só existe na fazenda: a edição dela leva o campo, e o serviço grava os dois no mesmo evento.
+        extra = {}
+        if isinstance(alvo, Fazenda):
+            municipio = requisicao.POST.get('municipio', '') if requisicao.method == 'POST' else alvo.municipio
+            campos.append(campo('municipio', 'Município', municipio))
+            extra = {'municipio': municipio}
         sub_area = alvo if isinstance(alvo, SubArea) else None  # trilha: Fazendas / fazenda / sub-área
         acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',), pessoa=requisicao.user)
         if requisicao.method == 'POST':
             try:
-                funcao(requisicao.user, alvo, nome)
+                funcao(requisicao.user, alvo, nome, **extra)
             except ValidationError as erro:
-                campos[0]['erro'] = texto_do_erro(erro)
+                _marcar_erro(campos, erro)
                 return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, sub_area=sub_area, acoes=acoes, codigo_http=400)
             return redirect(caminho_de(alvo))
         return formulario(requisicao, f'Renomear {alvo.nome}', campos, 'Salvar nome', caminho_de(alvo), empresa=empresa, fazenda=fazenda, sub_area=sub_area, acoes=acoes)
@@ -369,3 +382,26 @@ def arquivadas(requisicao):
         acoes = [] if getattr(alvo, 'empresa_id', None) in empresas_arquivadas else acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), pessoa=requisicao.user)
         itens.append({'nome': alvo.nome, 'tipo': 'Empresa' if isinstance(alvo, Empresa) else 'Fazenda', 'caminho': caminho_de(alvo), 'acoes': acoes})
     return renderizar_na_casca(requisicao, 'arquivadas.html', {'itens': itens, 'pagina': pagina})
+
+
+# --- exportação CSV (spec 012, R30) ---
+
+
+@require_GET
+@exige_entrada
+@exige_acao('exportar_dados')
+def fazendas_csv(requisicao):
+    """CSV das fazendas que a pessoa vê e pode exportar, com o filtro da listagem; negado é 403 (`exportar_fazendas`)."""
+    empresa = requisicao.GET.get('empresa', '')
+    if empresa and not empresa.isdecimal():
+        return HttpResponseBadRequest('Empresa inválida.')
+    linhas = exportar_fazendas(
+        requisicao.user, requisicao.GET.get('busca', ''), requisicao.GET.get('situacao', 'todas'), int(empresa) if empresa else None,
+    )
+    registrar_exportacao(requisicao.user, linhas)
+    resposta = HttpResponse(csv_das_fazendas(linhas), content_type='text/csv; charset=utf-8')
+    resposta['Content-Disposition'] = 'attachment; filename="fazendas.csv"'
+    return resposta
+
+
+setattr(fazendas_csv, 'dados_da_web', True)  # entra na matriz de cobertura: a resposta é dado (R21)

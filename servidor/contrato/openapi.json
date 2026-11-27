@@ -236,6 +236,26 @@
         "title": "EntradaEscopo",
         "type": "object"
       },
+      "EntradaFazenda": {
+        "properties": {
+          "municipio": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Municipio",
+            "type": "string"
+          },
+          "nome": {
+            "maxLength": 200,
+            "title": "Nome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nome"
+        ],
+        "title": "EntradaFazenda",
+        "type": "object"
+      },
       "EntradaNome": {
         "properties": {
           "nome": {
@@ -884,6 +904,10 @@
             "title": "Id",
             "type": "integer"
           },
+          "municipio": {
+            "title": "Municipio",
+            "type": "string"
+          },
           "nome": {
             "title": "Nome",
             "type": "string"
@@ -892,7 +916,8 @@
         "required": [
           "id",
           "nome",
-          "empresa_id"
+          "empresa_id",
+          "municipio"
         ],
         "title": "SaidaFazenda",
         "type": "object"
@@ -1677,7 +1702,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EntradaNome"
+                "$ref": "#/components/schemas/EntradaFazenda"
               }
             }
           },

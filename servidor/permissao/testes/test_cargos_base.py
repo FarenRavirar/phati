@@ -9,7 +9,7 @@ USUARIO = {'ver', 'baixar_pacote_offline'}
 TECNICO = USUARIO | {'baixar_documento', 'criar_registro_campo', 'propor_alteracao_atributo', 'revisar_trabalho_de_outro'}
 CURADOR = TECNICO | {
     'validar_registro', 'validar_atributo', 'conferir_revisao_enviada', 'aprovar_atributo',
-    'subir_documento', 'definir_validade_documento', 'convidar_pessoa', 'revogar_acesso',
+    'subir_documento', 'definir_validade_documento', 'convidar_pessoa', 'revogar_acesso', 'exportar_dados',
 }  # fmt: skip
 
 
@@ -30,12 +30,12 @@ def test_composicao_de_cada_cargo_base_confere_com_o_plano(cenario):
     assert _acoes(cargos['usuario']) == USUARIO
     assert _acoes(cargos['tecnico']) == TECNICO
     assert _acoes(cargos['curador']) == CURADOR
-    assert len(CURADOR) == 14
+    assert len(CURADOR) == 15
 
 
 def test_administrador_leva_todo_o_catalogo_menos_criar_empresa(cenario):
     acoes = _acoes(cenario.cargos_x['administrador'])
-    assert len(acoes) == 30
+    assert len(acoes) == 31
     assert 'criar_empresa' not in acoes
     assert {'tornar_revisao_vigente', 'aprovar_geometria', 'gerenciar_cargo', 'ver_auditoria'} <= acoes
 

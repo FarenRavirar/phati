@@ -7,4 +7,6 @@ banco="${PHATI_BANCO_NOME:-phati}"
 # template1 primeiro: bancos criados depois herdam a extensão; depois o banco da aplicação, que já pode existir.
 for base in template1 "$banco"; do
   psql -v ON_ERROR_STOP=1 -X -d "$base" -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
+  # unaccent: busca sem acento (spec 012 T4.0). Também no template1, para o banco de teste herdar.
+  psql -v ON_ERROR_STOP=1 -X -d "$base" -c 'CREATE EXTENSION IF NOT EXISTS unaccent;'
 done

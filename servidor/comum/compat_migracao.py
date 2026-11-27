@@ -43,8 +43,12 @@ REPROVADAS = {
     'AlterIndexTogether': 'altera índice composto: pode quebrar a versão anterior',
     'RemoveIndexConcurrently': 'remove índice do qual a versão anterior pode depender',
 }
-# AddConstraint: limite conhecido, ver a docstring do módulo.
-APROVADAS = frozenset({'CreateModel', 'AddIndex', 'AddIndexConcurrently', 'AddConstraint', 'AlterModelOptions'})
+# AddConstraint: limite conhecido, ver a docstring do módulo. ExtensaoUnaccentSemVolta (subclasse de UnaccentExtension,
+# territorio/0008): `CREATE EXTENSION IF NOT EXISTS unaccent`, só acrescenta funções no banco; a volta não faz nada
+# (spec 012 T4.0). A classe de Django `UnaccentExtension` não está aqui: o reverso dela faz DROP e não é aprovado.
+APROVADAS = frozenset({
+    'CreateModel', 'AddIndex', 'AddIndexConcurrently', 'AddConstraint', 'AlterModelOptions', 'ExtensaoUnaccentSemVolta',
+})
 
 PADROES_SQL = (
     (re.compile(r'\bDROP\b', re.IGNORECASE), 'DROP'),

@@ -34,24 +34,25 @@ def _rodar(tmp_path, monkeypatch, *, falha_em=None, nome=None):
 def test_cria_postgis_em_template1_e_no_banco_da_aplicacao(tmp_path, monkeypatch):
     resultado, chamadas = _rodar(tmp_path, monkeypatch, nome='phati_x')
     assert resultado.returncode == 0, resultado.stderr
-    assert len(chamadas) == 2
-    assert '-d template1' in chamadas[0]
-    assert '-d phati_x' in chamadas[1]
+    assert len(chamadas) == 4
+    assert [c for c in chamadas if '-d template1' in c] == [c for c in chamadas[:2]]
+    assert '-d phati_x' in chamadas[2] and '-d phati_x' in chamadas[3]
     assert all('ON_ERROR_STOP=1' in c for c in chamadas)
-    assert all('CREATE EXTENSION IF NOT EXISTS postgis;' in c for c in chamadas)
+    assert sum('CREATE EXTENSION IF NOT EXISTS postgis;' in c for c in chamadas) == 2
+    assert sum('CREATE EXTENSION IF NOT EXISTS unaccent;' in c for c in chamadas) == 2
 
 
 def test_banco_padrao_e_phati_quando_a_variavel_nao_existe(tmp_path, monkeypatch):
     resultado, chamadas = _rodar(tmp_path, monkeypatch)
     assert resultado.returncode == 0, resultado.stderr
-    assert '-d phati' in chamadas[1]
+    assert '-d phati' in chamadas[3]
 
 
 def test_segunda_execucao_faz_as_mesmas_chamadas_e_termina_bem(tmp_path, monkeypatch):
     primeira, _ = _rodar(tmp_path, monkeypatch)
     segunda, chamadas = _rodar(tmp_path, monkeypatch)
     assert primeira.returncode == segunda.returncode == 0
-    assert len(chamadas) == 4
+    assert len(chamadas) == 8
 
 
 def test_falha_do_psql_para_o_script_e_nao_segue_para_o_banco_da_aplicacao(tmp_path, monkeypatch):

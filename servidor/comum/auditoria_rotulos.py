@@ -28,6 +28,16 @@ def _renomeado(detalhes):
     return f'De "{_valor(detalhes, "nome_antigo")}" para "{_valor(detalhes, "nome_novo")}".'
 
 
+def _fazenda_editada(detalhes):
+    """Evento da edição da fazenda (`fazenda_renomeada`): o nome só aparece se mudou, e o município só se o detalhe o traz."""
+    partes = []
+    if _valor(detalhes, 'nome_antigo') != _valor(detalhes, 'nome_novo'):
+        partes.append(_renomeado(detalhes))
+    if 'municipio_novo' in detalhes:
+        partes.append(f'Município de "{_valor(detalhes, "municipio_antigo")}" para "{_valor(detalhes, "municipio_novo")}".')
+    return ' '.join(partes)
+
+
 def _nivel(detalhes):
     nivel, antigo, novo = _valor(detalhes, 'nivel'), _valor(detalhes, 'nome_antigo'), _valor(detalhes, 'nome_novo')
     if antigo and novo:
@@ -109,6 +119,10 @@ def _consulta(detalhes):
     return 'Filtros: ' + ', '.join(partes) + '.' if partes else 'Sem filtros.'
 
 
+def _exportacao(detalhes):
+    return f'{_valor(detalhes, "quantidade")} fazendas exportadas em CSV.'
+
+
 def _titularidade(detalhes):
     return 'Titularidade da empresa transferida.' if detalhes.get('para') is not None else _SEM_RESUMO
 
@@ -136,13 +150,14 @@ ROTULOS = {
     'convite_recusado': ('Convite recusado', _vazio),
     'convite_cancelado': ('Convite cancelado', _cancelado),
     'empresa_renomeada': ('Empresa renomeada', _renomeado),
-    'fazenda_renomeada': ('Fazenda renomeada', _renomeado),
+    'fazenda_renomeada': ('Fazenda editada', _fazenda_editada),
     'sub_area_renomeada': ('Sub-área renomeada', _renomeado),
     'territorio_arquivado': ('Arquivado', _arquivamento),
     'territorio_desarquivado': ('Desarquivado', _vazio),
     'nivel_definido': ('Nível da divisão definido', _nivel),
     'pacote_gerado': ('Pacote offline gerado', _pacote),
     'auditoria_consultada': ('Auditoria consultada', _consulta),
+    'dados_exportados': ('Dados exportados', _exportacao),
 }
 
 

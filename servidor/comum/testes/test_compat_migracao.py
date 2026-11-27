@@ -590,3 +590,26 @@ def test_migracoes_reais_sao_analisadas_sem_erro():
             estado = 'FORA_DO_FLUXO' if resultado.marcado else 'REPROVADA'
             linhas.append(f'{estado} {nome} :: ' + ' | '.join(f'{v.linha} {v.motivo}' for v in resultado.violacoes))
     print('\n'.join(linhas))
+
+
+def test_subclasse_unaccent_sem_volta_e_aprovada(tmp_path):
+    antes = (
+        'from django.contrib.postgres.operations import UnaccentExtension\n\n'
+        'class ExtensaoUnaccentSemVolta(UnaccentExtension):\n    pass\n'
+    )
+    assert _verificar(tmp_path, 'ExtensaoUnaccentSemVolta()', antes=antes) == []
+
+
+def test_unaccent_do_django_sem_subclasse_e_reprovada(tmp_path):
+    # O reverso da classe de Django faz DROP EXTENSION: sem subclasse que apague a volta, não é aprovada.
+    antes = 'from django.contrib.postgres.operations import UnaccentExtension'
+    (violacao,) = _verificar(tmp_path, 'UnaccentExtension()', antes=antes)
+    assert violacao.operacao == 'UnaccentExtension'
+    assert 'não listada' in violacao.motivo
+
+
+def test_operacao_desconhecida_do_contrib_postgres_continua_reprovada(tmp_path):
+    antes = 'from django.contrib.postgres.operations import TrigramExtension'
+    (violacao,) = _verificar(tmp_path, 'TrigramExtension()', antes=antes)
+    assert violacao.operacao == 'TrigramExtension'
+    assert 'não listada' in violacao.motivo

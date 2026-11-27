@@ -271,16 +271,27 @@ def test_atributo_hidden_vence_o_display_de_qualquer_componente():
     assert 'html [hidden] { display: none; }' in (ESTATICOS / 'base.css').read_text(encoding='utf-8')
 
 
+def _sem_where(seletor):
+    """Tira cada `:where(...)` com os parênteses balanceados: por spec (CSS Selectors 4) ele tem especificidade zero."""
+    while (inicio := seletor.find(':where(')) >= 0:
+        fim, profundidade = inicio + len(':where('), 1
+        while profundidade and fim < len(seletor):
+            profundidade += {'(': 1, ')': -1}.get(seletor[fim], 0)
+            fim += 1
+        seletor = seletor[:inicio] + seletor[fim:]
+    return seletor
+
+
 def _ofensores_de_especificidade(texto):
     """Seletores com `display` e mais de uma classe, atributo ou pseudo, exceto as regras `html <seletor>[hidden]`."""
     achados = []
     for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', texto, flags=re.S)):
         if re.search(r'(^|;|\s)display\s*:', corpo):
-            for parte in seletor.split(','):
+            for parte in _sem_where(seletor).split(','):
                 parte = parte.strip()
                 if re.fullmatch(r'html .+\[hidden\]', parte):
                     continue
-                if len(re.findall(r'[.#\[:]', re.sub(r'::?(where|is)\(', '', parte))) > 1:
+                if len(re.findall(r'[.#\[:]', re.sub(r'::?is\(', '', parte))) > 1:
                     achados.append(parte)
     return achados
 
@@ -325,6 +336,28 @@ def test_o_teste_de_especificidade_reprova_seletor_sem_regra_hidden():
     # Compensação sem `display: none` no corpo não cobre o ofensor (o `hidden` continuaria perdendo para o `display`).
     assert _sem_regra_hidden(['.a .b'], 'html .a .b[hidden] { display: grid; }') == ['.a .b']
     assert _sem_regra_hidden(['.a .b'], 'html .a .b[hidden] { color: red; }') == ['.a .b']
+
+
+def test_where_tem_especificidade_zero_no_teste_de_especificidade():
+    # `:where(...)` não conta, inclusive com `:not([open])` e lista de seletores dentro (parênteses aninhados e vírgula).
+    assert _ofensores_de_especificidade(':where(.a:not([open])) > .b { display: none; }') == []
+    assert _ofensores_de_especificidade(':where(.a, .c) .b { display: grid; }') == []
+    # Com o `:where` tirado, o que sobra ainda é contado: dois elementos de classe fora dele reprovam.
+    assert _ofensores_de_especificidade(':where(.a) .b .c { display: grid; }') == ['.b .c']
+    # Sem `:where`, o mesmo seletor continua reprovado: o teste não relaxou o cálculo para tudo.
+    assert _ofensores_de_especificidade('.a:not([open]) > .b { display: none; }') == ['.a:not([open]) > .b']
+    assert _ofensores_de_especificidade('.a:where(.b) { display: none; }') == []
+    assert _ofensores_de_especificidade('.a:where(.b .c) { display: none; }') == []
+
+
+def test_menu_mais_acoes_fechado_esconde_a_lista_com_especificidade_zero():
+    # Regra do menu fechado com `:where` (0,1,0). Só ela declara `display` em `.ag-mais-acoes-lista`: nenhuma outra
+    # regra pode concorrer com a ordem de cascata.
+    css = (ESTATICOS / 'agrion-proprio.css').read_text(encoding='utf-8')
+    assert ':where(.ag-mais-acoes:not([open])) > .ag-mais-acoes-lista { display: none; }' in css
+    declaracoes = [corpo for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', css, flags=re.S))
+                   if any(parte.strip().endswith('.ag-mais-acoes-lista') for parte in seletor.split(',')) and re.search(r'(^|;|\s)display\s*:', corpo)]
+    assert len(declaracoes) == 1
 
 
 def test_campo_com_teclado_leva_inputmode_e_sem_corretor():
@@ -444,6 +477,24 @@ def test_cabecalho_item_sem_href_vira_texto_e_nao_link_vazio():
     assert 'href=""' not in html
     assert '<span>Fazendas</span>' in html
     assert '<span aria-current="page">Fazenda A</span>' in html
+
+
+def test_cabecalho_com_acoes_template_poe_o_parcial_depois_do_titulo():
+    html = _renderizar('componentes/cabecalho_pagina.html', titulo='Fazendas', acoes_template='componentes/botao.html', texto='Exportar', href='/x.csv')
+    assert html.index('<h1>Fazendas</h1>') < html.index('<div class="ag-cabecalho-acoes">')
+    assert 'Exportar' in html.split('<div class="ag-cabecalho-acoes">')[1]
+
+
+def test_cabecalho_sem_acoes_template_nao_tem_bloco_de_acoes():
+    assert 'ag-cabecalho-acoes' not in _renderizar('componentes/cabecalho_pagina.html', titulo='Início')
+
+
+def test_cabecalho_com_acoes_template_inexistente_falha_em_vez_de_sair_calado():
+    # Negativo: nome de parcial errado é erro de programação; não pode sair um cabeçalho sem ações sem aviso.
+    from django.template import TemplateDoesNotExist
+
+    with pytest.raises(TemplateDoesNotExist):
+        _renderizar('componentes/cabecalho_pagina.html', titulo='Fazendas', acoes_template='componentes/nao_existe.html')
 
 
 def test_cabecalho_com_texto_puro_em_vez_de_item_nao_gera_link_vazio():
@@ -825,6 +876,19 @@ def test_segmentado_marca_a_opcao_ativa_e_o_grupo():
     assert '<legend class="so-leitor">Fundo do mapa</legend>' in html
     assert 'aria-pressed="true"' in html
     assert 'aria-pressed="false"' in html
+
+
+def test_segmentado_com_href_vira_link_e_so_a_ativa_tem_aria_current():
+    opcoes = [{'valor': 'todas', 'rotulo': 'Todas', 'href': '?'}, {'valor': 'ativas', 'rotulo': 'Ativas', 'href': '?situacao=ativas'}]
+    html = _renderizar('componentes/segmentado.html', opcoes=opcoes, valor='ativas', rotulo='Filtrar fazendas')
+    assert '<a href="?situacao=ativas" data-valor="ativas" aria-current="true">Ativas</a>' in html
+    assert '<a href="?" data-valor="todas">Todas</a>' in html
+    assert '<button' not in html
+
+
+def test_segmentado_com_href_sem_opcao_ativa_nao_marca_nenhuma():
+    html = _renderizar('componentes/segmentado.html', opcoes=[{'valor': 'a', 'rotulo': 'A', 'href': '?x=a'}], valor='outra')
+    assert 'aria-current' not in html
 
 
 def test_segmentado_sem_opcoes_nao_tem_botao():

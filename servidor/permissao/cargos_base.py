@@ -23,6 +23,7 @@ COMPOSICAO = {
         'definir_validade_documento',
         'convidar_pessoa',
         'revogar_acesso',
+        'exportar_dados',  # não delegável: o Curador a exerce pelo próprio cargo, não a repassa (Q20; delegação barra)
     ),
     'tecnico': _TECNICO,
     'usuario': _LEITURA,

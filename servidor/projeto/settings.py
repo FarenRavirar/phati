@@ -24,6 +24,8 @@ INSTALLED_APPS = [
     'projeto.apps.ConfiguracaoDoPainel',
     'django.contrib.messages',
     'django.contrib.gis',  # D114 (b): GeoDjango (GEOS, GDAL e PROJ do sistema na imagem)
+    # Registra o lookup `unaccent` (busca sem acento, spec 012 T4.0); a extensão no banco vem da migração do território.
+    'django.contrib.postgres',
     'projeto.apps.ConfiguracaoDosEstaticos',  # `django.contrib.staticfiles` sem publicar os testes de JS
     # API JSON `/api/v1/` (T5.1); precisa estar aqui para o comando `export_openapi_schema` existir.
     'ninja',

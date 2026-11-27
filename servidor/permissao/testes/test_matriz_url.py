@@ -63,7 +63,7 @@ MATRIZ = {
 
 @pytest.fixture
 def mundo(fabrica_pessoa, conceder_direto, plataforma):
-    for codigo, descricao, delegavel in import_module('permissao.migrations.0001_initial').ACOES:
+    for codigo, descricao, delegavel in (*import_module('permissao.migrations.0001_initial').ACOES, *import_module('territorio.migrations.0008_fase_fazendas').ACOES):
         Permissao.objects.get_or_create(codigo=codigo, defaults={'descricao': descricao, 'delegavel': delegavel})
     x, y = Empresa.objects.create(nome='Empresa X'), Empresa.objects.create(nome='Empresa Y')
     cargos_x, cargos_y = criar_cargos_base(x), criar_cargos_base(y)

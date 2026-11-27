@@ -1,0 +1,39 @@
+{% extends "casca.html" %}
+{% block titulo %}{{ titulo_da_tela }}{% endblock %}
+{% block conteudo %}
+{% include "componentes/cabecalho_pagina.html" with titulo=titulo_da_tela subtitulo=subtitulo|default_if_none:"" acoes_template="componentes/acoes_fazendas.html" pode_exportar=pode_exportar url_exportar=url_exportar destino_nova=destino_nova acoes=acoes only %}
+{% if empresa_arquivada %}{% include "componentes/aviso.html" with tipo="aviso" texto="Esta empresa está arquivada: só leitura." only %}{% endif %}
+<section class="ag-painel" data-sem-margem="">
+{% if total %}
+<form method="get" role="search" class="ag-barra-fazendas">
+<div class="ag-barra-busca ag-campo" data-tamanho="md"><div class="ag-controle-wrap">{% icone "search" tamanho=16 %}<input class="ag-controle" id="busca" name="busca" type="search" placeholder="Buscar por nome ou município" aria-label="Buscar fazenda" autocomplete="off"{% if busca %} value="{{ busca }}"{% endif %}></div></div>
+<input type="hidden" name="situacao" value="{{ situacao }}">
+{% include "componentes/segmentado.html" with opcoes=opcoes_situacao valor=situacao rotulo="Filtrar fazendas" only %}
+</form>
+{% if linhas %}
+<div class="ag-tabela-wrap"><table class="ag-tabela">
+<caption class="so-leitor">Fazendas</caption>
+<thead><tr><th scope="col">Fazenda</th><th scope="col">Município</th><th scope="col" data-alinhar="direita">Área (ha)</th><th scope="col" data-alinhar="direita">{{ rotulo_talhoes }}</th><th scope="col">Situação</th><th scope="col">Atualizado</th></tr></thead>
+<tbody>
+{% for linha in linhas %}<tr data-clicavel="">
+<td><div class="ag-celula-principal"><a href="{% url 'fazenda' empresa_id=linha.fazenda.empresa_id fazenda_id=linha.fazenda.pk %}">{{ linha.fazenda.nome }}</a></div><div class="ag-celula-sub">{{ linha.fazenda.empresa.nome }}</div></td>
+<td>{{ linha.fazenda.municipio|default:"Sem dados" }}</td>
+<td data-alinhar="direita">{% if linha.area is None %}Sem dados{% else %}{{ linha.area }}{% endif %}</td>
+<td data-alinhar="direita">{{ linha.talhoes }}</td>
+<td>{% if linha.fazenda.arquivada_em %}{% include "componentes/selo.html" with tom="neutro" texto="Arquivada" only %}{% else %}{% include "componentes/selo.html" with tom="sucesso" texto="Ativa" only %}{% endif %}</td>
+<td>{{ linha.atualizado|date:"d/m/Y" }}</td>
+</tr>
+{% endfor %}</tbody></table></div>
+{% else %}
+{% include "componentes/vazio.html" with icone="search-x" titulo="Nenhuma fazenda encontrada" texto="Confira a grafia ou limpe o filtro." acao_rotulo="Limpar filtros" acao_destino=limpar only %}
+{% endif %}
+<div class="ag-fazendas-rodape"><span>{{ total_filtrado }} de {{ total }} fazendas</span>
+<span class="ag-fazendas-paginas">
+{% if url_anterior %}{% include "componentes/botao.html" with texto="Anterior" href=url_anterior secundario=True tamanho="sm" only %}{% else %}{% include "componentes/botao.html" with texto="Anterior" secundario=True tamanho="sm" desabilitado=True only %}{% endif %}
+{% if url_proxima %}{% include "componentes/botao.html" with texto="Próxima" href=url_proxima secundario=True tamanho="sm" only %}{% else %}{% include "componentes/botao.html" with texto="Próxima" secundario=True tamanho="sm" desabilitado=True only %}{% endif %}
+</span></div>
+{% else %}
+{% include "componentes/vazio.html" with texto="Nenhuma fazenda disponível." only %}
+{% endif %}
+</section>
+{% endblock %}
