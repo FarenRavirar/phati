@@ -204,8 +204,9 @@ function alvoDoCommit(globais, base, prefixo) {
   return alvo;
 }
 
-// Commits do comando (com alvo) e se algum subcomando troca de ramo ou refs.
-function coletar(comando, raiz) {
+// Subcomandos `sub` do comando (com alvo; `resto` e `globais` do git) e se algum subcomando
+// troca de ramo ou refs. Padrão `commit`; o regra-negada-explicada usa `push`.
+function coletar(comando, raiz, sub = 'commit') {
   const achados = [];
   let mudaRamo = false;
   percorrer(comando, [raiz], (cmd) => {
@@ -217,8 +218,10 @@ function coletar(comando, raiz) {
     if (cmd.nome !== 'git') return;
     const g = desmontarGit(cmd.palavras);
     if (MUDA_RAMO.has(g.sub)) mudaRamo = true;
-    if (g.sub !== 'commit') return;
-    for (const base of cmd.cwds) achados.push(alvoDoCommit(g.globais, base, cmd.prefixo));
+    if (g.sub !== sub) return;
+    for (const base of cmd.cwds) {
+      achados.push(Object.assign(alvoDoCommit(g.globais, base, cmd.prefixo), { globais: g.globais, resto: g.resto }));
+    }
   });
   return { achados, mudaRamo };
 }
@@ -244,25 +247,30 @@ function decidir(comando, cwd, ambiente) {
   return null;
 }
 
-lerPayload((raw) => {
-  let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    process.exit(0); // payload ilegível nunca bloqueia trabalho
-  }
-  const comando = payload?.tool_input?.command ?? '';
-  if (!comando) process.exit(0);
+if (require.main === module) {
+  lerPayload((raw) => {
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      process.exit(0); // payload ilegível nunca bloqueia trabalho
+    }
+    const comando = payload?.tool_input?.command ?? '';
+    if (!comando) process.exit(0);
 
-  const veredito = decidir(comando, payload.cwd, process.env);
-  if (veredito) {
-    console.log(JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason: `[branch-gate/${veredito.regra}] ${veredito.motivo}`,
-      },
-    }));
-  }
-  process.exit(0);
-});
+    const veredito = decidir(comando, payload.cwd, process.env);
+    if (veredito) {
+      console.log(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `[branch-gate/${veredito.regra}] ${veredito.motivo}`,
+        },
+      }));
+    }
+    process.exit(0);
+  });
+}
+
+// Exportado para o regra-negada-explicada reusar a resolução de alvo (phati-specs x phati-dev).
+module.exports = { coletar, alvoDoCommit, infoSpecs, raizDoAlvo, shq };

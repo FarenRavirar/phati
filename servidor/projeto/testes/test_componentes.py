@@ -51,8 +51,12 @@ def test_lista_de_convites_enviados_mostra_cargo_onde_prazo_e_acoes_e_escapa():
     convites = [{'id': 4, 'cargo_nome': '<b>Técnico</b>', 'onde': 'F1', 'criado_em': AGORA, 'expira_em': AGORA, 'vencido': False,
                  'reenviar': '/x/reenviar', 'cancelar': '/x/cancelar'}]
     html = _renderizar('componentes/lista_convites.html', convites=convites, enviados=True)
-    assert '<b>' not in html and '&lt;b&gt;Técnico&lt;/b&gt; · F1' in html
-    assert 'vale até' in html and 'Reenviar' in html and 'Cancelar' in html and 'Recusar' not in html
+    assert '<b>' not in html
+    assert '&lt;b&gt;Técnico&lt;/b&gt; · F1' in html
+    assert 'vale até' in html
+    assert 'Reenviar' in html
+    assert 'Cancelar' in html
+    assert 'Recusar' not in html
     vencido = _renderizar('componentes/lista_convites.html', convites=[{**convites[0], 'vencido': True}], enviados=True)
     assert 'venceu em' in vencido
     assert 'class="ag-convite"' not in _renderizar('componentes/lista_convites.html', convites=[], enviados=True)
@@ -397,6 +401,13 @@ def test_menu_mais_acoes_fechado_esconde_a_lista_com_especificidade_zero():
     declaracoes = [corpo for seletor, corpo in re.findall(r'([^{}]+)\{([^{}]*)\}', re.sub(r'/\*.*?\*/', '', css, flags=re.S))
                    if any(parte.strip().endswith('.ag-mais-acoes-lista') for parte in seletor.split(',')) and re.search(r'(^|;|\s)display\s*:', corpo)]
     assert len(declaracoes) == 1
+
+
+def test_menu_da_tabela_fica_no_fluxo_sem_recorte():
+    # Dentro de `.ag-tabela-wrap` (overflow-x: auto) a lista não flutua; fora da tabela o menu segue absoluto.
+    css = (ESTATICOS / 'agrion-proprio.css').read_text(encoding='utf-8')
+    assert '.ag-tabela-wrap .ag-mais-acoes-lista { position: static; }' in css
+    assert '.ag-mais-acoes-lista { position: absolute;' in css  # negativo: a regra de dentro da tabela não vale fora dela
 
 
 def test_campo_com_teclado_leva_inputmode_e_sem_corretor():

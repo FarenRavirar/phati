@@ -31,8 +31,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { lerPayload } = require(path.join(__dirname, 'ler-payload.js'));
+const { coletar, infoSpecs, raizDoAlvo, shq } = require(path.join(__dirname, 'branch-gate.js'));
 
 const LIMITE_TRECHO = 200;
+
+// Push para o phati-specs (E031/E038 de .specify/memory/errors.md): o deny nativo casa `git push
+// origin main` por prefixo e não sabe o repositório. Quem sabe é o branch-gate (alvo via cd, -C,
+// --git-dir). Forma certa: `rtk git -C <phati-specs> push origin main`. Reusa coletar do
+// branch-gate, sem parser novo. Decisão: resolve alvo e nega forma errada · fonte: errors.md E031 ·
+// escalável: mesmo molde do branch-gate · robusto: alvo indeterminado não nega (falha aberta) ·
+// dinâmico: phati-specs vem do symlink `specs` de CLAUDE_PROJECT_DIR, não de caminho fixo.
 
 // `*` é o único curinga. Dois ponteiros: sem regex, sem recursão, sem backtracking exponencial.
 function casaCuringa(padrao, texto) {
@@ -170,13 +178,86 @@ function carregarFontes(projeto = projetoDir(), home = os.homedir()) {
   return caminhos.map((c) => ({ arquivo: rotular(c, projeto, home), deny: lerDeny(c) }));
 }
 
+function trunca(texto) {
+  return texto.length > LIMITE_TRECHO ? `${texto.slice(0, LIMITE_TRECHO)}...` : texto;
+}
+
 function mensagem(achado) {
-  const trecho = achado.trecho.length > LIMITE_TRECHO ? `${achado.trecho.slice(0, LIMITE_TRECHO)}...` : achado.trecho;
   return [
     `[regra-negada-explicada] Bloqueado pela regra deny \`${achado.regra}\` de ${achado.arquivo}.`,
-    `Trecho que casou: \`${trecho}\`.`,
+    `Trecho que casou: \`${trunca(achado.trecho)}\`.`,
     'Reformule: renomeie arquivo ou argumento sem o termo; use Write/Read em vez de mv/cp; um comando simples por chamada.',
   ].join('\n');
+}
+
+// Push com alvo phati-specs: o comando certo é o único que o mantenedor copia.
+const comandoCerto = (top) => `rtk git -C ${shq(top)} push origin main`;
+
+function mensagemPushSpecs(achado, top) {
+  return [
+    `[regra-negada-explicada] Bloqueado pela regra deny \`${achado.regra}\` de ${achado.arquivo}.`,
+    `Trecho que casou: \`${trunca(achado.trecho)}\`. Alvo: phati-specs.`,
+    `Comando certo: \`${comandoCerto(top)}\`. Exige autorização do mantenedor, por ação.`,
+  ].join('\n');
+}
+
+// Alvo phati-dev ou indeterminado: nenhum contorno, só o caminho oficial de main.
+function mensagemPushMain(achado) {
+  return [
+    `[regra-negada-explicada] Bloqueado pela regra deny \`${achado.regra}\` de ${achado.arquivo}.`,
+    `Trecho que casou: \`${trunca(achado.trecho)}\`.`,
+    'main só avança pelo workflow promover-dev-para-main (AGENTS.md §Git); push direto em main não existe.',
+  ].join('\n');
+}
+
+function mensagemPushErrado(comando, top) {
+  return [
+    '[regra-negada-explicada] Push no phati-specs fora da forma certa.',
+    `Trecho: \`${trunca(comando.trim())}\`.`,
+    `Comando certo: \`${comandoCerto(top)}\`. phati-specs só recebe push de main (AGENTS.md §Git), com autorização do mantenedor, por ação.`,
+  ].join('\n');
+}
+
+// Pushes do comando com alvo resolvido. Sem `push` no texto, nem analisa.
+function pushesDoComando(comando, cwd) {
+  if (!/\bpush\b/.test(comando)) return [];
+  return coletar(comando, cwd, 'push').achados.filter((a) => !a.profundidade);
+}
+
+const textoResto = (p) => p.resto.map((x) => x.v);
+const ehPushMain = (p) => textoResto(p)[0] === 'origin' && /^main/.test(textoResto(p)[1] ?? '');
+// Forma certa: `-C` explícito e exatamente `origin main`, sem valor dinâmico.
+const ehFormaCerta = (p) => p.globais.some((g) => g.opcao === '-C')
+  && p.resto.every((x) => !x.din)
+  && textoResto(p).join(' ') === 'origin main';
+
+// Alvo é o phati-specs? Sem o symlink `specs`, nunca. Com --git-dir, o repositório é o próprio
+// caminho (o cwd vira work tree e não conta, medido no teste). Sem ele, o topo lido pelo git.
+function ehSpecs(p, specs) {
+  if (!specs || p.indeterminado) return false;
+  if (p.gitDir) return dentroDoSpecs(p.gitDir, specs);
+  const top = raizDoAlvo(p);
+  if (top) return top === specs.top;
+  return p.workTree ? dentroDoSpecs(p.workTree, specs) : false;
+}
+
+function dentroDoSpecs(caminho, specs) {
+  try {
+    const real = fs.realpathSync(caminho);
+    return real === specs.top || real.startsWith(specs.top + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+function saida(motivo) {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: motivo,
+    },
+  };
 }
 
 // Devolve o objeto de saída ou null (sem saída = fluxo normal).
@@ -190,15 +271,20 @@ function decidir(raw) {
   if (payload?.tool_name !== 'Bash') return null;
   const comando = payload?.tool_input?.command;
   if (typeof comando !== 'string' || !comando.trim()) return null;
+  const cwd = typeof payload.cwd === 'string' && payload.cwd ? payload.cwd : process.cwd();
+  const pushes = pushesDoComando(comando, cwd);
+  // Só comando com push paga o `git rev-parse` do phati-specs; os demais seguem sem custo extra.
+  const specs = pushes.length ? infoSpecs(process.env) : null;
   const achado = avaliar(comando, carregarFontes());
-  if (!achado) return null;
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'deny',
-      permissionDecisionReason: mensagem(achado),
-    },
-  };
+  if (achado) {
+    const mainDoSpecs = pushes.find((p) => ehPushMain(p) && ehSpecs(p, specs));
+    if (mainDoSpecs) return saida(mensagemPushSpecs(achado, specs.top));
+    if (pushes.some(ehPushMain)) return saida(mensagemPushMain(achado));
+    return saida(mensagem(achado));
+  }
+  // Sem deny nativo: push ao phati-specs na forma errada (ex.: `cd ../phati-specs && git push`).
+  if (pushes.some((p) => ehSpecs(p, specs) && !ehFormaCerta(p))) return saida(mensagemPushErrado(comando, specs.top));
+  return null;
 }
 
 if (require.main === module) {

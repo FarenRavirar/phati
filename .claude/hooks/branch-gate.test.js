@@ -546,3 +546,29 @@ test('achado 18: -c user.name=A\\ B com espaço escapado não esconde o commit',
 test('achado 19: heredoc alimentando bash continua analisado', () => {
   assertNegadoRegra(rodar("bash <<'FIM'\ngit commit -m x\nFIM", { cwd: repo('dev') }), 'protegida');
 });
+
+// Módulo importado (regra-negada-explicada reusa coletar, alvoDoCommit e shq): require não lê stdin.
+const modulo = require(HOOK);
+
+test('módulo: coletar com sub push devolve resto e globais do alvo (feliz)', () => {
+  const dir = os.tmpdir();
+  const { achados } = modulo.coletar(`rtk git -C ${dir} push origin main`, dir, 'push');
+  assert.equal(achados.length, 1);
+  assert.deepEqual(achados[0].resto.map((p) => p.v), ['origin', 'main']);
+  assert.ok(achados[0].globais.some((g) => g.opcao === '-C'));
+});
+
+test('módulo: coletar sem sub usa commit; push não entra (negativo)', () => {
+  const dir = os.tmpdir();
+  assert.equal(modulo.coletar('git push origin main', dir).achados.length, 0);
+  assert.equal(modulo.coletar('git commit -m x', dir).achados.length, 1);
+});
+
+test('módulo: coletar com sub push ignora comando sem push (borda)', () => {
+  assert.equal(modulo.coletar('ls -la', os.tmpdir(), 'push').achados.length, 0);
+});
+
+test('módulo: shq cita aspa simples escapando a interna', () => {
+  assert.equal(modulo.shq("a'b"), "'a'\\''b'");
+  assert.equal(modulo.shq('/home/x y'), "'/home/x y'");
+});

@@ -177,6 +177,20 @@ test('menu "..." existe só onde há ação e abre com as ações', async ({ pag
   await acessivelComMenuAberto(page);
 });
 
+// O menu "..." da última linha tem de abrir inteiro: a tabela tem `overflow-x: auto`, que recortava a lista absoluta e criava
+// rolagem vertical no contêiner (medido: a lista ficava presa na caixa da tabela, sem a última ação visível).
+test('menu "..." da última linha abre inteiro, sem recorte na tabela', async ({ page }) => {
+  await entrar(page, dados.plataforma.cpf);
+  await page.goto(`/empresa/${dados.empresa_a}/pessoas/`);
+  const ultimaLinha = page.locator('.ag-tabela tbody tr').last();
+  await ultimaLinha.locator('summary[aria-label^="Ações para"]').click();
+  const ultimoLink = ultimaLinha.locator('.ag-mais-acoes-lista a').last();
+  await expect(ultimoLink).toBeVisible();
+  const tabela = await page.locator('.ag-tabela-wrap').evaluate((caixa) => ({ rolagem: caixa.scrollHeight, altura: caixa.clientHeight }));
+  expect(tabela.rolagem, 'a tabela rola na vertical e recorta o menu da última linha').toBeLessThanOrEqual(tabela.altura + 1);
+  await ultimoLink.click({ trial: true }); // sem clicar: a checagem de alvo diz se algo cobre o link
+});
+
 test.describe('sem JavaScript', () => {
   test.use({ javaScriptEnabled: false });
   test('o link Convidar pessoa leva à página do convite', async ({ page }) => {

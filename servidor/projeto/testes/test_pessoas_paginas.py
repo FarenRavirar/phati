@@ -1114,7 +1114,8 @@ def test_administradora_ve_o_ultimo_acesso_e_quem_nunca_entrou_vem_como_none(cli
     _ultimo_acesso_de(entrou, instante)
     itens = _itens(cliente_logado, cenario)
     assert itens['Entrou Sintetica']['ultimo_acesso'] == instante
-    assert 'ultimo_acesso' in itens['Nunca Sintetica'] and itens['Nunca Sintetica']['ultimo_acesso'] is None
+    assert 'ultimo_acesso' in itens['Nunca Sintetica']
+    assert itens['Nunca Sintetica']['ultimo_acesso'] is None
 
 
 def test_curador_nao_recebe_o_ultimo_acesso_nem_no_dado(cliente_logado, curador, cenario, fabrica_pessoa, conceder_direto):
@@ -1214,7 +1215,8 @@ def test_convidar_pessoa_e_um_dialogo_com_os_campos_atuais_e_posta_para_a_pagina
     assert f'<form id="convidar-pessoa-form" method="post" action="/empresa/{cenario.x.pk}/pessoas/convidar">' in html
     for campo_esperado in ('name="nome"', 'name="email"', 'name="cpf"', 'name="cargo"', 'name="escopo"', 'name="inicio"', 'name="fim"'):
         assert campo_esperado in html
-    assert 'form="convidar-pessoa-form"' in html and 'Enviar convite' in html
+    assert 'form="convidar-pessoa-form"' in html
+    assert 'Enviar convite' in html
     assert 'Escolher uma sub-área' in html  # o caminho para o convite em sub-área segue alcançável pelo diálogo
     assert 'O cargo vale só neste lugar e nas áreas abaixo dele.' in html  # ajuda de "Onde" (telas.md §6)
     assert 'Quem já tem conta recebe um convite por e-mail.' in html  # descrição do diálogo (telas.md §6)
@@ -1259,10 +1261,51 @@ def test_mais_de_tres_concessoes_ficam_recolhidas_em_mais_n_com_o_lugar_mais_amp
     assert html.index('Empresa inteira') < html.index('<summary>mais 1</summary>')  # as 3 visíveis vêm primeiro, o lugar mais amplo na frente
 
 
+def _recolhidas(html):
+    """O miolo do "mais N" (o `<details>` das concessões além das 3 primeiras)."""
+    return html.split('<details class="ag-mais-concessoes">')[1].split('</details>')[0]
+
+
+def _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto):
+    conceder_direto(pessoa, cenario.cargos_x['usuario'], cenario.x)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f1)
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.f2)
+
+
+def test_mais_n_mostra_o_prazo_de_uma_quarta_concessao_futura(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Futura Recolhida Sintetica')
+    _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto)
+    inicio = timezone.now() + timedelta(days=10)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2, inicio=inicio)  # a 4ª, recolhida no "mais 1"
+    recolhida = _recolhidas(_html_da_lista(cliente_logado, cenario))
+    assert f"começa em {timezone.localtime(inicio).strftime('%d/%m/%Y')}" in recolhida  # o mesmo prazo das 3 visíveis
+
+
+def test_mais_n_mostra_o_ate_de_uma_quarta_concessao_com_fim(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Com Fim Recolhida Sintetica')
+    _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2, fim=timezone.make_aware(datetime(2030, 1, 2)))  # exclusivo: o último dia é 01/01
+    recolhida = _recolhidas(_html_da_lista(cliente_logado, cenario))
+    assert 'até 01/01/2030' in recolhida
+    assert 'Técnico' in recolhida  # o cargo da 4ª continua na linha
+
+
+def test_mais_n_sem_prazo_nao_mostra_data_nenhuma(cliente_logado, administradora, cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Sem Prazo Recolhida Sintetica')
+    _concessoes_em_tres_lugares(cenario, pessoa, conceder_direto)
+    conceder_direto(pessoa, cenario.cargos_x['tecnico'], cenario.f2)  # negativo: sem início nem fim, a linha não traz prazo
+    recolhida = _recolhidas(_html_da_lista(cliente_logado, cenario))
+    assert 'Técnico' in recolhida
+    assert 'começa em' not in recolhida
+    assert 'até ' not in recolhida
+
+
 def test_menu_de_acoes_tem_o_nome_da_pessoa_e_as_acoes_do_alcance(cliente_logado, administradora, cenario, alvo):
     html = _html_da_lista(cliente_logado, cenario)
     assert 'aria-label="Ações para Alvo Tecnico"' in html
-    assert 'Conceder cargo' in html and 'Redefinir senha' in html and 'Revogar Técnico' in html
+    assert 'Conceder cargo' in html
+    assert 'Redefinir senha' in html
+    assert 'Revogar Técnico' in html
 
 
 def test_linha_sem_acao_nao_tem_menu_de_acoes(cliente_logado, conta, cenario, fabrica_pessoa, conceder_direto):
@@ -1282,14 +1325,18 @@ def test_linha_sem_acao_nao_tem_menu_de_acoes(cliente_logado, conta, cenario, fa
 
 def test_cargo_da_lista_e_selo_sem_ponto_e_administrador_em_tom_marca(cliente_logado, administradora, cenario, alvo):
     html = _html_da_lista(cliente_logado, cenario)
-    assert '<span class="ag-selo" data-tom="marca">Administrador</span>' in html
-    assert '<span class="ag-selo" data-tom="neutro">Técnico</span>' in html
-    assert 'ag-selo-ponto' not in html.split('<th scope="col">Situação</th>')[0].split('<th scope="col">Cargo</th>')[1]  # cargo sem ponto
+    # Só as células da coluna Cargo do corpo (a Situação do mesmo corpo tem ponto de propósito): o recorte antigo pegava o cabeçalho.
+    corpo = html.split('<tbody>')[1].split('</tbody>')[0]
+    cargos = '\n'.join(re.findall(r'<td>(.*?)</td>', linha, re.S)[1] for linha in re.findall(r'<tr>(.*?)</tr>', corpo, re.S))
+    assert '<span class="ag-selo" data-tom="marca">Administrador</span>' in cargos
+    assert '<span class="ag-selo" data-tom="neutro">Técnico</span>' in cargos
+    assert 'ag-selo-ponto' not in cargos  # cargo sem ponto, em toda linha do corpo
 
 
 def test_convites_pendentes_tem_as_abas_e_o_cabecalho_sem_diálogo(cliente_logado, convite_enviado, cenario):
     html = _sem_nonce(cliente_logado.get(_casa(cenario) + 'pessoas/convites').content.decode())
     assert 'aria-current="page">Convites pendentes' in html
-    assert 'Convidar pessoa' in html and 'style=' not in html
+    assert 'Convidar pessoa' in html
+    assert 'style=' not in html
     assert 'id="convidar-pessoa"' not in html  # a página de convites não tem diálogo: o botão leva à página do convite
     assert f'href="{_casa(cenario)}pessoas/convidar"' in html

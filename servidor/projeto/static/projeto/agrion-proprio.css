@@ -118,6 +118,8 @@ fieldset.ag-segmentado { border: 0; margin: 0; min-inline-size: 0; }
 :where(.ag-mais-acoes:not([open])) > .ag-mais-acoes-lista { display: none; }
 .ag-mais-acoes-lista a { display: block; padding: var(--espaco-2) var(--espaco-3); border-radius: var(--raio-sm); color: var(--texto-primario); text-decoration: none; white-space: nowrap; }
 .ag-mais-acoes-lista a:hover, .ag-mais-acoes-lista a:focus-visible { background: var(--bg-sutil); }
+/* Na tabela o menu fica no fluxo: `.ag-tabela-wrap` tem `overflow-x: auto`, que recortava a lista absoluta da última linha (telas.md §6). Só a posição muda; o `display` segue a regra de `:where`. */
+.ag-tabela-wrap .ag-mais-acoes-lista { position: static; }
 /* Ações do cabeçalho à direita também quando a linha quebra (320): sem isso o menu, ancorado à direita do botão, sai da tela pela esquerda (medido: x=-48). */
 .ag-cabecalho > .ag-cabecalho-acoes { margin-left: auto; }
 /* Segmentado com links (filtro sem JS): aparência de botão; a opção ativa tem aria-current. */

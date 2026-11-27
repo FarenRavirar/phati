@@ -156,53 +156,64 @@ def _campos_convite_da_lista(empresa, lugares):
 # --- lista ---
 
 
+def _concessoes_visiveis(requisicao, empresa, pessoas_ids):
+    """Concessões vigentes ou futuras das pessoas da página que quem olha alcança, agrupadas por pessoa."""
+    por_pessoa = defaultdict(list)
+    nomes = {f.pk: f.nome for f in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk, arquivadas=None)}
+    agora = timezone.now()
+    vigentes = concessoes_vigentes_ou_futuras().filter(empresa_id=empresa.pk, pessoa_id__in=pessoas_ids)
+    # A pessoa pode ter acesso em lugares que quem olha não alcança: cargo, lugar e prazo de lá não aparecem (Codex e Qodo, PR #30).
+    alcance = unir_escopos(requisicao.user, *ACOES_DE_PESSOAS)
+    if not alcance.plataforma:
+        vigentes = vigentes.filter(filtro_do_escopo(alcance))
+    # Lugar mais amplo primeiro: empresa inteira, depois fazenda inteira, depois sub-área (NULL vem antes).
+    concessoes = list(vigentes.select_related('cargo', 'fazenda', 'sub_area').order_by(F('fazenda_id').asc(nulls_first=True), F('sub_area_id').asc(nulls_first=True), 'pk'))
+    nomes_de_sub_area = _nomes_de_sub_areas(concessoes)
+    for concessao in concessoes:
+        por_pessoa[concessao.pessoa_id].append({
+            'cargo': concessao.cargo.nome, 'tom': 'marca' if concessao.cargo.base == 'administrador' else 'neutro', 'onde': _onde(concessao, nomes, nomes_de_sub_area),
+            'comeca': concessao.inicio if concessao.inicio > agora else None,
+            # O `fim` gravado é exclusivo (o formulário soma um dia): a tela diz o último dia de acesso (Sourcery, PR #30).
+            'fim': concessao.fim - timedelta(microseconds=1) if concessao.fim else None,
+            'revogar': _caminho('pessoa_revogar', empresa, pessoa_id=concessao.pessoa_id, concessao_id=concessao.pk) if delegacao.pode_revogar(requisicao.user, concessao) else None,
+        })
+    return por_pessoa
+
+
+def _itens_da_pagina(requisicao, empresa, pagina_de_pessoas, por_pessoa, pode_convidar, ver_ultimo):
+    """Um item por pessoa da página: ações conforme o alcance de quem olha, e o último acesso só quando `ver_ultimo`."""
+    redefinir = 'redefinir_senha' in permissoes_efetivas(requisicao.user, empresa)
+    # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
+    concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if pode_convidar else set()
+    itens = []
+    for p in pagina_de_pessoas:
+        item = {
+            'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
+            'situacao': _situacao(por_pessoa[p.pk]),
+            'redefinir': _caminho('pessoa_redefinir_senha', empresa, pessoa_id=p.pk) if redefinir else None,
+            'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if p.pk in concediveis else None,
+        }
+        # Menu "Ações para <nome>" só existe com alguma ação: sem item, sem botão (telas.md §6).
+        item['tem_menu'] = bool(item['conceder'] or item['redefinir'] or any(c['revogar'] for c in item['concessoes']))
+        # `None` é "Nunca entrou", e a ausência da chave é o "não pode ver" (Q19).
+        if ver_ultimo:
+            item['ultimo_acesso'] = p.last_login
+        itens.append(item)
+    return itens
+
+
 @pagina('convidar_pessoa')
 def pessoas(requisicao, empresa_id):
     empresa = _empresa(requisicao, empresa_id)
     with _contexto(requisicao):
         _com_alcance(requisicao, empresa, *ACOES_DE_PESSOAS)
-        efetivas = permissoes_efetivas(requisicao.user, empresa)
         lugares = _escopos_do_convite(requisicao, empresa)
         pode_convidar = bool(lugares) or bool(_fazendas_com_sub_areas(requisicao, empresa))  # em algum lugar da empresa, não só nela inteira
         pagina_de_pessoas = Paginator(_da_empresa(requisicao.user, empresa), ITENS_POR_PAGINA).get_page(requisicao.GET.get('pagina'))
-        por_pessoa = defaultdict(list)
-        nomes = {f.pk: f.nome for f in fazendas_autorizadas(requisicao.user, empresa_id=empresa.pk, arquivadas=None)}
-        agora = timezone.now()
-        vigentes = concessoes_vigentes_ou_futuras().filter(empresa_id=empresa.pk, pessoa_id__in=[p.pk for p in pagina_de_pessoas])
-        # A pessoa pode ter acesso em lugares que quem olha não alcança: cargo, lugar e prazo de lá não aparecem (Codex e Qodo, PR #30).
-        alcance = unir_escopos(requisicao.user, *ACOES_DE_PESSOAS)
-        if not alcance.plataforma:
-            vigentes = vigentes.filter(filtro_do_escopo(alcance))
-        # Lugar mais amplo primeiro: empresa inteira, depois fazenda inteira, depois sub-área (NULL vem antes).
-        concessoes = list(vigentes.select_related('cargo', 'fazenda', 'sub_area').order_by(F('fazenda_id').asc(nulls_first=True), F('sub_area_id').asc(nulls_first=True), 'pk'))
-        nomes_de_sub_area = _nomes_de_sub_areas(concessoes)
-        for concessao in concessoes:
-            por_pessoa[concessao.pessoa_id].append({
-                'cargo': concessao.cargo.nome, 'tom': 'marca' if concessao.cargo.base == 'administrador' else 'neutro', 'onde': _onde(concessao, nomes, nomes_de_sub_area),
-                'comeca': concessao.inicio if concessao.inicio > agora else None,
-                # O `fim` gravado é exclusivo (o formulário soma um dia): a tela diz o último dia de acesso (Sourcery, PR #30).
-                'fim': concessao.fim - timedelta(microseconds=1) if concessao.fim else None,
-                'revogar': _caminho('pessoa_revogar', empresa, pessoa_id=concessao.pessoa_id, concessao_id=concessao.pk) if delegacao.pode_revogar(requisicao.user, concessao) else None,
-            })
-        redefinir = 'redefinir_senha' in efetivas
-        # Conceder segue o alcance de convidar (como a rota da API e a tela `conceder`); a lista também junta revogar e redefinir.
-        concediveis = set(pessoas_do_escopo(requisicao.user, ('convidar_pessoa',), futuras=True).filter(pk__in=[p.pk for p in pagina_de_pessoas]).values_list('pk', flat=True)) if pode_convidar else set()
-        # Último acesso (Q19) só para Administrador da plataforma ou da empresa. Quem não pode ver não tem a chave no dado:
-        # `None` é "Nunca entrou", e a ausência da chave é o "não pode ver".
+        por_pessoa = _concessoes_visiveis(requisicao, empresa, [p.pk for p in pagina_de_pessoas])
+        # Último acesso (Q19) só para Administrador da plataforma ou da empresa. Quem não pode ver não tem a chave no dado.
         ver_ultimo = requisicao.user.administrador_plataforma or administrador_da_empresa(requisicao.user, empresa.pk)
-        itens = []
-        for p in pagina_de_pessoas:
-            item = {
-                'nome': p.nome, 'email': p.email, 'deve_trocar_senha': p.deve_trocar_senha, 'concessoes': por_pessoa[p.pk],
-                'situacao': _situacao(por_pessoa[p.pk]),
-                'redefinir': _caminho('pessoa_redefinir_senha', empresa, pessoa_id=p.pk) if redefinir else None,
-                'conceder': _caminho('pessoa_conceder', empresa, pessoa_id=p.pk) if p.pk in concediveis else None,
-            }
-            # Menu "Ações para <nome>" só existe com alguma ação: sem item, sem botão (telas.md §6).
-            item['tem_menu'] = bool(item['conceder'] or item['redefinir'] or any(c['revogar'] for c in item['concessoes']))
-            if ver_ultimo:
-                item['ultimo_acesso'] = p.last_login
-            itens.append(item)
+        itens = _itens_da_pagina(requisicao, empresa, pagina_de_pessoas, por_pessoa, pode_convidar, ver_ultimo)
         acoes = []
         if delegacao.pode_transferir_titularidade(requisicao.user, empresa):
             acoes.append({'rotulo': TITULO_TITULARIDADE, 'destino': _caminho('titularidade', empresa)})
