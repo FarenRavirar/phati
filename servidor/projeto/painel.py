@@ -41,8 +41,8 @@ class FormularioEntrada(AuthenticationForm):
 
 
 class PainelSite(AdminSite):
-    site_header = 'phati'
-    site_title = 'phati'
+    site_header = 'AgriOn'
+    site_title = 'AgriOn'
     index_title = 'Administração'
     login_form = FormularioEntrada
     site_url = '/'  # "Ver o site" leva de volta ao Phati (R24)

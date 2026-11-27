@@ -44,6 +44,15 @@ test('destino externo é ignorado e a pessoa cai em / do próprio site', async (
   expect(page.url()).toBe(new URL('/', informacoesDoTeste.project.use.baseURL).href);
 });
 
+test('campo vazio mostra o aviso e não envia (com JS, R18)', async ({ page }) => {
+  await page.goto('/entrar');
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.getByRole('alert')).toHaveText('Informe CPF e senha para entrar.');
+  await expect(page).toHaveURL(/\/entrar$/);
+  await semRolagemHorizontal(page);
+  await acessivel(page);
+});
+
 test('aviso de sessão vencida aparece e passa no axe (R8)', async ({ page }) => {
   await page.goto('/entrar?expirou=1');
   await expect(page.getByText('Sua sessão expirou.')).toBeVisible();

@@ -48,6 +48,15 @@ def test_rodape_linka_as_duas_paginas_deslogado_e_logado(arquivo, cliente_logado
         assert 'href="/privacidade"' in html
 
 
+def test_rodape_usa_rotulos_curtos_e_a_pagina_de_privacidade_mantem_o_titulo(arquivo):
+    # Spec 012, telas.md §1: o rodapé diz "Termos de uso" e "Privacidade"; o título da página segue o nome longo.
+    html = Client().get('/entrar').content.decode()
+    assert '<a href="/termos">Termos de uso</a>' in html
+    assert '<a href="/privacidade">Privacidade</a>' in html
+    assert '<a href="/privacidade">Política de privacidade</a>' not in html
+    assert '<title>Política de privacidade · AgriOn</title>' in Client().get('/privacidade').content.decode()
+
+
 @pytest.mark.parametrize('ambiente', ['producao', 'homologacao', 'teste'])
 def test_sem_texto_fora_do_local_da_404_e_o_rodape_nao_linka(settings, ambiente):
     settings.AMBIENTE = ambiente
@@ -121,3 +130,15 @@ def test_com_uma_so_secao_o_rodape_linka_so_ela_e_a_outra_da_404(tmp_path, setti
     cliente = Client()
     assert cliente.get(f'/{so}').status_code == 200
     assert cliente.get(f'/{outra}').status_code == 404
+
+
+def test_secao_nova_com_rota_entra_no_rodape_sem_derrubar_as_paginas(settings, monkeypatch):
+    # Achado do Sourcery (PR #98): seção nova em SECOES, com rota, não pode gerar KeyError no rodapé.
+    settings.AMBIENTE = 'local'
+    settings.TERMOS_ARQUIVO = ''
+    rota_real = termos.reverse
+    monkeypatch.setattr(termos, 'reverse', lambda nome: '/nova' if nome == 'nova' else rota_real(nome))
+    monkeypatch.setitem(termos.SECOES, 'nova', {'titulo': 'Nova página', 'rodape': 'Nova'})
+    links = termos.disponiveis(None)['termos_links']
+    assert ('/nova', 'Nova') in links
+    assert ('/termos', 'Termos de uso') in links

@@ -197,6 +197,12 @@ def test_variaveis_de_email_chegam_ao_smtp_com_a_porta_inteira(monkeypatch):
     assert configuracao['DEFAULT_FROM_EMAIL'] == 'remetente@exemplo.test'
 
 
+def test_remetente_padrao_e_o_da_agrion_sem_variavel(monkeypatch):
+    # Spec 012, R5: sem `PHATI_EMAIL_REMETENTE`, o remetente é o da marca (caso feliz do padrão).
+    monkeypatch.delenv('PHATI_EMAIL_REMETENTE', raising=False)
+    assert runpy.run_path(str(CAMINHO))['DEFAULT_FROM_EMAIL'] == 'agrion@localhost'
+
+
 def test_politica_de_conteudo_so_aceita_script_do_proprio_site_ou_com_nonce():
     politica = runpy.run_path(str(CAMINHO))['SECURE_CSP']
     todos = [valor for valores in politica.values() for valor in valores]

@@ -256,7 +256,7 @@ MAILERS = {
         },
     },
 }
-DEFAULT_FROM_EMAIL = os.environ.get('PHATI_EMAIL_REMETENTE', 'phati@localhost')
+DEFAULT_FROM_EMAIL = os.environ.get('PHATI_EMAIL_REMETENTE', 'agrion@localhost')
 
 # Pacote offline por fazenda (004b). Diretório das versões gravadas por `gerar_pacote_fazenda`; `pmtiles` e `rio` (rio-pmtiles)
 # são as ferramentas externas da geração, só no ambiente de quem gera.

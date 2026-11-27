@@ -55,6 +55,16 @@ def test_recusa_palavras_do_contexto(pessoa):
     assert _codigo('a-SILVA-quer-cafe-12', pessoa, CPF_LIMPO) == 'senha_contexto'
 
 
+@pytest.mark.parametrize('palavra', ['agrion', 'AgriOn', 'phati', 'PHATI'])
+def test_recusa_o_nome_do_produto_atual_e_o_antigo(palavra):
+    # Spec 012, R5: a senha não leva o nome da marca, nem o atual nem o anterior (caso negativo).
+    assert _codigo(f'minha-{palavra}-secreta-1') == 'senha_contexto'
+
+
+def test_aceita_senha_sem_o_nome_do_produto():
+    senha.validar_senha('minha-agenda-secreta-1')  # caso feliz: nenhuma palavra do produto
+
+
 def test_aceita_unicode_e_espaco():
     senha.validar_senha('água com açúcar e café!')
 

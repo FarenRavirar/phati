@@ -32,6 +32,19 @@ def test_quatro_modelos_tres_credenciais_e_o_aviso_de_convite(pessoa, mailoutbox
     assert len({m.subject for m in mailoutbox}) == 4
 
 
+def test_mensagens_levam_a_marca_agrion_e_nunca_o_nome_antigo(pessoa, mailoutbox):
+    # Spec 012, R5: assunto e corpo dos quatro modelos citam a marca AgriOn e não citam "phati".
+    email.enviar_senha_temporaria(pessoa, 'ABC123')
+    email.enviar_link_de_redefinicao(pessoa, 'segredo')
+    email.enviar_aviso_de_troca(pessoa)
+    email.enviar_aviso_de_convite(pessoa, 'Empresa X', 'Usuário', timezone.now())
+    assert len(mailoutbox) == 4
+    for mensagem in mailoutbox:
+        texto = f'{mensagem.subject}\n{mensagem.body}'.casefold()
+        assert 'agrion' in texto, mensagem.subject
+        assert 'phati' not in texto, mensagem.subject
+
+
 def test_so_existem_quatro_funcoes_de_envio():
     fonte = Path(email.__file__).read_text(encoding='utf-8')
     assert len(re.findall(r'^def enviar_', fonte, re.M)) == len(email.MODELOS) == 4

@@ -77,7 +77,26 @@ dialog.ag-dialogo::backdrop { background: color-mix(in srgb, var(--texto-primari
 [data-cor="5"] { --c: var(--camada-5); }
 [data-cor="6"] { --c: var(--camada-6); }
 
-/* Link de apoio na tela de login: alvo de 24 px no mínimo (WCAG 2.5.8, axe target-size). */
-.publica-links a { display: inline-block; min-height: 24px; padding-block: 4px; }
+/* Telas públicas (spec 012, R18): formulário em grade com vão 16; "Esqueci a senha" à direita, 13 px, subido 6 px. */
+.ag-publica-formulario { display: grid; gap: var(--espaco-4); }
+.ag-publica-esqueci { display: flex; justify-content: flex-end; margin: -6px 0 0; font-size: var(--texto-sm); }
+.ag-publica-links { margin-top: var(--espaco-4); }
+/* Cabeçalho da tela pública como no protótipo: título sem margem, descrição 6 px abaixo, vão da caixa (24 px) até o formulário.
+   O base.css próprio (margem em h1 e p) vence o pacote; o cabeçalho da casca não muda. */
+.ag-publica .ag-cabecalho { margin-bottom: 0; }
+.ag-publica .ag-cabecalho-texto { gap: 0; }
+.ag-publica .ag-cabecalho h1 { margin: 0; }
+.ag-publica .ag-cabecalho-descricao { margin: var(--espaco-1-5) 0 0; }
+/* Texto do aviso sem margem de parágrafo: sem ela sobram 12 px embaixo do texto (medido na 404 e na redefinição). */
+.ag-publica .ag-aviso-corpo p { margin: 0; }
+/* Link avulso nas telas públicas (rodapé, "Esqueci a senha", "Voltar ao login"): alvo de 24 px no mínimo (WCAG 2.5.8, axe target-size).
+   Link dentro de texto corrido fica inline: como item de bloco ele quebraria a linha sozinho. */
+/* Especificidade zero no escopo (E014): `.ag-botao` tem display, altura e padding próprios, então o link não altera o botão. */
+:where(.ag-publica-pe, .ag-publica-esqueci, .ag-publica-links) a { display: inline-flex; align-items: center; min-height: 24px; padding-block: 4px; }
+/* Rodapé: o pacote estica o texto "© AgriOn" para o topo do item; centrado, fica na linha dos links. */
+.ag-publica-pe { align-items: center; }
+/* Parágrafo direto da caixa: o vão é o gap da caixa (24 px). A margem de base.css (12 px) somava 36 px. Especificidade zero:
+   `.ag-publica-links` e `.ag-publica-esqueci` (classe) mantêm a margem própria. */
+:where(.ag-publica) :where(.ag-publica-caixa) > p { margin: 0; }
 .ag-envio:focus-within { outline: 2px solid var(--verde-500); outline-offset: 2px; }
 fieldset.ag-segmentado { border: 0; margin: 0; min-inline-size: 0; }

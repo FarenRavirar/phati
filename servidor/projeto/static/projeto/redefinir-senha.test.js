@@ -118,6 +118,12 @@ test('senha recusada mostra o motivo e libera nova tentativa', async () => {
   assert.equal(pagina.el.salvar.disabled, false);
 });
 
+test('senha com nome do produto recusada diz que o nome do produto também não vale (Sourcery, PR #98)', async () => {
+  const pagina = abrir('#segredo=abc123', [resposta(400, { detalhe: 'senha_contexto' })]);
+  await pagina.enviar();
+  assert.match(pagina.el.mensagem.textContent, /nome do produto/);
+});
+
 test('falha de conexão avisa, não deixa a página muda e libera nova tentativa (Qodo e Greptile, PR #17)', async () => {
   const pagina = abrir('#segredo=abc123', [() => Promise.reject(new TypeError('Failed to fetch'))]);
   await pagina.enviar();

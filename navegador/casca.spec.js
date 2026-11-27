@@ -46,7 +46,7 @@ for (const [nome, rota] of TELAS) {
 for (const [nome, rota] of [['entrar', '/entrar'], ['esqueci-senha', '/esqueci-senha']]) {
   test(`tela pública ${nome} centralizada, sem rolagem horizontal e capturada`, async ({ page }) => {
     await page.goto(rota);
-    await expect(page.locator('.publica')).toBeVisible();
+    await expect(page.locator('.ag-publica')).toBeVisible();
     await semRolagemHorizontal(page);
     await capturar(page, nome);
   });
