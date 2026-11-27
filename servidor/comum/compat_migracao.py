@@ -46,8 +46,10 @@ REPROVADAS = {
 # AddConstraint: limite conhecido, ver a docstring do módulo. ExtensaoUnaccentSemVolta (subclasse de UnaccentExtension,
 # territorio/0008): `CREATE EXTENSION IF NOT EXISTS unaccent`, só acrescenta funções no banco; a volta não faz nada
 # (spec 012 T4.0). A classe de Django `UnaccentExtension` não está aqui: o reverso dela faz DROP e não é aprovado.
+# Aprovação por nome não basta: `_extensao_sem_volta` exige a classe no próprio arquivo com a volta sem efeito.
+EXTENSAO_SEM_VOLTA = 'ExtensaoUnaccentSemVolta'
 APROVADAS = frozenset({
-    'CreateModel', 'AddIndex', 'AddIndexConcurrently', 'AddConstraint', 'AlterModelOptions', 'ExtensaoUnaccentSemVolta',
+    'CreateModel', 'AddIndex', 'AddIndexConcurrently', 'AddConstraint', 'AlterModelOptions',
 })
 
 PADROES_SQL = (
@@ -91,6 +93,7 @@ class _Ctx:
     funcoes: dict[str, ast.FunctionDef]
     criados: frozenset[str]
     constantes: dict[str, ast.expr]
+    arvore: ast.Module
 
 
 def verificar_arquivo(caminho: str | Path) -> list[Violacao]:
@@ -114,7 +117,7 @@ def analisar_arquivo(caminho: str | Path) -> Resultado:
     else:
         inicial = Path(arquivo).name.startswith('0001_') or _marca_inicial(classe)
         funcoes = {no.name: no for no in arvore.body if isinstance(no, ast.FunctionDef)}
-        ctx = _Ctx(arquivo, inicial, funcoes, frozenset(), _constantes(arvore))
+        ctx = _Ctx(arquivo, inicial, funcoes, frozenset(), _constantes(arvore), arvore)
         violacoes = _analisar_classe(classe, arvore, ctx)
     return Resultado(arquivo, marcado, tuple(violacoes))
 
@@ -234,6 +237,8 @@ def _analisar_operacao(no: ast.Call, ctx: _Ctx) -> list[Violacao]:
         return [_viol(ctx, no, nome, 'argumentos com *args ou **kwargs: não analisável')]
     if nome in APROVADAS:
         return []
+    if nome == EXTENSAO_SEM_VOLTA:
+        return _extensao_sem_volta(no, ctx)
     if nome == 'AddField':
         return _addfield(no, ctx)
     if nome == 'RunSQL':
@@ -243,6 +248,64 @@ def _analisar_operacao(no: ast.Call, ctx: _Ctx) -> list[Violacao]:
     if nome == 'SeparateDatabaseAndState':
         return _separate(no, ctx)
     return [_viol(ctx, no, nome, 'operação não listada nas regras de compatibilidade: não analisável')]
+
+
+def _extensao_sem_volta(no: ast.Call, ctx: _Ctx) -> list[Violacao]:
+    # Aprovada só se a classe é o único vínculo do nome no arquivo e a classe segue `_e_extensao_sem_volta`.
+    classe = _classe_unica(ctx.arvore, EXTENSAO_SEM_VOLTA)
+    if classe is not None and _e_extensao_sem_volta(classe):
+        return []
+    texto = ('classe não definida no arquivo como vínculo único, sem UnaccentExtension como base, ou com corpo além de '
+             'database_backwards sem efeito (só pass ou docstring)')
+    return [_viol(ctx, no, EXTENSAO_SEM_VOLTA, texto)]
+
+
+def _classe_unica(arvore: ast.Module, nome: str) -> ast.ClassDef | None:
+    if _vinculos(arvore)[nome] != 1:
+        return None
+    return next((no for no in arvore.body if isinstance(no, ast.ClassDef) and no.name == nome), None)
+
+
+def _vinculos(arvore: ast.Module) -> Counter:
+    # Conta cada vínculo de nome do módulo: atribuição, def, classe, import (o `as` vale quando existe).
+    nomes: list[str] = []
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Name) and isinstance(no.ctx, ast.Store):
+            nomes.append(no.id)
+        elif isinstance(no, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            nomes.append(no.name)
+        elif isinstance(no, (ast.Import, ast.ImportFrom)):
+            nomes += [alias.asname or alias.name.split('.')[0] for alias in no.names]
+    return Counter(nomes)
+
+
+def _e_extensao_sem_volta(classe: ast.ClassDef) -> bool:
+    if classe.keywords or classe.decorator_list or len(classe.bases) != 1:
+        return False
+    base = classe.bases[0]
+    if _nome_base(base) != 'UnaccentExtension':
+        return False
+    corpo = [no for no in classe.body if not _e_texto(no)]  # docstring da classe não conta
+    if len(corpo) != 1 or not isinstance(corpo[0], ast.FunctionDef):
+        return False
+    volta = corpo[0]
+    return volta.name == 'database_backwards' and not volta.decorator_list and all(_sem_efeito(no) for no in volta.body)
+
+
+def _nome_base(no: ast.expr) -> str | None:
+    if isinstance(no, ast.Name):
+        return no.id
+    if isinstance(no, ast.Attribute):
+        return no.attr
+    return None
+
+
+def _sem_efeito(no: ast.stmt) -> bool:
+    return isinstance(no, ast.Pass) or _e_texto(no)
+
+
+def _e_texto(no: ast.stmt) -> bool:
+    return isinstance(no, ast.Expr) and isinstance(no.value, ast.Constant) and isinstance(no.value.value, str)
 
 
 def _addfield(no: ast.Call, ctx: _Ctx) -> list[Violacao]:

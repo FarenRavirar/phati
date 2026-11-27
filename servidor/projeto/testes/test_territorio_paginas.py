@@ -516,6 +516,22 @@ def test_editar_fazenda_sem_permissao_de_renomear_e_negado_por_url_direta(client
     assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == ''
 
 
+def test_editar_sem_o_campo_municipio_preserva_o_municipio(cliente_logado, administradora, cenario):
+    # POST sem o campo `municipio` (ausente, não vazio) não pode apagar o município gravado.
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1 Nova'})
+    assert resposta.status_code == 302
+    fazenda = Fazenda.objects.get(pk=cenario.f1.pk)
+    assert (fazenda.nome, fazenda.municipio) == ('F1 Nova', 'Sorriso')
+
+
+def test_editar_com_municipio_vazio_enviado_limpa_o_municipio(cliente_logado, administradora, cenario):
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(municipio='Sorriso')
+    resposta = cliente_logado.post(_fazenda(cenario) + 'editar', {'nome': 'F1 Nova', 'municipio': ''})
+    assert resposta.status_code == 302
+    assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == ''
+
+
 # --- exportação CSV (012 R30): GET /fazendas.csv ---
 
 
@@ -567,11 +583,10 @@ def test_csv_metodo_errado_e_recusado(administradora, cliente_logado):
 def test_csv_empresa_alheia_por_url_direta_nao_traz_linha_de_outra_empresa(conta, cliente_logado, cenario, conceder_direto):
     conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
     resposta = cliente_logado.get('/fazendas.csv', {'empresa': cenario.y.pk})
-    assert resposta.status_code == 200
-    assert _linhas_do_csv(resposta)[1:] == []  # a FY é de Y e a pessoa só vê X
+    assert resposta.status_code == 403  # sem exportar na Y a rota nega, como o botão some (R30); a FY não sai
 
 
-@pytest.mark.parametrize('valor', ['abc', '-1', '²', '1 2'])
+@pytest.mark.parametrize('valor', ['abc', '-1', '²', '1 2', '9' * 19, '9' * 4301])  # acima de 18 dígitos não é id; 4301 estoura o int()
 def test_csv_empresa_com_valor_invalido_e_400(valor, administradora, cliente_logado):
     assert cliente_logado.get('/fazendas.csv', {'empresa': valor}).status_code == 400
 

@@ -41,6 +41,18 @@ def test_ida_da_extensao_unaccent_continua_criando_unaccent():
     assert operacao.name == 'unaccent'
 
 
+@pytest.mark.django_db  # register_type_handlers da ida consulta o banco de teste
+def test_ida_da_extensao_unaccent_executa_create_extension_quando_ainda_nao_existe():
+    # Ida quebrada (ex.: database_forwards sobrescrito com pass) não emite o CREATE: este teste falha nesse caso.
+    esquema = MagicMock()
+    esquema.connection.vendor = 'postgresql'
+    esquema.connection.alias = 'default'  # o register_type_handlers da ida lê o alias
+    esquema.quote_name.side_effect = lambda nome: nome
+    esquema.connection.cursor.return_value.__enter__.return_value.fetchone.return_value = None  # extensão ausente
+    migracao.ExtensaoUnaccentSemVolta().database_forwards('territorio', esquema, None, None)
+    esquema.execute.assert_called_once_with('CREATE EXTENSION IF NOT EXISTS unaccent')
+
+
 def test_carga_nao_liga_a_acao_a_cargo_de_base_tecnico_ou_usuario_criado_depois(cenario):
     from permissao.models import Cargo
 
@@ -48,3 +60,14 @@ def test_carga_nao_liga_a_acao_a_cargo_de_base_tecnico_ou_usuario_criado_depois(
     CargoPermissao.objects.filter(permissao_id='exportar_dados').delete()
     migracao.carregar(apps, None)
     assert not _tem(tecnico_extra)  # a carga filtra por base (administrador e curador), não por empresa ou nome
+
+
+def test_carga_nao_liga_a_acao_a_cargo_personalizado_de_base_curador(cenario):
+    # Spec 012 (Q20): base curador leva a ação só pelo cargo-base de nome 'Curador'; personalizado de mesma base não.
+    from permissao.models import Cargo
+
+    personalizado = Cargo.objects.create(empresa=cenario.x, nome='Curador de campo', base='curador')
+    CargoPermissao.objects.filter(permissao_id='exportar_dados').delete()
+    migracao.carregar(apps, None)
+    assert _tem(cenario.cargos_x['curador'])
+    assert not _tem(personalizado)

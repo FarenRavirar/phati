@@ -1,8 +1,10 @@
 """Exportação CSV da lista de fazendas (spec 012, R30): formato para o Excel em português e neutralização de fórmula.
 
-Separador `;` e UTF-8 com BOM: formato que o Excel pt-BR abre sem assistente de importação (não pesquisei nesta sessão:
-a confirmar). Célula que começa com `=`, `+`, `-`, `@`, tab, retorno ou quebra de linha ganha apóstrofo na frente,
-contra CSV injection (OWASP; não conferi na fonte nesta sessão: a confirmar). Ausente vira "Sem dados", nunca 0.
+Separador `;` e UTF-8 com BOM: formato que o Excel pt-BR abre sem assistente de importação (a confirmar). Célula que começa
+com `=`, `+`, `-`, `@`, tab, retorno ou quebra de linha ganha apóstrofo na frente, contra CSV injection (fonte:
+https://owasp.org/www-community/attacks/CSV_Injection, consultada em 2026-11-27). A própria OWASP avisa que o apóstrofo
+pode não resistir a salvar e reabrir no Excel, então a neutralização é mitigação, não garantia. Ausente vira "Sem dados",
+nunca 0.
 """
 
 import csv

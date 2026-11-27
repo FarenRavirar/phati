@@ -433,3 +433,27 @@ def test_empresa_sem_acesso_nao_mostra_mais_acoes_nem_aviso(cliente_logado, cena
     resposta = cliente_logado.get(f'/empresa/{cenario.y.pk}/')
     assert resposta.status_code == 404
     assert b'Mais a' not in resposta.content and b'arquivada' not in resposta.content
+
+
+# --- botão Exportar na página da empresa (R30): só onde a pessoa exporta ---
+
+
+def test_exportar_na_empresa_so_onde_a_pessoa_exporta(cliente_logado, conta, cenario, conceder_direto):
+    # Curador em X exporta; Usuário em Y não. Os dois 200 vêm antes da asserção de ausência: um 404 também não tem o link.
+    conceder_direto(conta.pessoa, cenario.cargos_x['curador'], cenario.x)
+    conceder_direto(conta.pessoa, cenario.cargos_y['usuario'], cenario.y)
+    em_x = cliente_logado.get(f'/empresa/{cenario.x.pk}/')
+    em_y = cliente_logado.get(f'/empresa/{cenario.y.pk}/')
+    assert (em_x.status_code, em_y.status_code) == (200, 200)
+    assert f'/fazendas.csv?empresa={cenario.x.pk}' in _conteudo(em_x.content.decode())
+    assert '/fazendas.csv' not in _conteudo(em_y.content.decode())
+    # A rota segue a mesma regra por URL direta: negado, não CSV só com cabeçalho.
+    assert cliente_logado.get('/fazendas.csv', {'empresa': cenario.y.pk}).status_code == 403
+
+
+def test_usuario_sem_exportar_na_empresa_nao_ve_link_nem_rota(cliente_logado, conta, cenario, conceder_direto):
+    conceder_direto(conta.pessoa, cenario.cargos_y['usuario'], cenario.y)
+    em_y = cliente_logado.get(f'/empresa/{cenario.y.pk}/')
+    assert em_y.status_code == 200
+    assert '/fazendas.csv' not in _conteudo(em_y.content.decode())
+    assert cliente_logado.get('/fazendas.csv', {'empresa': cenario.y.pk}).status_code == 403

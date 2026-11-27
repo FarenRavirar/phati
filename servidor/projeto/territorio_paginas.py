@@ -236,8 +236,9 @@ def renomear(requisicao, empresa_id, fazenda_id=None, sub_area_id=None):
         # Município só existe na fazenda: a edição dela leva o campo, e o serviço grava os dois no mesmo evento.
         extra = {}
         if isinstance(alvo, Fazenda):
-            municipio = requisicao.POST.get('municipio', '') if requisicao.method == 'POST' else alvo.municipio
-            campos.append(campo('municipio', 'Município', municipio))
+            # Campo ausente no POST é None: o serviço não mexe no município; '' enviado limpa.
+            municipio = requisicao.POST.get('municipio') if requisicao.method == 'POST' else alvo.municipio
+            campos.append(campo('municipio', 'Município', municipio or ''))
             extra = {'municipio': municipio}
         sub_area = alvo if isinstance(alvo, SubArea) else None  # trilha: Fazendas / fazenda / sub-área
         acoes = acoes_do_alvo(alvo, permissoes_efetivas(requisicao.user, alvo), sem=('renomear',), pessoa=requisicao.user)
@@ -393,7 +394,8 @@ def arquivadas(requisicao):
 def fazendas_csv(requisicao):
     """CSV das fazendas que a pessoa vê e pode exportar, com o filtro da listagem; negado é 403 (`exportar_fazendas`)."""
     empresa = requisicao.GET.get('empresa', '')
-    if empresa and not empresa.isdecimal():
+    # Limite de 18 dígitos: `int()` levanta ValueError acima de 4300 dígitos (500), e id de empresa não passa disso.
+    if empresa and (not empresa.isdecimal() or len(empresa) > 18):
         return HttpResponseBadRequest('Empresa inválida.')
     linhas = exportar_fazendas(
         requisicao.user, requisicao.GET.get('busca', ''), requisicao.GET.get('situacao', 'todas'), int(empresa) if empresa else None,

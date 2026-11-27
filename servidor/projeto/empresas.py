@@ -53,7 +53,7 @@ def _contexto_da_listagem(requisicao, empresa=None):
         'url_anterior': '?' + _consulta(busca, situacao, pagina.previous_page_number()) if pagina.has_previous() else None,
         'url_proxima': '?' + _consulta(busca, situacao, pagina.next_page_number()) if pagina.has_next() else None,
         'pagina': pagina,
-        'pode_exportar': pode_exportar_fazendas(usuario),
+        'pode_exportar': pode_exportar_fazendas(usuario, empresa.pk if empresa else None),
         'url_exportar': reverse('fazendas_csv') + '?' + exportar,
     }
 

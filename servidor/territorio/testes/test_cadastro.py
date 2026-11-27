@@ -740,3 +740,35 @@ def test_renomear_fazenda_com_municipio_sem_permissao_e_negado(cenario, fabrica_
     with pytest.raises(PermissionDenied):
         renomear_fazenda(pessoa, cenario.f1, 'Nova', 'Sorriso')
     assert Fazenda.objects.get(pk=cenario.f1.pk).municipio == ''
+
+
+@pytest.mark.parametrize('nome', ['a\x00b', '\x00', '  \x00  '])
+def test_nome_com_nul_e_recusado_com_validation_error_e_nao_500(cenario, plataforma, admin_x, cpf_novo, nome):
+    # Postgres não grava NUL em texto: sem a checagem na função, o INSERT/UPDATE levanta ValueError (500).
+    for chamada in (
+        lambda: criar_empresa(plataforma, nome, 'Ana', 'ana@exemplo.test', cpf_novo()),
+        lambda: criar_fazenda(admin_x, cenario.x, nome),
+        lambda: renomear_empresa(admin_x, cenario.x, nome),
+        lambda: renomear_fazenda(admin_x, cenario.f1, nome),
+    ):
+        with pytest.raises(ValidationError) as erro:
+            chamada()
+        assert erro.value.code == 'nome_invalido'
+    assert Empresa.objects.get(pk=cenario.x.pk).nome == 'Empresa X'
+
+
+@pytest.mark.parametrize('municipio', ['Sertão\x00', '\x00'])
+def test_municipio_com_nul_e_recusado_com_validation_error_na_criacao_e_na_edicao(cenario, admin_x, municipio):
+    with pytest.raises(ValidationError) as erro:
+        criar_fazenda(admin_x, cenario.x, 'Fazenda nova', municipio)
+    assert erro.value.code == 'municipio_invalido'
+    with pytest.raises(ValidationError) as erro:
+        renomear_fazenda(admin_x, cenario.f1, 'Fazenda X', municipio=municipio)
+    assert erro.value.code == 'municipio_invalido'
+    assert not Fazenda.objects.filter(empresa=cenario.x, nome='Fazenda nova').exists()
+
+
+def test_municipio_e_nome_sem_nul_continuam_validos():
+    # Caminho feliz junto do negativo: o NUL é recusado, texto comum e vazio não.
+    assert municipio_valido('  Sertão  ') == 'Sertão'
+    assert municipio_valido('') == ''

@@ -44,7 +44,8 @@ def nome_valido(nome, maximo=200):
     """Nome sem espaços nas pontas. Vazio, só espaços ou maior que `maximo` levanta `nome_invalido`: a regra vale na
     função, não só no formulário (R9)."""
     limpo = (nome or '').strip()
-    if not limpo or len(limpo) > maximo:
+    # NUL não entra em texto do Postgres: recusar aqui evita o DataError (500) no INSERT/UPDATE.
+    if not limpo or len(limpo) > maximo or '\x00' in limpo:
         raise ValidationError('Informe um nome de 1 a %(maximo)s caracteres.', code='nome_invalido', params={'maximo': maximo})
     return limpo
 
@@ -53,7 +54,8 @@ def municipio_valido(municipio, maximo=200):
     """Município sem espaços nas pontas. Vazio é válido (a tela mostra "Sem dados"); maior que `maximo` levanta
     `municipio_invalido`. Mesma regra de texto do nome, na função e não só no formulário (spec 012, R29)."""
     limpo = (municipio or '').strip()
-    if len(limpo) > maximo:
+    # NUL não entra em texto do Postgres: recusar aqui evita o DataError (500) no INSERT/UPDATE.
+    if len(limpo) > maximo or '\x00' in limpo:
         raise ValidationError('Informe um município de até %(maximo)s caracteres.', code='municipio_invalido', params={'maximo': maximo})
     return limpo
 

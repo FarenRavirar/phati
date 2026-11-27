@@ -592,12 +592,14 @@ def test_migracoes_reais_sao_analisadas_sem_erro():
     print('\n'.join(linhas))
 
 
-def test_subclasse_unaccent_sem_volta_e_aprovada(tmp_path):
+def test_subclasse_unaccent_so_com_pass_e_reprovada(tmp_path):
+    # Antes aprovada só pelo nome; agora sem database_backwards sobrescrito a volta faz DROP EXTENSION: reprovada.
     antes = (
         'from django.contrib.postgres.operations import UnaccentExtension\n\n'
         'class ExtensaoUnaccentSemVolta(UnaccentExtension):\n    pass\n'
     )
-    assert _verificar(tmp_path, 'ExtensaoUnaccentSemVolta()', antes=antes) == []
+    (violacao,) = _verificar(tmp_path, 'ExtensaoUnaccentSemVolta()', antes=antes)
+    assert violacao.operacao == 'ExtensaoUnaccentSemVolta'
 
 
 def test_unaccent_do_django_sem_subclasse_e_reprovada(tmp_path):
@@ -613,3 +615,54 @@ def test_operacao_desconhecida_do_contrib_postgres_continua_reprovada(tmp_path):
     (violacao,) = _verificar(tmp_path, 'TrigramExtension()', antes=antes)
     assert violacao.operacao == 'TrigramExtension'
     assert 'não listada' in violacao.motivo
+
+
+# --- ExtensaoUnaccentSemVolta: aprovada só com a classe do próprio arquivo, sem efeito na volta ------------------------
+
+CABECALHO_UNACCENT = 'from django.contrib.postgres.operations import UnaccentExtension\n'
+CLASSE_SEM_EFEITO = (
+    'class ExtensaoUnaccentSemVolta(UnaccentExtension):\n'
+    '    """Volta sem efeito."""\n\n'
+    '    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n'
+    '        pass\n'
+)
+
+
+def test_extensao_unaccent_com_volta_sem_efeito_e_aprovada(tmp_path):
+    assert _verificar(tmp_path, 'ExtensaoUnaccentSemVolta()', antes=CABECALHO_UNACCENT + '\n' + CLASSE_SEM_EFEITO) == []
+
+
+def test_migracao_real_territorio_0008_continua_aprovada():
+    # Guard da migração real: a classe dela segue a regra acima (rc 0 do CLI, como o CI roda).
+    assert verificar_arquivo(SERVIDOR / 'territorio' / 'migrations' / '0008_fase_fazendas.py') == []
+
+
+@pytest.mark.parametrize('antes', [
+    # Volta que executa SQL: não é sem efeito.
+    'class ExtensaoUnaccentSemVolta(UnaccentExtension):\n'
+    '    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n'
+    "        schema_editor.execute('DROP EXTENSION unaccent')\n",
+    # Não herda de UnaccentExtension.
+    'class ExtensaoUnaccentSemVolta(object):\n'
+    '    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        pass\n',
+    # Método extra (ida sobrescrita) além da volta sem efeito.
+    'class ExtensaoUnaccentSemVolta(UnaccentExtension):\n'
+    '    def database_forwards(self, app_label, schema_editor, from_state, to_state):\n        pass\n'
+    '    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        pass\n',
+    # Volta decorada: não é a sobrescrita comum.
+    'class ExtensaoUnaccentSemVolta(UnaccentExtension):\n'
+    '    @staticmethod\n'
+    '    def database_backwards(self, app_label, schema_editor, from_state, to_state):\n        pass\n',
+    # Nome definido duas vezes: não dá para saber qual vale.
+    CLASSE_SEM_EFEITO + '\n' + CLASSE_SEM_EFEITO,
+    # Nome religado depois da classe.
+    CLASSE_SEM_EFEITO + '\nExtensaoUnaccentSemVolta = object\n',
+    # Nome importado de outro lugar: a classe não está no arquivo.
+    'from outro.lugar import ExtensaoUnaccentSemVolta\n',
+    # Nome importado depois da classe, com o mesmo nome.
+    CLASSE_SEM_EFEITO + '\nfrom outro.lugar import ExtensaoUnaccentSemVolta\n',
+])
+def test_extensao_unaccent_sem_volta_fora_da_regra_e_reprovada(tmp_path, antes):
+    violacoes = _verificar(tmp_path, 'ExtensaoUnaccentSemVolta()', antes=CABECALHO_UNACCENT + '\n' + antes)
+    assert len(violacoes) == 1
+    assert violacoes[0].operacao == 'ExtensaoUnaccentSemVolta'

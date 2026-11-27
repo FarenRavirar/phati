@@ -87,7 +87,24 @@ def test_edicao_da_fazenda_so_com_nome_mostra_o_nome():
 def test_edicao_so_do_municipio_mostra_o_municipio_e_nao_repete_o_nome():
     rotulo, resumo = rotulo_e_resumo('fazenda_renomeada', {'nome_antigo': 'F1', 'nome_novo': 'F1', 'municipio_antigo': '', 'municipio_novo': 'Sorriso'})
     assert rotulo == 'Fazenda editada'
-    assert resumo == 'Município de "" para "Sorriso".'
+    assert resumo == 'Município de Sem dados para "Sorriso".'
+
+
+def test_edicao_sem_mudanca_devolve_sem_alteracao():
+    # Feliz do resumo vazio: nome e município iguais não geram frase; negativo: sem detalhe de município também.
+    assert rotulo_e_resumo('fazenda_renomeada', {'nome_antigo': 'F1', 'nome_novo': 'F1', 'municipio_antigo': 'Sorriso', 'municipio_novo': 'Sorriso'}) == (
+        'Fazenda editada', 'Sem alteração.')
+    assert rotulo_e_resumo('fazenda_renomeada', {'nome_antigo': 'F1', 'nome_novo': 'F1'}) == ('Fazenda editada', 'Sem alteração.')
+
+
+def test_municipio_limpo_mostra_sem_dados_sem_aspas_no_novo_valor():
+    _, resumo = rotulo_e_resumo('fazenda_renomeada', {'nome_antigo': 'F1', 'nome_novo': 'F1', 'municipio_antigo': 'Sorriso', 'municipio_novo': ''})
+    assert resumo == 'Município de "Sorriso" para Sem dados.'
+
+
+def test_municipio_antigo_ausente_vira_sem_dados_sem_aspas():
+    _, resumo = rotulo_e_resumo('fazenda_renomeada', {'nome_antigo': 'F1', 'nome_novo': 'F1', 'municipio_novo': 'Sorriso'})
+    assert resumo == 'Município de Sem dados para "Sorriso".'
 
 
 def test_edicao_com_nome_e_municipio_mostra_os_dois_e_sem_municipio_no_detalhe_nao_mostra_municipio():

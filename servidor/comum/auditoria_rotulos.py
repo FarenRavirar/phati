@@ -28,14 +28,20 @@ def _renomeado(detalhes):
     return f'De "{_valor(detalhes, "nome_antigo")}" para "{_valor(detalhes, "nome_novo")}".'
 
 
+def _municipio(valor):
+    """Município entre aspas; vazio é dado ausente, então 'Sem dados' sem aspas (não é um nome)."""
+    return f'"{valor}"' if valor else 'Sem dados'
+
+
 def _fazenda_editada(detalhes):
-    """Evento da edição da fazenda (`fazenda_renomeada`): o nome só aparece se mudou, e o município só se o detalhe o traz."""
+    """Evento da edição da fazenda (`fazenda_renomeada`): nome e município só aparecem se mudaram; sem mudança, 'Sem alteração.'."""
     partes = []
     if _valor(detalhes, 'nome_antigo') != _valor(detalhes, 'nome_novo'):
         partes.append(_renomeado(detalhes))
-    if 'municipio_novo' in detalhes:
-        partes.append(f'Município de "{_valor(detalhes, "municipio_antigo")}" para "{_valor(detalhes, "municipio_novo")}".')
-    return ' '.join(partes)
+    antigo, novo = _valor(detalhes, 'municipio_antigo'), _valor(detalhes, 'municipio_novo')
+    if 'municipio_novo' in detalhes and antigo != novo:
+        partes.append(f'Município de {_municipio(antigo)} para {_municipio(novo)}.')
+    return ' '.join(partes) or 'Sem alteração.'
 
 
 def _nivel(detalhes):
@@ -120,7 +126,8 @@ def _consulta(detalhes):
 
 
 def _exportacao(detalhes):
-    return f'{_valor(detalhes, "quantidade")} fazendas exportadas em CSV.'
+    quantidade = detalhes.get('quantidade')
+    return f'{quantidade} fazendas exportadas em CSV.' if quantidade is not None else _SEM_RESUMO
 
 
 def _titularidade(detalhes):

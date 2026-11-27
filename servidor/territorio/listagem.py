@@ -5,9 +5,9 @@ from datetime import datetime
 
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Page, Paginator
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Exists, Max, OuterRef, Q
 
-from catalogo.models import VersaoCamada
+from catalogo.models import Feicao, VersaoCamada
 from permissao.pode import com_permissao, escopos_da_acao, pode
 from territorio.models import Empresa, Fazenda, SubArea
 from territorio.niveis import nome_do_nivel
@@ -143,21 +143,35 @@ def _consulta_filtrada(escopos, texto, arquivadas, empresa_id):
     return base, _filtrar_arquivadas(consulta, arquivadas)
 
 
+def _talhoes_contaveis(fazendas):
+    """Sub-áreas de trabalho de cada fazenda. Na fazenda arquivada, também as que o próprio ato de arquivar fechou (o
+    mesmo `arquivamento`); as arquivadas antes, em outro ato, ficam fora (R11)."""
+    filtro = Q(arquivada_em__isnull=True)
+    for fazenda in fazendas:
+        if fazenda.arquivada_em is not None:
+            filtro |= Q(fazenda_id=fazenda.pk, arquivamento=fazenda.arquivamento)
+    return filtro
+
+
 def _linhas(escopos, fazendas):
     """Talhões e última atualização de cada fazenda, em duas leituras em lote (sem consulta por linha)."""
     ids = [fazenda.pk for fazenda in fazendas]
     restritas = [f for f in fazendas if not _tem_acesso_total(escopos, f)]
 
     talhoes = dict(
-        SubArea.objects.filter(fazenda_id__in=ids, nivel=NIVEL_TALHAO, arquivada_em__isnull=True)
-        .filter(_alcance_sub_areas(escopos, fazendas))
+        SubArea.objects.filter(fazenda_id__in=ids, nivel=NIVEL_TALHAO)
+        .filter(_talhoes_contaveis(fazendas), _alcance_sub_areas(escopos, fazendas))
         .order_by()
         .values('fazenda_id').annotate(n=Count('pk')).values_list('fazenda_id', 'n')
     )
     # Versão é da fazenda; quem só alcança sub-áreas vê a versão que tem feição numa sub-área alcançada.
     alcance_versao = Q(fazenda_id__in=[f.pk for f in fazendas if _tem_acesso_total(escopos, f)])
+    # `Exists` e não `feicoes__sub_area__in`: o JOIN com Feicao duplicaria a versão antes do Max.
     if restritas:
-        alcance_versao |= Q(feicoes__sub_area__in=SubArea.objects.filter(_alcance_sub_areas(escopos, restritas)).values('pk'))
+        alcanca_feicao = Feicao.objects.filter(
+            versao=OuterRef('pk'), sub_area__in=SubArea.objects.filter(_alcance_sub_areas(escopos, restritas)).values('pk'),
+        )
+        alcance_versao |= Exists(alcanca_feicao)
     ultimas = dict(
         VersaoCamada.objects.filter(fazenda_id__in=ids).filter(alcance_versao)
         .order_by().values('fazenda_id').annotate(ultima=Max('criada_em')).values_list('fazenda_id', 'ultima')
@@ -190,17 +204,20 @@ def listar_fazendas(pessoa, busca: object = '', situacao: object = 'todas', empr
         )
 
 
-def pode_exportar_fazendas(pessoa) -> bool:
-    """Tem `exportar_dados` em alguma fazenda (plataforma, empresa ou fazenda concedida). Concessão só de sub-área não conta:
-    `pode()` exige a fazenda inteira. Quem não tem não vê o botão Exportar nem a rota (R30)."""
-    exportar = escopos_da_acao(pessoa, 'exportar_dados')
-    return bool(exportar.plataforma or exportar.empresas or exportar.fazendas)
+def pode_exportar_fazendas(pessoa, empresa_id=None) -> bool:
+    """Tem `exportar_dados` em alguma fazenda da tela (`empresa_id`, ou todas as que vê), pela mesma checagem por fazenda
+    de `exportar_fazendas` (`pode()`). Concessão só de sub-área não conta: `pode()` exige a fazenda inteira. Quem não tem
+    não vê o botão Exportar nem a rota (R30)."""
+    escopos = escopos_da_acao(pessoa, 'ver')
+    with com_permissao(pessoa, 'ver', 'exportar_dados'):
+        # shortcut: percorre em memória as fazendas da tela; se passar de alguns milhares, trocar por consulta de existência com o mesmo critério de pode().
+        return any(pode(pessoa, 'exportar_dados', fazenda) for fazenda in _consulta_fazendas(escopos, empresa_id=empresa_id, arquivadas=None))
 
 
 def empresas_com_nova_fazenda(pessoa) -> list[Empresa]:
     """Empresas em que a pessoa pode cadastrar fazenda, por `pode()` em cada uma (arquivada não entra, R11)."""
     with com_permissao(pessoa, 'ver', 'criar_fazenda'):
-        return [empresa for empresa in empresas_autorizadas(pessoa) if pode(pessoa, 'criar_fazenda', empresa)]
+        return [empresa for empresa in empresas_autorizadas(pessoa) if pode(pessoa, 'criar_fazenda', empresa, arquivado=False)]
 
 
 def exportar_fazendas(pessoa, busca: object = '', situacao: object = 'todas', empresa_id=None) -> list[LinhaFazenda]:
@@ -208,7 +225,7 @@ def exportar_fazendas(pessoa, busca: object = '', situacao: object = 'todas', em
     permissão de exportar entra por `pode()` em cada fazenda, em memória (ação de leitura, sem consulta extra).
     Sem exportar em fazenda nenhuma (plataforma, empresa ou fazenda concedida): `PermissionDenied`. Concessão só de
     sub-área não exporta a fazenda que a contém (`pode()` exige a fazenda inteira)."""
-    if not pode_exportar_fazendas(pessoa):
+    if not pode_exportar_fazendas(pessoa, empresa_id):
         raise PermissionDenied
     escopos = escopos_da_acao(pessoa, 'ver')
     with com_permissao(pessoa, 'ver', 'exportar_dados'):

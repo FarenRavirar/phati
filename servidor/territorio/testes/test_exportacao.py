@@ -83,7 +83,8 @@ def test_registrar_exportacao_sem_linhas_nao_grava_evento(cenario, plataforma):
 
 def test_rotulo_do_evento_de_exportacao_em_portugues():
     assert rotulo_e_resumo('dados_exportados', {'quantidade': 3}) == ('Dados exportados', '3 fazendas exportadas em CSV.')
-    assert rotulo_e_resumo('dados_exportados', {}) == ('Dados exportados', ' fazendas exportadas em CSV.')
+    assert rotulo_e_resumo('dados_exportados', {}) == ('Dados exportados', '')  # sem contagem: resumo padrão, sem número
+    assert rotulo_e_resumo('dados_exportados', {'quantidade': None}) == ('Dados exportados', '')
 
 
 def test_modulo_expoe_so_o_que_a_matriz_cobre():

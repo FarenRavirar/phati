@@ -41,6 +41,7 @@
 {% if seletor.cadastrar %}{% include "componentes/botao.html" with texto="Cadastrar empresa" href="/empresas/nova" variante="fantasma" tamanho="sm" only %}{% endif %}
 {% if seletor.arquivadas %}{% include "componentes/botao.html" with texto="Arquivadas" href="/arquivadas/" variante="fantasma" tamanho="sm" only %}{% endif %}
 </div>
+<noscript>{% if seletor.cadastrar %}{% include "componentes/botao.html" with texto="Cadastrar empresa" href="/empresas/nova" variante="fantasma" tamanho="sm" only %}{% endif %}{% if seletor.arquivadas %}{% include "componentes/botao.html" with texto="Arquivadas" href="/arquivadas/" variante="fantasma" tamanho="sm" only %}{% endif %}</noscript>
 </div>
 <details class="ag-sidebar-detalhes" open>
 <summary class="ag-sidebar-resumo">Menu</summary>

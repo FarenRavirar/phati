@@ -5,7 +5,7 @@ import dataclasses
 import pytest
 
 from projeto import menu
-from projeto.menu import ITENS, Atalho, ItemDoMenu, atalhos_do_inicio, itens_do_menu
+from projeto.menu import ITENS, Atalho, ItemDoMenu, atalhos_do_inicio, itens_do_menu, trilha_da
 
 
 ATALHO_POR_EMPRESA = (Atalho('Convidar pessoa', '/empresa/{empresa_id}/pessoas/convidar', 'convidar_pessoa'),)
@@ -86,6 +86,7 @@ def test_toda_pessoa_autenticada_tem_os_dois_primeiros_itens():
         ('/empresas/', {'Fazendas': 'page'}),
         ('/empresa/1/', {'Fazendas': 'true'}),
         ('/empresa/1/fazenda/2/', {'Fazendas': 'true'}),
+        ('/fazendas/nova/', {'Fazendas': 'true'}),
         ('/convites/1/aceitar', {}),
         (None, {}),
     ],
@@ -93,6 +94,11 @@ def test_toda_pessoa_autenticada_tem_os_dois_primeiros_itens():
 def test_marca_o_item_atual_pelo_caminho_e_pelas_paginas_filhas(fabrica_pessoa, caminho, atual):
     itens = itens_do_menu(fabrica_pessoa('Pessoa'), None, caminho)
     assert {item.nome: item.atual for item in itens if item.atual} == atual
+
+
+def test_trilha_de_fazendas_nova_mostra_fazendas_e_nao_some(plataforma):
+    # Feliz: em /fazendas/nova/ a trilha aparece com a página pai; negativo: sem o prefixo ela sumia (lista vazia).
+    assert trilha_da(itens_do_menu(plataforma, None, '/fazendas/nova/')) == ['Fazendas']
 
 
 def test_atalho_vem_da_acao_efetiva_nunca_do_papel(cenario, fabrica_pessoa, conceder_direto, monkeypatch):

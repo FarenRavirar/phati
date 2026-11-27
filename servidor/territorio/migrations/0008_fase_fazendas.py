@@ -11,6 +11,7 @@
 
 from django.contrib.postgres.operations import UnaccentExtension
 from django.db import migrations, models
+from django.db.models import Q
 
 
 class ExtensaoUnaccentSemVolta(UnaccentExtension):
@@ -22,7 +23,9 @@ class ExtensaoUnaccentSemVolta(UnaccentExtension):
 
 # Cópia congelada (como nas migrações de permissao). Não delegável: só o Administrador a põe num cargo (Q20).
 ACOES = [('exportar_dados', 'Exportar a lista de fazendas em CSV (só o Administrador e o Curador de base)', False)]
-CARGOS_BASE = ('administrador', 'curador')
+# Base administrador leva a ação toda; base curador só o cargo-base de nome 'Curador' (NOMES em permissao/cargos_base.py).
+# Cargo personalizado de base curador não ganha a ação (spec 012, Q20). Literal aqui: a migração é cópia congelada.
+NOME_CARGO_BASE_CURADOR = 'Curador'
 
 
 def carregar(apps, schema_editor):
@@ -31,7 +34,9 @@ def carregar(apps, schema_editor):
         (permissao(codigo=c, descricao=d, delegavel=g) for c, d, g in ACOES), ignore_conflicts=True,
     )
     cargo_permissao = apps.get_model('permissao', 'CargoPermissao')
-    cargos = apps.get_model('permissao', 'Cargo').objects.filter(base__in=CARGOS_BASE)
+    cargos = apps.get_model('permissao', 'Cargo').objects.filter(
+        Q(base='administrador') | Q(base='curador', nome=NOME_CARGO_BASE_CURADOR),
+    )
     cargo_permissao.objects.bulk_create(
         (cargo_permissao(cargo=cargo, permissao_id=codigo) for cargo in cargos for codigo, _, _ in ACOES),
         ignore_conflicts=True,

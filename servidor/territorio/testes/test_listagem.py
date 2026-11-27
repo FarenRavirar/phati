@@ -260,18 +260,23 @@ def _por_nome(pagina):
 
 def _versao(enviou, fazenda, criada_em, sub_area=None):
     """Versão de camada sintética; `sub_area` põe uma feição nela (a versão passa a ser da sub-área)."""
-    tema = Tema.objects.create(empresa=fazenda.empresa, nome=f'Tema {fazenda.nome}')
-    estudo = Estudo.objects.create(empresa=fazenda.empresa, fazenda=fazenda, tema=tema, nome=f'Estudo {fazenda.nome}')
-    camada = Camada.objects.create(estudo=estudo, empresa=fazenda.empresa, fazenda=fazenda, nome=f'Camada {fazenda.nome}')
+    sufixo = uuid4().hex  # nomes de tema, estudo e camada são únicos por empresa ou estudo: uma versão nova por chamada
+    tema = Tema.objects.create(empresa=fazenda.empresa, nome=f'Tema {fazenda.nome} {sufixo}')
+    estudo = Estudo.objects.create(empresa=fazenda.empresa, fazenda=fazenda, tema=tema, nome=f'Estudo {fazenda.nome} {sufixo}')
+    camada = Camada.objects.create(estudo=estudo, empresa=fazenda.empresa, fazenda=fazenda, nome=f'Camada {fazenda.nome} {sufixo}')
     versao = VersaoCamada.objects.create(
         camada=camada, empresa=fazenda.empresa, fazenda=fazenda, numero=1, sistema_original='EPSG:4674',
         origem='Levantamento sintetico', hash_original='a' * 64, caminho_original='x.bin', enviada_por=enviou,
     )
     VersaoCamada.objects.filter(pk=versao.pk).update(criada_em=criada_em)
     if sub_area is not None:
-        geometria = GEOSGeometry('POLYGON((-48.40 -10.80,-48.30 -10.80,-48.30 -10.60,-48.40 -10.60,-48.40 -10.80))', srid=4674)
-        Feicao.objects.create(versao=versao, empresa=fazenda.empresa, fazenda=fazenda, geometria=geometria, sub_area=sub_area, valores={})
+        _feicao(versao, sub_area)
     return versao
+
+
+def _feicao(versao, sub_area):
+    geometria = GEOSGeometry('POLYGON((-48.40 -10.80,-48.30 -10.80,-48.30 -10.60,-48.40 -10.60,-48.40 -10.80))', srid=4674)
+    return Feicao.objects.create(versao=versao, empresa=versao.empresa, fazenda=versao.fazenda, geometria=geometria, sub_area=sub_area, valores={})
 
 
 def test_listagem_feliz_traz_linhas_talhoes_e_contagens(cenario, plataforma):
@@ -420,6 +425,32 @@ def test_atualizado_ignora_versao_que_a_pessoa_nao_alcanca(cenario, plataforma, 
     assert _por_nome(listar_fazendas(plataforma))['F1'].atualizado == DATA_VERSAO
 
 
+def test_alcance_de_sub_area_conta_a_versao_com_uma_feicao_alcancada_e_outra_fora(cenario, plataforma, fabrica_pessoa, conceder_direto):
+    # Caminho restrito (`Exists`): v1 tem feição no T1 (dentro do G1) e no G2 (fora) e conta; v2 só no G2 e não conta.
+    Fazenda.objects.filter(pk=cenario.f1.pk).update(criada_em=DATA_ANTIGA)
+    enviou = fabrica_pessoa('Enviou')
+    v1 = _versao(enviou, cenario.f1, DATA_VERSAO, sub_area=cenario.t1)
+    _feicao(v1, cenario.g2)
+    _versao(enviou, cenario.f1, datetime(2026, 2, 1, tzinfo=fuso_horario.utc), sub_area=cenario.g2)
+    na_g1 = fabrica_pessoa('Na G1')
+    conceder_direto(na_g1, cenario.cargos_x['usuario'], cenario.g1)
+    assert _por_nome(listar_fazendas(na_g1))['F1'].atualizado == DATA_VERSAO
+    assert _por_nome(listar_fazendas(plataforma))['F1'].atualizado == datetime(2026, 2, 1, tzinfo=fuso_horario.utc)
+
+
+def test_fazenda_arquivada_conta_os_talhoes_que_o_proprio_ato_arquivou(cenario, plataforma):
+    arquivar(plataforma, cenario.f1)  # F1, G1, G2 e T1 num só ato
+    assert _por_nome(listar_fazendas(plataforma, situacao='arquivadas'))['F1'].talhoes == 1
+    assert [linha.talhoes for linha in exportar_fazendas(plataforma, situacao='arquivadas')] == [1]
+
+
+def test_talhao_arquivado_em_outro_ato_fica_fora_da_contagem_da_fazenda_arquivada(cenario, plataforma):
+    t2 = SubArea.objects.create(empresa=cenario.x, fazenda=cenario.f1, pai=cenario.g2, nivel=2, nome='T2')
+    arquivar(plataforma, t2)  # ato próprio, antes de a fazenda ser arquivada
+    arquivar(plataforma, cenario.f1)
+    assert _por_nome(listar_fazendas(plataforma, situacao='arquivadas'))['F1'].talhoes == 1  # só o T1 do ato da fazenda
+
+
 def test_sem_consulta_por_linha_o_numero_de_consultas_nao_cresce(cenario, plataforma, fabrica_pessoa):
     listar_fazendas(plataforma)  # aquece o cache de memória de permissão
     with CaptureQueriesContext(connection) as pequena:
@@ -533,6 +564,37 @@ def test_pode_exportar_fazendas_sem_concessao_e_plataforma(cenario, fabrica_pess
     assert pode_exportar_fazendas(plataforma) is True
 
 
+def test_pode_exportar_por_empresa_so_onde_a_pessoa_exporta(cenario, fabrica_pessoa, conceder_direto):
+    # Curador em X exporta; Usuário em Y não. Sem `empresa_id`, vale para qualquer fazenda que a pessoa vê.
+    pessoa = fabrica_pessoa('Curador em X e Usuario em Y')
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.x)
+    conceder_direto(pessoa, cenario.cargos_y['usuario'], cenario.y)
+    assert pode_exportar_fazendas(pessoa, cenario.x.pk) is True
+    assert pode_exportar_fazendas(pessoa, cenario.y.pk) is False
+    assert pode_exportar_fazendas(pessoa) is True
+
+
+def test_usuario_sem_exportar_nao_tem_botao_em_nenhuma_empresa(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Usuario de Y')
+    conceder_direto(pessoa, cenario.cargos_y['usuario'], cenario.y)
+    assert pode_exportar_fazendas(pessoa, cenario.y.pk) is False
+    assert pode_exportar_fazendas(pessoa) is False
+
+
+def test_empresa_sem_concessao_nao_exporta_e_exportacao_negada(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Curador so de X')
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.x)
+    assert pode_exportar_fazendas(pessoa, cenario.y.pk) is False
+    with pytest.raises(PermissionDenied):
+        exportar_fazendas(pessoa, empresa_id=cenario.y.pk)
+
+
+def test_concessao_so_de_sub_area_nao_da_botao_na_empresa(cenario, fabrica_pessoa, conceder_direto):
+    pessoa = fabrica_pessoa('Curador so de sub-area')
+    conceder_direto(pessoa, cenario.cargos_x['curador'], cenario.g1)
+    assert pode_exportar_fazendas(pessoa, cenario.x.pk) is False
+
+
 def test_empresas_com_nova_fazenda_lista_so_onde_pode_criar(cenario, fabrica_pessoa, conceder_direto):
     # Administrador de X e Y vê as duas; Usuário não cria; empresa arquivada sai (R11).
     dono = fabrica_pessoa('Dono')
@@ -548,3 +610,20 @@ def test_empresas_com_nova_fazenda_lista_so_onde_pode_criar(cenario, fabrica_pes
 
 def test_empresas_com_nova_fazenda_sem_concessao_e_vazio(cenario, fabrica_pessoa):
     assert empresas_com_nova_fazenda(fabrica_pessoa('Nenhuma')) == []
+
+
+def test_empresas_com_nova_fazenda_nao_consulta_arquivamento_por_empresa(cenario, fabrica_pessoa, conceder_direto):
+    # `arquivado=False`: a lista já é de não arquivadas, então `escopo_arquivado` não roda por empresa (R11).
+    codigos = list(CargoPermissao.objects.filter(cargo=cenario.cargos_x['administrador']).values_list('permissao_id', flat=True))
+
+    def consultas_com(quantidade):
+        dono = fabrica_pessoa(f'Dono {quantidade}')
+        for numero in range(quantidade):
+            empresa = Empresa.objects.create(nome=f'Extra {quantidade} {numero:02d}')
+            conceder_direto(dono, _cargo_com(empresa, 'administrador', f'Adm {numero:02d}', *codigos), empresa)
+        empresas_com_nova_fazenda(dono)  # aquece a memória de permissão
+        with CaptureQueriesContext(connection) as contagem:
+            assert len(empresas_com_nova_fazenda(dono)) == quantidade
+        return len(contagem.captured_queries)
+
+    assert consultas_com(10) == consultas_com(1)
