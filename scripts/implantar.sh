@@ -138,8 +138,9 @@ if [[ "$banco_srv" == banco_novo ]]; then export COMPOSE_PROFILES=troca-banco; f
 volume_banco="dados_$banco_srv"
 # Troca de banco interrompida (spec 009 R15): o marcador do trocar-banco.sh recusa antes de qualquer chamada ao Docker.
 [[ ! -e "$dir/troca-banco-em-curso" ]] || erro "troca de banco interrompida (marcador $dir/troca-banco-em-curso): reconcilie antes de implantar"
-# O destino do compose (`PHATI_BANCO_DESTINO`) tem de dizer o mesmo banco que `banco-ativo`. Com banco_novo, o ambiente vence o
-# `.env` (`--env-file`): exporta. Com banco, um destino banco_novo no ambiente ou no `.env` é divergência: recusa. Só essa chave é lida.
+# O destino do compose (`PHATI_BANCO_DESTINO`) tem de dizer o mesmo banco que `banco-ativo`, nas duas direções (volta): vazio conta
+# como banco, o padrão do compose. Com banco_novo, o ambiente vence o `.env` (`--env-file`): exporta. Com banco, o destino tem de ser
+# banco ou vazio; banco_novo é divergência (a checagem de banco_novo recusa o que não for banco_novo). Só essa chave é lida.
 # Valor do `.env` como o Compose o lê: aspas que cercam o valor saem e ` #comentário` depois dele é cortado (sem isso, `"banco_novo"`
 # passaria pela comparação e o compose receberia banco_novo mesmo com banco-ativo=banco).
 valor_env() {
@@ -148,13 +149,20 @@ valor_env() {
   if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
   printf '%s' "$v"
 }
-if [[ "$banco_srv" == banco_novo ]]; then
-  export PHATI_BANCO_DESTINO=banco_novo
-else
-  destino_env="${PHATI_BANCO_DESTINO:-}"
-  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
-  [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+# Precedência do Compose (doc: https://docs.docker.com/compose/how-tos/environment-variables/envvars-precedence/; medido com o
+# Docker 29.10.1): variável do shell vence o `.env`, mesmo vazia (vazia cai no padrão banco); no `.env` a última linha vence.
+destino_arq="$(valor_env "$(grep '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)")"
+if [[ -n "${PHATI_BANCO_DESTINO+x}" ]]; then
+  [[ "${PHATI_BANCO_DESTINO:-banco}" == "$banco_srv" ]] || erro "estado de banco divergente: ambiente aponta ${PHATI_BANCO_DESTINO:-banco}, banco-ativo $banco_srv"
 fi
+if [[ "$banco_srv" == banco_novo ]]; then
+  [[ -z "$destino_arq" || "$destino_arq" == banco_novo ]] || erro "estado de banco divergente: .env aponta $destino_arq, banco-ativo banco_novo"
+else
+  [[ "$destino_arq" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+  [[ -z "$destino_arq" || "$destino_arq" == banco ]] || erro "estado de banco divergente: .env aponta $destino_arq, banco-ativo banco"
+fi
+# O valor conferido é o que o compose recebe: o ambiente exportado vence o `.env` também lá.
+export PHATI_BANCO_DESTINO="$banco_srv"
 
 # Uma implantação ou restauração por vez (o workflow já serializa, mas o SSH direto e o restaurar.sh não). O script roda
 # de novo dentro de `flock -w <limite> -E 75 <arquivo> comando`: o sistema solta a trava quando o processo morre, sem trava

@@ -34,6 +34,9 @@ const CORPO_DUBLE = `#!/usr/bin/env bash
 args="$*"
 tag=""
 ent=""
+# Serviços da direção atual: na volta (banco-ativo = banco_novo) a origem é banco_novo e o destino, banco. Ida: o contrário.
+orig=banco; novo=banco_novo
+if [[ "$(cat "$VM/banco-ativo" 2>/dev/null)" == banco_novo ]]; then orig=banco_novo; novo=banco; fi
 if [[ "$args" == *"-f -"* ]]; then
   ent="$(cat)"
   case "$ent" in
@@ -77,7 +80,7 @@ fi
 if [[ -n "\${DUBLE_REINICIA_EM:-}" && "$args" == *"$DUBLE_REINICIA_EM"* && ! -e "$VM/.reiniciou" ]]; then
   touch "$VM/.reiniciou"
   rm -f "$VM/.pausado-pgb1"
-  if [[ -e "$VM/.destino-gravado" ]]; then h=banco_novo; else h=banco; fi
+  if [[ -s "$VM/banco-destino" ]]; then h="$(cat "$VM/banco-destino")"; else h="\${DUBLE_AMBIENTE_PGB:-banco}"; fi
   echo "$h" > "$VM/ini-pgb1"; echo "$h" > "$VM/mem-pgb1"
 fi
 # Lote 2 (R3): o arquivo .assinatura-criada é o estado da assinatura no destino. CREATE que dá certo cria; DROP/ALTER raw sem ela falha
@@ -117,17 +120,17 @@ if [[ "$tag" == sequencias ]]; then
 fi
 # Verificador SCRAM da origem: vai só ao pipe (stdout do psql da origem), que chega ao psql do destino por stdin. Vem de arquivo
 # (escrito pelo JS), para o cifrão do verificador não passar pela expansão do Bash. DUBLE_PAYLOAD_ERRADO=1 troca por outro payload.
-if [[ "$tag" == leitura-verificador && "$args" == *"exec -T banco sh"* ]]; then
+if [[ "$tag" == leitura-verificador && "$args" == *"exec -T $orig sh"* ]]; then
   arq=verificador-esperado.sql
   [[ "\${DUBLE_PAYLOAD_ERRADO:-0}" == 1 ]] && arq=verificador-errado.sql
   cat "$VM/$arq"
 fi
 # O payload que chega ao destino por stdin fica guardado: o hash do destino só confere se for exatamente o esperado.
-if [[ "$tag" == verificador && "$args" == *"exec -T banco_novo"* ]]; then printf '%s\n' "$ent" > "$VM/verificador-recebido.sql"; fi
+if [[ "$tag" == verificador && "$args" == *"exec -T $novo "* ]]; then printf '%s\n' "$ent" > "$VM/verificador-recebido.sql"; fi
 # Hash do verificador: origem sempre "h-igual"; destino "h-igual" só com o payload esperado (senão "h-outro").
 # DUBLE_HASH_NOVO força outro valor no destino (salt diferente).
 if [[ "$tag" == hash ]]; then
-  if [[ "$args" != *"exec -T banco_novo"* ]]; then echo "h-igual"
+  if [[ "$args" != *"exec -T $novo "* ]]; then echo "h-igual"
   elif [[ "$(cat "$VM/verificador-recebido.sql" 2>/dev/null)" == "$(cat "$VM/verificador-esperado.sql")" ]]; then echo "\${DUBLE_HASH_NOVO:-h-igual}"
   else echo "h-outro"; fi
 fi
@@ -138,8 +141,32 @@ if [[ "$args" == *"sh -c"*"phati-replicador.pgpass"* ]]; then
   exit $?
 fi
 case "$args" in
-  *"build banco_novo"*)[[ "\${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1 ;;
-  *"ls -A /var/lib/postgresql"*) [[ "\${DUBLE_VOLUME_CHEIO:-0}" == 1 ]] && echo PG_VERSION ;;
+  # Pendências (assinatura, publicação, slot) de uma consulta: DUBLE_PENDENCIA (padrão 0), nas duas pontas do limpar-destino.
+  # DUBLE_PENDENCIA_SVC=<serviço> limita a pendência a um banco (a consulta sem resposta: DUBLE_PENDENCIA_FALHA_SVC=<serviço>).
+  *"SELECT (SELECT count(*) FROM pg_subscription)"*)
+    if [[ -n "\${DUBLE_PENDENCIA_FALHA_SVC:-}" && "$args" == *"exec -T \${DUBLE_PENDENCIA_FALHA_SVC} "* ]]; then exit 1; fi
+    if [[ -n "\${DUBLE_PENDENCIA_SVC:-}" ]]; then [[ "$args" == *"exec -T \${DUBLE_PENDENCIA_SVC} "* ]] && echo 1 || echo 0
+    else echo "\${DUBLE_PENDENCIA:-0}"; fi ;;
+  # Estado de execução (compose ps -q --status running <serviço>): imprime id quando está em execução. DUBLE_ALVO_PARADO=<serviço>
+  # sai vazio (parado ou removido); DUBLE_PS_INDET=1 falha (estado indeterminado).
+  *"ps -q --status running"*) [[ "\${DUBLE_PS_INDET:-0}" == 1 ]] && exit 1
+    [[ "\${@: -1}" == "\${DUBLE_ALVO_PARADO:-}" ]] || echo "\${@: -1}1" ;;
+  # Volumes nomeados existentes (volume ls): os marcadores .vol-<serviço>. DUBLE_VOLUME_LS_FALHA=1 falha.
+  *"volume ls "*) [[ "\${DUBLE_VOLUME_LS_FALHA:-0}" == 1 ]] && exit 1
+    if [[ -e "$VM/.vol-banco" ]]; then echo phati_dados_banco; fi
+    if [[ -e "$VM/.vol-banco_novo" ]]; then echo phati_dados_banco_novo; fi
+    exit 0 ;;
+  # DUBLE_BUILD_LENTO=1: o build não termina (dorme 5 s; o exec troca o processo, e o timeout mata o sleep).
+  *"build banco_novo"*) [[ "\${DUBLE_BUILD_FALHA:-0}" == 1 ]] && exit 1; [[ "\${DUBLE_BUILD_LENTO:-0}" == 1 ]] && exec sleep 5 ;;
+  # Volume com dado: DUBLE_VOLUME_CHEIO=1 (todos) ou o marcador .vol-<serviço> (criado pelo up do serviço, apagado pelo volume rm).
+  *"ls -A /var/lib/postgresql"*) svc=banco_novo; [[ "$args" == *" sh banco -c"* ]] && svc=banco
+    if [[ "\${DUBLE_VOLUME_CHEIO:-0}" == 1 || -e "$VM/.vol-$svc" ]]; then echo PG_VERSION; fi ;;
+  # docker volume rm <projeto>_dados_<serviço>: apaga o .vol-<serviço>. DUBLE_VOLUME_RM_FALHA=1 falha.
+  *"volume rm "*) [[ "\${DUBLE_VOLUME_RM_FALHA:-0}" == 1 ]] && exit 1; nome="\${@: -1}"; rm -f "$VM/.vol-\${nome##*_dados_}" ;;
+  # Destino que o PgBouncer lê de /cfg/banco-destino: DUBLE_DESTINO_PGB (padrão: arquivo ausente).
+  # Variável do contêiner do PgBouncer (o entrypoint lê \${PHATI_BANCO_DESTINO-banco}): DUBLE_AMBIENTE_PGB, padrão banco (criado antes da ida).
+  *"PHATI_BANCO_DESTINO-banco"*) echo "\${DUBLE_AMBIENTE_PGB:-banco}" ;;
+  *"cat /cfg/banco-destino"*) if [[ -n "\${DUBLE_DESTINO_PGB:-}" ]]; then echo "$DUBLE_DESTINO_PGB"; elif [[ -s "$VM/banco-destino" ]]; then cat "$VM/banco-destino"; else echo __AUSENTE__; fi ;;
   *"SHOW server_version_num"*) echo "\${DUBLE_VERSAO_ORIGEM:-180003}" ;;
   *"postgres --version"*) echo "postgres (PostgreSQL) \${DUBLE_VERSAO_NOVO:-18.1}" ;;
   *"grep -qxF"*) [[ -e "$VM/.hba" || "\${DUBLE_HBA_TEM:-0}" == 1 ]] || exit 1 ;;
@@ -166,8 +193,8 @@ case "$args" in
   *"inspect"*pgb11*) echo "\${DUBLE_SAUDE_PGB1:-healthy}" ;;
   *"inspect"*pgb21*) echo "\${DUBLE_SAUDE_PGB2:-healthy}" ;;
   *"stop banco_novo"*|*"rm -sfv"*) rm -f "$VM/.standby-ativo" ;;
-  *"up -d --no-deps banco_novo"*) [[ "\${DUBLE_UP_NOVO_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.standby-ativo" ;;
-  *"up -d --no-deps banco"*) [[ "\${DUBLE_UP_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.subiu" ;;
+  *"up -d --no-deps banco_novo"*) [[ "\${DUBLE_UP_NOVO_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.standby-ativo" "$VM/.vol-banco_novo" ;;
+  *"up -d --no-deps banco"*) [[ "\${DUBLE_UP_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.subiu" "$VM/.vol-banco" ;;
   *"pg_dump"*) [[ "\${DUBLE_BACKUP_FALHA:-0}" == 1 ]] && exit 1; echo "dados-do-banco" ;;
   *"SHOW wal_level"*) if [[ -e "$VM/.subiu" ]]; then echo "\${DUBLE_WAL_DEPOIS:-logical}"; else echo "\${DUBLE_WAL:-off}"; fi ;;
   *"pg_current_wal_lsn"*) echo "0/16B3748" ;;
@@ -176,9 +203,13 @@ case "$args" in
   *"pg_replication_slots"*) n="$(cat "$VM/.slot-consultas" 2>/dev/null || echo 0)"; echo $((n + 1)) > "$VM/.slot-consultas"; if [[ "\${DUBLE_LAG_SLOT:-t}" == t ]] && (( n >= \${DUBLE_LAG_SLOT_APOS:-0} )); then echo t; else echo f; fi ;;
   *"srsubstate"*) echo "\${DUBLE_SINCRONIA:-5/5}" ;;
   *"string_agg"*) [[ "\${DUBLE_TABELAS_VAZIA:-0}" == 1 ]] || echo "public.fazenda" ;;
-  *"exec -T banco_novo"*"count(*)"*) echo "\${DUBLE_TABELAS_DESTINO:-0}" ;;
-  *"printf"*"/cfg/banco-destino"*) [[ "\${DUBLE_GRAVA_FALHA:-0}" == 1 ]] && exit 1; touch "$VM/.destino-gravado" ;;
-  *"rm -f /cfg/banco-destino"*) [[ "\${DUBLE_REMOVE_FALHA:-0}" == 1 ]] && exit 1; rm -f "$VM/.destino-gravado" ;;
+  *"exec -T $novo "*"count(*)"*) echo "\${DUBLE_TABELAS_DESTINO:-0}" ;;
+  # Destino do PgBouncer gravado pelo one-off (printf: o valor vai ao arquivo $VM/banco-destino). DUBLE_GRAVA_FALHA=1 falha sem gravar;
+  # DUBLE_GRAVA_FALHA_APOS=1 grava e falha uma vez (resposta perdida), para o aborto ter o arquivo já com o destino novo.
+  *"printf"*"/cfg/banco-destino"*) [[ "\${DUBLE_GRAVA_FALHA:-0}" == 1 ]] && exit 1
+    if [[ "$args" == *"banco_novo > /cfg"* ]]; then echo banco_novo > "$VM/banco-destino"; else echo banco > "$VM/banco-destino"; fi
+    touch "$VM/.destino-gravado"
+    if [[ "\${DUBLE_GRAVA_FALHA_APOS:-0}" == 1 && ! -e "$VM/.grava-falhou" ]]; then touch "$VM/.grava-falhou"; exit 1; fi ;;
   # Remoção do passfile no banco_novo: o arquivo sai de $VM/pgpass-gravado para $VM/pgpass-removido (guarda o conteúdo para o teste).
   *"rm -f /tmp/phati-replicador.pgpass"*) [[ "\${DUBLE_PGPASS_REMOVE_FALHA:-0}" == 1 ]] && exit 1; mv -f "$VM/pgpass-gravado" "$VM/pgpass-removido" 2>/dev/null || true ;;
   # Restauração do host (C1): falha o sed de volta só na instância de DUBLE_RESTAURA_FALHA (a ida usa host=banco_novo /, outra forma).
@@ -665,16 +696,26 @@ test('trocar: margem inválida (negativa, texto ou decimal) recusa sem chamar o 
   }
 });
 
-test('trocar já feito (banco-ativo e .env=banco_novo): sai ok sem chamar o Docker nem pausar', () => {
+// Antes (rc 0 falso, `ja_trocado`): estado completo e sem marcador agora é troca nova no sentido inverso. O destino (banco,
+// a origem antiga) ainda tem dado: a troca recusa antes de qualquer escrita, sem pausar, subir nem parar/remover nada.
+test('trocar logo depois de um sucesso (banco-ativo e .env=banco_novo, sem marcador) recusa antes de qualquer escrita', () => {
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
     fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
-    const r = trocar(v);
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /^trocar_ok ja_trocado=1$/m);
-    assert.deepEqual(v.lerChamadas(), []);
-    assert.match(v.registro(), /troca-banco trocar OK ja_trocado=1$/m);
+    fs.writeFileSync(path.join(v.vm, '.vol-banco'), '');
+    const r = trocar(v, { DUBLE_HOST: 'banco_novo' });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /dados_banco não está vazio: use limpar-destino banco antes de trocar \(nada foi alterado\)/);
+    assert.equal(v.contar('-c PAUSE'), 0);
+    assert.equal(v.contar('up -d'), 0);
+    assert.equal(v.contar('pg_basebackup'), 0);
+    assert.equal(v.contar(' stop '), 0);
+    assert.equal(v.contar(' rm '), 0);
+    assert.equal(v.contar('volume rm'), 0);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
+    assert.doesNotMatch(v.registro(), /OK/);
   } finally {
     v.limpar();
   }
@@ -1456,7 +1497,7 @@ test('trocar físico: atraso que não chega a zero faz RESUME, não promove nem 
   }
 });
 
-test('trocar físico: pg_promote falha: RESUME, host original, AVISO de descarte e banco_novo não removido', () => {
+test('trocar físico: pg_promote falha: RESUME, host original, AVISO de descarte e destino volta ao banco ativo', () => {
   const v = criarVm();
   try {
     const r = fisica(v, { DUBLE_PROMOTE_FALHA: '1' });
@@ -1468,7 +1509,8 @@ test('trocar físico: pg_promote falha: RESUME, host original, AVISO de descarte
     assert.equal(v.contar('-c RESUME'), 2);
     assert.match(r.stderr, /AVISO: banco_novo foi promovido/);
     assert.equal(v.contar('rm -sfv'), 0, 'promovido não é removido sem o descarte');
-    assert.equal(v.contar(REMOVE_DESTINO), 1, 'destino gravado antes do promote é removido no aborto');
+    assert.equal(v.contar(GRAVA_ORIGEM), 1, 'destino gravado antes do promote volta ao banco ativo no aborto');
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'um reinício do PgBouncer usaria a origem');
     nadaTrocado(v);
   } finally {
     v.limpar();
@@ -1507,7 +1549,8 @@ test('trocar físico: pgb1 reinicia entre o destino gravado e o pg_promote, e o 
     assert.equal(hostEm(v, 'pgb1'), 'banco', 'pgb1 segue em banco_novo depois do aborto');
     assert.ok(v.contar(RESTAURA) >= 1, 'host do pgb1 não foi devolvido à origem');
     assert.match(r.stderr, /AVISO: RESUME de pgb1 falhou, mas o pooler não está pausado \(reiniciado na troca\): segue no host original/);
-    assert.equal(v.contar(REMOVE_DESTINO), 1, 'destino removido no aborto');
+    assert.equal(v.contar(GRAVA_ORIGEM), 1, 'destino volta ao banco ativo no aborto');
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'o reinício do pgb1 já lido o destino novo, mas o arquivo volta à origem');
     nadaTrocado(v);
   } finally {
     v.limpar();
@@ -1522,7 +1565,8 @@ test('trocar físico: pgb1 reinicia na mesma janela, o promote falha e o host n�
     assert.match(r.stderr, /RESUME falhou em: pgb1/);
     assert.match(r.stderr, /pode ter reiniciado com o host de destino/);
     assert.match(r.stderr, /sed -i 's\/host=banco_novo \/host=banco \/' \/tmp\/pgb\/pgb1\/pgbouncer\.ini/);
-    assert.equal(v.contar(REMOVE_DESTINO), 1, 'destino removido no aborto');
+    assert.equal(v.contar(GRAVA_ORIGEM), 1, 'destino volta ao banco ativo no aborto');
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'um reinício do PgBouncer usaria a origem');
     nadaTrocado(v);
   } finally {
     v.limpar();
@@ -1639,10 +1683,17 @@ test('preparar é sempre lógico: o up do banco e o wal_level levam o override, 
   }
 });
 
-// ---- destino no volume pgb_cfg (achado P1): gravado depois do RELOAD e antes do RESUME; removido no aborto ----
-// O arquivo `/cfg/banco-destino` é lido pelo entrypoint do PgBouncer ao subir: sem ele o contêiner volta à origem.
+// ---- destino no volume pgb_cfg (achado P1): gravado depois do RELOAD e antes do RESUME; no aborto, volta ao banco ativo ----
+// O arquivo `/cfg/banco-destino` é lido pelo entrypoint do PgBouncer ao subir, e ele vence o ambiente do contêiner (que não muda com
+// `docker restart`). Por isso o aborto grava o banco ativo no arquivo em vez de apagá-lo (achado P1 da volta, 2026-11-27).
 const GRAVA_DESTINO = 'banco_novo > /cfg/banco-destino';
-const REMOVE_DESTINO = 'rm -f /cfg/banco-destino';
+// Aborto da ida: o ativo é `banco`. Na volta o ativo é `banco_novo` e o valor gravado no aborto é esse (ver `destinoDoReinicio`).
+const GRAVA_ORIGEM = 'banco > /cfg/banco-destino';
+// Destino que um reinício do PgBouncer usaria: o arquivo, se tiver conteúdo; senão o ambiente do contêiner (criado antes da troca).
+function destinoDoReinicio(v, ambiente) {
+  const arq = path.join(v.vm, 'banco-destino');
+  return fs.existsSync(arq) && fs.statSync(arq).size > 0 ? fs.readFileSync(arq, 'utf8').trim() : ambiente;
+}
 // Índices de todas as chamadas que contêm o trecho (v.indice devolve só a primeira).
 const indicesDe = (v, trecho) => v.lerChamadas().flatMap((linha, i) => (linha.includes(trecho) ? [i] : []));
 
@@ -1660,7 +1711,7 @@ test('trocar logica: grava banco-destino pelo pgb_auth depois do RELOAD das duas
     assert.equal(v.contar(GRAVA_DESTINO), 1, 'gravado uma vez');
     const linha = v.lerChamadas().find((l) => l.includes(GRAVA_DESTINO));
     assert.match(linha, /run --rm --no-deps .*--entrypoint sh pgb_auth -c/, 'one-off do pgb_auth, sem subir dependências');
-    assert.equal(v.contar(REMOVE_DESTINO), 0, 'no sucesso o arquivo fica');
+    assert.equal(v.contar(GRAVA_ORIGEM), 0, 'no sucesso não há gravação do banco ativo');
     assert.equal(r.stdout.match(/trocar_ok/g).length, 1);
   } finally {
     v.limpar();
@@ -1685,23 +1736,25 @@ test('trocar fisica: grava banco-destino depois do RELOAD e antes do RESUME', ()
     assert.ok(resume > reloads[1], `primeiro RESUME ${resume} antes do segundo RELOAD ${reloads[1]}`);
     assert.ok(resume > grava, 'RESUME depois da gravação');
     assert.equal(v.contar(GRAVA_DESTINO), 1);
-    assert.equal(v.contar(REMOVE_DESTINO), 0);
+    assert.equal(v.contar(GRAVA_ORIGEM), 0);
   } finally {
     v.limpar();
   }
 });
 
-test('trocar logica: falha da gravação aborta com host restaurado, arquivo removido e RESUME', () => {
+test('trocar logica: falha da gravação aborta com host restaurado, arquivo com o banco ativo e RESUME', () => {
   const v = criarVm();
   try {
-    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1' });
+    // A gravação do destino acontece e falha depois (resposta perdida): o aborto tem de pôr o banco ativo no arquivo.
+    const r = trocar(v, { DUBLE_GRAVA_FALHA_APOS: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stderr, /não consegui gravar o destino/);
     assert.equal(v.contar(RESTAURA), 2, 'host volta ao original nos dois PgBouncer');
     const restaura = v.indice(RESTAURA);
-    const removeu = v.indice(REMOVE_DESTINO);
-    assert.ok(removeu > restaura, 'arquivo removido depois do sed de volta');
-    assert.ok(v.indice('-c RESUME') > removeu, 'RESUME depois da remoção');
+    const volta = v.indice(GRAVA_ORIGEM);
+    assert.ok(volta > restaura, 'banco ativo gravado no arquivo depois do sed de volta');
+    assert.ok(v.indice('-c RESUME') > volta, 'RESUME depois da gravação do banco ativo');
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'um reinício do PgBouncer usaria a origem');
     assert.equal(v.contar('-c RESUME'), 2);
     nadaTrocado(v);
     semSegredo(v, r);
@@ -1710,14 +1763,15 @@ test('trocar logica: falha da gravação aborta com host restaurado, arquivo rem
   }
 });
 
-test('trocar fisica: falha da gravação antes do promote aborta sem trocar o host, remove o arquivo e faz RESUME', () => {
+test('trocar fisica: falha da gravação antes do promote aborta sem trocar o host, grava o banco ativo no arquivo e faz RESUME', () => {
   const v = criarVm();
   try {
-    const r = v.rodar(['trocar', '--modo', 'fisica'], { DUBLE_GRAVA_FALHA: '1' });
+    const r = v.rodar(['trocar', '--modo', 'fisica'], { DUBLE_GRAVA_FALHA_APOS: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.equal(v.contar(RESTAURA), 0, 'host nunca foi trocado: nada a restaurar');
     assert.equal(v.indice('pg_promote'), -1, 'não promove sem destino gravado');
-    assert.equal(v.contar(REMOVE_DESTINO), 1, 'arquivo removido no aborto');
+    assert.equal(v.contar(GRAVA_ORIGEM), 1, 'arquivo recebe o banco ativo no aborto');
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'um reinício do PgBouncer usaria a origem');
     assert.equal(v.contar('-c RESUME'), 2);
     nadaTrocado(v);
   } finally {
@@ -1732,7 +1786,7 @@ test('trocar logica: RELOAD que falha antes da gravação restaura o host sem rm
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.equal(v.contar(GRAVA_DESTINO), 0, 'a gravação nunca ocorreu');
     assert.equal(v.contar(RESTAURA), 2, 'host volta ao original');
-    assert.equal(v.contar(REMOVE_DESTINO), 0, 'sem tentativa de gravação o aborto não chama o one-off de remoção');
+    assert.equal(v.contar(GRAVA_ORIGEM), 0, 'sem tentativa de gravação o aborto não grava o banco ativo');
     assert.equal(v.contar('-c RESUME'), 2);
     nadaTrocado(v);
   } finally {
@@ -1740,12 +1794,12 @@ test('trocar logica: RELOAD que falha antes da gravação restaura o host sem rm
   }
 });
 
-test('trocar logica: falha do rm no aborto vira AVISO, sem mudar o rc da falha original', () => {
+test('trocar logica: falha da gravação do banco ativo no aborto vira AVISO, sem mudar o rc da falha original', () => {
   const v = criarVm();
   try {
-    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_REMOVE_FALHA: '1' });
+    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.match(r.stderr, /AVISO: não consegui remover \/cfg\/banco-destino/);
+    assert.match(r.stderr, /AVISO: não consegui gravar banco em \/cfg\/banco-destino/);
     assert.equal(v.contar('-c RESUME'), 2, 'RESUME mesmo com a remoção falha');
   } finally {
     v.limpar();
@@ -2349,13 +2403,14 @@ test('E3: slot que não fica inativo depois de parar o standby não é zerado: A
   }
 });
 
-test('E4: pg_promote falha depois de a gravação do destino → arquivo removido e host intacto', () => {
+test('E4: pg_promote falha depois de a gravação do destino → arquivo volta ao banco ativo e host intacto', () => {
   const v = criarVm();
   try {
     const r = fisica(v, { DUBLE_PROMOTE_FALHA: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.ok(v.indice(GRAVA_DESTINO) < v.indice('pg_promote'), 'destino antes do promote');
-    assert.equal(v.contar(REMOVE_DESTINO), 1, 'arquivo removido no aborto depois do promote');
+    assert.equal(v.contar(GRAVA_ORIGEM), 1, 'banco ativo gravado no arquivo no aborto depois do promote');
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'um reinício do PgBouncer usaria a origem');
     // A ida ao banco_novo não roda; a volta roda por garantia (um PgBouncer que reinicie lendo o destino já estaria no banco_novo).
     assert.equal(v.indice('s/host=banco /host=banco_novo /'), -1, 'host não trocado');
     assert.ok(v.contar(RESTAURA) >= 1, 'host devolvido à origem no aborto');
@@ -2512,26 +2567,29 @@ test('E9: RESUME que falha só em pgb2 → o EXIT tenta de novo só pgb2, sem re
   }
 });
 
-test('E10: remoção do destino falha 3 vezes → marcador da troca permanece e AVISO', () => {
+test('E10: gravação do banco ativo no aborto falha 3 vezes → marcador da troca permanece e AVISO com o valor a gravar', () => {
   const v = criarVm();
   try {
-    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_REMOVE_FALHA: '1' });
+    // A gravação do destino (banco_novo) falha sem gravar; o aborto tenta gravar a origem três vezes e nenhuma passa.
+    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1' });
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.equal(v.contar(REMOVE_DESTINO), 3, 'três tentativas de remoção');
-    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador saiu com o destino no volume');
-    assert.match(r.stderr, /AVISO: não consegui remover \/cfg\/banco-destino/);
+    assert.equal(v.contar(GRAVA_ORIGEM), 3, 'três tentativas de gravação do banco ativo');
+    assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), true, 'marcador saiu com o destino pendente');
+    assert.match(r.stderr, /AVISO: não consegui gravar banco em \/cfg\/banco-destino/);
   } finally {
     v.limpar();
   }
 });
 
-test('E10: remoção do destino falha 1 vez e passa na 2ª → sem AVISO e o marcador sai', () => {
+test('E10: gravação do banco ativo no aborto falha 1 vez e passa na 2ª → sem AVISO, arquivo com a origem e marcador sai', () => {
   const v = criarVm();
   try {
-    const r = trocar(v, { DUBLE_GRAVA_FALHA: '1', DUBLE_FALHA_UMA: REMOVE_DESTINO });
+    // Depois da gravação do destino que falha, a primeira tentativa de voltar à origem falha (DUBLE_FALHA_UMA) e a segunda passa.
+    const r = trocar(v, { DUBLE_GRAVA_FALHA_APOS: '1', DUBLE_FALHA_UMA: GRAVA_ORIGEM });
     assert.equal(r.status, 1, r.stdout + r.stderr);
-    assert.equal(v.contar(REMOVE_DESTINO), 2, 'segunda tentativa de remoção');
-    assert.doesNotMatch(r.stderr, /AVISO: não consegui remover/);
+    assert.equal(v.contar(GRAVA_ORIGEM), 2, 'segunda tentativa de gravação do banco ativo');
+    assert.doesNotMatch(r.stderr, /AVISO: não consegui gravar/);
+    assert.equal(destinoDoReinicio(v, 'banco'), 'banco', 'um reinício do PgBouncer usaria a origem');
     assert.equal(fs.existsSync(path.join(v.vm, 'troca-banco-em-curso')), false, 'marcador sobrou');
   } finally {
     v.limpar();
@@ -2659,6 +2717,588 @@ test('trocar: chmod 644 do banco-logico falha → erro, banco-ativo não publica
     assert.equal(v.bancoAtivo(), null, 'banco-ativo publicado antes do banco-logico');
     assert.deepEqual(temporarios(v, '.banco-logico.'), [], 'temporário do banco-logico sobrou');
     semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+// ---- Direção dinâmica, limpar-destino e volta (spec 009 R15). Dado sintético: o dublê só anota chamadas. ----
+const MARCADOR_ARQ = 'troca-banco-em-curso';
+const escreverMarcador = (v, conteudo) => fs.writeFileSync(path.join(v.vm, MARCADOR_ARQ), conteudo);
+const existeMarcador = (v) => fs.existsSync(path.join(v.vm, MARCADOR_ARQ));
+// Estado depois de uma ida bem-sucedida: banco_novo ativo, .env apontando para ele, origem antiga (banco) ainda com dado.
+function estadoDeVolta(v) {
+  fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+  fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+  fs.writeFileSync(path.join(v.vm, '.vol-banco'), '');
+}
+// Arquivos de execução do dublê que uma troca deixa (promoção, standby, reinício, pausa): a próxima execução começa limpa.
+function zerarDublê(v) {
+  for (const nome of ['.promovido', '.base', '.standby-ativo', '.subiu', '.reiniciou', '.sinal', '.falhou-uma', '.pausado-pgb1', '.pausado-pgb2', '.slot-consultas']) {
+    fs.rmSync(path.join(v.vm, nome), { force: true });
+  }
+}
+// Chamadas que mexem no banco ou nos contêineres: a recusa não pode produzir nenhuma delas.
+const ESCRITA = /up -d|-c PAUSE|pg_basebackup|pg_dump|\srm\s|\sstop\s|volume rm|CREATE|DROP|ALTER|printf/;
+
+test('ida e volta da troca física: a volta só sai depois do limpar-destino da origem antiga', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, '.vol-banco'), ''); // origem com dado
+    const ida = v.rodar(['trocar'], { DUBLE_HOST: 'banco' });
+    assert.equal(ida.status, 0, ida.stderr);
+    assert.match(ida.stdout, /^trocar_ok pausa_ms=\d+$/m);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
+
+    // Segunda troca sem limpar: recusa antes de qualquer escrita (só build e leituras).
+    zerarDublê(v);
+    const antes = v.lerChamadas().length;
+    const repetida = v.rodar(['trocar'], { DUBLE_HOST: 'banco_novo' });
+    assert.equal(repetida.status, 1, repetida.stdout);
+    assert.match(repetida.stderr, /dados_banco não está vazio: use limpar-destino banco antes de trocar \(nada foi alterado\)/);
+    const novas = v.lerChamadas().slice(antes);
+    assert.ok(!novas.some((l) => ESCRITA.test(l)), `escrita na recusa: ${novas.join(' | ')}`);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+
+    // Limpeza da origem antiga: backup do ativo antes, depois container e volume do inativo.
+    const antesLimpa = v.lerChamadas().length;
+    const limpa = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo' });
+    assert.equal(limpa.status, 0, limpa.stderr);
+    assert.match(limpa.stdout, /^limpar_destino_ok alvo=banco$/m);
+    assert.equal(fs.existsSync(path.join(v.vm, '.vol-banco')), false, 'volume da origem antiga não saiu');
+    // Só as chamadas do limpar-destino: o pg_dump da ida (início da troca) não pode satisfazer a asserção.
+    const doLimpa = v.lerChamadas().slice(antesLimpa);
+    const dump = doLimpa.findIndex((l) => l.includes('pg_dump'));
+    const remocao = doLimpa.findIndex((l) => l.includes('rm -sfv banco'));
+    assert.ok(dump >= 0 && remocao >= 0 && dump < remocao, `backup do limpar-destino antes da remoção: dump=${dump} remocao=${remocao}`);
+    assert.equal(v.contar('volume rm phati_dados_banco'), 1);
+    assert.equal(v.contar('stop banco_novo'), 0);
+    assert.equal(v.contar('rm -sfv banco_novo'), 0);
+    assert.match(v.registro(), /troca-banco limpar-destino OK alvo=banco$/m);
+
+    // Volta: banco_novo -> banco, com o destino limpo.
+    zerarDublê(v);
+    const volta = v.rodar(['trocar'], { DUBLE_HOST: 'banco_novo' });
+    assert.equal(volta.status, 0, volta.stderr);
+    assert.match(volta.stdout, /^trocar_ok pausa_ms=\d+$/m);
+    assert.equal(v.bancoAtivo(), 'banco\n');
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco$/m);
+    assert.equal(existeMarcador(v), false);
+    assert.equal(v.contar('stop banco_novo'), 0);
+    semSegredo(v, volta);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Volta com a origem antiga limpa: banco_novo ativo, .env apontando para ele e sem `.vol-banco` (o limpar-destino já rodou).
+function voltaLimpa(v) {
+  estadoDeVolta(v);
+  fs.rmSync(path.join(v.vm, '.vol-banco'), { force: true });
+}
+// Consultas com o serviço de cada ponta: `#sql:<tag>` fecha a linha das chamadas que recebem SQL por stdin (ver o dublê).
+const sqlEm = (v, svc, tag) => v.lerChamadas().filter((l) => l.includes(` exec -T ${svc} `) && l.endsWith(`#sql:${tag}`));
+
+test('volta lógica com destino limpo: sucesso, verificador lido da origem banco_novo e entregue e conferido em banco', () => {
+  const v = criarVm();
+  try {
+    voltaLimpa(v);
+    const r = trocar(v, { DUBLE_HOST: 'banco_novo' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m);
+    assert.equal(v.bancoAtivo(), 'banco\n');
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco$/m);
+    assert.equal(existeMarcador(v), false);
+    assert.ok(sqlEm(v, 'banco_novo', 'leitura-verificador').length >= 1, 'verificador lido da origem banco_novo');
+    assert.ok(sqlEm(v, 'banco', 'verificador').length >= 1, 'verificador entregue ao destino banco');
+    assert.equal(sqlEm(v, 'banco_novo', 'verificador').length, 0, 'nenhum verificador entregue à origem');
+    assert.ok(sqlEm(v, 'banco', 'hash').length >= 1, 'hash conferido no destino banco');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('volta lógica: verificador que não confere aborta antes do PAUSE, sem mudar banco-ativo nem .env e sem marcador', () => {
+  const v = criarVm();
+  try {
+    voltaLimpa(v);
+    const r = trocar(v, { DUBLE_HOST: 'banco_novo', DUBLE_PAYLOAD_ERRADO: '1' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /verificador de app no banco difere da origem/);
+    assert.equal(v.contar('-c PAUSE'), 0, 'nada pausado');
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
+    assert.equal(existeMarcador(v), false, 'aborto antes do ponto sem volta: marcador sai');
+    assert.ok(sqlEm(v, 'banco', 'hash').length >= 1, 'a conferência foi feita no destino banco');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('aborto na volta (físico e lógico) grava banco_novo no arquivo: um reinício do PgBouncer usa a origem, não o ambiente banco', () => {
+  const casos = [
+    ['fisica', ['trocar'], { DUBLE_PROMOTE_FALHA: '1' }],
+    ['logica', ['trocar', '--modo', 'logica'], { DUBLE_GRAVA_FALHA_APOS: '1' }],
+  ];
+  for (const [modo, args, falha] of casos) {
+    const v = criarVm();
+    try {
+      voltaLimpa(v);
+      // O ambiente dos contêineres ainda diz `banco` (criados antes da ida): só o arquivo pode dar banco_novo.
+      const r = v.rodar(args, { DUBLE_WAL: 'logical', DUBLE_HOST: 'banco_novo', DUBLE_AMBIENTE_PGB: 'banco', ...falha });
+      assert.equal(r.status, 1, `${modo}: ${r.stdout}${r.stderr}`);
+      assert.equal(v.contar('banco_novo > /cfg/banco-destino'), 1, `${modo}: origem gravada no aborto`);
+      assert.equal(destinoDoReinicio(v, 'banco'), 'banco_novo', `${modo}: um reinício do PgBouncer usaria a origem`);
+      assert.equal(v.bancoAtivo(), 'banco_novo\n', `${modo}: banco-ativo intacto`);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('recuperação lógica da volta: banco-ativo já gravado completa o .env sem pausar nem copiar nada', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco\n');
+    fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    escreverMarcador(v, 'origem=banco_novo destino=banco modo=logica passo=promocao\n');
+    const r = trocar(v, { DUBLE_HOST: 'banco_novo' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^trocar_ok ja_trocado=1 completou=env$/m);
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco$/m);
+    assert.equal(v.bancoAtivo(), 'banco\n');
+    assert.equal(existeMarcador(v), false);
+    assert.equal(v.contar('-c PAUSE'), 0, 'recuperação não pausa');
+    assert.equal(v.lerChamadas().filter((l) => /up -d|pg_basebackup|pg_dump/.test(l)).length, 0, 'recuperação não sobe nem copia nada');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('recuperação sem banco-ativo gravado: o .env que já diz o destino grava o arquivo; sem ele, o marcador fica e recusa', () => {
+  const com = criarVm();
+  try {
+    fs.appendFileSync(path.join(com.vm, '.env'), 'PHATI_BANCO_DESTINO=banco\n');
+    escreverMarcador(com, 'origem=banco_novo destino=banco modo=logica passo=promocao\n');
+    const r = trocar(com, { DUBLE_HOST: 'banco_novo' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /completou=banco-ativo/);
+    assert.equal(com.bancoAtivo(), 'banco\n', 'banco-ativo gravado a partir do .env');
+    assert.equal(existeMarcador(com), false);
+  } finally {
+    com.limpar();
+  }
+  const sem = criarVm();
+  try {
+    fs.appendFileSync(path.join(sem.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    escreverMarcador(sem, 'origem=banco_novo destino=banco modo=logica passo=promocao\n');
+    const r = trocar(sem, { DUBLE_HOST: 'banco_novo' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /troca anterior interrompida/);
+    assert.equal(existeMarcador(sem), true, 'marcador fica');
+    assert.equal(sem.bancoAtivo(), null, 'banco-ativo não gravado sem o .env dizer o destino');
+    assert.equal(sem.contar('-c PAUSE'), 0);
+  } finally {
+    sem.limpar();
+  }
+});
+
+test('aborto na volta nunca para nem remove o banco ativo (banco_novo)', () => {
+  for (const [falha, esperado] of [['DUBLE_PROMOTE_FALHA', /pg_promote falhou: nada trocado/], ['DUBLE_BASE_FALHA', /pg_basebackup falhou/]]) {
+    const v = criarVm();
+    try {
+      // Volta com o destino (banco) já limpo: sem `.vol-banco`, como depois de um `limpar-destino`.
+      fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+      fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+      const r = v.rodar(['trocar'], { DUBLE_HOST: 'banco_novo', [falha]: '1' });
+      assert.equal(r.status, 1, r.stdout);
+      assert.match(r.stderr, esperado);
+      // Remoção do banco_novo: o serviço é o último argumento (`stop banco_novo`, `rm -sfv banco_novo`, `volume rm ..._banco_novo`).
+      const contra = v.lerChamadas().filter((l) => /(\bstop banco_novo$|\brm -sfv banco_novo$|volume rm \S*banco_novo$)/.test(l));
+      assert.deepEqual(contra, [], `stop/rm no banco ativo (${falha})`);
+      assert.equal(v.bancoAtivo(), 'banco_novo\n');
+      assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('limpar-destino feliz com ativo=banco: PgBouncer sem destino gravado (ausente) e volume do banco_novo', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, '.vol-banco_novo'), '');
+    const r = v.rodar(['limpar-destino', 'banco_novo'], { DUBLE_HOST: 'banco' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^limpar_destino_ok alvo=banco_novo$/m);
+    assert.equal(fs.existsSync(path.join(v.vm, '.vol-banco_novo')), false);
+    assert.equal(v.contar('volume rm phati_dados_banco_novo'), 1);
+    assert.equal(v.contar('rm -sfv banco_novo'), 1);
+    assert.equal(v.contar('rm -sfv banco '), 0);
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Item 5 da revisão: o limpar-destino não usa a replicação, então não exige a senha do replicador (o compose a lê com `:-`).
+test('limpar-destino não exige PHATI_BANCO_REPLICADOR_SENHA: sem a senha no .env, remove o banco inativo', () => {
+  const v = criarVm({ comSenha: false });
+  try {
+    fs.writeFileSync(path.join(v.vm, '.vol-banco_novo'), '');
+    const r = v.rodar(['limpar-destino', 'banco_novo'], { DUBLE_HOST: 'banco' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^limpar_destino_ok alvo=banco_novo$/m);
+    assert.doesNotMatch(r.stderr, /REPLICADOR/);
+  } finally {
+    v.limpar();
+  }
+});
+
+// Arquivo `/cfg/banco-destino` ausente: vale a variável do contêiner de cada PgBouncer (o entrypoint lê `${PHATI_BANCO_DESTINO-banco}`),
+// não o `.env`, que muda sem recriar o contêiner. Com o contêiner já recriado depois da ida (banco_novo), a limpeza da origem segue;
+// com o contêiner de antes da ida (banco), recusa, porque um reinício iria ao banco que seria removido.
+test('limpar-destino sem /cfg/banco-destino: a variável do contêiner decide (ativo = contêiner limpa; contêiner antigo recusa)', () => {
+  const ok = criarVm();
+  try {
+    estadoDeVolta(ok);
+    const r = ok.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_AMBIENTE_PGB: 'banco_novo' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^limpar_destino_ok alvo=banco$/m);
+    assert.equal(ok.contar('PHATI_BANCO_DESTINO-banco'), 2, 'lido nos dois PgBouncer');
+  } finally {
+    ok.limpar();
+  }
+  const antigo = criarVm();
+  try {
+    estadoDeVolta(antigo);
+    const r = antigo.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_AMBIENTE_PGB: 'banco' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /destino do PgBouncer não é o banco ativo/);
+    assert.equal(antigo.contar('volume rm'), 0, 'nada removido');
+    assert.equal(antigo.contar('rm -sfv'), 0, 'contêiner do inativo intacto');
+  } finally {
+    antigo.limpar();
+  }
+});
+
+test('limpar-destino recusa sem remover nada em cada caso (alvo ativo, marcador, PgBouncer, pendência, backup, argumento)', () => {
+  const casos = [
+    ['alvo é o ativo', ['limpar-destino', 'banco_novo'], {}, /não remove o banco ativo/, (v) => estadoDeVolta(v)],
+    ['marcador de troca em curso', ['limpar-destino', 'banco'], {}, /troca anterior interrompida/, (v) => { estadoDeVolta(v); escreverMarcador(v, 'origem=banco_novo destino=banco modo=fisica passo=pausa\n'); }],
+    ['PgBouncer ainda aponta para o alvo', ['limpar-destino', 'banco'], { DUBLE_DESTINO_PGB: 'banco' }, /destino do PgBouncer não é o banco ativo/, (v) => estadoDeVolta(v)],
+    ['destino do PgBouncer ausente com ativo=banco_novo', ['limpar-destino', 'banco'], {}, /destino do PgBouncer não é o banco ativo/, (v) => estadoDeVolta(v)],
+    ['assinatura, publicação ou slot pendente', ['limpar-destino', 'banco'], { DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_PENDENCIA: '1' }, /pendente/, (v) => estadoDeVolta(v)],
+    ['backup do ativo falha', ['limpar-destino', 'banco'], { DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_BACKUP_FALHA: '1' }, /backup verificado falhou: nada foi alterado/, (v) => estadoDeVolta(v)],
+    ['argumento ausente', ['limpar-destino'], {}, /limpar-destino exige um serviço: banco ou banco_novo/, () => {}],
+    ['argumento fora da lista', ['limpar-destino', 'foo'], {}, /limpar-destino exige um serviço: banco ou banco_novo/, () => {}],
+    ['argumento extra', ['limpar-destino', 'banco', 'banco_novo'], {}, /limpar-destino exige um serviço: banco ou banco_novo/, () => {}],
+  ];
+  for (const [nome, args, extra, msg, preparar] of casos) {
+    const v = criarVm();
+    try {
+      preparar(v);
+      const r = v.rodar(args, extra);
+      assert.equal(r.status, 1, `${nome}: ${r.stdout}`);
+      assert.match(r.stderr, msg, nome);
+      assert.equal(v.contar('volume rm'), 0, `${nome}: volume removido`);
+      assert.equal(v.contar('rm -sfv'), 0, `${nome}: container removido`);
+      assert.equal(v.contar('-c PAUSE'), 0, `${nome}: pausou`);
+      assert.equal(v.contar('up -d'), 0, `${nome}: subiu contêiner`);
+      semSegredo(v, r);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('limpar-destino: falha ao remover o volume avisa o comando à mão e não apaga o banco ativo', () => {
+  const v = criarVm();
+  try {
+    estadoDeVolta(v);
+    const r = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_VOLUME_RM_FALHA: '1' });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /não consegui remover o volume phati_dados_banco: rode docker volume rm phati_dados_banco/);
+    assert.equal(v.contar('stop banco_novo'), 0);
+    assert.equal(v.contar('rm -sfv banco_novo'), 0);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('recuperação de troca interrompida vale nas duas direções: a direção vem do marcador', () => {
+  // Ida: banco-ativo já diz banco_novo, o .env ainda não.
+  const ida = criarVm();
+  try {
+    fs.writeFileSync(path.join(ida.vm, 'banco-ativo'), 'banco_novo\n');
+    escreverMarcador(ida, 'origem=banco destino=banco_novo modo=fisica passo=persistir\n');
+    const r = ida.rodar(['trocar'], {});
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^trocar_ok ja_trocado=1 completou=env$/m);
+    assert.match(ida.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
+    assert.equal(existeMarcador(ida), false);
+    assert.deepEqual(ida.lerChamadas(), [], 'recuperação chamou o Docker');
+  } finally {
+    ida.limpar();
+  }
+  // Volta: banco-ativo já diz banco, o .env ainda diz banco_novo. A direção sai do marcador, não do banco-ativo.
+  const volta = criarVm();
+  try {
+    fs.writeFileSync(path.join(volta.vm, 'banco-ativo'), 'banco\n');
+    fs.appendFileSync(path.join(volta.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    escreverMarcador(volta, 'origem=banco_novo destino=banco modo=fisica passo=persistir\n');
+    const r = volta.rodar(['trocar'], {});
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^trocar_ok ja_trocado=1 completou=env$/m);
+    assert.match(volta.env(), /^PHATI_BANCO_DESTINO=banco$/m);
+    assert.equal(existeMarcador(volta), false);
+    assert.deepEqual(volta.lerChamadas(), [], 'recuperação chamou o Docker');
+  } finally {
+    volta.limpar();
+  }
+});
+
+// Marcador de versão anterior (`modo=... passo=...`) é a ida banco -> banco_novo (a única direção que aquela versão fazia): a
+// troca recusa enquanto ele existir, sem apagá-lo, e `limpar-destino` também. Marcador sem formato nenhum recusa.
+test('marcador de versão anterior é a ida e recusa enquanto existir; marcador inválido recusa; nenhum dos dois é apagado', () => {
+  for (const args of [['trocar'], ['limpar-destino', 'banco_novo']]) {
+    const v = criarVm();
+    try {
+      escreverMarcador(v, 'modo=logica passo=pausa\n');
+      const r = v.rodar(args, {});
+      assert.equal(r.status, 1, r.stdout);
+      assert.match(r.stderr, /troca anterior interrompida/);
+      assert.equal(existeMarcador(v), true, 'marcador apagado');
+      assert.deepEqual(v.lerChamadas(), []);
+    } finally {
+      v.limpar();
+    }
+  }
+  for (const args of [['trocar'], ['limpar-destino', 'banco']]) {
+    const v = criarVm();
+    try {
+      escreverMarcador(v, 'lixo\n');
+      const r = v.rodar(args, {});
+      assert.equal(r.status, 1, r.stdout);
+      assert.match(r.stderr, /marcador .* inválido \(sem origem, destino e modo\)/);
+      assert.equal(existeMarcador(v), true, 'marcador apagado');
+      assert.deepEqual(v.lerChamadas(), []);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('trocar: build do banco_novo com tempo máximo: estouro vira erro claro sem alterar nada; valor inválido recusa antes do Docker', () => {
+  const lento = criarVm();
+  try {
+    const inicio = Date.now();
+    const r = trocar(lento, { PHATI_BUILD_LIMITE: '1', DUBLE_BUILD_LENTO: '1' });
+    const decorrido = Date.now() - inicio;
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /build do banco_novo passou de 1 s \(PHATI_BUILD_LIMITE\): nada foi alterado/);
+    assert.ok(decorrido < 4000, `o build não passou do limite de 1 s: ${decorrido} ms`);
+    assert.equal(lento.lerChamadas().filter((l) => /up -d|-c PAUSE|printf/.test(l)).length, 0, 'nada alterado depois do build');
+    nadaTrocado(lento);
+  } finally {
+    lento.limpar();
+  }
+  // Caminho feliz com o build dentro do limite: a troca segue (o padrão de 900 s não atrapalha).
+  const feliz = criarVm();
+  try {
+    const r = trocar(feliz, { PHATI_BUILD_LIMITE: '30' });
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+  } finally {
+    feliz.limpar();
+  }
+  const invalido = criarVm();
+  try {
+    const r = trocar(invalido, { PHATI_BUILD_LIMITE: '0' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /PHATI_BUILD_LIMITE inválida/);
+    assert.equal(invalido.lerChamadas().length, 0, 'recusa antes de qualquer chamada ao Docker');
+  } finally {
+    invalido.limpar();
+  }
+});
+
+test('trocar: .env vale a última linha PHATI_BANCO_DESTINO (como o compose); variável do shell vence o .env e a vazia cai no padrão', () => {
+  // Chave repetida: a última (`banco`) vale. Com a primeira (`banco_novo`) a troca recusaria antes de qualquer escrita.
+  const repetida = criarVm();
+  try {
+    fs.appendFileSync(path.join(repetida.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\nPHATI_BANCO_DESTINO=banco\n');
+    const r = trocar(repetida);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stderr, /PHATI_BANCO_DESTINO do \.env é/);
+    assert.equal(repetida.env().match(/^PHATI_BANCO_DESTINO=/gm).length, 1, 'uma linha só depois da gravação');
+  } finally {
+    repetida.limpar();
+  }
+  // Variável do shell `banco_novo` com o ativo `banco`: o compose a usaria; recusa antes de qualquer escrita.
+  const shell = criarVm();
+  try {
+    const r = trocar(shell, { PHATI_BANCO_DESTINO: 'banco_novo' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /PHATI_BANCO_DESTINO é 'banco_novo', esperado banco: nada foi feito/);
+    assert.equal(shell.lerChamadas().filter((l) => /up -d|pg_basebackup|pg_dump|printf|-c PAUSE/.test(l)).length, 0, 'nada escrito');
+  } finally {
+    shell.limpar();
+  }
+  // Variável vazia no shell vence o .env (cai no padrão banco): com o .env em banco_novo, a divergência do .env recusa.
+  const vazia = criarVm();
+  try {
+    fs.appendFileSync(path.join(vazia.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    const r = trocar(vazia, { PHATI_BANCO_DESTINO: '' });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, /PHATI_BANCO_DESTINO do \.env é 'banco_novo', esperado banco/);
+    assert.equal(vazia.lerChamadas().filter((l) => /up -d|pg_basebackup|pg_dump|printf|-c PAUSE/.test(l)).length, 0, 'nada escrito');
+  } finally {
+    vazia.limpar();
+  }
+});
+
+test('banco-ativo e .env divergentes sem marcador recusam; banco-ativo inválido também', () => {
+  const casos = [
+    ['ativo banco_novo, .env banco', 'banco_novo\n', 'PHATI_BANCO_DESTINO=banco\n', /PHATI_BANCO_DESTINO é 'banco', esperado banco_novo: nada foi feito/],
+    ['ativo banco_novo, .env vazio (o compose usaria banco)', 'banco_novo\n', '', /PHATI_BANCO_DESTINO é 'banco', esperado banco_novo: nada foi feito/],
+    ['ativo banco, .env banco_novo', null, 'PHATI_BANCO_DESTINO=banco_novo\n', /PHATI_BANCO_DESTINO é 'banco_novo', esperado banco: nada foi feito.*persistência parcial da troca.*sem o marcador/],
+    ['banco-ativo com valor inválido', 'outro\n', '', /banco-ativo tem valor inválido/],
+  ];
+  for (const [nome, ativo, linha, msg] of casos) {
+    const v = criarVm();
+    try {
+      if (ativo !== null) fs.writeFileSync(path.join(v.vm, 'banco-ativo'), ativo);
+      if (linha) fs.appendFileSync(path.join(v.vm, '.env'), linha);
+      const r = v.rodar(['trocar'], {});
+      assert.equal(r.status, 1, `${nome}: ${r.stdout}`);
+      assert.match(r.stderr, msg, nome);
+      assert.equal(existeMarcador(v), false, `${nome}: marcador criado`);
+      assert.deepEqual(v.lerChamadas(), [], `${nome}: chamou o Docker`);
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+// Alvo sem contêiner em execução (removido ou parado) não é consultado; o ativo é sempre consultado; estado indeterminado recusa.
+// Volume já inexistente (repetição depois de falha no meio) é sucesso sem `volume rm`.
+test('limpar-destino com alvo removido e volume sujo: limpa sem consultar o alvo', () => {
+  const v = criarVm();
+  try {
+    estadoDeVolta(v);
+    const r = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_ALVO_PARADO: 'banco' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^limpar_destino_ok alvo=banco$/m);
+    assert.equal(v.contar('exec -T banco '), 0, 'consultou o alvo parado');
+    assert.equal(v.contar('volume rm phati_dados_banco'), 1);
+    assert.equal(fs.existsSync(path.join(v.vm, '.vol-banco')), false);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    semSegredo(v, r);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('limpar-destino com alvo parado (contêiner existe, não em execução) e volume sujo: limpa', () => {
+  const v = criarVm();
+  try {
+    estadoDeVolta(v);
+    const r = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_ALVO_PARADO: 'banco' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(v.contar('exec -T banco '), 0, 'consultou o alvo parado');
+    assert.equal(v.contar('rm -sfv banco'), 1);
+    assert.equal(v.contar('volume rm phati_dados_banco'), 1);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('limpar-destino repetido depois de o volume já ter sido removido: sucesso sem volume rm', () => {
+  const v = criarVm();
+  try {
+    fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco_novo\n');
+    fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco_novo\n');
+    const r = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_ALVO_PARADO: 'banco' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^limpar_destino_ok alvo=banco$/m);
+    assert.equal(v.contar('volume rm'), 0);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('limpar-destino repetido depois de falha no volume: contêiner já removido, volume sujo ainda existe → limpa', () => {
+  const v = criarVm();
+  try {
+    estadoDeVolta(v);
+    const extra = { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo' };
+    const falhou = v.rodar(['limpar-destino', 'banco'], { ...extra, DUBLE_VOLUME_RM_FALHA: '1' });
+    assert.equal(falhou.status, 1, falhou.stdout);
+    assert.match(falhou.stderr, /não consegui remover o volume phati_dados_banco/);
+    assert.equal(fs.existsSync(path.join(v.vm, '.vol-banco')), true, 'volume sumiu com a falha');
+    // Nova execução: o contêiner já saiu (alvo parado), o volume segue; a limpeza termina.
+    const repetida = v.rodar(['limpar-destino', 'banco'], { ...extra, DUBLE_ALVO_PARADO: 'banco' });
+    assert.equal(repetida.status, 0, repetida.stderr);
+    assert.match(repetida.stdout, /^limpar_destino_ok alvo=banco$/m);
+    assert.equal(fs.existsSync(path.join(v.vm, '.vol-banco')), false);
+  } finally {
+    v.limpar();
+  }
+});
+
+test('limpar-destino: estado indeterminado recusa sem remover nada (execução, listagem de volumes, consulta do alvo)', () => {
+  const casos = [
+    ['não sei se o alvo está em execução', { DUBLE_PS_INDET: '1' }, /não consegui saber se o alvo está em execução: nada foi removido/],
+    ['não consigo listar os volumes', { DUBLE_ALVO_PARADO: 'banco', DUBLE_VOLUME_LS_FALHA: '1' }, /não consegui saber se o volume phati_dados_banco existe: nada de volume foi removido/],
+    ['alvo em execução e consulta sem resposta', { DUBLE_PENDENCIA_FALHA_SVC: 'banco' }, /assinatura, publicação ou slot pendente em banco \(contagem: sem resposta\)/],
+  ];
+  for (const [nome, extra, msg] of casos) {
+    const v = criarVm();
+    try {
+      estadoDeVolta(v);
+      const r = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo', ...extra });
+      assert.equal(r.status, 1, `${nome}: ${r.stdout}`);
+      assert.match(r.stderr, msg, nome);
+      assert.equal(v.contar('rm -sfv'), 0, `${nome}: removeu contêiner`);
+      assert.equal(v.contar('volume rm'), 0, `${nome}: removeu volume`);
+      assert.equal(v.contar('pg_dump'), 0, `${nome}: backup rodou`);
+      assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    } finally {
+      v.limpar();
+    }
+  }
+});
+
+test('limpar-destino: slot ou assinatura no ativo recusa mesmo com o alvo parado', () => {
+  const v = criarVm();
+  try {
+    estadoDeVolta(v);
+    const r = v.rodar(['limpar-destino', 'banco'], { DUBLE_HOST: 'banco_novo', DUBLE_DESTINO_PGB: 'banco_novo', DUBLE_ALVO_PARADO: 'banco', DUBLE_PENDENCIA_SVC: 'banco_novo', DUBLE_PENDENCIA: '1' });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /assinatura, publicação ou slot pendente em banco_novo/);
+    assert.equal(v.contar('pg_dump'), 0);
+    assert.equal(v.contar('rm -sfv'), 0);
+    assert.equal(v.contar('volume rm'), 0);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+  } finally {
+    v.limpar();
+  }
+});
+
+test('trocar com banco-ativo=banco e .env=banco é válido: troca normal', () => {
+  const v = criarVm();
+  try {
+    fs.appendFileSync(path.join(v.vm, '.env'), 'PHATI_BANCO_DESTINO=banco\n');
+    const r = v.rodar(['trocar'], {});
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^trocar_ok pausa_ms=\d+$/m);
+    assert.equal(v.bancoAtivo(), 'banco_novo\n');
+    assert.match(v.env(), /^PHATI_BANCO_DESTINO=banco_novo$/m);
   } finally {
     v.limpar();
   }
