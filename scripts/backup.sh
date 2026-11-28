@@ -42,13 +42,20 @@ valor_env() {
   if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then v="${BASH_REMATCH[1]}"; else v="${v%%[[:space:]]#*}"; v="${v%"${v##*[![:space:]]}"}"; fi
   printf '%s' "$v"
 }
-if [[ "$banco_srv" == banco_novo ]]; then
-  export PHATI_BANCO_DESTINO=banco_novo
-else
-  destino_env="${PHATI_BANCO_DESTINO:-}"
-  [[ -n "$destino_env" ]] || destino_env="$(valor_env "$(grep -m1 '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | cut -d= -f2- || true)")"
-  [[ "$destino_env" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+# Precedência do Compose (doc: https://docs.docker.com/compose/how-tos/environment-variables/envvars-precedence/; medido com o
+# Docker 29.10.1): variável do shell vence o `.env`, mesmo vazia (vazia cai no padrão banco); no `.env` a última linha vence.
+destino_arq="$(valor_env "$(grep '^PHATI_BANCO_DESTINO=' "$dir/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)")"
+if [[ -n "${PHATI_BANCO_DESTINO+x}" ]]; then
+  [[ "${PHATI_BANCO_DESTINO:-banco}" == "$banco_srv" ]] || erro "estado de banco divergente: ambiente aponta ${PHATI_BANCO_DESTINO:-banco}, banco-ativo $banco_srv"
 fi
+if [[ "$banco_srv" == banco_novo ]]; then
+  [[ -z "$destino_arq" || "$destino_arq" == banco_novo ]] || erro "estado de banco divergente: .env aponta $destino_arq, banco-ativo banco_novo"
+else
+  [[ "$destino_arq" != banco_novo ]] || erro "estado de banco divergente: .env aponta banco_novo, banco-ativo não"
+  [[ -z "$destino_arq" || "$destino_arq" == banco ]] || erro "estado de banco divergente: .env aponta $destino_arq, banco-ativo banco"
+fi
+# O valor conferido é o que o compose recebe: o ambiente exportado vence o `.env` também lá.
+export PHATI_BANCO_DESTINO="$banco_srv"
 # Modo lógico concluído (banco-logico, spec 009 E5): o override wal_level entra em todo compose, como no implantar.sh.
 extra_logica=()
 if [[ -f "$dir/banco-logico" ]]; then
