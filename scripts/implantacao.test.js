@@ -137,8 +137,11 @@ function criarVm({ comEnv = true, nomeVm = 'vm' } = {}) {
   // do CI (`trava-flock.test.sh`); aqui se prova o que o script faz com ele.
   const flockChamadas = path.join(raiz, 'flock.log');
   const flockDuble = escreverFlock(path.join(raiz, 'flock-dubles.sh'), { registro: true });
+  // Sem destino herdado do ambiente de quem roda: uma variável exportada, mesmo vazia, vence o `.env` no compose (medido com o
+  // Docker 29.10.1), então sai do ambiente em vez de ficar vazia. Só o `extra` de cada teste a define.
+  const { PHATI_BANCO_DESTINO: _destinoHerdado, ...herdado } = process.env;
   const ambiente = {
-    ...process.env,
+    ...herdado,
     // Sem perfil herdado do processo: só o `extra` do teste pode ligar um profile (o que o script exporta é o que se mede).
     COMPOSE_PROFILES: '',
     PHATI_DIR: unix(vm),
@@ -159,8 +162,6 @@ function criarVm({ comEnv = true, nomeVm = 'vm' } = {}) {
     DESTINOS: unix(destinos),
     // Vazio = padrão `phati`, mesmo que o ambiente de quem roda tenha PHATI_PROJETO.
     PHATI_PROJETO: '',
-    // Vazio = sem destino herdado do ambiente de quem roda (cada teste liga o que quer pelo `extra`).
-    PHATI_BANCO_DESTINO: '',
   };
   const rodar = (script, argumentos, extra = {}) =>
     spawnSync('bash', [unix(script), ...argumentos], { env: { ...ambiente, ...extra }, encoding: 'utf8' });
@@ -1312,22 +1313,22 @@ test('.env com banco_novo e banco-ativo ausente é divergência: implantar, back
   }
 });
 
-test('destino banco_novo herdado do ambiente com banco-ativo=banco também é divergência e recusa', () => {
+test('destino banco_novo herdado do ambiente com banco-ativo=banco também é divergência e recusa (o ambiente vence o .env)', () => {
   const v = criarVm();
   try {
     fs.writeFileSync(path.join(v.vm, 'banco-ativo'), 'banco\n');
-    afirmarRecusa(v, v.rodar(IMPLANTAR, [v.promovido], { PHATI_BANCO_DESTINO: 'banco_novo' }), MENSAGEM_DIVERGENTE);
+    afirmarRecusa(v, v.rodar(IMPLANTAR, [v.promovido], { PHATI_BANCO_DESTINO: 'banco_novo' }), /estado de banco divergente: ambiente aponta banco_novo, banco-ativo banco/);
   } finally {
     v.limpar();
   }
 });
 
-test('sem marcador e sem divergência, implantar segue sem destino exportado e com .env=banco também segue', () => {
+test('sem marcador e sem divergência, implantar exporta o destino do banco ativo (banco), com .env vazio ou com .env=banco', () => {
   const v = criarVm();
   try {
     const r = v.rodar(IMPLANTAR, [v.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
     assert.equal(r.status, 0, r.stderr);
-    todosDestinos(v, 'sem-destino');
+    todosDestinos(v, 'banco');
   } finally {
     v.limpar();
   }
@@ -1336,7 +1337,7 @@ test('sem marcador e sem divergência, implantar segue sem destino exportado e c
     apontarDestino(w, 'banco');
     const r = w.rodar(IMPLANTAR, [w.promovido], { DUBLE_BANCO: '0', DUBLE_VOLUME: '1' });
     assert.equal(r.status, 0, r.stderr);
-    todosDestinos(w, 'sem-destino');
+    todosDestinos(w, 'banco');
   } finally {
     w.limpar();
   }
@@ -2626,7 +2627,7 @@ const ROTAS_OK = {
 };
 // Sem espera por padrão (prazo de 1 s, intervalo 0): os casos que querem a espera passam SMOKE_* explicitamente.
 const smoke = (url, ambiente = {}) => ASSINCRONO('bash', [unix(SMOKE), url], {
-  env: { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '0', ...ambiente },
+  env: { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '1', ...ambiente },
 }).then(
   (r) => ({ status: 0, ...r }),
   (e) => ({ status: e.code, stdout: e.stdout, stderr: e.stderr }),
@@ -2675,7 +2676,7 @@ function smokeHttps(hsts, codigoDeSaida = 0) {
     { mode: 0o755 },
   );
   const r = spawnSync('bash', [unix(SMOKE), 'https://phati.exemplo.test'], {
-    env: { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '0', PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0', FAKE_CURL_FALHA: String(codigoDeSaida) },
+    env: { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '1', PATH: `${pasta}${path.delimiter}${process.env.PATH}`, FAKE_HSTS: hsts ? '1' : '0', FAKE_CURL_FALHA: String(codigoDeSaida) },
     encoding: 'utf8',
   });
   fs.rmSync(pasta, { recursive: true, force: true });
@@ -2735,7 +2736,7 @@ async function comSaude({ falhas = 0, rotas = ROTAS_OK, travado = false }, fn) {
 }
 
 test('smoke espera /saude ficar pronto: servidor que falha as primeiras consultas e depois responde passa', async () => {
-  const { r, saudes } = await comSaude({ falhas: 2 }, (url) => smoke(url, { SMOKE_PRAZO: '20', SMOKE_INTERVALO: '0' }));
+  const { r, saudes } = await comSaude({ falhas: 2 }, (url) => smoke(url, { SMOKE_PRAZO: '20', SMOKE_INTERVALO: '1' }));
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /smoke_ok/);
   assert.equal(saudes, 3, 'duas falhas e um ok: três consultas a /saude');
@@ -2755,7 +2756,7 @@ test('smoke nunca fica pronto: reprova dentro do prazo total, sem passar dele', 
 
 test('smoke com /saude travado: a consulta não passa do prazo restante, mesmo com --max-time de 10 s', async () => {
   const inicio = Date.now();
-  const { r, saudes } = await comSaude({ travado: true }, (url) => smoke(url, { SMOKE_PRAZO: '4', SMOKE_INTERVALO: '0' }));
+  const { r, saudes } = await comSaude({ travado: true }, (url) => smoke(url, { SMOKE_PRAZO: '4', SMOKE_INTERVALO: '1' }));
   const decorrido = Date.now() - inicio;
   assert.equal(r.status, 1, r.stderr);
   assert.equal(saudes, 1, 'o prazo acabou na primeira consulta');
@@ -2775,7 +2776,7 @@ test('smoke pronto de imediato não espera: uma consulta a /saude, mesmo com int
 
 test('smoke com /saude pronto e outra verificação ruim continua reprovando depois da espera', async () => {
   const rotas = { ...ROTAS_OK, '/entrar': { status: 500, cabecalhos: { 'Content-Security-Policy': "default-src 'self'" } } };
-  const { r, saudes } = await comSaude({ falhas: 1, rotas }, (url) => smoke(url, { SMOKE_PRAZO: '20', SMOKE_INTERVALO: '0' }));
+  const { r, saudes } = await comSaude({ falhas: 1, rotas }, (url) => smoke(url, { SMOKE_PRAZO: '20', SMOKE_INTERVALO: '1' }));
   assert.equal(r.status, 1, r.stderr);
   assert.equal(saudes, 2);
   assert.match(r.stderr, /FALHA \/entrar responde 200/);
@@ -2790,6 +2791,11 @@ test('smoke recusa SMOKE_PRAZO e SMOKE_INTERVALO inválidos antes de qualquer co
     { SMOKE_PRAZO: '1.5' },
     { SMOKE_INTERVALO: '-2' },
     { SMOKE_INTERVALO: 'dois' },
+    { SMOKE_INTERVALO: '0' },
+    { SMOKE_PRAZO: '3601' },
+    { SMOKE_INTERVALO: '3601' },
+    { SMOKE_PRAZO: '99999999999999999999' },
+    { SMOKE_INTERVALO: '99999999999999999999' },
   ];
   for (const ambiente of casos) {
     const { r, pedidos } = await comSaude({}, (url) => smoke(url, ambiente));
@@ -2799,6 +2805,22 @@ test('smoke recusa SMOKE_PRAZO e SMOKE_INTERVALO inválidos antes de qualquer co
     assert.equal(pedidos.length, 0, `nenhuma consulta com ${nome}`);
   }
 });
+
+test('smoke lê SMOKE_PRAZO em base 10: 09 não vira octal e passa com /saude pronto', async () => {
+  const { r, saudes } = await comSaude({}, (url) => smoke(url, { SMOKE_PRAZO: '09' }));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /smoke_ok/);
+  assert.equal(saudes, 1);
+});
+
+test('smoke com /saude sem ficar pronto: falha de /saude sai com rc 1 e as demais rotas não são consultadas', async () => {
+  const { r, pedidos } = await comSaude({ falhas: Infinity }, (url) => smoke(url, { SMOKE_PRAZO: '2', SMOKE_INTERVALO: '1' }));
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /FALHA \/saude devolve estado ok/);
+  assert.match(r.stderr, /demais verificações não rodaram/);
+  assert.ok(pedidos.length > 0 && pedidos.every((url) => url === '/saude'), `só /saude foi consultado: ${pedidos}`);
+});
+
 
 // Servidor que recusa Host fora da lista, como o ALLOWED_HOSTS do Django (spec 011 R8): o smoke local precisa mandar o Host permitido.
 async function comServidorDeHosts(permitidos, fn) {
@@ -2820,7 +2842,7 @@ async function comServidorDeHosts(permitidos, fn) {
   }
 }
 const smokeComHosts = (url, hosts) => {
-  const env = { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '0' };
+  const env = { ...process.env, SMOKE_PRAZO: '1', SMOKE_INTERVALO: '1' };
   if (hosts === undefined) delete env.PHATI_HOSTS_PERMITIDOS;
   else env.PHATI_HOSTS_PERMITIDOS = hosts;
   return ASSINCRONO('bash', [unix(SMOKE), url], { env }).then(

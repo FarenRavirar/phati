@@ -10,11 +10,16 @@ base="${1:-}"
 
 # Espera limitada por /saude: logo depois do `up` o túnel e o app ainda não respondem. Teto total em SMOKE_PRAZO segundos
 # (padrão 60); entre as consultas dorme SMOKE_INTERVALO (padrão 2). Cada consulta tem --max-time de no máximo 10 s e nunca
-# passa do que resta do prazo. Valores inválidos recusam antes de qualquer consulta.
+# passa do que resta do prazo. Valores inválidos recusam antes de qualquer consulta. Os dois são de 1 a 3600 s: o teto corta
+# número gigante antes da aritmética, e o mínimo de 1 s para o intervalo evita laço de consultas sem pausa. `10#` lê base 10
+# (sem ele, `08` seria octal e falharia). O teto de 3600 s (1 h) é escolha folgada sobre o padrão de 60 s, não medida: o tempo de
+# subida da VM não foi medido.
 prazo="${SMOKE_PRAZO:-60}"
 intervalo="${SMOKE_INTERVALO:-2}"
-[[ "$prazo" =~ ^[1-9][0-9]*$ ]] || { echo "ERRO: SMOKE_PRAZO precisa ser inteiro em segundos, maior que zero" >&2; exit 1; }
-[[ "$intervalo" =~ ^[0-9]+$ ]] || { echo "ERRO: SMOKE_INTERVALO precisa ser inteiro em segundos, zero ou mais" >&2; exit 1; }
+[[ "$prazo" =~ ^[0-9]{1,4}$ ]] && prazo=$((10#$prazo)) && (( prazo >= 1 && prazo <= 3600 )) \
+  || { echo "ERRO: SMOKE_PRAZO precisa ser inteiro em segundos, de 1 a 3600" >&2; exit 1; }
+[[ "$intervalo" =~ ^[0-9]{1,4}$ ]] && intervalo=$((10#$intervalo)) && (( intervalo >= 1 && intervalo <= 3600 )) \
+  || { echo "ERRO: SMOKE_INTERVALO precisa ser inteiro em segundos, de 1 a 3600" >&2; exit 1; }
 
 # Base local (http) numa implantação: o Host é o primeiro de PHATI_HOSTS_PERMITIDOS, o mesmo de implantar.sh e do healthcheck;
 # sem ele, o Django recusa o Host do loopback com 400 (spec 011 R8). Nome fora de host é recusado antes de qualquer curl.
@@ -55,8 +60,13 @@ while :; do
   if (( restante <= 0 )); then break; fi
 done
 [[ "$corpo" == *'"estado": "ok"'* ]] && ok=0 || ok=1
-[[ "$ok" == 0 ]] || echo "espera esgotada: /saude não ficou pronto em $prazo s (intervalo de ${intervalo} s)" >&2
 confere "/saude devolve estado ok" "$ok"
+# Prazo esgotado em /saude: as demais sondas não rodam (o app não está de pé; cada uma seria um erro a mais no log).
+if [[ "$ok" != 0 ]]; then
+  echo "espera esgotada: /saude não ficou pronto em $prazo s (intervalo de ${intervalo} s): demais verificações não rodaram" >&2
+  echo "smoke falhou: 1 verificação(ões)" >&2
+  exit 1
+fi
 [[ "$(status "$base/entrar")" == 200 ]] && ok=0 || ok=1
 confere "/entrar responde 200" "$ok"
 # Cabeçalhos capturados antes de procurar: `grep -q` num pipe fecharia o curl no meio e, com `pipefail`, reprovaria um
